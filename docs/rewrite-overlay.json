@@ -11740,6 +11740,33 @@
       "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_siren",
       "tier": "differential",
       "evidence": "REA ev_29a4098910 + Ghidra body 2 insns/1 bbs; pin tests vehicle_small 29 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c27b0",
+      "va": "0x5c27b0",
+      "name": "C_actor::SetCutsceneRecord",
+      "symbol": "lhr_engine::mission_actor_lists::set_cutscene_record",
+      "tier": "contract",
+      "evidence": "Cutscene record flag (GAME 0x5c27b0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c27d0",
+      "va": "0x5c27d0",
+      "name": "C_actor::SetCutscenePlay",
+      "symbol": "lhr_engine::mission_actor_lists::set_cutscene_play",
+      "tier": "contract",
+      "evidence": "Cutscene play flag (GAME 0x5c27d0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c27f0",
+      "va": "0x5c27f0",
+      "name": "C_actor::UpdateCutsceneFlags",
+      "symbol": "lhr_engine::mission_actor_lists::update_cutscene_flags",
+      "tier": "contract",
+      "evidence": "Cutscene flags update (GAME 0x5c27f0). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

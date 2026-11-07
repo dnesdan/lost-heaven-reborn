@@ -296,6 +296,56 @@ pub fn find_actor_by_name<'a>(
     None
 }
 
+/// Cutscene flag bits of `C_actor::act_flags` (mafia-re pin 113b5b6,
+/// `game/actors/C_actor.h:81-84`).
+pub const ACTF_CUTSCENE_PLAYED: i32 = 0x1;
+pub const ACTF_CUTSCENE_RECORDED: i32 = 0x2;
+pub const ACTF_CUTSCENE_PLAY: i32 = 0x4;
+pub const ACTF_CUTSCENE_RECORD: i32 = 0x8;
+
+/// FUNCTION: GAME RVA 0x1c27b0, VA 0x5c27b0 (mafia-re pin 113b5b6,
+/// `game/mission/C_cutscene_records.cpp:122-133`,
+/// `C_actor::SetCutsceneRecord`).
+/// Asks for the recording unless the actor is recorded already, or takes both
+/// the request and the recorded mark back. Only the flag word is owned here.
+pub fn set_cutscene_record(flags: &mut i32, on: bool) {
+    if on {
+        if (*flags & ACTF_CUTSCENE_RECORDED) == 0 {
+            *flags |= ACTF_CUTSCENE_RECORD;
+        }
+    } else {
+        *flags &= !(ACTF_CUTSCENE_RECORD | ACTF_CUTSCENE_RECORDED);
+    }
+}
+
+/// FUNCTION: GAME RVA 0x1c27d0, VA 0x5c27d0 (mafia-re pin 113b5b6,
+/// `game/mission/C_cutscene_records.cpp:135-146`, `C_actor::SetCutscenePlay`).
+/// Asks for the playing unless the actor is played already, or takes both
+/// the request and the played mark back. Only the flag word is owned here.
+pub fn set_cutscene_play(flags: &mut i32, on: bool) {
+    if on {
+        if (*flags & ACTF_CUTSCENE_PLAYED) == 0 {
+            *flags |= ACTF_CUTSCENE_PLAY;
+        }
+    } else {
+        *flags &= !(ACTF_CUTSCENE_PLAY | ACTF_CUTSCENE_PLAYED);
+    }
+}
+
+/// FUNCTION: GAME RVA 0x1c27f0, VA 0x5c27f0 (mafia-re pin 113b5b6,
+/// `game/mission/C_cutscene_records.cpp:148-155`,
+/// `C_actor::UpdateCutsceneFlags`).
+/// Turns each asked request into its mark, in record then play order. Only
+/// the flag word is owned here.
+pub fn update_cutscene_flags(flags: &mut i32) {
+    if (*flags & ACTF_CUTSCENE_RECORD) != 0 {
+        *flags = *flags & !ACTF_CUTSCENE_RECORD | ACTF_CUTSCENE_RECORDED;
+    }
+    if (*flags & ACTF_CUTSCENE_PLAY) != 0 {
+        *flags = *flags & !ACTF_CUTSCENE_PLAY | ACTF_CUTSCENE_PLAYED;
+    }
+}
+
 /// Entry of `C_mission::t_transparent` (mafia-re `game/mission/Mission.h`).
 /// Only the compared `time`/`fade_time` members and the object identity
 /// participate; transparency application and release stay with the caller.
@@ -820,5 +870,49 @@ mod tests {
             prepare_base_blocks(),
             Err(GameStartupUnsupported::PrepareBaseBlocks)
         );
+    }
+
+    #[test]
+    fn set_cutscene_record_rva_1c27b0_asks_once_and_takes_both_back() {
+        // GAME RVA 0x1c27b0, VA 0x5c27b0.
+        let mut flags = 0;
+        set_cutscene_record(&mut flags, true);
+        assert_eq!(flags, ACTF_CUTSCENE_RECORD);
+        // An already recorded actor is not asked again.
+        flags = ACTF_CUTSCENE_RECORDED;
+        set_cutscene_record(&mut flags, true);
+        assert_eq!(flags, ACTF_CUTSCENE_RECORDED);
+        // Taking back clears both the request and the mark.
+        flags = ACTF_CUTSCENE_RECORD | ACTF_CUTSCENE_RECORDED | ACTF_CUTSCENE_PLAY;
+        set_cutscene_record(&mut flags, false);
+        assert_eq!(flags, ACTF_CUTSCENE_PLAY);
+    }
+
+    #[test]
+    fn set_cutscene_play_rva_1c27d0_asks_once_and_takes_both_back() {
+        // GAME RVA 0x1c27d0, VA 0x5c27d0.
+        let mut flags = 0;
+        set_cutscene_play(&mut flags, true);
+        assert_eq!(flags, ACTF_CUTSCENE_PLAY);
+        flags = ACTF_CUTSCENE_PLAYED;
+        set_cutscene_play(&mut flags, true);
+        assert_eq!(flags, ACTF_CUTSCENE_PLAYED);
+        flags = ACTF_CUTSCENE_PLAY | ACTF_CUTSCENE_PLAYED | ACTF_CUTSCENE_RECORD;
+        set_cutscene_play(&mut flags, false);
+        assert_eq!(flags, ACTF_CUTSCENE_RECORD);
+    }
+
+    #[test]
+    fn update_cutscene_flags_rva_1c27f0_turns_requests_into_marks() {
+        // GAME RVA 0x1c27f0, VA 0x5c27f0.
+        let mut flags = ACTF_CUTSCENE_RECORD | ACTF_CUTSCENE_PLAY;
+        update_cutscene_flags(&mut flags);
+        assert_eq!(flags, ACTF_CUTSCENE_RECORDED | ACTF_CUTSCENE_PLAYED);
+        // Marks without requests are left alone.
+        update_cutscene_flags(&mut flags);
+        assert_eq!(flags, ACTF_CUTSCENE_RECORDED | ACTF_CUTSCENE_PLAYED);
+        let mut idle = 0;
+        update_cutscene_flags(&mut idle);
+        assert_eq!(idle, 0);
     }
 }

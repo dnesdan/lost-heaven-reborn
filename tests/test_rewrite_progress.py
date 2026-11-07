@@ -299,7 +299,10 @@ class RewriteProgressTests(unittest.TestCase):
         # AutoGearing/Horn/Siren; VA-form ok; marker-only, tests green).
         # +14 vehicle accessor differential (Ghidra bodies 2-56 insns; pin
         # tests vehicle_small 29 pass).
-        self.assertEqual(game["ported"], 149 + 420)
+        # +3 cutscene flag contracts (SetCutsceneRecord/Play/UpdateFlags
+        # 0x1c27b0-0x1c27f0; bytes verified in image; tests green; 11
+        # C_effects RVAs withheld (0x44xxxx outside our image)).
+        self.assertEqual(game["ported"], 149 + 423)
         self.assertEqual(game["verified"], 149 + 355)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

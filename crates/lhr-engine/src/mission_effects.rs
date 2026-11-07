@@ -26,6 +26,307 @@ pub struct MapState {
     pub resource_value: u32,
 }
 
+/// Effect item kind codes (mafia-re `game/mission/C_effects.h:39-41`).
+pub const EFFECT_ITEM_EFFECT: i32 = 1;
+pub const EFFECT_ITEM_PART: i32 = 2;
+pub const EFFECT_ITEM_SUBPART: i32 = 3;
+/// Table index that scripts emit even with the particles option at Low
+/// (mafia-re `game/mission/C_effects.h:46`).
+pub const EFFECT_DYMOVNICE: i32 = 0x5a;
+
+/// Opaque effect handle. Native `C_effect*` identity is the caller's concern.
+pub type EffectHandle = u32;
+/// Opaque effect-part handle. Native `C_effect_part*` identity is the caller's.
+pub type EffectPartHandle = u32;
+/// Opaque effect-subpart handle. Native `C_effect_subpart*` identity is the caller's.
+pub type EffectSubpartHandle = u32;
+/// Opaque emitter handle. Native `C_ParticleEmitter*` identity is the caller's.
+pub type EmitterHandle = u32;
+/// Opaque particle handle. Native `C_Particle*` identity is the caller's.
+pub type ParticleHandle = u32;
+/// Opaque particle-type handle. Native `C_ParticleType*` identity is the caller.
+pub type ParticleTypeHandle = u32;
+/// Opaque particle-subpart handle. Native `S_particle_subpart*` identity is the caller's.
+pub type ParticleSubpartHandle = u32;
+
+/// Shared base of every effects-table item (mafia-re
+/// `game/mission/C_effects.h:48-64`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EffectItemBase {
+    /// `type` at +0x4; zero means no `EFFECT_ITEM_*` kind yet.
+    pub kind: i32,
+}
+
+impl EffectItemBase {
+    /// FUNCTION: GAME RVA 0x44be70, VA 0x84be70 (mafia-re pin 113b5b6,
+    /// `game/mission/C_effects.h:56-60`, `C_effect_item::C_effect_item`).
+    /// Stores kind zero; the name stays default-empty.
+    pub fn new() -> Self {
+        Self { kind: 0 }
+    }
+}
+
+impl Default for EffectItemBase {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Scalar/vector defaults of one effect part (mafia-re
+/// `game/mission/C_effects.h:147-173`). The name, frame and subpart list are
+/// owned by the table reader and start empty; only the stored words live here.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EffectPartParams {
+    pub kind: i32,
+    pub blend: i32,
+    pub offset: [f32; 3],
+    pub offset_spread: [f32; 3],
+    pub dir: [f32; 3],
+    pub dir_spread: [f32; 3],
+    pub speed: f32,
+    pub speed_spread: f32,
+    pub scale: [f32; 3],
+    pub scale_spread: [f32; 3],
+    pub transparency: f32,
+    pub transparency_spread: f32,
+    pub rate: f32,
+    pub burst: i32,
+    pub rate_fall: f32,
+    pub fall_delay: f32,
+    pub repeats: f32,
+    pub restart_delay: f32,
+    pub unknown_94: f32,
+    pub flags: i32,
+}
+
+impl EffectPartParams {
+    /// FUNCTION: GAME RVA 0x44b820, VA 0x84b820 (mafia-re pin 113b5b6,
+    /// `game/mission/C_effects.h:175-198`, `C_effect_part::C_effect_part`).
+    /// Kind part; zero vectors; unit scale, unit speed and full transparency;
+    /// zero spreads, rates, delays, counts and flags. `burst` is stored last,
+    /// after `flags`, as in the original store order.
+    pub fn new() -> Self {
+        Self {
+            kind: EFFECT_ITEM_PART,
+            blend: 0,
+            offset: [0.0; 3],
+            offset_spread: [0.0; 3],
+            dir: [0.0; 3],
+            dir_spread: [0.0; 3],
+            speed: 1.0,
+            speed_spread: 0.0,
+            scale: [1.0; 3],
+            scale_spread: [0.0; 3],
+            transparency: 1.0,
+            transparency_spread: 0.0,
+            rate: 0.0,
+            burst: 0,
+            rate_fall: 0.0,
+            fall_delay: 0.0,
+            repeats: 0.0,
+            restart_delay: 0.0,
+            unknown_94: 0.0,
+            flags: 0,
+        }
+    }
+}
+
+impl Default for EffectPartParams {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// FUNCTION: GAME RVA 0x44bef0, VA 0x84bef0 (mafia-re pin 113b5b6,
+/// `game/mission/C_effects.h:200-208`, `C_effect_part::~C_effect_part`).
+/// Releases subparts from the last one; the relative order of the returned
+/// handles is the native deletion order. Actual storage release stays with
+/// the caller.
+pub fn free_effect_part_children(
+    subparts: &mut Vec<EffectSubpartHandle>,
+) -> Vec<EffectSubpartHandle> {
+    let mut freed = Vec::with_capacity(subparts.len());
+    while let Some(child) = subparts.pop() {
+        freed.push(child);
+    }
+    freed
+}
+
+/// FUNCTION: GAME RVA 0x44bff0, VA 0x84bff0 (mafia-re pin 113b5b6,
+/// `game/mission/C_effects.h:298-306`, `C_effect::~C_effect`).
+/// Releases parts from the last one; the relative order of the returned
+/// handles is the native deletion order. Actual storage release stays with
+/// the caller.
+pub fn free_effect_children(parts: &mut Vec<EffectPartHandle>) -> Vec<EffectPartHandle> {
+    let mut freed = Vec::with_capacity(parts.len());
+    while let Some(child) = parts.pop() {
+        freed.push(child);
+    }
+    freed
+}
+
+/// Owned PC effects state (mafia-re `game/mission/C_effects.h:348-365`,
+/// `C_effects`). The `free_emitters` list aliases the file-scope
+/// `particle_emitters` free pool (GLOBAL GAME 0x63d6e8). The three remaining
+/// file-scope free pools keep their own handles in [`EffectsFreePools`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EffectsState {
+    /// Emitters in use with their numbers (`in_use` at +0x0).
+    pub in_use: Vec<EmitterHandle>,
+    /// Loaded table effects (`effects` at +0x10).
+    pub effects: Vec<EffectHandle>,
+    /// Emitters started for the static scene (`static_emitters` at +0x20).
+    pub static_emitters: Vec<EmitterHandle>,
+    /// Recycled emitters (the file-scope `particle_emitters` free pool).
+    pub free_emitters: Vec<EmitterHandle>,
+    /// Last emitted particle number (`last_guid` at +0x30); -1 means none.
+    pub last_guid: i32,
+    /// A mission is started (`started` at +0x34).
+    pub started: bool,
+}
+
+/// File-scope free pools drained by `Mission_Done` (mafia-re
+/// `game/mission/C_effects.cpp:27-35`): `particle_pool` (GLOBAL GAME 0x63d718),
+/// `particle_parts` (GLOBAL GAME 0x63d708) and `particle_subparts` (GLOBAL
+/// GAME 0x63d6f8). Handles are opaque; the particle owners interpret them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EffectsFreePools {
+    pub particles: Vec<ParticleHandle>,
+    pub parts: Vec<ParticleTypeHandle>,
+    pub subparts: Vec<ParticleSubpartHandle>,
+}
+
+/// Host table source for construction and mission start. The original reads
+/// `tables\effects.tbl` through `C_chunk`; the backend owns that file path.
+pub trait EffectsTableBackend {
+    /// Append the loaded table effects to `state.effects`, in file order.
+    fn load_effects_table(&mut self, state: &mut EffectsState);
+}
+
+/// Host emitter effects for the client tick. Emitters stay behind the backend;
+/// this module only moves their handles between the owned lists.
+pub trait EffectsEmitBackend {
+    /// Run one emitter tick; false means the emitter has finished.
+    fn tick_emitter(&mut self, emitter: EmitterHandle, time: i32) -> bool;
+    /// Return a finished emitter to its idle state.
+    fn reset_emitter(&mut self, emitter: EmitterHandle);
+}
+
+/// FUNCTION: GAME RVA 0x449080, VA 0x849080 (mafia-re pin 113b5b6,
+/// `game/mission/C_effects.cpp:37-42`, `C_effects::C_effects`).
+/// Loads the table, then marks the particle number none (-1). The `started`
+/// flag is left false here; the native constructor leaves it indeterminate
+/// until `Mission_Start` writes it, and false is the host seed.
+pub fn effects_create(backend: &mut impl EffectsTableBackend) -> EffectsState {
+    let mut state = EffectsState::default();
+    backend.load_effects_table(&mut state);
+    state.last_guid = -1;
+    state
+}
+
+/// FUNCTION: GAME RVA 0x449100, VA 0x849100 (mafia-re pin 113b5b6,
+/// `game/mission/C_effects.cpp:44-48`, `C_effects::~C_effects`).
+/// Runs `Clear` over the loaded effects and reports them in deletion order.
+pub fn effects_free(state: &mut EffectsState) -> Vec<EffectHandle> {
+    effects_clear(&mut state.effects)
+}
+
+/// FUNCTION: GAME RVA 0x449180, VA 0x849180 (mafia-re pin 113b5b6,
+/// `game/mission/C_effects.cpp:53-67`, `C_effects::Mission_Start`).
+/// Marks unstarted, clears the particle number, loads the table when nothing
+/// is loaded yet, marks started and reports true. The native performance
+/// counter read has no observable effect and is not modeled.
+pub fn effects_mission_start(
+    state: &mut EffectsState,
+    backend: &mut impl EffectsTableBackend,
+) -> bool {
+    state.started = false;
+    state.last_guid = -1;
+    if state.effects.is_empty() {
+        backend.load_effects_table(state);
+    }
+    state.started = true;
+    true
+}
+
+/// FUNCTION: GAME RVA 0x4491d0, VA 0x8491d0 (mafia-re pin 113b5b6,
+/// `game/mission/C_effects.cpp:70-97`, `C_effects::Mission_Done`).
+/// Does nothing without a started mission. Otherwise releases the emitters in
+/// use first (as `ClearEmitters` does), clears the particle number, releases
+/// the static emitters and every free pool entry, and marks unstarted.
+/// Returns whether the teardown ran.
+pub fn effects_mission_done(
+    state: &mut EffectsState,
+    pools: &mut EffectsFreePools,
+) -> bool {
+    if !state.started {
+        return false;
+    }
+    effects_clear_emitters(&mut state.in_use);
+    state.last_guid = -1;
+    state.static_emitters.clear();
+    pools.particles.clear();
+    pools.parts.clear();
+    pools.subparts.clear();
+    state.free_emitters.clear();
+    state.started = false;
+    true
+}
+
+/// FUNCTION: GAME RVA 0x44a350, VA 0x84a350 (mafia-re pin 113b5b6,
+/// `game/mission/C_effects.cpp:175-181`, `C_effects::Clear`).
+/// Releases every loaded effect from the first one and reports them in that
+/// order. Actual storage release stays with the caller.
+pub fn effects_clear(effects: &mut Vec<EffectHandle>) -> Vec<EffectHandle> {
+    let mut freed = Vec::with_capacity(effects.len());
+    for effect in effects.drain(..) {
+        freed.push(effect);
+    }
+    freed
+}
+
+/// FUNCTION: GAME RVA 0x44a2f0, VA 0x84a2f0 (mafia-re pin 113b5b6,
+/// `game/mission/C_effects.cpp:167-173`, `C_effects::ClearEmitters`).
+/// Releases every emitter in use from the first one and reports them in that
+/// order. Actual storage release stays with the caller.
+pub fn effects_clear_emitters(emitters: &mut Vec<EmitterHandle>) -> Vec<EmitterHandle> {
+    let mut freed = Vec::with_capacity(emitters.len());
+    for emitter in emitters.drain(..) {
+        freed.push(emitter);
+    }
+    freed
+}
+
+/// FUNCTION: GAME RVA 0x44a0d0, VA 0x84a0d0 (mafia-re pin 113b5b6,
+/// `game/mission/C_effects.cpp:129-146`, `C_effects::ClientTick`).
+/// Ticks every static emitter in order. With no particle started yet
+/// (`last_guid == -1`) nothing else runs. Otherwise each finished in-use
+/// emitter is reset through the backend and recycled into `free_emitters`;
+/// the ordered `erase` re-examines the entry shifted into its place.
+pub fn effects_client_tick(
+    state: &mut EffectsState,
+    time: i32,
+    backend: &mut impl EffectsEmitBackend,
+) {
+    for index in 0..state.static_emitters.len() {
+        backend.tick_emitter(state.static_emitters[index], time);
+    }
+    if state.last_guid == -1 {
+        return;
+    }
+    let mut index = 0;
+    while index < state.in_use.len() {
+        let emitter = state.in_use[index];
+        if !backend.tick_emitter(emitter, time) {
+            backend.reset_emitter(emitter);
+            state.free_emitters.push(emitter);
+            state.in_use.remove(index);
+        } else {
+            index += 1;
+        }
+    }
+}
+
 pub trait MapResourceBackend {
     type Error;
     /// Bind the resource owner corresponding to the original global object.
@@ -535,5 +836,210 @@ mod tests {
         assert_eq!(state.use_lightcache(&mut backend), Err("scene unavailable"));
         assert_eq!(state.end_token, u32::MAX);
         assert_eq!(state.field_178, u32::MAX);
+    }
+
+    #[test]
+    fn effect_item_ctor_rva_44be70_stores_kind_zero() {
+        // GAME RVA 0x44be70, VA 0x84be70.
+        assert_eq!(EffectItemBase::new(), EffectItemBase { kind: 0 });
+        assert_eq!(EffectItemBase::default().kind, 0);
+    }
+
+    #[test]
+    fn effect_part_ctor_rva_44b820_matches_table_defaults() {
+        // GAME RVA 0x44b820, VA 0x84b820.
+        let params = EffectPartParams::new();
+        assert_eq!(params.kind, EFFECT_ITEM_PART);
+        assert_eq!(params.blend, 0);
+        assert_eq!(params.offset, [0.0, 0.0, 0.0]);
+        assert_eq!(params.offset_spread, [0.0, 0.0, 0.0]);
+        assert_eq!(params.dir, [0.0, 0.0, 0.0]);
+        assert_eq!(params.dir_spread, [0.0, 0.0, 0.0]);
+        assert_eq!(params.speed.to_bits(), 1.0f32.to_bits());
+        assert_eq!(params.speed_spread.to_bits(), 0.0f32.to_bits());
+        assert_eq!(params.scale, [1.0, 1.0, 1.0]);
+        assert_eq!(params.scale_spread, [0.0, 0.0, 0.0]);
+        assert_eq!(params.transparency.to_bits(), 1.0f32.to_bits());
+        assert_eq!(params.transparency_spread.to_bits(), 0.0f32.to_bits());
+        assert_eq!(params.rate, 0.0);
+        assert_eq!(params.burst, 0);
+        assert_eq!(params.rate_fall, 0.0);
+        assert_eq!(params.fall_delay, 0.0);
+        assert_eq!(params.repeats, 0.0);
+        assert_eq!(params.restart_delay, 0.0);
+        assert_eq!(params.unknown_94, 0.0);
+        assert_eq!(params.flags, 0);
+    }
+
+    #[test]
+    fn effect_part_dtor_rva_44bef0_releases_back_to_front() {
+        // GAME RVA 0x44bef0, VA 0x84bef0.
+        let mut subparts = vec![11, 12, 13];
+        assert_eq!(free_effect_part_children(&mut subparts), vec![13, 12, 11]);
+        assert!(subparts.is_empty());
+        let mut empty: Vec<EffectSubpartHandle> = Vec::new();
+        assert!(free_effect_part_children(&mut empty).is_empty());
+    }
+
+    #[test]
+    fn effect_dtor_rva_44bff0_releases_back_to_front() {
+        // GAME RVA 0x44bff0, VA 0x84bff0.
+        let mut parts = vec![21, 22];
+        assert_eq!(free_effect_children(&mut parts), vec![22, 21]);
+        assert!(parts.is_empty());
+    }
+
+    struct Table {
+        loads: usize,
+        batch: Vec<EffectHandle>,
+    }
+    impl EffectsTableBackend for Table {
+        fn load_effects_table(&mut self, state: &mut EffectsState) {
+            self.loads += 1;
+            state.effects.extend(self.batch.iter().copied());
+        }
+    }
+
+    #[test]
+    fn effects_ctor_rva_449080_loads_then_marks_guid_none() {
+        // GAME RVA 0x449080, VA 0x849080.
+        let mut backend = Table {
+            loads: 0,
+            batch: vec![5, 6],
+        };
+        let state = effects_create(&mut backend);
+        assert_eq!(backend.loads, 1);
+        assert_eq!(state.effects, vec![5, 6]);
+        assert_eq!(state.last_guid, -1);
+        assert!(!state.started);
+    }
+
+    #[test]
+    fn effects_dtor_rva_449100_clears_loaded_effects() {
+        // GAME RVA 0x449100, VA 0x849100.
+        let mut state = EffectsState {
+            effects: vec![1, 2, 3],
+            ..EffectsState::default()
+        };
+        assert_eq!(effects_free(&mut state), vec![1, 2, 3]);
+        assert!(state.effects.is_empty());
+    }
+
+    #[test]
+    fn effects_mission_start_rva_449180_resets_and_loads_only_when_empty() {
+        // GAME RVA 0x449180, VA 0x849180.
+        let mut backend = Table {
+            loads: 0,
+            batch: vec![9],
+        };
+        let mut state = EffectsState {
+            last_guid: 41,
+            started: true,
+            ..EffectsState::default()
+        };
+        assert!(effects_mission_start(&mut state, &mut backend));
+        assert_eq!(backend.loads, 1);
+        assert_eq!(state.effects, vec![9]);
+        assert_eq!(state.last_guid, -1);
+        assert!(state.started);
+        // A loaded table is kept; the number and flag are still rewritten.
+        state.last_guid = 7;
+        assert!(effects_mission_start(&mut state, &mut backend));
+        assert_eq!(backend.loads, 1);
+        assert_eq!(state.last_guid, -1);
+        assert!(state.started);
+    }
+
+    #[test]
+    fn effects_mission_done_rva_4491d0_gates_on_started_and_drains_pools() {
+        // GAME RVA 0x4491d0, VA 0x8491d0.
+        let mut state = EffectsState {
+            in_use: vec![1, 2],
+            static_emitters: vec![3],
+            free_emitters: vec![4],
+            last_guid: 8,
+            started: false,
+            ..EffectsState::default()
+        };
+        let mut pools = EffectsFreePools {
+            particles: vec![10],
+            parts: vec![11],
+            subparts: vec![12],
+        };
+        assert!(!effects_mission_done(&mut state, &mut pools));
+        assert_eq!(state.in_use, vec![1, 2]);
+        state.started = true;
+        assert!(effects_mission_done(&mut state, &mut pools));
+        assert!(state.in_use.is_empty());
+        assert!(state.static_emitters.is_empty());
+        assert!(state.free_emitters.is_empty());
+        assert!(pools.particles.is_empty());
+        assert!(pools.parts.is_empty());
+        assert!(pools.subparts.is_empty());
+        assert_eq!(state.last_guid, -1);
+        assert!(!state.started);
+        // A second call after the teardown is a no-op.
+        assert!(!effects_mission_done(&mut state, &mut pools));
+    }
+
+    #[test]
+    fn effects_clear_rva_44a350_releases_forward() {
+        // GAME RVA 0x44a350, VA 0x84a350.
+        let mut effects = vec![1, 2, 3];
+        assert_eq!(effects_clear(&mut effects), vec![1, 2, 3]);
+        assert!(effects.is_empty());
+    }
+
+    #[test]
+    fn effects_clear_emitters_rva_44a2f0_releases_forward() {
+        // GAME RVA 0x44a2f0, VA 0x84a2f0.
+        let mut emitters = vec![4, 5];
+        assert_eq!(effects_clear_emitters(&mut emitters), vec![4, 5]);
+        assert!(emitters.is_empty());
+    }
+
+    struct Emitters {
+        ticks: Vec<(EmitterHandle, i32)>,
+        resets: Vec<EmitterHandle>,
+        finished: Vec<EmitterHandle>,
+    }
+    impl EffectsEmitBackend for Emitters {
+        fn tick_emitter(&mut self, emitter: EmitterHandle, time: i32) -> bool {
+            self.ticks.push((emitter, time));
+            !self.finished.contains(&emitter)
+        }
+        fn reset_emitter(&mut self, emitter: EmitterHandle) {
+            self.resets.push(emitter);
+        }
+    }
+
+    #[test]
+    fn effects_client_tick_rva_44a0d0_recycles_finished_in_place() {
+        // GAME RVA 0x44a0d0, VA 0x84a0d0.
+        let mut state = EffectsState {
+            in_use: vec![1, 2, 3],
+            static_emitters: vec![7, 8],
+            last_guid: 0,
+            ..EffectsState::default()
+        };
+        let mut backend = Emitters {
+            ticks: Vec::new(),
+            resets: Vec::new(),
+            finished: vec![2],
+        };
+        effects_client_tick(&mut state, 16, &mut backend);
+        assert_eq!(
+            backend.ticks,
+            vec![(7, 16), (8, 16), (1, 16), (2, 16), (3, 16)]
+        );
+        assert_eq!(backend.resets, vec![2]);
+        assert_eq!(state.in_use, vec![1, 3]);
+        assert_eq!(state.free_emitters, vec![2]);
+        // Without a started particle the in-use list is left alone.
+        state.last_guid = -1;
+        backend.ticks.clear();
+        effects_client_tick(&mut state, 16, &mut backend);
+        assert_eq!(backend.ticks, vec![(7, 16), (8, 16)]);
+        assert_eq!(state.in_use, vec![1, 3]);
     }
 }
