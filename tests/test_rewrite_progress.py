@@ -349,8 +349,14 @@ class RewriteProgressTests(unittest.TestCase):
         # FreeSemaphores + MissionNumber x3/SkipFrames x2; marker-only).
         # +15 inline-state/counter differential (Ghidra bodies 2-66 insns; pin
         # tests housekeeping 62 / mission_actor_lists 25 pass).
-        self.assertEqual(game["ported"], 149 + 561)
-        self.assertEqual(game["verified"], 149 + 480)
+        # +12 game-lifecycle contracts (Race6Result/DropStacks/TempActors/
+        # ShadowModel-STUB/ShadowSelect/EntityBlock/StopSounds/DeathFade/
+        # Pocasi/InterCity/DiffData-STUB; set_night_mission ledger-held +
+        # box-count fragment unfiled; marker-only).
+        # +10 game-lifecycle differential (Ghidra bodies 3-385 insns; pin
+        # tests housekeeping 83 pass; 2 STUBs held as contract).
+        self.assertEqual(game["ported"], 149 + 573)
+        self.assertEqual(game["verified"], 149 + 490)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

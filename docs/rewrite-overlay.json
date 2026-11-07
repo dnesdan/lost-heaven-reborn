@@ -13045,6 +13045,114 @@
       "symbol": "lhr_engine::mission_actor_lists::MissionCounterState::get_skip_frames",
       "tier": "differential",
       "evidence": "REA ev_61422eb80e + Ghidra body 2 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b670",
+      "va": "0x47b670",
+      "name": "C_game::SetRace6Result",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_race6_result",
+      "tier": "differential",
+      "evidence": "REA ev_bf3394c577 + Ghidra body 3 insns/1 bbs; pin tests housekeeping 83 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x147a60",
+      "va": "0x547a60",
+      "name": "~C_game (drop stacks)",
+      "symbol": "lhr_engine::game_housekeeping::game_drop_stacks",
+      "tier": "differential",
+      "evidence": "REA ev_5f4e840c3a + Ghidra body 385 insns/1 bbs; pin tests housekeeping 83 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a79a0",
+      "va": "0x5a79a0",
+      "name": "C_game::RemoveTemporaryActor",
+      "symbol": "lhr_engine::game_housekeeping::remove_temporary_actor",
+      "tier": "differential",
+      "evidence": "REA ev_6b5e01fc3e + Ghidra body 173 insns/27 bbs; pin tests housekeeping 83 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a7f60",
+      "va": "0x5a7f60",
+      "name": "C_game::ClearTemporaryActors",
+      "symbol": "lhr_engine::game_housekeeping::clear_temporary_actors",
+      "tier": "differential",
+      "evidence": "REA ev_456ff860ed + Ghidra body 47 insns/9 bbs; pin tests housekeeping 83 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1acfe0",
+      "va": "0x5acfe0",
+      "name": "C_game::AddShadowModel",
+      "symbol": "lhr_engine::game_housekeeping::add_shadow_model",
+      "tier": "contract",
+      "evidence": "STUB: frame owner deferred (GAME 0x5acfe0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ad210",
+      "va": "0x5ad210",
+      "name": "C_game::SetupShadow",
+      "symbol": "lhr_engine::game_housekeeping::setup_shadow_select",
+      "tier": "differential",
+      "evidence": "REA ev_f8bee26375 + Ghidra body 57 insns/10 bbs; pin tests housekeeping 83 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b7ed0",
+      "va": "0x5b7ed0",
+      "name": "C_game::EntityBlock",
+      "symbol": "lhr_engine::game_housekeeping::entity_block",
+      "tier": "differential",
+      "evidence": "REA ev_175598f455 + Ghidra body 54 insns/15 bbs; pin tests housekeeping 83 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b83f0",
+      "va": "0x5b83f0",
+      "name": "C_game::StopAllSounds",
+      "symbol": "lhr_engine::game_housekeeping::stop_all_sounds",
+      "tier": "differential",
+      "evidence": "REA ev_22ebd6e128 + Ghidra body 19 insns/6 bbs; pin tests housekeeping 83 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ba310",
+      "va": "0x5ba310",
+      "name": "C_game::ClearDeathHumanFade",
+      "symbol": "lhr_engine::game_housekeeping::clear_death_human_fade",
+      "tier": "differential",
+      "evidence": "REA ev_ca47a1b019 + Ghidra body 45 insns/8 bbs; pin tests housekeeping 83 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b9540",
+      "va": "0x5b9540",
+      "name": "C_game::OsefujPocasi",
+      "symbol": "lhr_engine::game_housekeeping::osefuj_pocasi",
+      "tier": "differential",
+      "evidence": "REA ev_f1a951e672 + Ghidra body 111 insns/17 bbs; pin tests housekeeping 83 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1bbb20",
+      "va": "0x5bbb20",
+      "name": "C_game::InterCity_GameDoneInGameDone",
+      "symbol": "lhr_engine::game_housekeeping::inter_city_game_done",
+      "tier": "differential",
+      "evidence": "REA ev_5bf6c1a7ae + Ghidra body 65 insns/17 bbs; pin tests housekeeping 83 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ae480",
+      "va": "0x5ae480",
+      "name": "C_game::LoadDiffData",
+      "symbol": "lhr_engine::game_housekeeping::load_diff_data",
+      "tier": "contract",
+      "evidence": "STUB: name owner deferred (GAME 0x5ae480). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

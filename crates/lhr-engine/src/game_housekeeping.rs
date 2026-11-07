@@ -665,6 +665,13 @@ pub struct GameInlineState {
     actor_lightness: bool,
     anim_preload: bool,
     weather_buffer: i32,
+    /// Night-mission switch (`game.h:419`, offset 0x2d44, `GAME_NIGHTMISSION's`).
+    /// Written by [`GameInlineState::set_night_mission`].
+    night_mission: bool,
+    /// Script float-register handle for `RACING_MISSION6_START` (`game.h:459`,
+    /// offset 0x2ee0). `None` is the native NULL; the register itself stays
+    /// with the script owner. Written by [`GameInlineState::set_race6_result`].
+    race6_result: Option<u32>,
 }
 
 impl GameInlineState {
@@ -1142,6 +1149,377 @@ pub const DEATH_HUMAN_TALK_ENTRY: u32 = 0x5b77c0;
 pub fn death_human_talk(_human: ActorId) -> Result<(), UnwrittenGameEntry> {
     Err(UnwrittenGameEntry::Unsupported {
         entry: DEATH_HUMAN_TALK_ENTRY,
+    })
+}
+
+impl GameInlineState {
+    /// FUNCTION: GAME RVA 0x7b590, VA 0x47b590 (`game.h:883-887`,
+    /// `C_game::SetNightMission`): stores the night-mission switch.
+    pub fn set_night_mission(&mut self, night: bool) {
+        self.night_mission = night;
+    }
+
+    /// Reads the switch stored by [`GameInlineState::set_night_mission`].
+    pub fn night_mission(&self) -> bool {
+        self.night_mission
+    }
+
+    /// FUNCTION: GAME RVA 0x7b670, VA 0x47b670 (`game.h:932-936`,
+    /// `C_game::SetRace6Result`): stores the script float-register handle.
+    pub fn set_race6_result(&mut self, result: Option<u32>) {
+        self.race6_result = result;
+    }
+
+    /// Reads the handle stored by [`GameInlineState::set_race6_result`].
+    pub fn race6_result(&self) -> Option<u32> {
+        self.race6_result
+    }
+}
+
+/// FUNCTION: GAME RVA 0x147a60, VA 0x547a60 (`game.h:584-590`, `~C_game`):
+/// empties the inventory, character and float stacks through the three stack
+/// clears, in native member order. Element types stay with their owners.
+pub fn game_drop_stacks(
+    inventory: &mut Vec<InventorySnapshot>,
+    character: &mut Vec<u32>,
+    float_stack: &mut Vec<f32>,
+) {
+    inventory_stack_clear(inventory);
+    character_stack_clear(character);
+    float_stack_clear(float_stack);
+}
+
+/// Native `C_actor::SetActState(ACTSTATE_NONE)` sink for
+/// [`remove_temporary_actor`].
+pub trait RemovedActorBackend {
+    fn set_act_state_none(&mut self, actor: ActorId);
+}
+
+/// FUNCTION: GAME RVA 0x1a79a0, VA 0x5a79a0 (`game.cpp:2422-2432`,
+/// `C_game::RemoveTemporaryActor`): no-op when the actor is already listed as
+/// removed; otherwise the actor leaves the active set through the backend and
+/// joins the removed list. The caller stages the removed list; act-state
+/// ownership stays with the actor owner behind the backend.
+pub fn remove_temporary_actor(
+    removed: &mut Vec<ActorId>,
+    actor: ActorId,
+    backend: &mut impl RemovedActorBackend,
+) {
+    if removed.contains(&actor) {
+        return;
+    }
+    backend.set_act_state_none(actor);
+    removed.push(actor);
+}
+
+/// Native per-actor sink for [`clear_temporary_actors`]: `InvalidateActor`
+/// (with `false`), `GameDone` and `Release`, in that order per actor from the
+/// back of the list.
+pub trait TemporaryActorBackend {
+    fn invalidate_actor(&mut self, actor: ActorId);
+    fn actor_game_done(&mut self, actor: ActorId);
+    fn release_actor(&mut self, actor: ActorId);
+}
+
+/// FUNCTION: GAME RVA 0x1a7f60, VA 0x5a7f60 (`game.cpp:2484-2497`,
+/// `C_game::ClearTemporaryActors`): every temporary actor but the next
+/// mission's two (`NewMissionActors[0..2]`, staged here as `keep`) is
+/// invalidated, ended and released from the back, then the list is emptied.
+/// Frame invalidation, mission end and release stay with their owners behind
+/// the backend.
+pub fn clear_temporary_actors(
+    temporary: &mut Vec<ActorId>,
+    keep: [Option<ActorId>; 2],
+    backend: &mut impl TemporaryActorBackend,
+) {
+    for index in (0..temporary.len()).rev() {
+        let actor = temporary[index];
+        if keep.contains(&Some(actor)) {
+            continue;
+        }
+        backend.invalidate_actor(actor);
+        backend.actor_game_done(actor);
+        backend.release_actor(actor);
+    }
+    temporary.clear();
+}
+
+/// STUB: GAME RVA 0x1acfe0, VA 0x5acfe0 (`game.cpp:2874-2888`,
+/// `C_game::AddShadowModel`): creates a `FRAME_SHADOW` frame through the
+/// render driver, opens the named shadow model and pushes the basename copy.
+/// The driver and frame owners are DEFERRED; explicit unsupported boundary.
+pub const ADD_SHADOW_MODEL_ENTRY: u32 = 0x5acfe0;
+
+/// Original `C_game::AddShadowModel` stub: always reports the boundary
+/// instead of inventing driver/frame ownership.
+pub fn add_shadow_model(_name: &str) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_SHADOW_MODEL_ENTRY,
+    })
+}
+
+/// Shadow-model template entry (`S_shadow_temp`): only the compared `name`
+/// (`None` is the native NULL) participates here; the `I3D_shadow` model stays
+/// with the scene owner.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ShadowTemplateEntry {
+    pub name: Option<String>,
+}
+
+/// Selected duplicate source for [`setup_shadow_select`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShadowDuplicateSource {
+    /// Duplicate `templates[index]` (basename match, scanned from the back).
+    Template(usize),
+    /// Duplicate `templates[model_index]` (nameless item fallback).
+    ModelIndex(usize),
+    /// Named item with no matching template: the original returns early and
+    /// duplicates nothing.
+    NoMatch,
+}
+
+/// FUNCTION: GAME RVA 0x1ad210, VA 0x5ad210 (`game.cpp:2890-2907`,
+/// `C_game::SetupShadow`): pure source-selection half. A named item scans the
+/// templates from the back for an ASCII-case-insensitive (`_stricmp`) match;
+/// a nameless item falls back to `model_index`; a named item with no match
+/// duplicates nothing. The `I3D_shadow::Duplicate` call stays with the scene
+/// owner (DEFERRED).
+pub fn setup_shadow_select(
+    templates: &[ShadowTemplateEntry],
+    name: Option<&str>,
+    model_index: usize,
+) -> ShadowDuplicateSource {
+    match name {
+        Some(wanted) => {
+            for (index, template) in templates.iter().enumerate().rev() {
+                if let Some(candidate) = template.name.as_deref() {
+                    if candidate.eq_ignore_ascii_case(wanted) {
+                        return ShadowDuplicateSource::Template(index);
+                    }
+                }
+            }
+            ShadowDuplicateSource::NoMatch
+        }
+        None => ShadowDuplicateSource::ModelIndex(model_index),
+    }
+}
+
+/// Actor candidate for [`entity_block`]: only the `type == ACTOR_ENTITY`
+/// filter participates here; the entity behavior stays with the actor owner
+/// behind the backend.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BlockCandidate {
+    pub actor: ActorId,
+    pub is_entity: bool,
+}
+
+/// Native `C_entity` sink for [`entity_block`]: seating for the cinema versus
+/// waking for the subtitles.
+pub trait EntityBlockBackend {
+    fn seat_for_cinema(&mut self, actor: ActorId, unknown: bool);
+    fn wake_for_subtitles(&mut self, actor: ActorId);
+}
+
+/// FUNCTION: GAME RVA 0x1b7ed0, VA 0x5b7ed0 (`game.cpp:3778-3802`,
+/// `C_game::EntityBlock`): every entity actor of the active list, then of the
+/// inactive list, both scanned from the back, is seated for the cinema while
+/// `block` holds (carrying `unknown`) and woken for the subtitles otherwise.
+/// Entity behavior stays with the actor owner behind the backend.
+pub fn entity_block(
+    block: bool,
+    unknown: bool,
+    active: &[BlockCandidate],
+    inactive: &[BlockCandidate],
+    backend: &mut impl EntityBlockBackend,
+) {
+    for list in [active, inactive] {
+        for candidate in list.iter().rev() {
+            if !candidate.is_entity {
+                continue;
+            }
+            if block {
+                backend.seat_for_cinema(candidate.actor, unknown);
+            } else {
+                backend.wake_for_subtitles(candidate.actor);
+            }
+        }
+    }
+}
+
+/// Native `C_actor::SoundsChange` sink for [`stop_all_sounds`].
+pub trait ActorSoundBackend {
+    fn sounds_change(&mut self, actor: ActorId, param: i32);
+}
+
+/// FUNCTION: GAME RVA 0x1b83f0, VA 0x5b83f0 (`game.cpp:3828-3834`,
+/// `C_game::StopAllSounds`): every global actor, scanned from the back, gets
+/// `SoundsChange(0)`. Actor/sound ownership stays behind the backend.
+pub fn stop_all_sounds(actors: &[ActorId], backend: &mut impl ActorSoundBackend) {
+    for index in (0..actors.len()).rev() {
+        backend.sounds_change(actors[index], 0);
+    }
+}
+
+/// Marker for one fading dead human (`C_game::S_death_human_fade`,
+/// `game.h:549`). Only list membership participates here; the per-entry
+/// `RemoveDeathHumanFade` (GAME 0x5baa40, unwritten upstream STUB) and the
+/// fade tick stay with their owners.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeathHumanFadeEntry {
+    pub marker: u32,
+}
+
+/// FUNCTION: GAME RVA 0x1ba310, VA 0x5ba310 (`game.cpp:3994-4002`,
+/// `C_game::ClearDeathHumanFade`): the original runs `RemoveDeathHumanFade(i,
+/// false)` per entry from the back; that callee is unwritten upstream (STUB
+/// GAME 0x5baa40, a `StubLog` no-op), so the observable effect here is the
+/// emptied list plus the cleared item-blur switch.
+pub fn clear_death_human_fade(fades: &mut Vec<DeathHumanFadeEntry>, item_blur: &mut bool) {
+    fades.clear();
+    *item_blur = false;
+}
+
+/// Owned weather-switch slice read and written by [`osefuj_pocasi`]
+/// (`game.h:509-510`: `weather_on`, `weather_count`; `game_effects` selects
+/// the divisor).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WeatherSwitchState {
+    pub initialized: bool,
+    pub weather_on: bool,
+    pub weather_count: i32,
+    pub game_effects: i32,
+}
+
+/// Native scene weather-system sink for [`osefuj_pocasi`]:
+/// `GetWeatherSystemParam` / `SetWeatherSystemParam`. The parameter ids
+/// (`WS_PARAM_ON`, `WS_PARAM_COUNT`) live with the LS3DF scene owner; the
+/// caller passes them in so no value is invented here.
+pub trait WeatherSystemBackend {
+    fn weather_param(&self, param: u32) -> i32;
+    fn set_weather_param(&mut self, param: u32, value: i32);
+}
+
+/// FUNCTION: GAME RVA 0x1b9540, VA 0x5b9540 (`game.cpp:3896-3932`,
+/// `C_game::OsefujPocasi`, "deal with the weather"): with `read`, copies the
+/// scene's on/count switch into the stored pair (only the matching `param`)
+/// and then applies the write pass; without `read` and while on, sets the
+/// scene's on-switch and scales the count by the effects level (full, /8,
+/// /20; other levels leave the scene untouched). Integer division truncates
+/// toward zero as in the original. The scene weather system stays behind the
+/// backend.
+pub fn osefuj_pocasi(
+    read: bool,
+    param: u32,
+    param_on: u32,
+    param_count: u32,
+    state: &mut WeatherSwitchState,
+    backend: &mut impl WeatherSystemBackend,
+) {
+    if !state.initialized {
+        return;
+    }
+    if read {
+        if param == param_on {
+            state.weather_on = backend.weather_param(param_on) != 0;
+        } else if param == param_count {
+            state.weather_count = backend.weather_param(param_count);
+        }
+    }
+    if !state.weather_on {
+        return;
+    }
+    match state.game_effects {
+        0 => {
+            backend.set_weather_param(param_on, 1);
+            backend.set_weather_param(param_count, state.weather_count / 20);
+        }
+        1 => {
+            backend.set_weather_param(param_on, 1);
+            backend.set_weather_param(param_count, state.weather_count / 8);
+        }
+        2 => {
+            backend.set_weather_param(param_on, 1);
+            backend.set_weather_param(param_count, state.weather_count);
+        }
+        _ => {}
+    }
+}
+
+/// Owned inter-city collision boxes (`game.h:550-556`): the collision array
+/// (`None` is the native NULL), the frame array, the two plain `S_matrix`
+/// arrays (presence only; the original deletes them as a whole with no
+/// per-element work) and the arrays' count.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InterCityBoxes {
+    pub colls: Option<Vec<Option<u32>>>,
+    pub frames: Option<Vec<Option<FrameId>>>,
+    pub matrices_present: bool,
+    pub inv_matrices_present: bool,
+    pub num: usize,
+}
+
+/// Native collision/frame sink for [`inter_city_game_done`]: `DynErase` per
+/// present collision and `Release` per present frame. Collision and frame
+/// ownership stays behind the backend.
+pub trait InterCityBackend {
+    fn erase_coll(&mut self, coll: u32);
+    fn release_frame(&mut self, frame: FrameId);
+}
+
+/// FUNCTION: GAME RVA 0x1bbb20, VA 0x5bbb20 (`game.cpp:4084-4112`,
+/// `C_game::InterCity_GameDoneInGameDone`): with no collision array, a no-op;
+/// otherwise every present collision of the first `num` slots, scanned from
+/// the back, is erased, every present frame released, the count cleared and
+/// all four arrays dropped. The scan is bounded by the shortest staged array
+/// (host accommodation; the original trusts the sizes to agree).
+pub fn inter_city_game_done(boxes: &mut InterCityBoxes, backend: &mut impl InterCityBackend) {
+    let Some(colls) = boxes.colls.as_mut() else {
+        return;
+    };
+    let Some(frames) = boxes.frames.as_mut() else {
+        return;
+    };
+    let count = boxes.num.min(colls.len()).min(frames.len());
+    for index in (0..count).rev() {
+        if let Some(coll) = colls[index] {
+            backend.erase_coll(coll);
+        }
+        if let Some(frame) = frames[index] {
+            backend.release_frame(frame);
+        }
+    }
+    boxes.num = 0;
+    boxes.colls = None;
+    boxes.frames = None;
+    boxes.matrices_present = false;
+    boxes.inv_matrices_present = false;
+}
+
+/// Fragment of GAME RVA 0x1bab80, VA 0x5bab80 (`game.cpp:4024-4031, 4060-4070`,
+/// `C_game::InterCity_GameInit`; no own entry): the box-count decision. The
+/// base blocks closed around the city get nine collision boxes, and four more
+/// in the `mise16-mesto` mission (ASCII-case-insensitive `_stricmp`). Array
+/// allocation, box poses and collision/frame registration stay with the
+/// collision and scene owners (DEFERRED).
+pub fn inter_city_box_count(mission_name: &str) -> usize {
+    if mission_name.eq_ignore_ascii_case("mise16-mesto") {
+        13
+    } else {
+        9
+    }
+}
+
+/// STUB: GAME RVA 0x1ae480, VA 0x5ae480 (`game.cpp:3056-3061`,
+/// `C_game::LoadDiffData`): loads the mission's diff data by name. Unwritten
+/// upstream; the mission save/load owner is DEFERRED. Explicit unsupported
+/// boundary.
+pub const LOAD_DIFF_DATA_ENTRY: u32 = 0x5ae480;
+
+/// Original `C_game::LoadDiffData` stub: always reports the boundary instead
+/// of inventing diff-data loading.
+pub fn load_diff_data(_name: &str) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: LOAD_DIFF_DATA_ENTRY,
     })
 }
 
@@ -2041,5 +2419,391 @@ mod tests {
         let mut backend = SemaphoreLog { states: vec![] };
         free_semaphores(&mut semaphores, &mut backend);
         assert!(backend.states.is_empty());
+    }
+
+    #[test]
+    fn rva_7b590_set_night_mission_stores_switch() {
+        // C_game::SetNightMission GAME RVA 0x7b590 (VA 0x47b590).
+        let mut state = GameInlineState::default();
+        assert!(!state.night_mission());
+        state.set_night_mission(true);
+        assert!(state.night_mission());
+        state.set_night_mission(false);
+        assert!(!state.night_mission());
+    }
+
+    #[test]
+    fn rva_7b670_set_race6_result_stores_handle() {
+        // C_game::SetRace6Result GAME RVA 0x7b670 (VA 0x47b670).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.race6_result(), None);
+        state.set_race6_result(Some(7));
+        assert_eq!(state.race6_result(), Some(7));
+        state.set_race6_result(None);
+        assert_eq!(state.race6_result(), None);
+    }
+
+    #[test]
+    fn rva_147a60_game_drop_stacks_empties_all_three() {
+        // ~C_game GAME RVA 0x147a60 (VA 0x547a60).
+        let mut inventory = vec![InventorySnapshot { marker: 1 }, InventorySnapshot { marker: 2 }];
+        let mut character = vec![3u32, 4u32];
+        let mut floats = vec![0.5f32];
+        game_drop_stacks(&mut inventory, &mut character, &mut floats);
+        assert!(inventory.is_empty());
+        assert!(character.is_empty());
+        assert!(floats.is_empty());
+        // Empty stacks stay empty.
+        game_drop_stacks(&mut inventory, &mut character, &mut floats);
+        assert!(inventory.is_empty() && character.is_empty() && floats.is_empty());
+    }
+
+    struct RemovedLog {
+        none: Vec<ActorId>,
+    }
+
+    impl RemovedActorBackend for RemovedLog {
+        fn set_act_state_none(&mut self, actor: ActorId) {
+            self.none.push(actor);
+        }
+    }
+
+    #[test]
+    fn rva_1a79a0_remove_temporary_actor_queues_missing() {
+        // C_game::RemoveTemporaryActor GAME RVA 0x1a79a0 (VA 0x5a79a0).
+        let mut removed = vec![9u32];
+        let mut backend = RemovedLog { none: vec![] };
+        remove_temporary_actor(&mut removed, 4, &mut backend);
+        assert_eq!(removed, vec![9, 4]);
+        assert_eq!(backend.none, vec![4]);
+    }
+
+    #[test]
+    fn rva_1a79a0_remove_temporary_actor_skips_listed() {
+        // C_game::RemoveTemporaryActor GAME RVA 0x1a79a0 (VA 0x5a79a0).
+        let mut removed = vec![4u32];
+        let mut backend = RemovedLog { none: vec![] };
+        remove_temporary_actor(&mut removed, 4, &mut backend);
+        assert_eq!(removed, vec![4]);
+        assert!(backend.none.is_empty());
+    }
+
+    struct TemporaryLog {
+        order: Vec<(char, ActorId)>,
+    }
+
+    impl TemporaryActorBackend for TemporaryLog {
+        fn invalidate_actor(&mut self, actor: ActorId) {
+            self.order.push(('i', actor));
+        }
+        fn actor_game_done(&mut self, actor: ActorId) {
+            self.order.push(('g', actor));
+        }
+        fn release_actor(&mut self, actor: ActorId) {
+            self.order.push(('r', actor));
+        }
+    }
+
+    #[test]
+    fn rva_1a7f60_clear_temporary_actors_releases_unkept_back_first() {
+        // C_game::ClearTemporaryActors GAME RVA 0x1a7f60 (VA 0x5a7f60).
+        let mut temporary = vec![1u32, 2, 3];
+        let mut backend = TemporaryLog { order: vec![] };
+        clear_temporary_actors(&mut temporary, [Some(2), None], &mut backend);
+        assert!(temporary.is_empty());
+        // Back first, kept actor skipped, invalidate/GameDone/release per actor.
+        assert_eq!(
+            backend.order,
+            vec![('i', 3), ('g', 3), ('r', 3), ('i', 1), ('g', 1), ('r', 1)]
+        );
+    }
+
+    #[test]
+    fn rva_1a7f60_clear_temporary_actors_empty_is_noop() {
+        // C_game::ClearTemporaryActors GAME RVA 0x1a7f60 (VA 0x5a7f60).
+        let mut temporary: Vec<ActorId> = vec![];
+        let mut backend = TemporaryLog { order: vec![] };
+        clear_temporary_actors(&mut temporary, [Some(1), Some(2)], &mut backend);
+        assert!(temporary.is_empty());
+        assert!(backend.order.is_empty());
+    }
+
+    fn shadow_template(name: Option<&str>) -> ShadowTemplateEntry {
+        ShadowTemplateEntry { name: name.map(str::to_owned) }
+    }
+
+    #[test]
+    fn rva_1ad210_setup_shadow_select_prefers_last_name_match() {
+        // C_game::SetupShadow GAME RVA 0x1ad210 (VA 0x5ad210).
+        let templates = vec![
+            shadow_template(Some("car")),
+            shadow_template(Some("CAR")),
+            shadow_template(None),
+            shadow_template(Some("tree")),
+        ];
+        // Last match wins, ASCII-case-insensitive.
+        assert_eq!(
+            setup_shadow_select(&templates, Some("car"), 0),
+            ShadowDuplicateSource::Template(1)
+        );
+        assert_eq!(
+            setup_shadow_select(&templates, Some("TREE"), 0),
+            ShadowDuplicateSource::Template(3)
+        );
+    }
+
+    #[test]
+    fn rva_1ad210_setup_shadow_select_falls_back_or_misses() {
+        // C_game::SetupShadow GAME RVA 0x1ad210 (VA 0x5ad210).
+        let templates = vec![shadow_template(Some("car")), shadow_template(None)];
+        // Nameless item falls back to the model index.
+        assert_eq!(
+            setup_shadow_select(&templates, None, 1),
+            ShadowDuplicateSource::ModelIndex(1)
+        );
+        // Named item with no match duplicates nothing.
+        assert_eq!(
+            setup_shadow_select(&templates, Some("house"), 0),
+            ShadowDuplicateSource::NoMatch
+        );
+        assert_eq!(
+            setup_shadow_select(&[], Some("car"), 2),
+            ShadowDuplicateSource::NoMatch
+        );
+    }
+
+    #[test]
+    fn rva_1acfe0_add_shadow_model_reports_boundary() {
+        // C_game::AddShadowModel GAME RVA 0x1acfe0 (VA 0x5acfe0).
+        assert_eq!(ADD_SHADOW_MODEL_ENTRY, 0x5acfe0);
+        assert_eq!(
+            add_shadow_model("car_shadow"),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5acfe0 })
+        );
+    }
+
+    struct EntityLog {
+        order: Vec<(char, ActorId, bool)>,
+    }
+
+    impl EntityBlockBackend for EntityLog {
+        fn seat_for_cinema(&mut self, actor: ActorId, unknown: bool) {
+            self.order.push(('s', actor, unknown));
+        }
+        fn wake_for_subtitles(&mut self, actor: ActorId) {
+            self.order.push(('w', actor, false));
+        }
+    }
+
+    fn candidate(actor: ActorId, is_entity: bool) -> BlockCandidate {
+        BlockCandidate { actor, is_entity }
+    }
+
+    #[test]
+    fn rva_1b7ed0_entity_block_seats_entities_active_then_inactive() {
+        // C_game::EntityBlock GAME RVA 0x1b7ed0 (VA 0x5b7ed0).
+        let active = vec![candidate(1, true), candidate(2, false), candidate(3, true)];
+        let inactive = vec![candidate(4, true), candidate(5, false)];
+        let mut backend = EntityLog { order: vec![] };
+        entity_block(true, true, &active, &inactive, &mut backend);
+        // Back of active first, then back of inactive; non-entities skipped.
+        assert_eq!(
+            backend.order,
+            vec![('s', 3, true), ('s', 1, true), ('s', 4, true)]
+        );
+    }
+
+    #[test]
+    fn rva_1b7ed0_entity_block_unblock_wakes_for_subtitles() {
+        // C_game::EntityBlock GAME RVA 0x1b7ed0 (VA 0x5b7ed0).
+        let active = vec![candidate(1, true)];
+        let inactive = vec![candidate(2, true)];
+        let mut backend = EntityLog { order: vec![] };
+        entity_block(false, true, &active, &inactive, &mut backend);
+        assert_eq!(backend.order, vec![('w', 1, false), ('w', 2, false)]);
+    }
+
+    struct SoundLog {
+        changed: Vec<(ActorId, i32)>,
+    }
+
+    impl ActorSoundBackend for SoundLog {
+        fn sounds_change(&mut self, actor: ActorId, param: i32) {
+            self.changed.push((actor, param));
+        }
+    }
+
+    #[test]
+    fn rva_1b83f0_stop_all_sounds_zeroes_back_first() {
+        // C_game::StopAllSounds GAME RVA 0x1b83f0 (VA 0x5b83f0).
+        let mut backend = SoundLog { changed: vec![] };
+        stop_all_sounds(&[5, 6, 7], &mut backend);
+        assert_eq!(backend.changed, vec![(7, 0), (6, 0), (5, 0)]);
+        // Empty input drives nothing.
+        let mut backend = SoundLog { changed: vec![] };
+        stop_all_sounds(&[], &mut backend);
+        assert!(backend.changed.is_empty());
+    }
+
+    #[test]
+    fn rva_1ba310_clear_death_human_fade_empties_and_clears_blur() {
+        // C_game::ClearDeathHumanFade GAME RVA 0x1ba310 (VA 0x5ba310).
+        let mut fades = vec![DeathHumanFadeEntry { marker: 1 }, DeathHumanFadeEntry { marker: 2 }];
+        let mut blur = true;
+        clear_death_human_fade(&mut fades, &mut blur);
+        assert!(fades.is_empty());
+        assert!(!blur);
+    }
+
+    struct WeatherLog {
+        writes: Vec<(u32, i32)>,
+        values: [i32; 2],
+    }
+
+    impl WeatherLog {
+        fn new(on: i32, count: i32) -> Self {
+            Self { writes: vec![], values: [on, count] }
+        }
+    }
+
+    impl WeatherSystemBackend for WeatherLog {
+        fn weather_param(&self, param: u32) -> i32 {
+            if param == 0 {
+                self.values[0]
+            } else {
+                self.values[1]
+            }
+        }
+        fn set_weather_param(&mut self, param: u32, value: i32) {
+            self.writes.push((param, value));
+            if param == 0 {
+                self.values[0] = value;
+            } else {
+                self.values[1] = value;
+            }
+        }
+    }
+
+    #[test]
+    fn rva_1b9540_osefuj_pocasi_uninitialized_is_noop() {
+        // C_game::OsefujPocasi GAME RVA 0x1b9540 (VA 0x5b9540).
+        let mut state = WeatherSwitchState::default();
+        let mut backend = WeatherLog::new(1, 80);
+        osefuj_pocasi(false, 0, 0, 1, &mut state, &mut backend);
+        osefuj_pocasi(true, 0, 0, 1, &mut state, &mut backend);
+        assert!(backend.writes.is_empty());
+        assert!(!state.weather_on);
+    }
+
+    #[test]
+    fn rva_1b9540_osefuj_pocasi_read_then_write() {
+        // C_game::OsefujPocasi GAME RVA 0x1b9540 (VA 0x5b9540).
+        let mut state = WeatherSwitchState { initialized: true, ..WeatherSwitchState::default() };
+        let mut backend = WeatherLog::new(1, 80);
+        // Read on-switch, then apply the write pass (effects 0: full count).
+        state.game_effects = 2;
+        state.weather_count = 80;
+        osefuj_pocasi(true, 0, 0, 1, &mut state, &mut backend);
+        assert!(state.weather_on);
+        assert_eq!(backend.writes, vec![(0, 1), (1, 80)]);
+        // Read count-switch afterwards.
+        backend.values = [0, 40];
+        osefuj_pocasi(true, 1, 0, 1, &mut state, &mut backend);
+        assert_eq!(state.weather_count, 40);
+        // Scene switched off: read updates the switch, write pass skipped.
+        backend.values = [0, 40];
+        let len = backend.writes.len();
+        osefuj_pocasi(true, 0, 0, 1, &mut state, &mut backend);
+        assert!(!state.weather_on);
+        assert_eq!(backend.writes.len(), len);
+    }
+
+    #[test]
+    fn rva_1b9540_osefuj_pocasi_write_scales_by_effects() {
+        // C_game::OsefujPocasi GAME RVA 0x1b9540 (VA 0x5b9540).
+        let mut state = WeatherSwitchState {
+            initialized: true,
+            weather_on: true,
+            weather_count: 81,
+            game_effects: 0,
+        };
+        let mut backend = WeatherLog::new(1, 0);
+        osefuj_pocasi(false, u32::MAX, 0, 1, &mut state, &mut backend);
+        // 81 / 20 truncates toward zero.
+        assert_eq!(backend.writes, vec![(0, 1), (1, 4)]);
+        state.game_effects = 1;
+        osefuj_pocasi(false, u32::MAX, 0, 1, &mut state, &mut backend);
+        assert_eq!(backend.writes.last(), Some(&(1, 10)));
+        // Unknown level leaves the scene untouched.
+        state.game_effects = 9;
+        let len = backend.writes.len();
+        osefuj_pocasi(false, u32::MAX, 0, 1, &mut state, &mut backend);
+        assert_eq!(backend.writes.len(), len);
+        // Weather off: no writes at all.
+        state.weather_on = false;
+        osefuj_pocasi(false, u32::MAX, 0, 1, &mut state, &mut backend);
+        assert_eq!(backend.writes.len(), len);
+    }
+
+    struct InterCityLog {
+        erased: Vec<u32>,
+        released: Vec<FrameId>,
+    }
+
+    impl InterCityBackend for InterCityLog {
+        fn erase_coll(&mut self, coll: u32) {
+            self.erased.push(coll);
+        }
+        fn release_frame(&mut self, frame: FrameId) {
+            self.released.push(frame);
+        }
+    }
+
+    #[test]
+    fn rva_1bbb20_inter_city_game_done_releases_back_first() {
+        // C_game::InterCity_GameDoneInGameDone GAME RVA 0x1bbb20 (VA 0x5bbb20).
+        let mut boxes = InterCityBoxes {
+            colls: Some(vec![Some(10), None, Some(30)]),
+            frames: Some(vec![Some(1), Some(2), None]),
+            matrices_present: true,
+            inv_matrices_present: true,
+            num: 3,
+        };
+        let mut backend = InterCityLog { erased: vec![], released: vec![] };
+        inter_city_game_done(&mut boxes, &mut backend);
+        // Back first; absent slots skipped.
+        assert_eq!(backend.erased, vec![30, 10]);
+        assert_eq!(backend.released, vec![2, 1]);
+        assert_eq!(boxes.num, 0);
+        assert!(boxes.colls.is_none() && boxes.frames.is_none());
+        assert!(!boxes.matrices_present && !boxes.inv_matrices_present);
+    }
+
+    #[test]
+    fn rva_1bbb20_inter_city_game_done_absent_is_noop() {
+        // C_game::InterCity_GameDoneInGameDone GAME RVA 0x1bbb20 (VA 0x5bbb20).
+        let mut boxes = InterCityBoxes::default();
+        let mut backend = InterCityLog { erased: vec![], released: vec![] };
+        inter_city_game_done(&mut boxes, &mut backend);
+        assert!(backend.erased.is_empty() && backend.released.is_empty());
+    }
+
+    #[test]
+    fn rva_1bab80_inter_city_box_count_city_gets_four_more() {
+        // C_game::InterCity_GameInit GAME RVA 0x1bab80 (VA 0x5bab80), fragment.
+        assert_eq!(inter_city_box_count("mise16-mesto"), 13);
+        assert_eq!(inter_city_box_count("MISE16-MESTO"), 13);
+        assert_eq!(inter_city_box_count("mise01"), 9);
+        assert_eq!(inter_city_box_count(""), 9);
+    }
+
+    #[test]
+    fn rva_1ae480_load_diff_data_reports_boundary() {
+        // C_game::LoadDiffData GAME RVA 0x1ae480 (VA 0x5ae480).
+        assert_eq!(LOAD_DIFF_DATA_ENTRY, 0x5ae480);
+        assert_eq!(
+            load_diff_data("diff"),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ae480 })
+        );
     }
 }
