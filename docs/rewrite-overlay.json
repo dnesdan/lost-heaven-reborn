@@ -9452,8 +9452,8 @@
       "va": "0x5eb210",
       "name": "GM_Menu::ActivateByIDOrNext",
       "symbol": "lhr_engine::menu::MenuStack::activate_by_id_or_next",
-      "tier": "contract",
-      "evidence": "Activate with next-fallback (GAME 0x5eb210). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_0bff4da0f1 + Ghidra body 39 insns/13 bbs, ActivateByIDOrNext; pin tests menu 36 pass"
     },
     {
       "binary": "Game.exe",
@@ -9470,8 +9470,8 @@
       "va": "0x5eb320",
       "name": "GM_Menu::FindComponentByIDPrev",
       "symbol": "lhr_engine::menu::MenuStack::find_by_id_prev",
-      "tier": "contract",
-      "evidence": "Wrapping id search (GAME 0x5eb320). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_854fd8d1db + Ghidra body 67 insns/18 bbs, FindByIDPrev wrap; pin tests menu"
     },
     {
       "binary": "Game.exe",
@@ -9479,8 +9479,8 @@
       "va": "0x5eb3c0",
       "name": "GM_Menu::FindComponentByIDNext",
       "symbol": "lhr_engine::menu::MenuStack::find_by_id_next",
-      "tier": "contract",
-      "evidence": "Wrapping id search (GAME 0x5eb3c0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ad0cce4c6c + Ghidra body 67 insns/18 bbs, FindByIDNext wrap; pin tests menu"
     },
     {
       "binary": "Game.exe",
@@ -9488,8 +9488,8 @@
       "va": "0x5eb460",
       "name": "GM_Menu::FindComponentPrev",
       "symbol": "lhr_engine::menu::MenuStack::find_list_prev",
-      "tier": "contract",
-      "evidence": "List search (GAME 0x5eb460). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_35fecac33b + Ghidra body 51 insns/15 bbs, FindPrev wrap; pin tests menu"
     },
     {
       "binary": "Game.exe",
@@ -9497,8 +9497,8 @@
       "va": "0x5eb4e0",
       "name": "GM_Menu::FindComponentNext",
       "symbol": "lhr_engine::menu::MenuStack::find_list_next",
-      "tier": "contract",
-      "evidence": "List search (GAME 0x5eb4e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_63e6a83e98 + Ghidra body 50 insns/15 bbs, FindNext wrap; pin tests menu"
     },
     {
       "binary": "Game.exe",
@@ -9506,8 +9506,8 @@
       "va": "0x4084d0",
       "name": "C_actor::RotateDir (y)",
       "symbol": "lhr_engine::native_transform::rotate_y",
-      "tier": "contract",
-      "evidence": "Horizontal-rotation lane per C_actor.cpp:1765 (GAME 0x4084d0); filed via native_transform re-export (itexture pub-use precedent); FSIN/FCOS spill and PC24 policy disclosed. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_aa87d90db6 + Ghidra body 109 insns/13 bbs, RotateDir y; pin tests rotate 12 pass"
     },
     {
       "binary": "Game.exe",
@@ -9515,8 +9515,8 @@
       "va": "0x52f920",
       "name": "C_human ghost push leaf",
       "symbol": "lhr_engine::human_actor::HumanState::push_ghost_coll",
-      "tier": "contract",
-      "evidence": "Ghost-coll staging push (GAME 0x52f920); promoted to pub for filing. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_6358c1dd6f + Ghidra body 180 insns/30 bbs, ghost push leaf; pin tests ghost 4 pass"
     },
     {
       "binary": "Game.exe",
@@ -9524,8 +9524,8 @@
       "va": "0x507b50",
       "name": "C_human ghost empty leaf",
       "symbol": "lhr_engine::human_actor::HumanState::empty_ghost_colls",
-      "tier": "contract",
-      "evidence": "Ghost-coll empty (GAME 0x507b50); promoted to pub for filing. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_d1d5d5032c + Ghidra body 85 insns/7 bbs, ghost empty leaf; pin tests ghost"
     },
     {
       "binary": "Game.exe",
@@ -9533,8 +9533,8 @@
       "va": "0x57cfe0",
       "name": "C_human::DynSetNextCollOwnerMult (merge scope)",
       "symbol": "lhr_engine::human_actor::HumanState::rebuild_next_coll_owners",
-      "tier": "contract",
-      "evidence": "colls+ghosts reversed merge (GAME 0x57cfe0); call plumbing deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_82b191d91d + Ghidra body 92 insns/14 bbs, merge scope order (call plumbing deferred); pin tests human_move_coll 13 pass"
     },
     {
       "binary": "Game.exe",
@@ -9542,8 +9542,8 @@
       "va": "0x4c1420",
       "name": "Game light discovery+pairing",
       "symbol": "lhr_engine::vehicle_init::vehicle_light_init",
-      "tier": "contract",
-      "evidence": "Delegated light collector (GAME 0xc1420); filed via vehicle_init re-export (itexture pub-use precedent). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ec52b20548 + Ghidra body 825 insns/126 bbs, light discovery+pairing; pin tests vehicle_init 82 pass"
     },
     {
       "binary": "Game.exe",
