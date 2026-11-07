@@ -335,6 +335,68 @@ pub fn cb_telephones(frame: FrameId, file_name: &str, out: &mut Vec<TelephoneEnt
     true
 }
 
+/// Pure model-set fragment of `C_game::LoadTelephones` (part of the occupied
+/// GAME 0x5b6e00 body; sibling `game.cpp:3649-3660`, cited only): scan the
+/// base-cache model-set names from the back for `alarm01.i3d` and
+/// `PHbox01.i3d` (ASCII-case-insensitive, the native `_stricmp`), returning
+/// the kept indices. Each plain assignment while scanning backwards keeps
+/// the lowest matching index; `None` is the native `0xffff` (no match).
+/// The scene enumeration (`EnumFrames`) and the block expansion below stay
+/// with the scene/cache owners (DEFERRED). No function credit is taken.
+pub fn telephone_model_indices(model_sets: &[impl AsRef<str>]) -> (Option<u16>, Option<u16>) {
+    let mut alarm: Option<u16> = None;
+    let mut box_: Option<u16> = None;
+    for (index, name) in model_sets.iter().enumerate().rev() {
+        let name = name.as_ref();
+        let base = name.rsplit('\\').next().unwrap_or(name);
+        if base.eq_ignore_ascii_case("alarm01.i3d") {
+            alarm = Some(index as u16);
+        }
+        if base.eq_ignore_ascii_case("PHbox01.i3d") {
+            box_ = Some(index as u16);
+        }
+    }
+    (alarm, box_)
+}
+
+/// Null-frame marker for [`collect_block_telephones`]: stands in for the
+/// native NULL `frame` of base-cache telephone records (the scene owner
+/// links the real cache model later). Scene-enumerated records always carry
+/// real nonzero handles.
+pub const TELEPHONE_NULL_FRAME: FrameId = 0;
+
+/// Pure block fragment of `C_game::LoadTelephones` (part of the occupied
+/// GAME 0x5b6e00 body; sibling `game.cpp:3661-3682`, cited only): expand the
+/// base-cache blocks from the back, each block's models from the back. A
+/// model matching the alarm index pushes a non-phone-box record, one
+/// matching the box index a phone-box record (the alarm arm wins ties, the
+/// native `if`/`else if`); other models push nothing. All pushed records
+/// carry [`TELEPHONE_NULL_FRAME`]. The caller appends the run to the
+/// collected telephones. No function credit is taken.
+pub fn collect_block_telephones(
+    alarm: Option<u16>,
+    box_: Option<u16>,
+    blocks: &[Vec<u16>],
+) -> Vec<TelephoneEntry> {
+    let mut out = Vec::new();
+    for models in blocks.iter().rev() {
+        for &model in models.iter().rev() {
+            if Some(model) == alarm {
+                out.push(TelephoneEntry {
+                    frame: TELEPHONE_NULL_FRAME,
+                    phone_box: false,
+                });
+            } else if Some(model) == box_ {
+                out.push(TelephoneEntry {
+                    frame: TELEPHONE_NULL_FRAME,
+                    phone_box: true,
+                });
+            }
+        }
+    }
+    out
+}
+
 /// `S_semaphore_lights` phase table (`game.cpp:90-97` at pin 113b5b6; the
 /// name is a mafia-re working guess, the values are evidenced). Each entry
 /// is `(red, orange, green)`: red for the first five phases, green for the
@@ -555,6 +617,10 @@ pub struct GameInlineState {
     mission_end: i32,
     race6_state: i32,
     mission_passed: bool,
+    /// Raw cheat word read by [`GameInlineState::get_cheats_bit6`]
+    /// (`game.h:834-840` at pin 113b5b6). No cheat word toggles bit 6; the
+    /// writer stays with the cheat owner (DEFERRED).
+    cheats: u32,
 }
 
 impl GameInlineState {
@@ -695,6 +761,22 @@ impl GameInlineState {
     /// Reads the gate written by [`GameInlineState::set_mission_passed`].
     pub fn mission_passed(&self) -> bool {
         self.mission_passed
+    }
+
+    /// Staging for [`GameInlineState::get_cheats_bit6`]; the cheat-word
+    /// writer itself stays with the cheat owner.
+    pub fn set_cheats(&mut self, cheats: u32) {
+        self.cheats = cheats;
+    }
+
+    /// Inline cheat-bit read (working name; `game.h:834-840` at pin 113b5b6,
+    /// `C_game::GetCheatsBit6`): bit 6 of the cheat word, with which
+    /// `C_shvestky::Tick` does nothing. The `GetCheatsBit6` spelling is an
+    /// upstream working guess, disclosed here; the read itself is inline, so
+    /// no outline RVA is claimed. The police tick stays with its owner
+    /// (DEFERRED).
+    pub fn get_cheats_bit6(&self) -> bool {
+        (self.cheats >> 6) & 1 != 0
     }
 }
 
@@ -1182,6 +1264,72 @@ mod tests {
         assert_eq!(temporary, vec![9]);
         assert_eq!(active, vec![9]);
         assert_eq!(inactive, vec![9]);
+    }
+
+    #[test]
+    fn telephone_model_indices_scan_back_and_keep_lowest_match() {
+        // Pure model-set fragment of C_game::LoadTelephones (GAME 0x5b6e00).
+        assert_eq!(
+            telephone_model_indices(&["alarm01.i3d", "PHbox01.i3d"]),
+            (Some(0), Some(1))
+        );
+        // Scanning from the back with plain assignment keeps the lowest
+        // matching index; matching is case-insensitive past the last '\'.
+        assert_eq!(
+            telephone_model_indices(&[
+                "models\\PHBOX01.I3D",
+                "other.i3d",
+                "alarm01.i3d",
+                "ALARM01.I3D",
+            ]),
+            (Some(2), Some(0))
+        );
+        assert_eq!(
+            telephone_model_indices(&["other.i3d"] as &[&str]),
+            (None, None)
+        );
+        assert_eq!(telephone_model_indices(&[] as &[&str]), (None, None));
+    }
+
+    #[test]
+    fn collect_block_telephones_pushes_null_frame_records_back_to_front() {
+        // Pure block fragment of C_game::LoadTelephones (GAME 0x5b6e00).
+        let out = collect_block_telephones(Some(3), Some(7), &[vec![1, 3], vec![7, 3, 9]]);
+        // Back block first, back model first, alarm arm before box arm.
+        assert_eq!(
+            out,
+            vec![
+                TelephoneEntry {
+                    frame: TELEPHONE_NULL_FRAME,
+                    phone_box: false,
+                },
+                TelephoneEntry {
+                    frame: TELEPHONE_NULL_FRAME,
+                    phone_box: true,
+                },
+                TelephoneEntry {
+                    frame: TELEPHONE_NULL_FRAME,
+                    phone_box: false,
+                },
+            ]
+        );
+        // No indices, no records; unmatched models push nothing.
+        assert!(collect_block_telephones(None, None, &[vec![3, 7]]).is_empty());
+        assert!(collect_block_telephones(Some(3), Some(7), &[]).is_empty());
+        assert_eq!(TELEPHONE_NULL_FRAME, 0);
+    }
+
+    #[test]
+    fn get_cheats_bit6_reads_bit_six_only() {
+        // Inline C_game::GetCheatsBit6 (game.h:834-840, no outline RVA).
+        let mut state = GameInlineState::default();
+        assert!(!state.get_cheats_bit6());
+        state.set_cheats(1 << 6);
+        assert!(state.get_cheats_bit6());
+        state.set_cheats(u32::MAX & !(1 << 6));
+        assert!(!state.get_cheats_bit6());
+        state.set_cheats(u32::MAX);
+        assert!(state.get_cheats_bit6());
     }
 
     #[test]

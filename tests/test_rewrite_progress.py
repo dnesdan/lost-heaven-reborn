@@ -338,8 +338,11 @@ class RewriteProgressTests(unittest.TestCase):
         # GetActorSpeed/PoseValidate/DropOut x2/Sounds/FF x2; marker-only).
         # +8 human colls/shock differential (Ghidra dossiers 31-311 insns; pin
         # tests human_actor 59 pass; 6 STUBs + GetActorSpeed held as contract).
-        self.assertEqual(game["ported"], 149 + 540)
-        self.assertEqual(game["verified"], 149 + 449)
+        # +6 menu definition differential (MessageBox/LoadProgress/GameFailed/
+        # GunShop/GarageSummary/OptionsControls-OnClose; 2-insn leaves +
+        # small dispatches with complete walks; pin tests menu/main_menu).
+        self.assertEqual(game["ported"], 149 + 546)
+        self.assertEqual(game["verified"], 149 + 455)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

@@ -756,6 +756,154 @@ pub fn question_box_onclick(id: u32, open_id: u32) -> Option<QuestionBoxClose> {
     }
 }
 
+/// GM_MessageBox::OnBeforeCreate leaf (Game.exe VA 0x5e2170, RVA 0x1e2170;
+/// sibling game/ui/g_m_func.cpp:749-754, cited only): the "messagebox" menu.
+/// Only the definition-name contract is owned here; the message/title text
+/// latches (GM_MessageBox ctor GAME 0x5e2180, GetText/GetTextOrNULL) and the
+/// OnCreate/OnKey/OnClick bodies stay with the menu-class owners (DEFERRED).
+pub fn message_box_definition() -> &'static str {
+    "messagebox"
+}
+
+/// GM_LoadProgress::OnBeforeCreate leaf (Game.exe VA 0x5e3b80, RVA 0x1e3b80;
+/// sibling game/ui/g_m_func.cpp:944-949, cited only): the "loadprogress"
+/// menu. Only the definition-name contract is owned here; construction,
+/// OnCreate and presentation stay with the menu host (DEFERRED).
+pub fn load_progress_definition() -> &'static str {
+    "loadprogress"
+}
+
+/// GM_GameFailed::OnBeforeCreate leaf (Game.exe VA 0x47a470, RVA 0x7a470;
+/// sibling game/ui/g_m_func.h:115-120, cited only): the "gamefailed" menu.
+/// Only the definition-name contract is owned here; the failure text latch
+/// (ctor GAME 0x47a3e0) and the OnCreate/OnClick bodies stay with the
+/// menu-class owners (DEFERRED).
+pub fn game_failed_definition() -> &'static str {
+    "gamefailed"
+}
+
+/// GM_GunShop::OnBeforeCreate leaf (Game.exe VA 0x47a4a0, RVA 0x7a4a0;
+/// sibling game/ui/g_m_func.h:146-151, cited only): the "gunshop" menu.
+/// Only the definition-name contract is owned here; the inventory latch
+/// (ctor GAME 0x47a480) and the OnCreate/OnClick bodies stay with the
+/// menu-class owners (DEFERRED).
+pub fn gun_shop_definition() -> &'static str {
+    "gunshop"
+}
+
+/// GM_GarageSummary::OnBeforeCreate leaf (Game.exe VA 0x60deb0, RVA 0x20deb0;
+/// sibling game/ui/g_m_func.h:263-268, cited only): the "garagesummary" menu.
+/// Only the definition-name contract is owned here; the added/removed car
+/// latches and the OnCreate/OnKey bodies stay with the menu-class owners
+/// (DEFERRED).
+pub fn garage_summary_definition() -> &'static str {
+    "garagesummary"
+}
+
+/// Native sink triple for [`options_controls_onclose`]: the caller's control,
+/// indicator and settings owners. Numeric option/refresh codes stay with
+/// those owners; only the call order is owned here.
+pub trait OptionsCloseBackend {
+    fn apply_controls(&mut self);
+    fn indicators_game_init(&mut self);
+    fn refresh_all(&mut self);
+}
+
+/// GM_OptionsControls::OnClose (Game.exe VA 0x5e1620, RVA 0x1e1620; sibling
+/// game/ui/g_m_func.cpp:622-630, cited only): ApplyControls, GameInit,
+/// Refresh(REFRESH_ALL), then return 0. The three effects run through the
+/// caller-supplied backend in native order; settings values stay with the
+/// loadsave owner (DEFERRED).
+pub fn options_controls_onclose(backend: &mut impl OptionsCloseBackend) -> i32 {
+    backend.apply_controls();
+    backend.indicators_game_init();
+    backend.refresh_all();
+    0
+}
+
+/// Camera-frame lookup over the `_GM_MainMenuTargets` table (working name;
+/// GAME data 0x6384d8, sibling game/ui/g_menu.cpp:108-129, cited only): the
+/// scene frame listed for a menu item id, `None` where the table lists none.
+/// This is a static data table, not a function entry, so no RVA is claimed;
+/// the table scan belongs to the occupied `GM_Menu::SetCameraTargetID`
+/// (GAME 0x5ebe80) read set and takes no function credit here.
+pub fn menu_camera_target_name(id: u32) -> Option<&'static str> {
+    match id {
+        990001 => Some("camera_start"),
+        990101 => Some("intro_pos"),
+        990102 => Some("training_pos"),
+        990103 => Some("new_game_pos"),
+        990104 => Some("load_game_pos"),
+        990105 | 990106 => Some("free_ride_pos"),
+        990107 => Some("racing_pos"),
+        990108 => Some("multiplayer_pos"),
+        990109 => Some("carcyclopedia_pos"),
+        990110 => Some("options_pos"),
+        990111 => Some("credits_pos"),
+        990112 => Some("profile_pos"),
+        990113 => Some("exit_pos"),
+        990411 => Some("single_pos"),
+        990412 => Some("champion_pos"),
+        990413 => Some("multiplayer_pos"),
+        990416 => Some("racing_pos"),
+        _ => None,
+    }
+}
+
+/// Audio/video options item ids written by the Reset arm (sibling
+/// game/ui/g_m_func.cpp:81-84, cited only; upstream working names).
+pub const OPTIONSA_GAME_EFFECTS: u32 = 0x71;
+pub const OPTIONSA_GAME_SOUNDS: u32 = 0x72;
+pub const OPTIONSA_SHADOWS: u32 = 0x73;
+pub const OPTIONSA_PARTICLES: u32 = 0x74;
+
+/// Text-database bases for the quality/shadow option readout (sibling
+/// game/ui/g_m_func.cpp:89-92, cited only; upstream working names).
+pub const TEXT_QUALITY_LOW: u32 = 0x105;
+pub const TEXT_SHADOWS_VERY_LOW: u32 = 0x119;
+
+/// Pure text-id fragment of the OPTIONSA_RESET arm of
+/// `GM_OptionsAudioVideo::OnClick` (Game.exe VA 0x5e0d40, RVA 0x1e0d40;
+/// sibling game/ui/g_m_func.cpp:475-498, cited only): the four
+/// (item, text-id) pairs the arm writes after resetting to High
+/// (`TEXT_QUALITY_LOW + 2`, `TEXT_SHADOWS_VERY_LOW + 5`). The whole click
+/// dispatch is too large for this slice and stays out of scope; the settings
+/// stores, `Refresh`/`UpdateSettings`/`UpdateControls` effects and the slider
+/// writes stay with their owners (DEFERRED). No function credit is taken.
+pub fn audio_video_reset_text_ids() -> [(u32, u32); 4] {
+    [
+        (OPTIONSA_GAME_EFFECTS, TEXT_QUALITY_LOW + 2),
+        (OPTIONSA_GAME_SOUNDS, TEXT_QUALITY_LOW + 2),
+        (OPTIONSA_SHADOWS, TEXT_SHADOWS_VERY_LOW + 5),
+        (OPTIONSA_PARTICLES, TEXT_QUALITY_LOW + 2),
+    ]
+}
+
+/// Load-progress title/abort item ids (sibling game/ui/g_m_func.cpp:54-55,
+/// cited only; upstream working names).
+pub const LOADPROGRESS_TITLE: u32 = 0x190;
+pub const LOADPROGRESS_ABORT: u32 = 0x191;
+
+/// Text-database id of "press <ESC> to Abort" (sibling
+/// game/ui/g_m_func.cpp:139, cited only; upstream working name).
+pub const TEXT_PRESS_ESC_TO_ABORT: u32 = 0x2ce;
+
+/// Pure title-text fragment of `GM_LoadProgress::OnCreate` (part of the
+/// occupied GAME 0x5e3b90 body; sibling game/ui/g_m_func.cpp:958-962, cited
+/// only): while the screen carries a title, the (item, text-id) pairs for
+/// the title and the abort line; `None` for a title-less screen (0).
+/// Definition intake, picture names and the mission-name lookup stay with
+/// their owners (DEFERRED). No function credit is taken.
+pub fn load_progress_title_texts(title: u32) -> Option<[(u32, u32); 2]> {
+    if title == 0 {
+        return None;
+    }
+    Some([
+        (LOADPROGRESS_TITLE, title),
+        (LOADPROGRESS_ABORT, TEXT_PRESS_ESC_TO_ABORT),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1166,5 +1314,108 @@ mod tests {
             assert_eq!(question_box_onclick(id, 0), None);
             assert_eq!(question_box_onclick(id, 7), None);
         }
+    }
+    #[test]
+    fn message_box_before_create_0x1e2170_names_messagebox() {
+        // GM_MessageBox::OnBeforeCreate GAME VA 0x5e2170 (RVA 0x1e2170).
+        assert_eq!(message_box_definition(), "messagebox");
+    }
+    #[test]
+    fn load_progress_before_create_0x1e3b80_names_loadprogress() {
+        // GM_LoadProgress::OnBeforeCreate GAME VA 0x5e3b80 (RVA 0x1e3b80).
+        assert_eq!(load_progress_definition(), "loadprogress");
+    }
+    #[test]
+    fn game_failed_before_create_0x7a470_names_gamefailed() {
+        // GM_GameFailed::OnBeforeCreate GAME VA 0x47a470 (RVA 0x7a470).
+        assert_eq!(game_failed_definition(), "gamefailed");
+    }
+    #[test]
+    fn gun_shop_before_create_0x7a4a0_names_gunshop() {
+        // GM_GunShop::OnBeforeCreate GAME VA 0x47a4a0 (RVA 0x7a4a0).
+        assert_eq!(gun_shop_definition(), "gunshop");
+    }
+    #[test]
+    fn garage_summary_before_create_0x20deb0_names_garagesummary() {
+        // GM_GarageSummary::OnBeforeCreate GAME VA 0x60deb0 (RVA 0x20deb0).
+        assert_eq!(garage_summary_definition(), "garagesummary");
+    }
+    #[test]
+    fn options_controls_onclose_0x1e1620_runs_ordered_triple_and_returns_zero() {
+        // GM_OptionsControls::OnClose GAME VA 0x5e1620 (RVA 0x1e1620).
+        struct Log {
+            order: Vec<&'static str>,
+        }
+        impl OptionsCloseBackend for Log {
+            fn apply_controls(&mut self) {
+                self.order.push("apply");
+            }
+            fn indicators_game_init(&mut self) {
+                self.order.push("init");
+            }
+            fn refresh_all(&mut self) {
+                self.order.push("refresh");
+            }
+        }
+        let mut backend = Log { order: Vec::new() };
+        assert_eq!(options_controls_onclose(&mut backend), 0);
+        assert_eq!(backend.order, vec!["apply", "init", "refresh"]);
+    }
+    #[test]
+    fn menu_camera_target_names_cover_the_table() {
+        // _GM_MainMenuTargets GAME data 0x6384d8 (no code RVA claimed).
+        let pairs = [
+            (990001, "camera_start"),
+            (990101, "intro_pos"),
+            (990102, "training_pos"),
+            (990103, "new_game_pos"),
+            (990104, "load_game_pos"),
+            (990105, "free_ride_pos"),
+            (990106, "free_ride_pos"),
+            (990107, "racing_pos"),
+            (990108, "multiplayer_pos"),
+            (990109, "carcyclopedia_pos"),
+            (990110, "options_pos"),
+            (990111, "credits_pos"),
+            (990112, "profile_pos"),
+            (990113, "exit_pos"),
+            (990411, "single_pos"),
+            (990412, "champion_pos"),
+            (990413, "multiplayer_pos"),
+            (990416, "racing_pos"),
+        ];
+        assert_eq!(pairs.len(), 18);
+        for (id, name) in pairs {
+            assert_eq!(menu_camera_target_name(id), Some(name));
+        }
+        for id in [0, 1, 990000, 990114, 990410, 990414, u32::MAX] {
+            assert_eq!(menu_camera_target_name(id), None);
+        }
+    }
+    #[test]
+    fn audio_video_reset_text_ids_match_the_reset_arm() {
+        // Pure fragment of GM_OptionsAudioVideo::OnClick GAME VA 0x5e0d40.
+        assert_eq!(
+            audio_video_reset_text_ids(),
+            [
+                (OPTIONSA_GAME_EFFECTS, TEXT_QUALITY_LOW + 2),
+                (OPTIONSA_GAME_SOUNDS, TEXT_QUALITY_LOW + 2),
+                (OPTIONSA_SHADOWS, TEXT_SHADOWS_VERY_LOW + 5),
+                (OPTIONSA_PARTICLES, TEXT_QUALITY_LOW + 2),
+            ]
+        );
+        // The reset levels coincide with the High arm's tops.
+        assert_eq!(TEXT_QUALITY_LOW + 2, 0x107);
+        assert_eq!(TEXT_SHADOWS_VERY_LOW + 5, 0x11e);
+    }
+    #[test]
+    fn load_progress_title_texts_gate_on_title() {
+        // Pure fragment of GM_LoadProgress::OnCreate GAME VA 0x5e3b90.
+        assert_eq!(load_progress_title_texts(0), None);
+        assert_eq!(
+            load_progress_title_texts(0x2cf),
+            Some([(LOADPROGRESS_TITLE, 0x2cf), (LOADPROGRESS_ABORT, 0x2ce)])
+        );
+        assert_eq!(TEXT_PRESS_ESC_TO_ABORT, 0x2ce);
     }
 }

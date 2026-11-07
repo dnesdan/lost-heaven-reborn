@@ -1003,6 +1003,32 @@ pub fn load_progress_mission_open_value(mission_part: f32, progress: f32) -> f32
     progress * mission_part
 }
 
+/// One mission entry of tables\load.def (working name; `S_load_def`,
+/// sibling game/ui/g_m_func.cpp:263-269, cited only): the mission folder
+/// (`mission`, e.g. "mise01"), the loading picture (`picture`, e.g.
+/// "M01.tga") and the text-database name id (`name_id`, 0 for none).
+/// The fixed 0x20-byte ASCII fields are held as Rust strings; over-long or
+/// non-ASCII intake is rejected by the file owner (DEFERRED).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LoadDefEntry {
+    pub mission: String,
+    pub picture: String,
+    pub name_id: u32,
+}
+
+/// Pure match fragment of `GM_LoadProgress::OnCreate` (part of the occupied
+/// GAME 0x5e3b90 body; sibling game/ui/g_m_func.cpp:972-986, cited only):
+/// the first entry whose mission folder matches `mission_name`
+/// ASCII-case-insensitively (the native `_stricmp`), `None` where none
+/// matches. The 8000-byte file intake, the picture/name-id routing
+/// (`SetString`/`SetTextID`) and the fallback to the running mission stay
+/// with the file/menu owners (DEFERRED). No function credit is taken.
+pub fn find_load_def_entry(entries: &[LoadDefEntry], mission_name: &str) -> Option<usize> {
+    entries
+        .iter()
+        .position(|entry| entry.mission.eq_ignore_ascii_case(mission_name))
+}
+
 /// CreateCompsByDef file probe (GAME 0x5ea370; sibling game/ui/g_menu.cpp:639-660,
 /// cited only): the localized `<name>_<ll>.mnu` first, then `<name>.mnu`;
 /// missing files fall through to the next candidate, unparseable content
@@ -1417,6 +1443,35 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, bytes).unwrap();
         }
+    }
+
+    #[test]
+    fn load_def_entry_matches_first_case_insensitive_hit() {
+        // Pure fragment of GM_LoadProgress::OnCreate (part of GAME 0x5e3b90).
+        let entries = vec![
+            LoadDefEntry {
+                mission: "mise01".into(),
+                picture: "M01.tga".into(),
+                name_id: 0x2cf,
+            },
+            LoadDefEntry {
+                mission: "MISE01".into(),
+                picture: "M01b.tga".into(),
+                name_id: 0,
+            },
+            LoadDefEntry {
+                mission: "freeride".into(),
+                picture: "free.tga".into(),
+                name_id: 0,
+            },
+        ];
+        assert_eq!(find_load_def_entry(&entries, "mise01"), Some(0));
+        assert_eq!(find_load_def_entry(&entries, "MISE01"), Some(0));
+        assert_eq!(find_load_def_entry(&entries, "FreeRide"), Some(2));
+        assert_eq!(find_load_def_entry(&entries, "mise02"), None);
+        assert_eq!(find_load_def_entry(&[], "mise01"), None);
+        // Zero name ids pass through untouched for the caller to gate on.
+        assert_eq!(entries[1].name_id, 0);
     }
 
     #[test]

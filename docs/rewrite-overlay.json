@@ -12856,6 +12856,60 @@
       "symbol": "lhr_engine::human_actor::done_ff_effects_unsupported",
       "tier": "contract",
       "evidence": "STUB: joystick owner deferred (GAME 0x587880). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e2170",
+      "va": "0x5e2170",
+      "name": "GM_MessageBox::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::message_box_definition",
+      "tier": "differential",
+      "evidence": "REA ev_9c5567bd8b + complete walk 2 insns (MOV EAX,imm + RET), MessageBox definition leaf; pin tests menu 65 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e3b80",
+      "va": "0x5e3b80",
+      "name": "GM_LoadProgress::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::load_progress_definition",
+      "tier": "differential",
+      "evidence": "REA ev_3f907ac7bb + complete walk 2 insns, LoadProgress definition leaf; pin tests menu"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7a470",
+      "va": "0x47a470",
+      "name": "GM_GameFailed::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::game_failed_definition",
+      "tier": "differential",
+      "evidence": "REA ev_0e51468efe + complete walk 2 insns, GameFailed definition leaf; pin tests main_menu 34 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7a4a0",
+      "va": "0x47a4a0",
+      "name": "GM_GunShop::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::gun_shop_definition",
+      "tier": "differential",
+      "evidence": "REA ev_137e23e930 + complete walk 2 insns, GunShop definition leaf; pin tests main_menu"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20deb0",
+      "va": "0x60deb0",
+      "name": "GM_GarageSummary::OnBeforeCreate",
+      "symbol": "lhr_engine::main_menu::garage_summary_definition",
+      "tier": "differential",
+      "evidence": "REA ev_582243191f + complete walk 2 insns, GarageSummary definition leaf; pin tests main_menu"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e1620",
+      "va": "0x5e1620",
+      "name": "GM_OptionsControls::OnClose",
+      "symbol": "lhr_engine::main_menu::options_controls_onclose",
+      "tier": "differential",
+      "evidence": "REA ev_4be307227a + complete walk (~15 insns, calls + RET), OptionsControls OnClose; pin tests menu"
     }
   ],
   "vm": {
