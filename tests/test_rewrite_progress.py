@@ -241,8 +241,13 @@ class RewriteProgressTests(unittest.TestCase):
         # +4 vehicle/menu/loadsave batch (SetEngineOn 0xcb5b0 / glass worker
         # 0xd6670 / FreerideStoreA 0x20e920 / Menu Create 0x1ea2e0;
         # bodies 11-69 insns).
+        # +17 menu/traffic/door/vehicle batch (CloseAll/Open/Exchange/
+        # Disabled/Activate 0x1eae40-0x1eb1c0 + IsCarHasOcas/PlayerInTaxi/
+        # EnableTaxi/Clear/Free 0x4f090-0x50860 + door SetState/OpenAngle/
+        # ChangeState/EnableUsing + OpenWindow/SpecialColls; 16 dossiers +
+        # 1 walk; suites green).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 187)
+        self.assertEqual(game["verified"], 149 + 204)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

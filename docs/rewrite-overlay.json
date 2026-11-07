@@ -9407,8 +9407,8 @@
       "va": "0x5eae40",
       "name": "GM_Menu::MenuCloseAll",
       "symbol": "lhr_engine::menu::MenuStack::menu_close_all",
-      "tier": "contract",
-      "evidence": "Close-all with result code (GAME 0x5eae40). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_972dae935a + Ghidra body 22 insns/4 bbs, MenuCloseAll; pin tests menu 36 pass"
     },
     {
       "binary": "Game.exe",
@@ -9416,8 +9416,8 @@
       "va": "0x5ead50",
       "name": "GM_Menu::MenuOpen",
       "symbol": "lhr_engine::menu::menu_open_definition",
-      "tier": "contract",
-      "evidence": "Definition-name resolve for Open (GAME 0x5ead50). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_e274ca79a1 + Ghidra body 8 insns/1 bb, MenuOpen; pin tests menu"
     },
     {
       "binary": "Game.exe",
@@ -9425,8 +9425,8 @@
       "va": "0x5ead80",
       "name": "GM_Menu::MenuExchange",
       "symbol": "lhr_engine::menu::MenuStack::menu_exchange",
-      "tier": "contract",
-      "evidence": "Exchange rebuild (GAME 0x5ead80). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_27e1d848bb + Ghidra body 59 insns/9 bbs, MenuExchange; pin tests menu"
     },
     {
       "binary": "Game.exe",
@@ -9434,8 +9434,8 @@
       "va": "0x5eaed0",
       "name": "GM_Menu::SetDisabled",
       "symbol": "lhr_engine::menu::MenuStack::set_disabled",
-      "tier": "contract",
-      "evidence": "COMPF ENABLED bit set/clear (GAME 0x5eaed0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_d35bf04b51 + Ghidra body 14 insns/6 bbs, SetDisabled; pin tests menu"
     },
     {
       "binary": "Game.exe",
@@ -9443,8 +9443,8 @@
       "va": "0x5eb1c0",
       "name": "GM_Menu::ActivateByID",
       "symbol": "lhr_engine::menu::MenuStack::activate_by_id",
-      "tier": "contract",
-      "evidence": "Direct activation (GAME 0x5eb1c0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_fe14243393 + Ghidra body 27 insns/9 bbs, ActivateByID; pin tests menu"
     },
     {
       "binary": "Game.exe",
@@ -9641,8 +9641,8 @@
       "va": "0x44f090",
       "name": "C_traffic_generator::IsCarHasOcas",
       "symbol": "lhr_engine::traffic_generator::is_car_has_ocas",
-      "tier": "contract",
-      "evidence": "Reverse car predicate (GAME 0x44f090). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_61c40fe2bb + Ghidra body 31 insns/9 bbs, IsCarHasOcas; pin tests traffic_generator 6 pass"
     },
     {
       "binary": "Game.exe",
@@ -9650,8 +9650,8 @@
       "va": "0x44f740",
       "name": "C_traffic_generator::PlayerInTaxi",
       "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::apply_player_in_taxi",
-      "tier": "contract",
-      "evidence": "9-taxi case-insensitive match (GAME 0x44f740). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_8cfd59bacd + Ghidra body 36 insns/7 bbs, PlayerInTaxi; pin tests traffic_generator"
     },
     {
       "binary": "Game.exe",
@@ -9659,8 +9659,8 @@
       "va": "0x44fcf0",
       "name": "C_traffic_generator::EnableTaxiDriver",
       "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::enable_taxi_driver",
-      "tier": "contract",
-      "evidence": "Enable with disable-edge waver clear (GAME 0x44fcf0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_3ae393beb4 + Ghidra body 11 insns/4 bbs, EnableTaxiDriver; pin tests traffic_generator"
     },
     {
       "binary": "Game.exe",
@@ -9668,8 +9668,8 @@
       "va": "0x44fd10",
       "name": "C_traffic_generator::ZrusVsechnyMavajici",
       "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::zrus_vsechny_mavajici",
-      "tier": "contract",
-      "evidence": "Waver loop (GAME 0x44fd10). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_64dfdc2255 + Ghidra body 19 insns/6 bbs, ZrusVsechnyMavajici; pin tests traffic_generator"
     },
     {
       "binary": "Game.exe",
@@ -9677,8 +9677,8 @@
       "va": "0x44fd50",
       "name": "C_traffic_generator::ClearElements",
       "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::clear_elements",
-      "tier": "contract",
-      "evidence": "Array clear (GAME 0x44fd50). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_329ada96d0 + Ghidra body 47 insns/12 bbs, ClearElements; pin tests traffic_generator"
     },
     {
       "binary": "Game.exe",
@@ -9686,8 +9686,8 @@
       "va": "0x450860",
       "name": "C_traffic_generator::FreeDynCollElements",
       "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::free_dyn_coll_elements",
-      "tier": "contract",
-      "evidence": "Dyn-coll deactivation (GAME 0x450860). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7ecb1be46d + Ghidra body 19 insns/6 bbs, FreeDynCollElements; pin tests traffic_generator"
     },
     {
       "binary": "Game.exe",
@@ -9695,8 +9695,8 @@
       "va": "0x439610",
       "name": "C_door::SetState",
       "symbol": "lhr_engine::door_actor::DoorControlState::set_state",
-      "tier": "contract",
-      "evidence": "E_state transition (GAME 0x439610). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_b25498139d + Ghidra body 271 insns/44 bbs, door SetState; pin tests door 15 pass"
     },
     {
       "binary": "Game.exe",
@@ -9704,8 +9704,8 @@
       "va": "0x43b810",
       "name": "C_door::SetOpenAngle",
       "symbol": "lhr_engine::door_actor::DoorControlState::set_open_angle",
-      "tier": "contract",
-      "evidence": "Angle store (GAME 0x43b810). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_9338a7d4c2 + Ghidra body 177 insns/13 bbs, door SetOpenAngle; pin tests door"
     },
     {
       "binary": "Game.exe",
@@ -9713,8 +9713,8 @@
       "va": "0x43bcc0",
       "name": "C_door::ChangeState",
       "symbol": "lhr_engine::door_actor::DoorControlState::change_state",
-      "tier": "contract",
-      "evidence": "Toggle round-trip (GAME 0x43bcc0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_421e3c0b05 + complete walk (state==2 + flag check -> sound call + RET); pin tests door"
     },
     {
       "binary": "Game.exe",
@@ -9722,8 +9722,8 @@
       "va": "0x43add0",
       "name": "C_door::EnableUsingObject",
       "symbol": "lhr_engine::door_actor::DoorControlState::enable_using_object",
-      "tier": "contract",
-      "evidence": "Using flag (GAME 0x43add0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7e41085ca6 + Ghidra body 34 insns/7 bbs, EnableUsingObject; pin tests door"
     },
     {
       "binary": "Game.exe",
@@ -9740,8 +9740,8 @@
       "va": "0x4d7a80",
       "name": "C_Vehicle::OpenWindow",
       "symbol": "lhr_engine::car_actor::CarActorState::open_window",
-      "tier": "contract",
-      "evidence": "Seat-indexed bool store (GAME 0x4d7a80). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7cb40c726c + Ghidra body 24 insns/5 bbs, OpenWindow; pin tests vehicle 298 pass"
     },
     {
       "binary": "Game.exe",
@@ -9758,8 +9758,8 @@
       "va": "0x4cdb10",
       "name": "C_Vehicle::SetSpecialDynamicColls",
       "symbol": "lhr_engine::car_actor::CarActorState::set_special_dynamic_colls",
-      "tier": "contract",
-      "evidence": "Flag store (GAME 0x4cdb10); wake-up deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_acd063e00f + Ghidra body 137 insns/23 bbs, SetSpecialDynamicColls; pin tests vehicle"
     },
     {
       "binary": "Game.exe",
