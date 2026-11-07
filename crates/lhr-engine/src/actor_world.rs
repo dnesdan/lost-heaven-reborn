@@ -89,6 +89,20 @@ pub struct BaseActorState {
     /// Starts clear; GameInit/Tick producers stay open.
     /// No overlay entry; rides Process 0x6d3b0.
     pub dead: bool,
+    /// Script-visible alive latch (mafia-re game/actors/C_actor.h:355-357:
+    /// 0x5d bool alive, true from GameInit till the end; GetAlive GAME
+    /// 0x47afd0 reads it). Starts at not alive (working deterministic
+    /// default for the pre-GameInit seed; the native C_actor ctor leaves it
+    /// true, the GameInit writer setting it stays DEFERRED).
+    /// No overlay entry of its own; rides the 0x17d2e0 stop entry.
+    pub alive: bool,
+    /// Script-visible rendered latch (mafia-re game/actors/C_actor.h:359:
+    /// 0x5f bool rendered, false from GameInit; GetRendered GAME 0x4a9990
+    /// reads it; a copy of the body lives in g_sledovacka.cpp). Starts
+    /// clear; the GameInit writer and the scene-last-frame producer stay
+    /// DEFERRED.
+    /// No overlay entry of its own; rides the 0x17d2e0 stop entry.
+    pub rendered: bool,
 }
 impl BaseActorState {
     fn construct(seed: BaseActorSeed) -> Self {
@@ -112,6 +126,8 @@ impl BaseActorState {
             release_frame: seed.release_frame,
             bytes_6d_6f: seed.bytes_6d_6f,
             dead: false,
+            alive: false,
+            rendered: false,
         }
     }
     /// Original GetDead read.
@@ -121,6 +137,63 @@ impl BaseActorState {
     /// Test/host setter for the dead latch (Tick producer deferred).
     pub fn set_dead(&mut self, dead: bool) {
         self.dead = dead;
+    }
+    /// GAME 0x47afd0 (RVA 0x7afd0) C_actor::GetAlive (mafia-re 113b5b6
+    /// game/actors/C_actor.h:427-430): read the 0x5d alive latch.
+    pub fn alive(&self) -> bool {
+        self.alive
+    }
+    /// Test/host setter for the alive latch (GameInit/death writers deferred).
+    pub fn set_alive(&mut self, alive: bool) {
+        self.alive = alive;
+    }
+    /// GAME 0x4a9990 (RVA 0x4a9990) C_actor::GetRendered (mafia-re 113b5b6
+    /// game/actors/C_actor.h:421-425; a copy of the body lives in
+    /// g_sledovacka.cpp): read the 0x5f rendered latch.
+    pub fn rendered(&self) -> bool {
+        self.rendered
+    }
+    /// Test/host setter for the rendered latch (GameInit/scene writers deferred).
+    pub fn set_rendered(&mut self, rendered: bool) {
+        self.rendered = rendered;
+    }
+    /// GAME 0x47af20 (RVA 0x7af20) C_actor::GetSubtype (mafia-re 113b5b6
+    /// game/actors/C_actor.h:394-397): read the 0x14 subtype word
+    /// (ACTORSUB_*, 1 at first). Backed by the typed word_14 seed word.
+    pub fn subtype(&self) -> u32 {
+        self.word_14
+    }
+    /// GAME 0x47afb0 (RVA 0x7afb0) C_actor::GetFrame (mafia-re 113b5b6
+    /// game/actors/C_actor.h:410-414; FOLDED with the C_mission
+    /// GetMissionName copy, so this address names the shared body): read
+    /// the 0x68 frame link, None without a frame.
+    pub fn frame_id(&self) -> Option<FrameReferenceId> {
+        self.frame
+    }
+    /// GAME 0x47aff0 (RVA 0x7aff0) C_actor::SetUnknown65 (mafia-re 113b5b6
+    /// game/actors/C_actor.h:437-440): store the 0x65 byte. Sibling writer
+    /// C_detector::SetSignal clears the same byte first; see
+    /// ActorWorld::set_detector_signal (GAME 0x47b760).
+    pub fn set_unknown65(&mut self, on: bool) {
+        self.bytes_64_65[1] = u8::from(on);
+    }
+    /// GAME 0x4091d0 (RVA 0x91d0) C_actor::Release (mafia-re 113b5b6
+    /// game/actors/C_actor.h:196-203): decrement the 0x0c reference count
+    /// with 16-bit wrap and return the post-decrement count. The
+    /// delete-this half (native `delete this` at zero) stays with the
+    /// world owner; see ActorWorld::release.
+    pub fn release_one(&mut self) -> u16 {
+        self.references = self.references.wrapping_sub(1);
+        self.references
+    }
+    /// GAME 0x547220 (RVA 0x47220) C_actor::SetFromMission (mafia-re
+    /// 113b5b6 game/actors/C_actor.h:272-276; field game/actors/C_actor.h:
+    /// 369-371: 0x66 from_mission, set for the mission file's actors):
+    /// mark the actor as a mission-file actor. No phase gate or GameInit
+    /// here; the phase-gated scene-stream marker is the sibling
+    /// ActorWorld::mark_scene_loaded, which takes no credit for this RVA.
+    pub fn set_from_mission(&mut self) {
+        self.byte_66 = 1;
     }
     /// Original C_actor::RecordKey (GAME 0x404f30, mafia-re 113b5b6
     /// game/actors/C_actor.cpp:670-674; contract game/actors/C_actor.h:166):
@@ -989,6 +1062,14 @@ impl ActorWorld {
         if let Some(i) = self.static_actors.values.iter().rposition(|a| *a == actor) {
             self.static_actors.values.swap_remove(i);
         }
+    }
+    /// GAME 0x47b000 (RVA 0x7b000) C_actor::GetGlobalActors (mafia-re
+    /// 113b5b6 game/actors/C_actor.h:442-445): the native returns the whole
+    /// global_actors vector by reference; this is the live-entry count
+    /// projection over the static collection. The vector itself stays with
+    /// the collection owner; see add_actor_to_global/del_actor_from_global.
+    pub fn global_actor_count(&self) -> usize {
+        self.static_actors.values.iter().filter(|a| a.is_some()).count()
     }
     /// Context AddActor returns immediately for a primary duplicate, including
     /// an attempted false-to-true active promotion.
@@ -5283,6 +5364,67 @@ mod tests {
         );
         assert_eq!(w.actor_count, 0);
         assert_eq!(w.source(ActorSource::Static), &[Some(a)]);
+    }
+    #[test]
+    fn base_accessors_rva_7af20_7afb0_7aff0_47220_91d0_round_trip() {
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = actor(&mut w, &mut e, 1);
+        // GAME 0x47af20 C_actor::GetSubtype reads the 0x14 word.
+        assert_eq!(w.state(a).unwrap().subtype(), 1);
+        // GAME 0x47afb0 C_actor::GetFrame reads the 0x68 link, None here.
+        assert_eq!(w.state(a).unwrap().frame_id(), None);
+        // GAME 0x47aff0 C_actor::SetUnknown65 stores the 0x65 byte.
+        w.state_mut(a).unwrap().set_unknown65(true);
+        assert_eq!(w.state(a).unwrap().bytes_64_65, [0x65, 1]);
+        w.state_mut(a).unwrap().set_unknown65(false);
+        assert_eq!(w.state(a).unwrap().bytes_64_65, [0x65, 0]);
+        // GAME 0x547220 C_actor::SetFromMission marks the mission-file byte.
+        assert_eq!(w.state(a).unwrap().byte_66, 0);
+        w.state_mut(a).unwrap().set_from_mission();
+        assert_eq!(w.state(a).unwrap().byte_66, 1);
+        // GAME 0x4091d0 C_actor::Release decrements with 16-bit wrap and
+        // returns the post-decrement count (delete-this stays with release).
+        w.state_mut(a).unwrap().references = 3;
+        assert_eq!(w.state_mut(a).unwrap().release_one(), 2);
+        assert_eq!(w.state_mut(a).unwrap().release_one(), 1);
+        assert_eq!(w.state_mut(a).unwrap().release_one(), 0);
+        w.state_mut(a).unwrap().references = 0;
+        assert_eq!(w.state_mut(a).unwrap().release_one(), u16::MAX);
+    }
+    #[test]
+    fn base_liveness_latches_rva_7afd0_4a9990_start_clear_and_round_trip() {
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = actor(&mut w, &mut e, 1);
+        // GAME 0x47afd0 C_actor::GetAlive / GAME 0x4a9990 C_actor::GetRendered.
+        assert!(!w.state(a).unwrap().alive());
+        assert!(!w.state(a).unwrap().rendered());
+        w.state_mut(a).unwrap().set_alive(true);
+        w.state_mut(a).unwrap().set_rendered(true);
+        assert!(w.state(a).unwrap().alive());
+        assert!(w.state(a).unwrap().rendered());
+        w.state_mut(a).unwrap().set_alive(false);
+        w.state_mut(a).unwrap().set_rendered(false);
+        assert!(!w.state(a).unwrap().alive());
+        assert!(!w.state(a).unwrap().rendered());
+    }
+    #[test]
+    fn global_actor_count_rva_7b000_tracks_static_membership() {
+        let mut w = world();
+        let mut e = Effects::default();
+        // GAME 0x47b000 C_actor::GetGlobalActors count projection.
+        assert_eq!(w.global_actor_count(), 0);
+        let a = actor(&mut w, &mut e, 1);
+        assert_eq!(w.global_actor_count(), 1);
+        // Null and duplicate registrations are no-ops like the native guards.
+        w.add_actor_to_global(None, &mut e).unwrap();
+        w.add_actor_to_global(Some(a), &mut e).unwrap();
+        assert_eq!(w.global_actor_count(), 1);
+        w.del_actor_from_global(Some(a));
+        assert_eq!(w.global_actor_count(), 0);
+        w.del_actor_from_global(None);
+        assert_eq!(w.global_actor_count(), 0);
     }
     #[test]
     fn growth_effects_observe_old_headers_and_primary_commits_before_active() {

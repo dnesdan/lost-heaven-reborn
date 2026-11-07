@@ -737,6 +737,33 @@ pub struct HumanState {
     /// Blend of the last staged DelExtendedAnim marker (4.0f per
     /// C_human.cpp:6092), None before the first staged call.
     del_extended_anim_blend: Option<f32>,
+    /// Look-frame latch (mafia-re 113b5b6 game/actors/C_human.h:822:
+    /// 0x2d8 I3D_frame *look_frame; SetLookFrame GAME 0x47b7a0 writes it).
+    /// The camera/frame readers stay DEFERRED. Starts at none.
+    look_frame: Option<FrameReferenceId>,
+    /// HUD wingman indicator words (mafia-re 113b5b6
+    /// game/actors/C_human.h:993-995: 0x6d8 int wingman, -1 for none, and
+    /// 0x6dc uint wingman_name, 0 to 7; SetWingman GAME 0x47b7c0 writes
+    /// both). The indicator consumer stays DEFERRED. Starts at none/0.
+    wingman: i32,
+    wingman_name: u32,
+    /// Script fire-target latch (mafia-re 113b5b6 game/actors/C_human.h:996:
+    /// 0x6e0 I3D_frame *fire_target, HUMAN_SETFIRETARGET's, NULL for none;
+    /// SetFireTarget GAME 0x47b7e0 writes it). The fire writer stays
+    /// DEFERRED. Starts at none.
+    fire_target: Option<FrameReferenceId>,
+    /// No-anim-hit latch (mafia-re 113b5b6 game/actors/C_human.h:1022:
+    /// 0x720 no_anim_hit; SetNoAnimHit GAME 0x47b7f0 writes it). The hit
+    /// animation gate stays DEFERRED. Starts clear.
+    no_anim_hit: bool,
+    /// Idle-animation latch (mafia-re 113b5b6 game/actors/C_human.h:926:
+    /// 0x598 idle_anims; SetIdleAnims GAME 0x47b800 writes it). The Update
+    /// idle-animation producer stays DEFERRED. Starts clear.
+    idle_anims: bool,
+    /// Shut-up latch (mafia-re 113b5b6 game/actors/C_human.h:963: 0x684
+    /// shut_up, HUMAN_SHUTUP's; SetShutUp GAME 0x47b850 writes it). The
+    /// NewScream gate stays DEFERRED. Starts clear.
+    shut_up: bool,
 }
 impl HumanState {
     pub(crate) fn construct(seed: HumanSeed) -> Self {
@@ -784,6 +811,13 @@ impl HumanState {
             change_weapon_model_calls: 0,
             del_extended_anim_calls: 0,
             del_extended_anim_blend: None,
+            look_frame: None,
+            wingman: -1,
+            wingman_name: 0,
+            fire_target: None,
+            no_anim_hit: false,
+            idle_anims: false,
+            shut_up: false,
         }
     }
     pub fn human_type_mask(&self) -> u32 {
@@ -945,6 +979,71 @@ impl HumanState {
     /// Blend of the last staged DelExtendedAnim marker, if any.
     pub fn del_extended_anim_blend(&self) -> Option<f32> {
         self.del_extended_anim_blend
+    }
+    /// GAME 0x47b7a0 (RVA 0x7b7a0) C_human::SetLookFrame (mafia-re 113b5b6
+    /// game/actors/C_human.h:1114-1118; field game/actors/C_human.h:822):
+    /// store the look frame, None for NULL.
+    pub fn set_look_frame(&mut self, frame: Option<FrameReferenceId>) {
+        self.look_frame = frame;
+    }
+    /// Look frame staged by SetLookFrame, None for NULL.
+    pub fn look_frame(&self) -> Option<FrameReferenceId> {
+        self.look_frame
+    }
+    /// GAME 0x47b7c0 (RVA 0x7b7c0) C_human::SetWingman (mafia-re 113b5b6
+    /// game/actors/C_human.h:1124-1129; fields game/actors/C_human.h:993
+    /// -995): store the HUD wingman indicator index and name.
+    pub fn set_wingman(&mut self, index: i32, name: u32) {
+        self.wingman = index;
+        self.wingman_name = name;
+    }
+    /// Wingman indicator index (-1 for none) staged by SetWingman.
+    pub fn wingman(&self) -> i32 {
+        self.wingman
+    }
+    /// Wingman indicator name (0 to 7) staged by SetWingman.
+    pub fn wingman_name(&self) -> u32 {
+        self.wingman_name
+    }
+    /// GAME 0x47b7e0 (RVA 0x7b7e0) C_human::SetFireTarget (mafia-re 113b5b6
+    /// game/actors/C_human.h:1130-1134; field game/actors/C_human.h:996):
+    /// store the script fire target, None for NULL.
+    pub fn set_fire_target(&mut self, frame: Option<FrameReferenceId>) {
+        self.fire_target = frame;
+    }
+    /// Script fire target staged by SetFireTarget, None for NULL.
+    pub fn fire_target(&self) -> Option<FrameReferenceId> {
+        self.fire_target
+    }
+    /// GAME 0x47b7f0 (RVA 0x7b7f0) C_human::SetNoAnimHit (mafia-re 113b5b6
+    /// game/actors/C_human.h:1135-1139; field game/actors/C_human.h:1022):
+    /// store the no-anim-hit latch.
+    pub fn set_no_anim_hit(&mut self, on: bool) {
+        self.no_anim_hit = on;
+    }
+    /// No-anim-hit latch staged by SetNoAnimHit.
+    pub fn no_anim_hit(&self) -> bool {
+        self.no_anim_hit
+    }
+    /// GAME 0x47b800 (RVA 0x7b800) C_human::SetIdleAnims (mafia-re 113b5b6
+    /// game/actors/C_human.h:1140-1144; field game/actors/C_human.h:926):
+    /// store the idle-animation latch.
+    pub fn set_idle_anims(&mut self, value: bool) {
+        self.idle_anims = value;
+    }
+    /// Idle-animation latch staged by SetIdleAnims.
+    pub fn idle_anims(&self) -> bool {
+        self.idle_anims
+    }
+    /// GAME 0x47b850 (RVA 0x7b850) C_human::SetShutUp (mafia-re 113b5b6
+    /// game/actors/C_human.h:1152-1156; field game/actors/C_human.h:963):
+    /// store the shut-up latch.
+    pub fn set_shut_up(&mut self, on: bool) {
+        self.shut_up = on;
+    }
+    /// Shut-up latch staged by SetShutUp.
+    pub fn shut_up(&self) -> bool {
+        self.shut_up
     }
     pub fn collection_is_empty(&self, slot: HumanResourceSlot) -> bool {
         match slot {
@@ -1503,6 +1602,45 @@ mod tests {
                 untouched_tail: [0xa5; 16],
             }),
         }
+    }
+    #[test]
+    // GAME 0x47b7a0/0x47b7c0/0x47b7e0/0x47b7f0/0x47b800/0x47b850 (RVA
+    // 0x7b7a0/0x7b7c0/0x7b7e0/0x7b7f0/0x7b800/0x7b850): the small
+    // C_human setters store their words and start at the cleared/
+    // none defaults.
+    fn small_human_setters_round_trip_and_start_cleared() {
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.look_frame(), None);
+        assert_eq!((human.wingman(), human.wingman_name()), (-1, 0));
+        assert_eq!(human.fire_target(), None);
+        assert!(!human.no_anim_hit());
+        assert!(!human.idle_anims());
+        assert!(!human.shut_up());
+        human.set_look_frame(Some(FrameReferenceId::from_existing(7)));
+        assert_eq!(human.look_frame(), Some(FrameReferenceId::from_existing(7)));
+        human.set_look_frame(None);
+        assert_eq!(human.look_frame(), None);
+        human.set_wingman(2, 5);
+        assert_eq!((human.wingman(), human.wingman_name()), (2, 5));
+        human.set_fire_target(Some(FrameReferenceId::from_existing(9)));
+        assert_eq!(
+            human.fire_target(),
+            Some(FrameReferenceId::from_existing(9))
+        );
+        human.set_fire_target(None);
+        assert_eq!(human.fire_target(), None);
+        human.set_no_anim_hit(true);
+        assert!(human.no_anim_hit());
+        human.set_idle_anims(true);
+        assert!(human.idle_anims());
+        human.set_shut_up(true);
+        assert!(human.shut_up());
+        human.set_no_anim_hit(false);
+        human.set_idle_anims(false);
+        human.set_shut_up(false);
+        assert!(!human.no_anim_hit());
+        assert!(!human.idle_anims());
+        assert!(!human.shut_up());
     }
     #[test]
     // Predates the GameInit prefix (construct now also sets the car latches

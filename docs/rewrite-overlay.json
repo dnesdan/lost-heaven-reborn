@@ -6824,8 +6824,8 @@
       "va": "0x1007c9a0",
       "name": "ISND_sound::Release (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_release",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:169; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_release_paths)"
+      "tier": "differential",
+      "evidence": "REA ev_6074d4eae5 + complete walk both branches (DEC + JNS warning path + TEST/JNZ zero-path vcall [EAX+0x3c] + RET 4); pin test isound_sound_release_paths 1 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -11227,6 +11227,141 @@
       "symbol": "lhr_engine::wagon_actor::WagonState::set_event",
       "tier": "differential",
       "evidence": "REA ev_8270b295ae + Ghidra body 5 insns/1 bb, set event stores; pin test set_event"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7afd0",
+      "va": "0x47afd0",
+      "name": "C_actor::GetAlive",
+      "symbol": "lhr_engine::actor_world::BaseActorState::alive",
+      "tier": "contract",
+      "evidence": "Alive latch read (GAME 0x47afd0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4a9990",
+      "va": "0x8a9990",
+      "name": "C_actor::GetRendered",
+      "symbol": "lhr_engine::actor_world::BaseActorState::rendered",
+      "tier": "contract",
+      "evidence": "Rendered latch read (GAME 0x4a9990). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7af20",
+      "va": "0x47af20",
+      "name": "C_actor::GetSubtype",
+      "symbol": "lhr_engine::actor_world::BaseActorState::subtype",
+      "tier": "contract",
+      "evidence": "Subtype word read (GAME 0x47af20). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7afb0",
+      "va": "0x47afb0",
+      "name": "C_actor::GetFrame",
+      "symbol": "lhr_engine::actor_world::BaseActorState::frame_id",
+      "tier": "contract",
+      "evidence": "Frame link read (GAME 0x47afb0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7aff0",
+      "va": "0x47aff0",
+      "name": "C_actor::SetUnknown65",
+      "symbol": "lhr_engine::actor_world::BaseActorState::set_unknown65",
+      "tier": "contract",
+      "evidence": "Unknown65 byte store (GAME 0x47aff0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x91d0",
+      "va": "0x4091d0",
+      "name": "C_actor::Release",
+      "symbol": "lhr_engine::actor_world::BaseActorState::release_one",
+      "tier": "contract",
+      "evidence": "Refcount decrement with wrap (GAME 0x4091d0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x47220",
+      "va": "0x447220",
+      "name": "C_actor::SetFromMission",
+      "symbol": "lhr_engine::actor_world::BaseActorState::set_from_mission",
+      "tier": "contract",
+      "evidence": "Mission-file byte mark (GAME 0x547220). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b000",
+      "va": "0x47b000",
+      "name": "C_actor::GetGlobalActors",
+      "symbol": "lhr_engine::actor_world::ActorWorld::global_actor_count",
+      "tier": "contract",
+      "evidence": "Global actors count projection (GAME 0x47b000). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b7a0",
+      "va": "0x47b7a0",
+      "name": "C_human::SetLookFrame",
+      "symbol": "lhr_engine::human_actor::HumanState::set_look_frame",
+      "tier": "contract",
+      "evidence": "Look frame store (GAME 0x47b7a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b7c0",
+      "va": "0x47b7c0",
+      "name": "C_human::SetWingman",
+      "symbol": "lhr_engine::human_actor::HumanState::set_wingman",
+      "tier": "contract",
+      "evidence": "Wingman store (GAME 0x47b7c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b7e0",
+      "va": "0x47b7e0",
+      "name": "C_human::SetFireTarget",
+      "symbol": "lhr_engine::human_actor::HumanState::set_fire_target",
+      "tier": "contract",
+      "evidence": "Fire target store (GAME 0x47b7e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b7f0",
+      "va": "0x47b7f0",
+      "name": "C_human::SetNoAnimHit",
+      "symbol": "lhr_engine::human_actor::HumanState::set_no_anim_hit",
+      "tier": "contract",
+      "evidence": "No-anim-hit store (GAME 0x47b7f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b800",
+      "va": "0x47b800",
+      "name": "C_human::SetIdleAnims",
+      "symbol": "lhr_engine::human_actor::HumanState::set_idle_anims",
+      "tier": "contract",
+      "evidence": "Idle anims store (GAME 0x47b800). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b850",
+      "va": "0x47b850",
+      "name": "C_human::SetShutUp",
+      "symbol": "lhr_engine::human_actor::HumanState::set_shut_up",
+      "tier": "contract",
+      "evidence": "Shut-up store (GAME 0x47b850). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b860",
+      "va": "0x47b860",
+      "name": "C_player::SetCanCarDamage",
+      "symbol": "lhr_engine::player_actor::PlayerState::set_can_car_damage",
+      "tier": "contract",
+      "evidence": "Card-damage latch store (GAME 0x47b860). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

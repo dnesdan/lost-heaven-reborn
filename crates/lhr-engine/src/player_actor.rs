@@ -16,6 +16,13 @@ pub struct PlayerState {
     pub(crate) constructor_words: [u32; 2],
     pub(crate) collection: EmptyHumanCollection,
     controls_locked: bool,
+    /// Card-damage HUD latch (mafia-re 113b5b6 game/actors/C_player.h:86-87:
+    /// static bool can_car_damage, cleared by C_game::Init and set by the
+    /// script's CARDAMAGEVISIBLE; SetCanCarDamage GAME 0x47b860 writes it).
+    /// Native storage is a C_player static; this stages the per-player
+    /// projection (the single-player game owns one player). Starts cleared,
+    /// matching the C_game::Init clear; the HUD consumer stays DEFERRED.
+    can_car_damage: bool,
 }
 impl PlayerState {
     pub(crate) fn construct(allocator_tag: u8, human: &mut HumanState) -> Self {
@@ -29,6 +36,7 @@ impl PlayerState {
             constructor_words: [0, 200],
             collection: EmptyHumanCollection::construct(allocator_tag),
             controls_locked: false,
+            can_car_damage: false,
         }
     }
     pub fn constructor_words(&self) -> &[u32; 2] {
@@ -44,6 +52,16 @@ impl PlayerState {
     /// Original LockControls(bool) store; Do_Breath is not run here.
     pub fn set_controls_locked(&mut self, locked: bool) {
         self.controls_locked = locked;
+    }
+    /// GAME 0x47b860 (RVA 0x7b860) C_player::SetCanCarDamage (mafia-re
+    /// 113b5b6 game/actors/C_player.h:92-96): store the card-damage HUD
+    /// latch.
+    pub fn set_can_car_damage(&mut self, on: bool) {
+        self.can_car_damage = on;
+    }
+    /// Card-damage HUD latch staged by SetCanCarDamage, cleared at start.
+    pub fn can_car_damage(&self) -> bool {
+        self.can_car_damage
     }
 }
 
@@ -80,5 +98,17 @@ mod lock_tests {
         assert!(player.controls_locked());
         player.set_controls_locked(false);
         assert!(!player.controls_locked());
+    }
+    #[test]
+    // GAME 0x47b860 (RVA 0x7b860) C_player::SetCanCarDamage: the latch
+    // starts cleared like the C_game::Init clear and stores the bool.
+    fn can_car_damage_rva_7b860_starts_cleared_and_stores_bool() {
+        let mut human = HumanState::construct(human_seed());
+        let mut player = PlayerState::construct(0xd7, &mut human);
+        assert!(!player.can_car_damage());
+        player.set_can_car_damage(true);
+        assert!(player.can_car_damage());
+        player.set_can_car_damage(false);
+        assert!(!player.can_car_damage());
     }
 }

@@ -279,7 +279,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +10 misc batch (FreeTables/rnd x2/DonOcas/DestroyIShowAll/SetHidden/
         # detector Init walk/UpdateControls/ShowProgress/PrepareBaseBlocks;
         # 9 dossiers + 1 walk; STUBs held).
-        self.assertEqual(game["ported"], 149 + 363)
+        # +15 actor/human/player contracts (GetAlive/Rendered/Subtype/Frame/
+        # Unknown65/Release/SetFromMission/GlobalActors + SetLookFrame/Wingman/
+        # FireTarget/NoAnimHit/IdleAnims/ShutUp + SetCanCarDamage;
+        # marker-only, tests green; differential after Ghidra bodies).
+        self.assertEqual(game["ported"], 149 + 378)
         self.assertEqual(game["verified"], 149 + 299)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
@@ -394,8 +398,10 @@ class RewriteProgressTests(unittest.TestCase):
         # + wrapper CALL 873-insn worker covered through entry; pin tests).
         # +4 ISND_sound lifecycle (GetSource walk + Open/Close/Stop dossiers;
         # Play walks + Get/SetCurrTime/Volume held).
+        # +1 ISND_sound Release (complete walk both branches; pin test
+        # release_paths).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 381)
+        self.assertEqual(ls3df["verified"], 145 + 382)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
