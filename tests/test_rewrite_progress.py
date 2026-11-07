@@ -261,8 +261,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +10 movement/coll batch (RecordKey/cbCollTester walks + Go_Front/
         # Back/Left/Right + Do_Aimed/InventoryTruncate + Add-DelFrameColl;
         # 2 walks + 8 dossiers 32-181 insns).
+        # +4 vehicle/score/mission batch (SetVehicleMaterials 0xc5c10 /
+        # ScoreSet 0x1b9fe0 / ShowProgress 0x140950 / InternTempActDel
+        # 0x1a79f0; bodies 9-173 insns; large callbacks held).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 250)
+        self.assertEqual(game["verified"], 149 + 254)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
@@ -372,8 +375,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +7 3dsound tranche K (SetPos/Dir/Velocity walks + SetDistances/Open/
         # Close dossiers + CreateSound out-variant; SetCone/OutVolume tails +
         # GetSource held).
+        # +2 I3D_sound GetPlayTime/ForceUpdate (complete walks: null->0/vcall
+        # + wrapper CALL 873-insn worker covered through entry; pin tests).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 373)
+        self.assertEqual(ls3df["verified"], 145 + 375)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

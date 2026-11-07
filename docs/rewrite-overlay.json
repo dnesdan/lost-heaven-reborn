@@ -5195,8 +5195,8 @@
       "va": "0x10058250",
       "name": "I3D_sound::GetPlayTime",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::sound_duration_ms",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:338-346 + no Ghidra procedure + test pin_getters_with_synthetic_vectors; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_4280c43add + complete walk both branches (null [EAX+0x15c] -> RET 0; else load [EAX+0x160] + tail-jump [ECX+0x10] voice GetPlayTime); pin test pin_getters_with_synthetic_vectors 1 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -5204,8 +5204,8 @@
       "va": "0x10058530",
       "name": "I3D_sound::ForceUpdate",
       "symbol": "lhr_engine::runtime_audio::RuntimeAudio::update_sound",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_sound.cpp:436-449 (single m_UpdateSound call, tailjump shape; m_UpdateSound covered through this entry) + no Ghidra procedure + test pin_seton_update_parity_and_range_clamp; tier contract"
+      "tier": "differential",
+      "evidence": "REA ev_d676ccfa80 + complete walk 3 insns (MOV ECX + CALL 0x10058540 + RET 4), worker 0x10058540 Ghidra body 873 insns ev_61ce851deb covered through this entry; pin test pin_seton_update_parity_and_range_clamp 1 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -10406,8 +10406,8 @@
       "va": "0x4c5c10",
       "name": "SetVehicleMaterials",
       "symbol": "lhr_engine::vehicle_engine_state::vehicle_set_materials",
-      "tier": "contract",
-      "evidence": "Rebuild with 0xff conv quirk (GAME 0x4c5c10). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_a22b07f6f9 + Ghidra body 44 insns/7 bbs, SetVehicleMaterials rebuild (0xff conv quirk); pin tests vehicle 298 pass"
     },
     {
       "binary": "Game.exe",
@@ -10442,8 +10442,8 @@
       "va": "0x5b9fe0",
       "name": "C_game::ScoreSet",
       "symbol": "lhr_engine::game_housekeeping::score_set",
-      "tier": "contract",
-      "evidence": "Score store + HUD bonus (GAME 0x5b9fe0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7ac380a3ad + Ghidra body 9 insns/3 bbs, ScoreSet store + HUD bonus; pin tests score 3 pass"
     },
     {
       "binary": "Game.exe",
@@ -10460,8 +10460,8 @@
       "va": "0x5a79f0",
       "name": "C_game::InternTempActDel",
       "symbol": "lhr_engine::game_housekeeping::intern_temp_act_del",
-      "tier": "contract",
-      "evidence": "Swap-remove from 3 vectors (GAME 0x5a79f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_6e22e1b226 + Ghidra body 173 insns/27 bbs, InternTempActDel; pin tests temp_act 5 pass"
     },
     {
       "binary": "Game.exe",
@@ -10487,8 +10487,8 @@
       "va": "0x540950",
       "name": "C_mission::ShowProgress",
       "symbol": "lhr_engine::mission_load_session::show_progress_value",
-      "tier": "contract",
-      "evidence": "Loading-bar ratio (GAME 0x540950). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2d4fb0b919 + Ghidra body 39 insns/9 bbs, ShowProgress; pin tests show_progress 7 pass"
     },
     {
       "binary": "Game.exe",
