@@ -193,8 +193,12 @@ class RewriteProgressTests(unittest.TestCase):
         # ishow getters + STUBs; Ghidra bodies 2-929 insns + pinning tests).
         # +5 roads helpers (clear 0x15cb90 / zone 0x15be10 / emit 0x15bc10 /
         # fixup 0x15bcd0 / edge 0x15b5d0; Ghidra bodies 20-132 insns).
+        # +13 police/traffic/car batch (GameInit/release/remove 0x099cd0-
+        # 0x09f780, DecrementCount/Save 0x0b9560-0x0aabf0, GetAIPos/Nav
+        # 0x029510/0x0299c0, railway Save 0x086920, roads edge/ctor;
+        # 10 dossiers + 3 walks).
         self.assertEqual(game["ported"], 149 + 311)
-        self.assertEqual(game["verified"], 149 + 53)
+        self.assertEqual(game["verified"], 149 + 66)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

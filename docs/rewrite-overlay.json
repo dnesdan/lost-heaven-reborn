@@ -90,8 +90,8 @@
       "va": "0x55c440",
       "name": "C_roads edge validate",
       "symbol": "lhr_engine::road_network::edge_validate",
-      "tier": "contract",
-      "evidence": "REA ev_b1ea4914 + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_271b25875b + Ghidra body 62 insns, edge validate; pin tests road edge"
     },
     {
       "binary": "Game.exe",
@@ -99,8 +99,8 @@
       "va": "0x55c430",
       "name": "C_roads search element ctor",
       "symbol": "lhr_engine::road_network::ROAD_UNREACHED_DIST_BITS",
-      "tier": "contract",
-      "evidence": "REA ev_bf43bc2b + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_d55e1c25c7 + Ghidra body 4 insns, search element ctor; pin tests road walk"
     },
     {
       "binary": "Game.exe",
@@ -117,8 +117,8 @@
       "va": "0x499cd0",
       "name": "C_shvestky::GameInit",
       "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_game_init",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_d38fd3d578 + Ghidra body 82 insns, GameInit timers/limits + 4 lists; pin tests police game_init"
     },
     {
       "binary": "Game.exe",
@@ -126,8 +126,8 @@
       "va": "0x49f850",
       "name": "C_shvestky release-wanted-human",
       "symbol": "lhr_engine::police_state::release_wanted_human",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_ce271edb03 + Ghidra body 106 insns, release-wanted back-scan + offenses++; pin tests release_wanted"
     },
     {
       "binary": "Game.exe",
@@ -135,8 +135,8 @@
       "va": "0x49f540",
       "name": "C_shvestky remove-angry-actor",
       "symbol": "lhr_engine::police_state::remove_angry_actor_everywhere",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_4a69fc2729 + Ghidra body 23 insns, remove-angry loop via 0x49f780; pin tests remove_angry"
     },
     {
       "binary": "Game.exe",
@@ -144,8 +144,8 @@
       "va": "0x49f780",
       "name": "S_shvestky remove-angry-actor",
       "symbol": "lhr_engine::police_state::remove_angry_actor_from_record",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_1bdad15f86 + Ghidra body 43 insns, swap-with-back + pop; pin tests remove_angry record"
     },
     {
       "binary": "Game.exe",
@@ -153,8 +153,8 @@
       "va": "0x4b9560",
       "name": "C_traffic_car::DecrementCount",
       "symbol": "lhr_engine::traffic_car_actor::TrafficCarCount::decrement",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_eb21810cfe + Ghidra body 6 insns, DEC clamp at zero; pin test decrement_count_clamps_at_zero"
     },
     {
       "binary": "Game.exe",
@@ -162,8 +162,8 @@
       "va": "0x4bc160",
       "name": "C_traffic_car::SaveGameSave",
       "symbol": "lhr_engine::traffic_car_actor::encode_traffic_savegame_tag",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_7db0437c10 + complete instruction walk, base-call + u16 tag 1 write; pin tests savegame save"
     },
     {
       "binary": "Game.exe",
@@ -171,8 +171,8 @@
       "va": "0x4bc190",
       "name": "C_traffic_car::SaveGameLoad",
       "symbol": "lhr_engine::traffic_car_actor::decode_traffic_savegame_tag",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_d3754eb98d + Ghidra body 19 insns, tag word==1 + cursor; pin tests savegame load"
     },
     {
       "binary": "Game.exe",
@@ -180,8 +180,8 @@
       "va": "0x4aabf0",
       "name": "C_traffic_car::SaveData",
       "symbol": "lhr_engine::traffic_car_actor::TrafficSaveData",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_e80225ab0e + complete instruction walk, version 5 + field order; pin tests TrafficSaveData encode/decode"
     },
     {
       "binary": "Game.exe",
@@ -189,8 +189,8 @@
       "va": "0x429510",
       "name": "C_car::GetAIPos",
       "symbol": "lhr_engine::car_ai_position::get_ai_pos",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_c0cb11c3d2 + Ghidra body 34 insns, flag selects src/dst cache + row-vector transform; pin tests get_ai_pos"
     },
     {
       "binary": "Game.exe",
@@ -198,8 +198,8 @@
       "va": "0x4299c0",
       "name": "C_car::GetNavigationPoints",
       "symbol": "lhr_engine::car_ai_position::navigation_points",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_a4e48cccca + Ghidra body 45 insns, 4 corners + model_y pivot/size; pin tests navigation_points"
     },
     {
       "binary": "Game.exe",
@@ -207,8 +207,8 @@
       "va": "0x486920",
       "name": "C_railway::SaveData",
       "symbol": "lhr_engine::railway_actor::RailwayState::save_payload",
-      "tier": "contract",
-      "evidence": "mafia-re byte-exact source + Rust tests"
+      "tier": "differential",
+      "evidence": "REA ev_72d9922f06 + complete instruction walk, type byte + words via 0x610204; pin test save_payload_round_trips_six_words"
     },
     {
       "binary": "rw_data.dll",
