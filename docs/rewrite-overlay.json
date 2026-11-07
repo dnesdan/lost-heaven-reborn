@@ -9551,8 +9551,8 @@
       "va": "0x49ea80",
       "name": "C_shvestky::TickDoRiciActors",
       "symbol": "lhr_engine::police_state::PoliceGameInitState::tick_do_rici_actors",
-      "tier": "contract",
-      "evidence": "do_rici eviction over camera (GAME 0x49ea80); mission/camera owners deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_d3d6f288d7 + Ghidra body 249 insns/53 bbs, TickDoRiciActors; pin tests police 38 pass"
     },
     {
       "binary": "Game.exe",
@@ -9560,8 +9560,8 @@
       "va": "0x49e820",
       "name": "C_shvestky::AddDoRiciActor",
       "symbol": "lhr_engine::police_state::PoliceGameInitState::admit_do_rici",
-      "tier": "contract",
-      "evidence": "Dup-guarded admit (GAME 0x49e820). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_337cfc9911 + Ghidra body 170 insns/27 bbs, AddDoRiciActor; pin tests police"
     },
     {
       "binary": "Game.exe",
@@ -9569,8 +9569,8 @@
       "va": "0x49e9e0",
       "name": "C_shvestky::DelDoRiciActor",
       "symbol": "lhr_engine::police_state::PoliceGameInitState::evict_do_rici",
-      "tier": "contract",
-      "evidence": "Swap-remove evict (GAME 0x49e9e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7797144f04 + Ghidra body 52 insns/14 bbs, DelDoRiciActor; pin tests police"
     },
     {
       "binary": "Game.exe",
@@ -9578,8 +9578,8 @@
       "va": "0x49e7e0",
       "name": "C_shvestky::FreeMyTempActor",
       "symbol": "lhr_engine::police_state::PoliceGameInitState::free_my_temp_actor",
-      "tier": "contract",
-      "evidence": "Road-block/temp predicate (GAME 0x49e7e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ca7f28f239 + Ghidra body 16 insns/7 bbs, FreeMyTempActor; pin tests police"
     },
     {
       "binary": "Game.exe",
@@ -9596,8 +9596,8 @@
       "va": "0x49cb20",
       "name": "C_shvestky::Firing",
       "symbol": "lhr_engine::police_state::PolicePursuitRecord::record_firing",
-      "tier": "contract",
-      "evidence": "SHVF_FIRE setter (GAME 0x49cb20). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_363b1a351c + Ghidra body 54 insns/13 bbs, Firing; pin tests police"
     },
     {
       "binary": "Game.exe",
@@ -9605,8 +9605,8 @@
       "va": "0x49d030",
       "name": "C_shvestky::HumanBoxing",
       "symbol": "lhr_engine::police_state::PolicePursuitRecord::record_boxing",
-      "tier": "contract",
-      "evidence": "SHVF_BOXING setter (GAME 0x49d030). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_a9a6120657 + Ghidra body 46 insns/12 bbs, HumanBoxing; pin tests police"
     },
     {
       "binary": "Game.exe",
@@ -9614,8 +9614,8 @@
       "va": "0x49d130",
       "name": "C_shvestky::ForceArrest",
       "symbol": "lhr_engine::police_state::PolicePursuitRecord::record_force_arrest",
-      "tier": "contract",
-      "evidence": "SHVF_FORCE_ARREST setter (GAME 0x49d130). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_59e2cd49ee + Ghidra body 49 insns/13 bbs, ForceArrest; pin tests police"
     },
     {
       "binary": "Game.exe",
@@ -9623,8 +9623,8 @@
       "va": "0x44e960",
       "name": "C_traffic_generator::SetVisible",
       "symbol": "lhr_engine::traffic_generator::TrafficTickState::set_visible",
-      "tier": "contract",
-      "evidence": "All-visible gate + frame SetOn (GAME 0x44e960). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2c0c5978ea + Ghidra body 32 insns/8 bbs, traffic SetVisible; pin tests traffic_generator 6 pass"
     },
     {
       "binary": "Game.exe",
@@ -9947,8 +9947,8 @@
       "va": "0x49d3e0",
       "name": "C_shvestky::GetCrashTime",
       "symbol": "lhr_engine::police_state::PolicePursuitRecord::crash_time",
-      "tier": "contract",
-      "evidence": "Crash-time read (GAME 0x49d3e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2871d9d8d0 + Ghidra body 28 insns/7 bbs, GetCrashTime; pin tests police"
     },
     {
       "binary": "Game.exe",

@@ -235,8 +235,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +10 menu/rotate/ghost batch (ActivateByID/FindPrev-Next 0x1eb210-
         # 0x1eb4e0 + RotateDir 0x84d0 + ghost push/empty + mult merge scope +
         # light pairing; bodies 39-825 insns; call plumbing deferred noted).
+        # +9 police/traffic batch (TickDoRici/Add/Del/Free/Firing/Boxing/
+        # ForceArrest/CrashTime 0x9ea80-0x9d3e0 + SetVisible 0x4e960;
+        # bodies 16-249 insns).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 174)
+        self.assertEqual(game["verified"], 149 + 183)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
