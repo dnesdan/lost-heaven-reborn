@@ -10766,8 +10766,8 @@
       "va": "0x40e510",
       "name": "C_animations::ClearNoBaseTracks",
       "symbol": "lhr_engine::animation_blending::clear_no_base_tracks",
-      "tier": "contract",
-      "evidence": "Clear base-excluded tracks (GAME 0x40e510). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_de1d356557 + Ghidra body 111 insns, Clear base-excluded tracks; pin test rva_00e510"
     },
     {
       "binary": "Game.exe",
@@ -10775,8 +10775,8 @@
       "va": "0x40e660",
       "name": "C_animations::InitActor",
       "symbol": "lhr_engine::animation_blending::init_actor_machine",
-      "tier": "contract",
-      "evidence": "Actor machine init (GAME 0x40e660). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_d906133c2b + Ghidra body 30 insns, Actor machine init; pin test rva_00e660"
     },
     {
       "binary": "Game.exe",
@@ -10784,8 +10784,8 @@
       "va": "0x40e6d0",
       "name": "C_animations::InitTraffic",
       "symbol": "lhr_engine::animation_blending::init_traffic_machine",
-      "tier": "contract",
-      "evidence": "Traffic machine init (GAME 0x40e6d0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_42a3578742 + Ghidra body 30 insns, Traffic machine init; pin test rva_00e6d0"
     },
     {
       "binary": "Game.exe",
@@ -10793,8 +10793,8 @@
       "va": "0x40e740",
       "name": "C_animations::InitModel",
       "symbol": "lhr_engine::animation_blending::init_model_machine",
-      "tier": "contract",
-      "evidence": "Model machine init (GAME 0x40e740). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_14f2969732 + Ghidra body 25 insns, Model machine init; pin test rva_00e740"
     },
     {
       "binary": "Game.exe",
@@ -10802,8 +10802,8 @@
       "va": "0x40e7a0",
       "name": "C_animations::Reset",
       "symbol": "lhr_engine::animation_blending::reset_machine",
-      "tier": "contract",
-      "evidence": "Machine reset (GAME 0x40e7a0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_b5fb93e0ab + Ghidra body 19 insns, Machine reset; pin test rva_00e7a0"
     },
     {
       "binary": "Game.exe",
@@ -10811,8 +10811,8 @@
       "va": "0x40e7f0",
       "name": "C_animations::EqualTime",
       "symbol": "lhr_engine::animation_blending::equal_time",
-      "tier": "contract",
-      "evidence": "Equal-time query (GAME 0x40e7f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_65205e800f + Ghidra body 63 insns, Equal-time query; pin test rva_00e7f0"
     },
     {
       "binary": "Game.exe",
@@ -10820,8 +10820,8 @@
       "va": "0x40e890",
       "name": "C_animations::GetActiveAnimTime",
       "symbol": "lhr_engine::animation_blending::get_active_anim_time",
-      "tier": "contract",
-      "evidence": "Active anim time (GAME 0x40e890). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_68f08dabf1 + Ghidra body 33 insns, Active anim time; pin test rva_00e890"
     },
     {
       "binary": "Game.exe",
@@ -10829,8 +10829,8 @@
       "va": "0x40e8e0",
       "name": "C_animations::StopAnims",
       "symbol": "lhr_engine::animation_blending::stop_anims",
-      "tier": "contract",
-      "evidence": "Stop anims via backend (GAME 0x40e8e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_073c32960e + Ghidra body 18 insns, Stop anims via backend; pin test rva_00e8e0"
     },
     {
       "binary": "Game.exe",
@@ -10838,8 +10838,8 @@
       "va": "0x40e900",
       "name": "C_animations::RecompileMatrix",
       "symbol": "lhr_engine::animation_blending::recompile_matrix",
-      "tier": "contract",
-      "evidence": "Recompile matrix (GAME 0x40e900). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_61e54fac44 + Ghidra body 28 insns, Recompile matrix; pin test rva_00e900"
     },
     {
       "binary": "Game.exe",
@@ -10865,8 +10865,8 @@
       "va": "0x40f170",
       "name": "C_animations::IsActive",
       "symbol": "lhr_engine::animation_blending::is_active",
-      "tier": "contract",
-      "evidence": "IsActive check (GAME 0x40f170). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_55ef717bd4 + Ghidra body 21 insns, IsActive check; pin test rva_00f170"
     },
     {
       "binary": "Game.exe",
@@ -10883,8 +10883,8 @@
       "va": "0x410060",
       "name": "C_animations::SetExtendedAnim",
       "symbol": "lhr_engine::animation_blending::set_extended_anim",
-      "tier": "contract",
-      "evidence": "Set extended anim (GAME 0x410060). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_4ceb38f3da + Ghidra body 71 insns, Set extended anim; pin test rva_010060"
     },
     {
       "binary": "Game.exe",
@@ -10892,8 +10892,8 @@
       "va": "0x410150",
       "name": "C_animations::DelExtendedAnim",
       "symbol": "lhr_engine::animation_blending::del_extended_anim",
-      "tier": "contract",
-      "evidence": "Del extended anim (GAME 0x410150). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ed30317142 + Ghidra body 34 insns, Del extended anim; pin test rva_010150"
     },
     {
       "binary": "Game.exe",
@@ -10901,8 +10901,8 @@
       "va": "0x410310",
       "name": "C_animations::GetEndPointOfTCK",
       "symbol": "lhr_engine::animation_blending::get_end_point_of_tck",
-      "tier": "contract",
-      "evidence": "End point of TCK (GAME 0x410310). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7bb073bda3 + Ghidra body 22 insns, End point of TCK; pin test rva_010310"
     },
     {
       "binary": "Game.exe",
@@ -10910,8 +10910,8 @@
       "va": "0x410350",
       "name": "C_animations::GetMixingPointOfTCK",
       "symbol": "lhr_engine::animation_blending::get_mixing_point_of_tck",
-      "tier": "contract",
-      "evidence": "Mixing point of TCK (GAME 0x410350). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_9f6f986997 + Ghidra body 46 insns, Mixing point of TCK; pin test rva_010350"
     },
     {
       "binary": "Game.exe",
@@ -10919,8 +10919,8 @@
       "va": "0x4101d0",
       "name": "C_animations::GetPlacementFromTCK",
       "symbol": "lhr_engine::animation_blending::get_placement_from_tck",
-      "tier": "contract",
-      "evidence": "Placement from TCK (GAME 0x4101d0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_76205215a4 + Ghidra body 88 insns, Placement from TCK; pin test rva_0101d0"
     },
     {
       "binary": "Game.exe",
@@ -10928,8 +10928,8 @@
       "va": "0x4103d0",
       "name": "C_animations::StageBlendingTick",
       "symbol": "lhr_engine::animation_blending::stage_blending_tick",
-      "tier": "contract",
-      "evidence": "Stage blending tick (GAME 0x4103d0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_84f297afe5 + Ghidra body 98 insns, Stage blending tick; pin test rva_0103d0"
     }
   ],
   "vm": {

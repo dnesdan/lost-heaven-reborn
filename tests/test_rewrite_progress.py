@@ -199,8 +199,10 @@ class RewriteProgressTests(unittest.TestCase):
         # 10 dossiers + 3 walks).
         # +19 animation blending contracts (C_animations 0x00e020-0x0103d0;
         # marker-only, tests green; differential after Ghidra bodies).
+        # +16 animation differential (all non-STUB; Ghidra bodies 19-132
+        # insns + pinning tests; 3 STUBs stay contract).
         self.assertEqual(game["ported"], 149 + 330)
-        self.assertEqual(game["verified"], 149 + 66)
+        self.assertEqual(game["verified"], 149 + 82)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
