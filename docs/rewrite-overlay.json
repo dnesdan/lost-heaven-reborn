@@ -10750,6 +10750,42 @@
       "symbol": "lhr_engine::actor_world::ActorWorld::init_detector",
       "tier": "contract",
       "evidence": "human_types mask zeroing (GAME 0x432990); C_actor gate and actor=self deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49eee0",
+      "va": "0x89eee0",
+      "name": "C_shvestky::SendPoliceBackup",
+      "symbol": "lhr_engine::police_state::send_police_backup",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported dispatch (GAME 0x49eee0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49f980",
+      "va": "0x89f980",
+      "name": "C_shvestky::SendPoliceToHuman",
+      "symbol": "lhr_engine::police_state::send_police_to_human",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported dispatch (GAME 0x49f980). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4bad80",
+      "va": "0x8bad80",
+      "name": "C_traffic_car::RemoveAllCars",
+      "symbol": "lhr_engine::traffic_car_actor::remove_all_cars",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported removal (GAME 0x4bad80). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4bbe90",
+      "va": "0x8bbe90",
+      "name": "C_traffic_car::RemoveCar",
+      "symbol": "lhr_engine::traffic_car_actor::remove_car",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported removal (GAME 0x4bbe90). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

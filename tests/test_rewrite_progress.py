@@ -167,7 +167,11 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x4f00f0, SetControl 0x4f02b0, PlayLogo 0x15d460 caller projection).
         # +2 menu/detector scope (SetHidden 0x5eaf20, C_detector::Init mask
         # scope 0x432990; MapEnable 0x5f9d10 already filed).
-        self.assertEqual(game["ported"], 149 + 310)
+        # +4 police/traffic STUB dispatch (SendPoliceBackup 0x49eee0 /
+        # SendPoliceToHuman 0x49f980 / RemoveAllCars 0x4bad80 / RemoveCar
+        # 0x4bbe90; explicit-Unsupported stubs with tests; Do_Crouched
+        # 0x17f8a0 + GetAnimIndex 0x8760 already ledger-credited).
+        self.assertEqual(game["ported"], 149 + 314)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
