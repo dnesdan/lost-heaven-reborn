@@ -6725,8 +6725,8 @@
       "va": "0x1007baa0",
       "name": "ISND_driver::Create3DSound (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_create_3dsound",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:169; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_3dsound_words)"
+      "tier": "differential",
+      "evidence": "REA ev_2843757ddd + Ghidra body 24 insns/3 bbs, Create3DSound; pin tests create_3dsound 2 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6734,8 +6734,8 @@
       "va": "0x1007bb00",
       "name": "ISND_driver::Create3DSound out-variant (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_create_3dsound_out",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:176; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_3dsound_out_null_and_ok)"
+      "tier": "differential",
+      "evidence": "REA ev_c7aeb71226 + Ghidra body 20 insns/3 bbs, Create3DSound out-variant; pin tests"
     },
     {
       "binary": "LS3DF.dll",
@@ -6743,8 +6743,8 @@
       "va": "0x1007bb40",
       "name": "ISND_driver::CreateListener (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_create_listener",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:186; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_listener_refresh_and_default)"
+      "tier": "differential",
+      "evidence": "REA ev_fc308e1c75 + Ghidra body 43 insns/8 bbs, CreateListener; pin tests create_listener 2 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -6752,8 +6752,8 @@
       "va": "0x1007bbd0",
       "name": "ISND_driver::CreateListener out-variant (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_create_listener_out",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:198; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_create_listener_out_null_and_ok)"
+      "tier": "differential",
+      "evidence": "REA ev_c1faef2ed9 + Ghidra body 20 insns/3 bbs, CreateListener out-variant; pin tests"
     },
     {
       "binary": "LS3DF.dll",
@@ -6761,8 +6761,8 @@
       "va": "0x1007be20",
       "name": "ISND_driver::InitDSound freq-bound repair (narrow) (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_repair_freq_bounds",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:296-306 (narrow CPU helper; probe and submits withheld); tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_repair_freq_bounds_vectors)"
+      "tier": "differential",
+      "evidence": "REA ev_9d7c44dd2b + Ghidra body 270 insns/44 bbs, InitDSound freq-bound repair; pin test repair_freq_bounds"
     },
     {
       "binary": "LS3DF.dll",
@@ -6779,8 +6779,8 @@
       "va": "0x1007c240",
       "name": "ISND_driver::Init from-record (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_driver_init_from_record",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_driver.cpp:396; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_driver_init_from_record_null_and_delegate)"
+      "tier": "differential",
+      "evidence": "REA ev_e7c95dbb28 + complete walk both branches (null -> 0x80000007; else unpack 5 dwords + vcall [EDX+4]); pin test init_from_record"
     },
     {
       "binary": "LS3DF.dll",
