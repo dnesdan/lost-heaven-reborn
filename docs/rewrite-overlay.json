@@ -8381,8 +8381,8 @@
       "va": "0x57e020",
       "name": "C_human::Intern_UseCar",
       "symbol": "lhr_engine::human_actor::HumanState::apply_intern_use_car",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:5568-5655 (:5570 seat-range guard arm, :5589 car latch, :5601 seat latch, :5610 HUMAN_ACTION_CAR) + game/actors/C_human.h:145 (HUMAN_ACTION_CAR 9), :718-719 (0xac seat, name ours per upstream guess), :824-826 (0x40c action_state) + S_human_savegame 0x21 int seat convention; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000; contract tier: upstream source plus authored Rust tests in human_actor.rs (admit/refuse/untouched-refusal/seat-retention vectors); SCOPE: seat-placement core only (car/seat/CAR writers); DEFERRED: box/dead_body guard arms, SetOwner, last_car latch, traffic/anim/pose/collision/car/frame/camera/indicator/inventory/weapon/police effects per code markers; negative-seat refusal is a defensive bound (original indexes v_seats[s] raw); authored tests not executed (cargo unavailable); executed green by orchestrator: `cargo test -p lhr-engine --lib human_actor` 14 passed (base daf4d72 + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_5a51f2bc78 + Ghidra body 356 insns/54 bbs, Intern_UseCar seat/car latches; pin test intern_use_car 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -8489,8 +8489,8 @@
       "va": "0x5d59c0",
       "name": "g_collision::TestPanak2 (static core)",
       "symbol": "lhr_engine::collision_swept_capsule::panak2_static_once",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/collision/g_colls.cpp:60 (g_collision::TestPanak2 STUB, 0x5d59c0) with tgcPanak2 shape at game/actors/C_human.h:440-454 (0x8c bytes: radii[3] 0x0, legs 0xc, body 0x18, head 0x24, dir 0x30, flags2 0x3c, flags 0x40, pos_out 0x44, normal 0x50) and the C_human::TestMoveColl descent at game/actors/C_human.cpp:5274; owned static core: Panak2Request projects tgcPanak2 0x0-0x40 (legs/body/head/delta/radii[3]/selector/reject_mask), Panak2Request::from_prefix wires the owned human_move_coll::test_move_coll_prefix leaves (radii, biased dir, flags), panak2_static_once runs exactly one pass of 3x existing sphere_in_tree_level (collision_swept_world.rs:184) with SphereSweepRequest/SphereParam construction per collision_swept.rs, nearest-win on best_distance_squared (strict <, legs-first ties), pos_out/normal via the test_sphere_b_continue output conversion (negated normalized stored normal); Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000 (RVA = VA - 0x400000); contract tier: reviewed upstream source plus authored Rust tests (nearest-win legs, miss arms, parked-legs body win with exact binary-fraction vectors, prefix wiring); REA bodies probe-observed only, NOT re-observed and no REA session opened here (TestPanak2 0x5d59c0-0x5d641d 2654B/603insns ev_2312cee3; TestPanak2InVehicle 0x5d6430-0x5d6e0e ev_20aee0d8); SCOPE: static core only; DEFERRED per code markers: slide/iterate loop, DAT_00648240 global, 0x5ca370 clamp, dynamic dispatch, flag-filtering, InVehicle, frame anchoring, DynSetNextCollOwnerMult, move_coll writeback; authored tests not executed (cargo unavailable on this host); overlap check: rva absent from docs/rewrite-overlay.json functions and not a ledger port (docs/progress.json lists it only in retained_entries coverage); base rust-engine 70d0688, no commit, touched crates/lhr-engine/src/collision_swept_capsule.rs (new) + lib.rs module decl, no menu/detector/human_actor/VM files touched; executed green by orchestrator: `cargo test -p lhr-engine --lib collision_swept_capsule` 4 passed (base 70d0688 + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_147448cce4 + Ghidra body 603 insns/30 bbs, TestPanak2 static core; pin tests static_result_* + all_hit_nearest"
     },
     {
       "binary": "Game.exe",
@@ -8516,8 +8516,8 @@
       "va": "0x407fe0",
       "name": "C_actor::GetPos",
       "symbol": "lhr_engine::ph_thing_update::ph_thing_contact_position",
-      "tier": "contract",
-      "evidence": "Null-frame branch returns the +0x24 vector, else the 0x20-flag-gated UpdateWorld effect plus the frame+0x40 vector (ph_thing_update.rs:212-225), matching C_actor.cpp:1682-1688 (GAME 0x407fe0). Tests cover null/frame branches and the origin. Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_c824a63895 + Ghidra body 30 insns/5 bbs, GetPos null-frame/live-frame; pin test actor_position_uses_live_frame_then_original_null_frame_fallback"
     },
     {
       "binary": "Game.exe",
@@ -8597,8 +8597,8 @@
       "va": "0x5e0690",
       "name": "GM_MainMenu::OnCreate",
       "symbol": "lhr_engine::main_menu::main_menu_oncreate_dispatch",
-      "tier": "contract",
-      "evidence": "START+gating+StoreA+INTRO dispatch matching the landed prefix order per mafia-re g_m_func.cpp:286 (GAME 0x5e0690; RVA ledger form 0x1e0690). Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_dac3f1fab1 + Ghidra body 23 insns/3 bbs, OnCreate START-gating dispatch; pin tests oncreate 3 pass"
     },
     {
       "binary": "Game.exe",
