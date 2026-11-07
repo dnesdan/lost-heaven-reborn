@@ -641,6 +641,171 @@ pub fn sebrali_mi_kaaaru_svine(_car: ActorId) -> Result<(), UnwrittenGameEntry> 
     })
 }
 
+/// Marker for one road block (`C_game::S_RoadBlock`, `game.h:118-124`).
+/// Only the stored `node` (roads' nearest node, `0xffff` for none) and the
+/// `active` flag participate here; the `unknown_4` words stay with the roads
+/// owner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RoadBlockEntry {
+    pub node: u16,
+    pub active: bool,
+}
+
+/// FUNCTION: GAME RVA 0x1b69d0, VA 0x5b69d0 (`game.cpp:3595-3602`,
+/// `C_game::LoadRoadBlocks`): reset half. Empties the list; the sector
+/// enumeration (`EnumFrames` with `"ROADBLOCK*"`) stays with the scene owner.
+/// Verified: Game.exe SHA256 `0839...ab27` `.text` entry bytes read the
+/// `road_blocks` vector at `game.h:340`.
+pub fn load_road_blocks_reset(blocks: &mut Vec<RoadBlockEntry>) {
+    blocks.clear();
+}
+
+/// FUNCTION: GAME RVA 0x1b6a50, VA 0x5b6a50 (`game.cpp:3605-3614`,
+/// `C_game::S_hlp::cbRoadBlock`): admission half. A block is kept only where
+/// the roads owner found a node (`node != 0xffff`); the kept entry starts
+/// inactive (`active = false`, raised later by the police owner). The
+/// `GetNearNode` world-position lookup stays with the roads owner, so the
+/// caller passes its result in. Returns whether an entry was pushed.
+/// Verified: `.text` entry with the vector push-if-valid shape.
+pub fn collect_road_block(node: u16, out: &mut Vec<RoadBlockEntry>) -> bool {
+    if node == 0xffff {
+        return false;
+    }
+    out.push(RoadBlockEntry { node, active: false });
+    true
+}
+
+/// FUNCTION: GAME RVA 0x1b6b10, VA 0x5b6b10 (`game.cpp:3617-3625`,
+/// `C_game::LoadTaxiPoints`): reset half. Empties the list; the sector
+/// enumeration (`EnumFrames` with `"taxi_point*"`) stays with the scene
+/// owner. Verified: `.text` entry reads the `taxi_points` vector cap at
+/// `game.h:346`.
+pub fn load_taxi_points_reset(points: &mut Vec<FrameId>) {
+    points.clear();
+}
+
+/// FUNCTION: GAME RVA 0x1b90b0, VA 0x5b90b0 (`game.cpp:3850-3855`,
+/// `C_game::LoadScreamAreas`): reset half. Empties the list; the sector
+/// enumeration runs through the already ported [`cb_scream_area`].
+/// Verified: `.text` entry reads the `scream_areas` vector cap at
+/// `game.h:505`.
+pub fn load_scream_areas_reset(areas: &mut Vec<ScreamAreaEntry>) {
+    areas.clear();
+}
+
+/// Traffic-sign model sets collected by `CreateSignalMarkIDX`
+/// (`game.cpp:3736-3769`): `dopravni1B.I3D` through `dopravni8B.I3D`,
+/// matched case-insensitively like the original `_stricmp` chain.
+const SIGNAL_MARK_MODELS: [&str; 8] = [
+    "dopravni1B.I3D",
+    "dopravni2B.I3D",
+    "dopravni3B.I3D",
+    "dopravni4B.I3D",
+    "dopravni5B.I3D",
+    "dopravni6B.I3D",
+    "dopravni7B.I3D",
+    "dopravni8B.I3D",
+];
+
+/// Fragment of GAME RVA 0x1b7860 (no own entry; part of
+/// `C_game::CreateSignalMarkIDX`): whether a base-cache model-set name is
+/// one of the eight traffic-sign sets.
+pub fn signal_mark_model_matches(name: &str) -> bool {
+    SIGNAL_MARK_MODELS.iter().any(|candidate| candidate.eq_ignore_ascii_case(name))
+}
+
+/// FUNCTION: GAME RVA 0x1b7860, VA 0x5b7860 (`game.cpp:3736-3769`,
+/// `C_game::CreateSignalMarkIDX`): pure collection half. Scans the model-set
+/// names from the back and pushes the index of every traffic-sign set, so
+/// the result runs from the highest index down, as in the original.
+/// The base-cache owner stays with the caller, which passes the names in.
+/// Verified: `.text` entry reads the `signal_mark_idx` vector cap at
+/// `game.h:345`.
+pub fn collect_signal_mark_indices(model_sets: &[impl AsRef<str>]) -> Vec<u16> {
+    let mut indices = Vec::new();
+    for (index, name) in model_sets.iter().enumerate().rev() {
+        if signal_mark_model_matches(name.as_ref()) {
+            indices.push(index as u16);
+        }
+    }
+    indices
+}
+
+/// Marker for one hydrant water entry (`C_game::S_hydrant`,
+/// `game.h:152-160`). Only the compared `particle`, the released `frame`
+/// (`None` is the native NULL) and the stored order participate here; the
+/// `blocked`/`pos` tick reads stay with the tick owner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HydrantEntry {
+    pub particle: i32,
+    pub frame: Option<FrameId>,
+}
+
+/// Native effects/frame sink for [`del_all_hydrants`]: destroying the
+/// particle, then the `SetOn(false)` + `Release` pair for a present frame.
+pub trait HydrantBackend {
+    fn destroy_particle(&mut self, particle: i32);
+    fn release_frame(&mut self, frame: FrameId);
+}
+
+/// FUNCTION: GAME RVA 0x1b9ef0, VA 0x5b9ef0 (`game.cpp:3941-3954`,
+/// `C_game::DelAllHydrants`). Destroys every hydrant particle from the back,
+/// releases every present frame through the backend, then empties the list.
+/// Verified: `.text` entry reads the `hydrants` vector at `game.h:362`.
+pub fn del_all_hydrants(hydrants: &mut Vec<HydrantEntry>, backend: &mut impl HydrantBackend) {
+    for index in (0..hydrants.len()).rev() {
+        let entry = hydrants[index];
+        backend.destroy_particle(entry.particle);
+        if let Some(frame) = entry.frame {
+            backend.release_frame(frame);
+        }
+    }
+    hydrants.clear();
+}
+
+/// STUB: GAME RVA 0x1b6d10, VA 0x5b6d10 (`game.cpp:3634-3639`,
+/// `C_game::IsValidTaxiPassenger`): the native body is unwritten (`StubLog`
+/// + `false`). The taxi-passenger human and the car/seat checks stay with
+/// the actor owner. Verified: `.text` entry loads the `taxi_passenger`
+/// field at `game.h:347` (`mov eax,[ecx+0x204]`) before the null test.
+pub fn is_valid_taxi_passenger() -> bool {
+    false
+}
+
+/// STUB: GAME RVA 0x1b7560, VA 0x5b7560 (`game.cpp:3717-3721`,
+/// `C_game::AddHumanTalk`): unwritten upstream; the human owner is deferred.
+pub const ADD_HUMAN_TALK_ENTRY: u32 = 0x5b7560;
+
+/// Original `C_game::AddHumanTalk` stub: always reports the boundary.
+pub fn add_human_talk(_human: ActorId, _channel: i32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_HUMAN_TALK_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b7730, VA 0x5b7730 (`game.cpp:3723-3727`,
+/// `C_game::DelHumanTalk`): unwritten upstream; the human owner is deferred.
+pub const DEL_HUMAN_TALK_ENTRY: u32 = 0x5b7730;
+
+/// Original `C_game::DelHumanTalk` stub: always reports the boundary.
+pub fn del_human_talk(_human: ActorId, _channel: i32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DEL_HUMAN_TALK_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b77c0, VA 0x5b77c0 (`game.cpp:3729-3733`,
+/// `C_game::DeathHumanTalk`): unwritten upstream; the human owner is
+/// deferred.
+pub const DEATH_HUMAN_TALK_ENTRY: u32 = 0x5b77c0;
+
+/// Original `C_game::DeathHumanTalk` stub: always reports the boundary.
+pub fn death_human_talk(_human: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DEATH_HUMAN_TALK_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1132,6 +1297,125 @@ mod tests {
         assert_eq!(
             sebrali_mi_kaaaru_svine(0x1234),
             Err(UnwrittenGameEntry::Unsupported { entry: 0x4ba300 })
+        );
+    }
+
+    #[test]
+    fn rva_1b69d0_load_road_blocks_reset_empties() {
+        // C_game::LoadRoadBlocks GAME RVA 0x1b69d0 (VA 0x5b69d0): reset half.
+        let mut blocks = vec![
+            RoadBlockEntry { node: 3, active: true },
+            RoadBlockEntry { node: 9, active: false },
+        ];
+        load_road_blocks_reset(&mut blocks);
+        assert!(blocks.is_empty());
+        load_road_blocks_reset(&mut blocks);
+        assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn rva_1b6a50_collect_road_block_admits_only_valid_node() {
+        // C_game::S_hlp::cbRoadBlock GAME RVA 0x1b6a50 (VA 0x5b6a50).
+        let mut out = vec![];
+        assert!(collect_road_block(0x1234, &mut out));
+        assert!(!collect_road_block(0xffff, &mut out));
+        assert_eq!(out, vec![RoadBlockEntry { node: 0x1234, active: false }]);
+        assert!(collect_road_block(0, &mut out));
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn rva_1b6b10_load_taxi_points_reset_empties() {
+        // C_game::LoadTaxiPoints GAME RVA 0x1b6b10 (VA 0x5b6b10): reset half.
+        let mut points = vec![1, 2, 3];
+        load_taxi_points_reset(&mut points);
+        assert!(points.is_empty());
+    }
+
+    #[test]
+    fn rva_1b90b0_load_scream_areas_reset_empties() {
+        // C_game::LoadScreamAreas GAME RVA 0x1b90b0 (VA 0x5b90b0): reset half.
+        let mut areas = vec![ScreamAreaEntry { frame: 1, id: 7 }];
+        load_scream_areas_reset(&mut areas);
+        assert!(areas.is_empty());
+    }
+
+    #[test]
+    fn rva_1b7860_collect_signal_mark_indices_scans_backwards() {
+        // C_game::CreateSignalMarkIDX GAME RVA 0x1b7860 (VA 0x5b7860).
+        assert!(signal_mark_model_matches("DOPRAVNI1b.i3d"));
+        assert!(signal_mark_model_matches("dopravni8B.I3D"));
+        assert!(!signal_mark_model_matches("dopravni9B.I3D"));
+        assert!(!signal_mark_model_matches("alarm01.i3d"));
+        let sets = ["other.i3d", "dopravni3B.I3D", "x.i3d", "DOPRAVNI1B.I3D"];
+        assert_eq!(collect_signal_mark_indices(&sets), vec![3, 1]);
+        let empty: [&str; 0] = [];
+        assert!(collect_signal_mark_indices(&empty).is_empty());
+    }
+
+    struct HydrantLog {
+        destroyed: Vec<i32>,
+        released: Vec<FrameId>,
+    }
+
+    impl HydrantBackend for HydrantLog {
+        fn destroy_particle(&mut self, particle: i32) {
+            self.destroyed.push(particle);
+        }
+
+        fn release_frame(&mut self, frame: FrameId) {
+            self.released.push(frame);
+        }
+    }
+
+    #[test]
+    fn rva_1b9ef0_del_all_hydrants_runs_back_to_front_then_clears() {
+        // C_game::DelAllHydrants GAME RVA 0x1b9ef0 (VA 0x5b9ef0).
+        let mut hydrants = vec![
+            HydrantEntry { particle: 11, frame: Some(1) },
+            HydrantEntry { particle: 22, frame: None },
+            HydrantEntry { particle: 33, frame: Some(3) },
+        ];
+        let mut backend = HydrantLog { destroyed: vec![], released: vec![] };
+        del_all_hydrants(&mut hydrants, &mut backend);
+        assert!(hydrants.is_empty());
+        assert_eq!(backend.destroyed, vec![33, 22, 11]);
+        assert_eq!(backend.released, vec![3, 1]);
+    }
+
+    #[test]
+    fn rva_1b6d10_is_valid_taxi_passenger_returns_false() {
+        // C_game::IsValidTaxiPassenger GAME RVA 0x1b6d10 (VA 0x5b6d10): STUB.
+        assert!(!is_valid_taxi_passenger());
+    }
+
+    #[test]
+    fn rva_1b7560_add_human_talk_reports_unsupported() {
+        // C_game::AddHumanTalk GAME RVA 0x1b7560 (VA 0x5b7560): STUB.
+        assert_eq!(ADD_HUMAN_TALK_ENTRY, 0x5b7560);
+        assert_eq!(
+            add_human_talk(4, 2),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b7560 })
+        );
+    }
+
+    #[test]
+    fn rva_1b7730_del_human_talk_reports_unsupported() {
+        // C_game::DelHumanTalk GAME RVA 0x1b7730 (VA 0x5b7730): STUB.
+        assert_eq!(DEL_HUMAN_TALK_ENTRY, 0x5b7730);
+        assert_eq!(
+            del_human_talk(4, 2),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b7730 })
+        );
+    }
+
+    #[test]
+    fn rva_1b77c0_death_human_talk_reports_unsupported() {
+        // C_game::DeathHumanTalk GAME RVA 0x1b77c0 (VA 0x5b77c0): STUB.
+        assert_eq!(DEATH_HUMAN_TALK_ENTRY, 0x5b77c0);
+        assert_eq!(
+            death_human_talk(9),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b77c0 })
         );
     }
 }

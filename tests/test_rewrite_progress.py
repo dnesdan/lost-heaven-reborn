@@ -329,8 +329,12 @@ class RewriteProgressTests(unittest.TestCase):
         # QuestionBox/Component/Stack text-id; marker-only, tests green).
         # +16 menu differential (14 complete walks + 2 Ghidra dossiers;
         # pin tests menu 45 / main_menu 25).
-        self.assertEqual(game["ported"], 149 + 496)
-        self.assertEqual(game["verified"], 149 + 417)
+        # +15 garage/loadsave contracts (RoadBlocks/Taxi/Scream/SignalMark/
+        # Hydrants/Talk x3 STUBs + Garage x4 + Steal/IsCarIn; marker-only).
+        # +11 garage/loadsave differential (Ghidra bodies 2-290 insns; pin
+        # tests housekeeping 45 / loadsave 30; 4 STUBs held as contract).
+        self.assertEqual(game["ported"], 149 + 511)
+        self.assertEqual(game["verified"], 149 + 428)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

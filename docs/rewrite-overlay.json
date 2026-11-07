@@ -12460,6 +12460,141 @@
       "symbol": "lhr_engine::runtime_audio::isound_source_unlock",
       "tier": "differential",
       "evidence": "REA ev_188af0e74c + complete walk (vcall [EDX+0x4c] + HRESULT map); pin test 0x7d980 1 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b69d0",
+      "va": "0x5b69d0",
+      "name": "C_game::LoadRoadBlocks",
+      "symbol": "lhr_engine::game_housekeeping::load_road_blocks_reset",
+      "tier": "differential",
+      "evidence": "REA ev_a1d54cb114 + Ghidra body 47 insns/5 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b6a50",
+      "va": "0x5b6a50",
+      "name": "C_game::S_hlp::cbRoadBlock",
+      "symbol": "lhr_engine::game_housekeeping::collect_road_block",
+      "tier": "differential",
+      "evidence": "REA ev_9d38ea9529 + Ghidra body 54 insns/5 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b6b10",
+      "va": "0x5b6b10",
+      "name": "C_game::LoadTaxiPoints",
+      "symbol": "lhr_engine::game_housekeeping::load_taxi_points_reset",
+      "tier": "differential",
+      "evidence": "REA ev_440121cfd5 + Ghidra body 28 insns/5 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b90b0",
+      "va": "0x5b90b0",
+      "name": "C_game::LoadScreamAreas",
+      "symbol": "lhr_engine::game_housekeeping::load_scream_areas_reset",
+      "tier": "differential",
+      "evidence": "REA ev_2156d1ea31 + Ghidra body 30 insns/5 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b7860",
+      "va": "0x5b7860",
+      "name": "C_game::CreateSignalMarkIDX",
+      "symbol": "lhr_engine::game_housekeeping::collect_signal_mark_indices",
+      "tier": "differential",
+      "evidence": "REA ev_231991ad64 + Ghidra body 290 insns/37 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b9ef0",
+      "va": "0x5b9ef0",
+      "name": "C_game::DelAllHydrants",
+      "symbol": "lhr_engine::game_housekeeping::del_all_hydrants",
+      "tier": "differential",
+      "evidence": "REA ev_8f98189188 + Ghidra body 61 insns/9 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b6d10",
+      "va": "0x5b6d10",
+      "name": "C_game::IsValidTaxiPassenger",
+      "symbol": "lhr_engine::game_housekeeping::is_valid_taxi_passenger",
+      "tier": "contract",
+      "evidence": "STUB: unwritten upstream (GAME 0x5b6d10). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b7560",
+      "va": "0x5b7560",
+      "name": "C_game::AddHumanTalk",
+      "symbol": "lhr_engine::game_housekeeping::add_human_talk",
+      "tier": "contract",
+      "evidence": "STUB: human owner deferred (GAME 0x5b7560). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b7730",
+      "va": "0x5b7730",
+      "name": "C_game::DelHumanTalk",
+      "symbol": "lhr_engine::game_housekeeping::del_human_talk",
+      "tier": "contract",
+      "evidence": "STUB: human owner deferred (GAME 0x5b7730). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b77c0",
+      "va": "0x5b77c0",
+      "name": "C_game::DeathHumanTalk",
+      "symbol": "lhr_engine::game_housekeeping::death_human_talk",
+      "tier": "contract",
+      "evidence": "STUB: human owner deferred (GAME 0x5b77c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20dc80",
+      "va": "0x60dc80",
+      "name": "G_LoadSaveClass::GarageAddLastStolen",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::garage_add_last_stolen",
+      "tier": "differential",
+      "evidence": "REA ev_3e81c13e67 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20dc90",
+      "va": "0x60dc90",
+      "name": "G_LoadSaveClass::GarageShowResults",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::garage_show_results",
+      "tier": "differential",
+      "evidence": "REA ev_ed2afcacef + Ghidra body 2 insns/1 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20dca0",
+      "va": "0x60dca0",
+      "name": "G_LoadSaveClass::GarageShowResultsProc",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::garage_results_diff",
+      "tier": "differential",
+      "evidence": "REA ev_83effa52cd + Ghidra body 176 insns/37 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20dee0",
+      "va": "0x60dee0",
+      "name": "G_LoadSaveClass::EnableSteal",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::enable_steal",
+      "tier": "differential",
+      "evidence": "REA ev_d51b38f313 + Ghidra body 21 insns/7 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20df60",
+      "va": "0x60df60",
+      "name": "G_LoadSaveClass::IsCarIn",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::is_car_in",
+      "tier": "differential",
+      "evidence": "REA ev_a99c943847 + Ghidra body 13 insns/5 bbs; pin tests housekeeping 45 / loadsave 30 pass"
     }
   ],
   "vm": {

@@ -884,6 +884,110 @@ pub fn garage_remove_car(
     }
 }
 
+/// Script-set garage gates (`G_LoadSaveClass::show_results` at 0x1cc and
+/// `add_last_stolen` at 0x1cd, mafia-re `game/ui/g_loadsave.h:358-361`).
+/// Cleared by `GarageGameInit`; set by the scripts' `GARAGE_SHOW` and
+/// `GARAGE_ADDLASTSTOLEN`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GarageResultFlags {
+    pub show_results: bool,
+    pub add_last_stolen: bool,
+}
+
+/// FUNCTION: GAME RVA 0x20dc80, VA 0x60dc80 (mafia-re pin 113b5b6,
+/// `game/ui/g_loadsave.cpp:3618-3622`, `G_LoadSaveClass::GarageAddLastStolen`).
+/// Latches the add-last-stolen gate; the stolen car itself moves into the
+/// garage in `GarageGameDone`. Verified: `.text` entry stores byte `1` at
+/// `+0x1cd` (`mov byte [ecx+0x1cd],1`, `ret`).
+pub fn garage_add_last_stolen(flags: &mut GarageResultFlags) {
+    flags.add_last_stolen = true;
+}
+
+/// FUNCTION: GAME RVA 0x20dc90, VA 0x60dc90 (mafia-re pin 113b5b6,
+/// `game/ui/g_loadsave.cpp:3624-3628`, `G_LoadSaveClass::GarageShowResults`).
+/// Latches the show-results gate; `GarageGameDone` then runs
+/// `GarageShowResultsProc`. Verified: `.text` entry stores byte `1` at
+/// `+0x1cc` (`mov byte [ecx+0x1cc],1`, `ret`).
+pub fn garage_show_results(flags: &mut GarageResultFlags) {
+    flags.show_results = true;
+}
+
+/// Added/removed car descriptors since the last shown garage run
+/// (`G_LoadSaveClass::GarageShowResultsProc`, `g_loadsave.cpp:3630-3668`).
+/// Same-descriptor pairs on both sides cancel out, and the summary menu runs
+/// only while either side is non-empty.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct GarageResultsDiff {
+    pub added: Vec<u32>,
+    pub removed: Vec<u32>,
+}
+
+impl GarageResultsDiff {
+    /// Whether the original runs the summary menu (`added` or `removed`
+    /// non-empty at `g_loadsave.cpp:3661`).
+    pub fn needs_menu(&self) -> bool {
+        !self.added.is_empty() || !self.removed.is_empty()
+    }
+}
+
+/// FUNCTION: GAME RVA 0x20dca0, VA 0x60dca0 (mafia-re pin 113b5b6,
+/// `game/ui/g_loadsave.cpp:3633-3668`,
+/// `G_LoadSaveClass::GarageShowResultsProc`): pure diff half. Collects the
+/// descriptor words that differ between the garage and the last shown run,
+/// cancelling same-descriptor pairs in place (first match wins, the added
+/// entry is re-examined, as in the original index loop). The menu itself and
+/// the `shown_cars` sync stay with the UI owner. Verified: `.text` FUNCTION
+/// entry per the reference marker (its vector SEH frame shape).
+pub fn garage_results_diff(garage: &LoadSaveGarage) -> GarageResultsDiff {
+    let mut diff = GarageResultsDiff::default();
+    for index in 0..MAX_GARAGE_CARS {
+        if garage.slots[index].car != garage.shown_cars[index] {
+            if garage.slots[index].car != 0 {
+                diff.added.push(garage.slots[index].car);
+            }
+            if garage.shown_cars[index] != 0 {
+                diff.removed.push(garage.shown_cars[index]);
+            }
+        }
+    }
+    let mut index = 0;
+    while index < diff.added.len() {
+        if let Some(found) = diff.removed.iter().position(|&entry| entry == diff.added[index]) {
+            diff.removed.remove(found);
+            diff.added.remove(index);
+        } else {
+            index += 1;
+        }
+    }
+    diff
+}
+
+/// FUNCTION: GAME RVA 0x20dee0, VA 0x60dee0 (mafia-re pin 113b5b6,
+/// `game/ui/g_loadsave.cpp:3683-3693`, `G_LoadSaveClass::EnableSteal`).
+/// ORs the letter bit (`A`/`a` is bit 0) into the steal word; any other byte
+/// sets bit 0, as in the original fall-through. Verified: `.text` entry
+/// compares the parameter against `'A'` first.
+pub fn enable_steal(steal_cars: &mut u32, c: u8) {
+    let mut bit = 0;
+    if c >= b'A' && c <= b'Z' {
+        bit = c - b'A';
+    }
+    if c >= b'a' && c <= b'z' {
+        bit = c - b'a';
+    }
+    *steal_cars |= 1 << bit;
+}
+
+/// FUNCTION: GAME RVA 0x20df60, VA 0x60df60 (mafia-re pin 113b5b6,
+/// `game/ui/g_loadsave.cpp:3701-3710`, `G_LoadSaveClass::IsCarIn`). Linear
+/// scan of the garage slots for the actor, first slot wins. `None` is the
+/// native NULL, compared with plain equality (an empty garage therefore
+/// contains NULL, as in the original). Verified: `.text` FUNCTION entry per
+/// the reference marker. Live actor lifetime stays with the caller.
+pub fn is_car_in(garage: &LoadSaveGarage, car: Option<GarageActor>) -> bool {
+    garage.slots.iter().any(|slot| slot.actor == car)
+}
+
 #[cfg(test)]
 mod loadsave_gates_tests {
     use super::*;
@@ -1191,5 +1295,89 @@ mod loadsave_gates_tests {
         assert_eq!(garage.slots[1].car, 0x0002_00c8);
         garage_remove_car(&mut garage, &database, "other", 7);
         assert_eq!(garage.slots[1].car, 0x0002_00c8);
+    }
+
+    #[test]
+    fn garage_add_last_stolen_rva_20dc80_latches_flag() {
+        // G_LoadSaveClass::GarageAddLastStolen GAME RVA 0x20dc80 (VA 0x60dc80).
+        let mut flags = GarageResultFlags::default();
+        assert!(!flags.add_last_stolen);
+        garage_add_last_stolen(&mut flags);
+        assert!(flags.add_last_stolen);
+        assert!(!flags.show_results);
+        garage_add_last_stolen(&mut flags);
+        assert!(flags.add_last_stolen);
+    }
+
+    #[test]
+    fn garage_show_results_rva_20dc90_latches_flag() {
+        // G_LoadSaveClass::GarageShowResults GAME RVA 0x20dc90 (VA 0x60dc90).
+        let mut flags = GarageResultFlags::default();
+        assert!(!flags.show_results);
+        garage_show_results(&mut flags);
+        assert!(flags.show_results);
+        assert!(!flags.add_last_stolen);
+    }
+
+    #[test]
+    fn garage_results_diff_rva_20dca0_collects_and_cancels_pairs() {
+        // G_LoadSaveClass::GarageShowResultsProc GAME RVA 0x20dca0
+        // (VA 0x60dca0): pure diff half.
+        let mut garage = LoadSaveGarage::new();
+        garage.slots[0] = GarageSlot { car: 5, actor: None };
+        garage.slots[1] = GarageSlot { car: 7, actor: None };
+        garage.slots[2] = GarageSlot { car: 9, actor: None };
+        garage.shown_cars[1] = 7;
+        garage.shown_cars[2] = 9;
+        garage.shown_cars[3] = 11;
+        // Slot 0 added, slot 3 removed, slots 1-2 unchanged: no cancel-out.
+        let diff = garage_results_diff(&garage);
+        assert_eq!(diff.added, vec![5]);
+        assert_eq!(diff.removed, vec![11]);
+        assert!(diff.needs_menu());
+        // A car on both sides under the same descriptor cancels out.
+        garage.shown_cars[0] = 5;
+        garage.slots[3] = GarageSlot { car: 11, actor: None };
+        let cancelled = garage_results_diff(&garage);
+        assert!(cancelled.added.is_empty());
+        assert!(cancelled.removed.is_empty());
+        assert!(!cancelled.needs_menu());
+        // An empty garage against an empty run needs no menu either.
+        assert!(!garage_results_diff(&LoadSaveGarage::new()).needs_menu());
+    }
+
+    #[test]
+    fn enable_steal_rva_20dee0_maps_letter_to_bit() {
+        // G_LoadSaveClass::EnableSteal GAME RVA 0x20dee0 (VA 0x60dee0).
+        let mut steal_cars = 0u32;
+        enable_steal(&mut steal_cars, b'A');
+        assert_eq!(steal_cars, 1);
+        enable_steal(&mut steal_cars, b'a');
+        assert_eq!(steal_cars, 1);
+        enable_steal(&mut steal_cars, b'C');
+        assert_eq!(steal_cars, 0b101);
+        enable_steal(&mut steal_cars, b'z');
+        assert_eq!(steal_cars, 0b101 | (1 << 25));
+        // A non-letter falls through to bit 0.
+        let mut other = 0u32;
+        enable_steal(&mut other, b'0');
+        assert_eq!(other, 1);
+    }
+
+    #[test]
+    fn is_car_in_rva_20df60_scans_garage_actors() {
+        // G_LoadSaveClass::IsCarIn GAME RVA 0x20df60 (VA 0x60df60).
+        let mut garage = LoadSaveGarage::new();
+        garage.slots[2] = GarageSlot { car: 8, actor: Some(42) };
+        assert!(is_car_in(&garage, Some(42)));
+        assert!(!is_car_in(&garage, Some(43)));
+        // A garage whose slots are all occupied holds no NULL.
+        let mut full = LoadSaveGarage::new();
+        for slot in full.slots.iter_mut() {
+            slot.actor = Some(1);
+        }
+        assert!(!is_car_in(&full, None));
+        // NULL compares equal to empty slots, as in the original.
+        assert!(is_car_in(&LoadSaveGarage::new(), None));
     }
 }
