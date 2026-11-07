@@ -165,7 +165,9 @@ class RewriteProgressTests(unittest.TestCase):
         # +8 controls/logo wave, all contract (C_controls ctor/dtor/Close/
         # Init 0x4efb40-0x4efde0, SetMouseScale 0x4efdb0, ClearControls
         # 0x4f00f0, SetControl 0x4f02b0, PlayLogo 0x15d460 caller projection).
-        self.assertEqual(game["ported"], 149 + 308)
+        # +2 menu/detector scope (SetHidden 0x5eaf20, C_detector::Init mask
+        # scope 0x432990; MapEnable 0x5f9d10 already filed).
+        self.assertEqual(game["ported"], 149 + 310)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

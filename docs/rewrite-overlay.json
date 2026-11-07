@@ -10732,6 +10732,24 @@
       "symbol": "lhr_engine::original_logo::play_logo",
       "tier": "contract",
       "evidence": "Caller-side logo projection (GAME 0x15d460); AVI/Bink runtime deferred. Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5eaf20",
+      "va": "0x9eaf20",
+      "name": "GM_Menu::SetHidden",
+      "symbol": "lhr_engine::menu::MenuStack::set_hidden",
+      "tier": "contract",
+      "evidence": "VISIBLE-bit set/clear with no-op on missing id (GAME 0x5eaf20). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x432990",
+      "va": "0x832990",
+      "name": "C_detector::Init (mask-nulling scope)",
+      "symbol": "lhr_engine::actor_world::ActorWorld::init_detector",
+      "tier": "contract",
+      "evidence": "human_types mask zeroing (GAME 0x432990); C_actor gate and actor=self deferred. Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
