@@ -10930,6 +10930,123 @@
       "symbol": "lhr_engine::animation_blending::stage_blending_tick",
       "tier": "differential",
       "evidence": "REA ev_84f297afe5 + Ghidra body 98 insns, Stage blending tick; pin test rva_0103d0"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x13efb0",
+      "va": "0x53efb0",
+      "name": "C_mission::c_str_less",
+      "symbol": "lhr_engine::mission_actor_lists::c_str_less",
+      "tier": "contract",
+      "evidence": "CString less (GAME 0x53efb0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x13f520",
+      "va": "0x53f520",
+      "name": "C_mission::AddGameAnimModel",
+      "symbol": "lhr_engine::mission_actor_lists::add_anim_model",
+      "tier": "contract",
+      "evidence": "Add anim model (GAME 0x53f520). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x13f710",
+      "va": "0x53f710",
+      "name": "C_mission::DelGameAnimModel",
+      "symbol": "lhr_engine::mission_actor_lists::del_anim_model",
+      "tier": "contract",
+      "evidence": "Del anim model (GAME 0x53f710). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x13f770",
+      "va": "0x53f770",
+      "name": "C_mission::ClearGameAnimModels",
+      "symbol": "lhr_engine::mission_actor_lists::clear_game_anim_models",
+      "tier": "contract",
+      "evidence": "Clear anim models (GAME 0x53f770). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x140130",
+      "va": "0x540130",
+      "name": "C_mission::DelActor",
+      "symbol": "lhr_engine::mission_actor_lists::del_actor",
+      "tier": "contract",
+      "evidence": "Del actor (GAME 0x540130). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x140240",
+      "va": "0x540240",
+      "name": "C_mission::DelActors",
+      "symbol": "lhr_engine::mission_actor_lists::del_actors",
+      "tier": "contract",
+      "evidence": "Del actors (GAME 0x540240). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x140300",
+      "va": "0x540300",
+      "name": "C_mission::DelNotMeActors",
+      "symbol": "lhr_engine::mission_actor_lists::del_not_me_actors",
+      "tier": "contract",
+      "evidence": "Del not-me actors (GAME 0x540300). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x140420",
+      "va": "0x540420",
+      "name": "C_mission::IsOwnActor",
+      "symbol": "lhr_engine::mission_actor_lists::is_own_actor",
+      "tier": "contract",
+      "evidence": "Is own actor (GAME 0x540420). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x140490",
+      "va": "0x540490",
+      "name": "C_mission::FindActorByName",
+      "symbol": "lhr_engine::mission_actor_lists::find_actor_by_name",
+      "tier": "contract",
+      "evidence": "Find actor by name last-match (GAME 0x540490). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a5070",
+      "va": "0x5a5070",
+      "name": "C_game::ChangeActState",
+      "symbol": "lhr_engine::mission_actor_lists::change_act_state",
+      "tier": "contract",
+      "evidence": "Change act state (GAME 0x5a5070). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a7ff0",
+      "va": "0x5a7ff0",
+      "name": "C_game::UpdateControlsPlayers",
+      "symbol": "lhr_engine::mission_actor_lists::update_controls_players",
+      "tier": "contract",
+      "evidence": "Update controls players (GAME 0x5a7ff0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a3960",
+      "va": "0x5a3960",
+      "name": "C_game::ShowProgress gate",
+      "symbol": "lhr_engine::mission_actor_lists::show_progress_gate",
+      "tier": "contract",
+      "evidence": "Show progress gate (GAME 0x5a3960). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a3990",
+      "va": "0x5a3990",
+      "name": "C_game::PrepareBaseBlocks",
+      "symbol": "lhr_engine::mission_actor_lists::prepare_base_blocks",
+      "tier": "contract",
+      "evidence": "STUB: PrepareBaseBlocks (GAME 0x5a3990). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

@@ -1,0 +1,824 @@
+//! Small C_mission actor/animg-model list operations and C_game startup/tick
+//! slices, ported from mafia-re pin 113b5b6 (`game/mission/Mission.cpp` and
+//! `game/mission/game.cpp`).
+//!
+//! Game.exe SHA-256
+//! `08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27`;
+//! RVAs below are Game base-relative (`VA - 0x400000`). Native actor release
+//! counting, frame-detach plumbing (`GetFrameActor`/`SetFrameActor`), device,
+//! scene and program owners stay with their callers and are DEFERRED with
+//! explicit markers; list order and traversal direction are preserved exactly.
+#![forbid(unsafe_code)]
+
+/// Opaque actor handle. Native `C_actor*` identity is the caller's concern.
+pub type ActorId = u32;
+/// Opaque model handle. Native `I3D_model*` identity is the caller's concern.
+pub type ModelId = u32;
+/// Opaque frame handle. Native `I3D_frame*` identity is the caller's concern.
+pub type FrameId = u32;
+
+/// Entry of `C_mission::anim_models` (mafia-re `game/mission/Mission.h`).
+/// Only the compared `model` member and the `game_model` flag participate.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AnimModel {
+    pub model: ModelId,
+    pub game_model: bool,
+}
+
+/// FUNCTION: GAME RVA 0x13efb0, VA 0x53efb0 (`Mission.cpp:66-69`,
+/// `operator<(const C_str&, const C_str&)`).
+/// Unsigned-byte `strcmp` ordering: true when `left` sorts before `right`.
+/// Slice ends stand in for the NUL terminator of the native `C_str` buffer.
+pub fn c_str_less(left: &[u8], right: &[u8]) -> bool {
+    let mut index = 0;
+    loop {
+        let a = if index < left.len() { left[index] } else { 0 };
+        let b = if index < right.len() { right[index] } else { 0 };
+        if a != b {
+            return a < b;
+        }
+        if a == 0 {
+            return false;
+        }
+        index += 1;
+    }
+}
+
+/// FUNCTION: GAME RVA 0x13f520, VA 0x53f520 (`Mission.cpp:161-174`,
+/// `C_mission::AddAnimModel`).
+/// Searched from the last entry; a duplicate model or a model without an
+/// animation set is refused. Returns whether the entry was pushed.
+pub fn add_anim_model(
+    models: &mut Vec<AnimModel>,
+    model: ModelId,
+    has_animation_set: bool,
+) -> bool {
+    for index in (0..models.len()).rev() {
+        if models[index].model == model {
+            return false;
+        }
+    }
+    if !has_animation_set {
+        return false;
+    }
+    models.push(AnimModel {
+        model,
+        game_model: false,
+    });
+    true
+}
+
+/// FUNCTION: GAME RVA 0x13f710, VA 0x53f710 (`Mission.cpp:178-188`,
+/// `C_mission::DelAnimModel`).
+/// Searched from the last entry; the ordered `erase` keeps the survivors'
+/// relative order. Returns whether an entry was removed.
+pub fn del_anim_model(models: &mut Vec<AnimModel>, model: ModelId) -> bool {
+    for index in (0..models.len()).rev() {
+        if models[index].model == model {
+            models.remove(index);
+            return true;
+        }
+    }
+    false
+}
+
+/// FUNCTION: GAME RVA 0x13f770, VA 0x53f770 (`Mission.cpp:192-204`,
+/// `C_mission::ClearGameAnimModels`).
+/// Flagged entries leave by moving the last one into their place
+/// (`pop_back` tail), so the survivors' order is not preserved.
+pub fn clear_game_anim_models(models: &mut Vec<AnimModel>) {
+    let mut index = 0;
+    while index < models.len() {
+        if models[index].game_model {
+            models.swap_remove(index);
+        } else {
+            index += 1;
+        }
+    }
+}
+
+/// Report of `add_actor`: each list admits the actor at most once.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ActorAddReport {
+    pub actor_added: bool,
+    pub not_me_added: bool,
+}
+
+/// FUNCTION: GAME RVA 0x13fea0, VA 0x53fea0 (`Mission.cpp:303-325`,
+/// `C_mission::AddActor`).
+/// Each list is searched from its last actor; `not_me` is only consulted
+/// when `not_me_actor` is set.
+pub fn add_actor(
+    actors: &mut Vec<ActorId>,
+    not_me_actors: &mut Vec<ActorId>,
+    actor: ActorId,
+    not_me_actor: bool,
+) -> ActorAddReport {
+    for index in (0..actors.len()).rev() {
+        if actors[index] == actor {
+            return ActorAddReport {
+                actor_added: false,
+                not_me_added: false,
+            };
+        }
+    }
+    actors.push(actor);
+    if !not_me_actor {
+        return ActorAddReport {
+            actor_added: true,
+            not_me_added: false,
+        };
+    }
+    for index in (0..not_me_actors.len()).rev() {
+        if not_me_actors[index] == actor {
+            return ActorAddReport {
+                actor_added: true,
+                not_me_added: false,
+            };
+        }
+    }
+    not_me_actors.push(actor);
+    ActorAddReport {
+        actor_added: true,
+        not_me_added: true,
+    }
+}
+
+/// FUNCTION: GAME RVA 0x140080, VA 0x540080 (`Mission.cpp:329-351`,
+/// `C_mission::UnloadActor`).
+/// Ordered `erase` (one `break` per list) from both lists. Returns whether
+/// the actor was a mission member; the `not_me_actors` removal is silent.
+pub fn unload_actor(
+    actors: &mut Vec<ActorId>,
+    not_me_actors: &mut Vec<ActorId>,
+    actor: ActorId,
+) -> bool {
+    let mut found = false;
+    for index in (0..actors.len()).rev() {
+        if actors[index] == actor {
+            found = true;
+            actors.remove(index);
+            break;
+        }
+    }
+    for index in (0..not_me_actors.len()).rev() {
+        if not_me_actors[index] == actor {
+            not_me_actors.remove(index);
+            break;
+        }
+    }
+    found
+}
+
+/// Outcome of `del_actor`. The frame is reported so the caller can run the
+/// deferred `GetFrameActor`/`SetFrameActor` detach and the `Release`; neither
+/// is performed here.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DelActorOutcome {
+    Removed { frame: Option<FrameId> },
+    NotFound,
+}
+
+/// FUNCTION: GAME RVA 0x140130, VA 0x540130 (`Mission.cpp:355-385`,
+/// `C_mission::DelActor`).
+/// Searched from the last actor; the `not_me_actors` occurrence is erased
+/// first (ordered, single `break`). The actor's own `Release` and the frame
+/// detach stay with the caller (DEFERRED).
+pub fn del_actor(
+    actors: &mut Vec<ActorId>,
+    not_me_actors: &mut Vec<ActorId>,
+    actor: ActorId,
+    frame_of: impl Fn(ActorId) -> Option<FrameId>,
+) -> DelActorOutcome {
+    for index in (0..actors.len()).rev() {
+        if actors[index] == actor {
+            for other in (0..not_me_actors.len()).rev() {
+                if not_me_actors[other] == actor {
+                    not_me_actors.remove(other);
+                    break;
+                }
+            }
+            let frame = frame_of(actor);
+            actors.remove(index);
+            return DelActorOutcome::Removed { frame };
+        }
+    }
+    DelActorOutcome::NotFound
+}
+
+/// FUNCTION: GAME RVA 0x140240, VA 0x540240 (`Mission.cpp:389-407`,
+/// `C_mission::DelActors`).
+/// Every actor leaves from the last one; both lists end up clear. Returns
+/// the detached frames (only actors that report one) in native traversal
+/// order so the caller can run the deferred detach and `Release` per actor.
+pub fn del_actors(
+    actors: &mut Vec<ActorId>,
+    not_me_actors: &mut Vec<ActorId>,
+    frame_of: impl Fn(ActorId) -> Option<FrameId>,
+) -> Vec<FrameId> {
+    let mut frames = Vec::new();
+    for index in (0..actors.len()).rev() {
+        if let Some(frame) = frame_of(actors[index]) {
+            frames.push(frame);
+        }
+    }
+    actors.clear();
+    not_me_actors.clear();
+    frames
+}
+
+/// FUNCTION: GAME RVA 0x140300, VA 0x540300 (`Mission.cpp:411-436`,
+/// `C_mission::DelNotMeActors`).
+/// Each `not_me_actors` entry (from the last one) is looked up from the
+/// last actor and erased ordered on match. Returns the detached frames in
+/// native traversal order; the `not_me_actors` list ends up clear while
+/// unrelated actors stay. Detach and `Release` stay with the caller.
+pub fn del_not_me_actors(
+    actors: &mut Vec<ActorId>,
+    not_me_actors: &mut Vec<ActorId>,
+    frame_of: impl Fn(ActorId) -> Option<FrameId>,
+) -> Vec<FrameId> {
+    let mut frames = Vec::new();
+    for index in (0..not_me_actors.len()).rev() {
+        let actor = not_me_actors[index];
+        for other in (0..actors.len()).rev() {
+            if actors[other] == actor {
+                if let Some(frame) = frame_of(actor) {
+                    frames.push(frame);
+                }
+                actors.remove(other);
+                break;
+            }
+        }
+    }
+    not_me_actors.clear();
+    frames
+}
+
+/// FUNCTION: GAME RVA 0x140420, VA 0x540420 (`Mission.cpp:440-459`,
+/// `C_mission::IsOwnActor`).
+/// Each list is searched from its last actor: a member that is also listed
+/// in `not_me_actors` is not owned.
+pub fn is_own_actor(
+    actors: &[ActorId],
+    not_me_actors: &[ActorId],
+    actor: ActorId,
+) -> bool {
+    for index in (0..actors.len()).rev() {
+        if actors[index] == actor {
+            for other in (0..not_me_actors.len()).rev() {
+                if not_me_actors[other] == actor {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+    false
+}
+
+/// FUNCTION: GAME RVA 0x140490, VA 0x540490 (`Mission.cpp:463-473`,
+/// `C_mission::FindActorByName`).
+/// A null name finds nothing; otherwise the last actor whose frame name
+/// compares equal (`strcmp`) wins. Frame-name lookup stays with the caller.
+pub fn find_actor_by_name<'a>(
+    actors: &[ActorId],
+    name: Option<&'a str>,
+    name_of: impl Fn(ActorId) -> Option<&'a str>,
+) -> Option<ActorId> {
+    let wanted = name?;
+    for index in (0..actors.len()).rev() {
+        let actor = actors[index];
+        if name_of(actor).is_some_and(|candidate| candidate == wanted) {
+            return Some(actor);
+        }
+    }
+    None
+}
+
+/// Entry of `C_mission::t_transparent` (mafia-re `game/mission/Mission.h`).
+/// Only the compared `time`/`fade_time` members and the object identity
+/// participate; transparency application and release stay with the caller.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TransparentEntry {
+    pub object: u32,
+    pub time: u32,
+    pub fade_time: u32,
+}
+
+/// Per-object transparency effect the caller must apply for one tick step.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TransparentEffect {
+    pub object: u32,
+    pub alpha: f32,
+    pub released: bool,
+}
+
+/// Subset of `C_mission::Tick`: GAME RVA 0x1407e0, VA 0x5407e0
+/// (`Mission.cpp:568-583`, the `t_transparent` fade loop).
+/// Time accumulates with `uint` wrapping; a finished object reports alpha
+/// `1.0` with `released` set and leaves by swap-with-back plus `pop_back`,
+/// while the survivors keep their relative scan order for this step.
+/// A zero `fade_time` finishes immediately, so the division below never
+/// divides by zero.
+pub fn tick_transparent(
+    entries: &mut Vec<TransparentEntry>,
+    time: u32,
+) -> Vec<TransparentEffect> {
+    let mut effects = Vec::new();
+    let mut index = 0;
+    while index < entries.len() {
+        entries[index].time = entries[index].time.wrapping_add(time);
+        if entries[index].time >= entries[index].fade_time {
+            let object = entries[index].object;
+            entries.swap_remove(index);
+            effects.push(TransparentEffect {
+                object,
+                alpha: 1.0,
+                released: true,
+            });
+        } else {
+            let entry = entries[index];
+            effects.push(TransparentEffect {
+                object: entry.object,
+                alpha: entry.time as f32 / entry.fade_time as f32,
+                released: false,
+            });
+            index += 1;
+        }
+    }
+    effects
+}
+
+/// Subset of `C_mission::Tick`: GAME RVA 0x1407e0, VA 0x5407e0
+/// (`Mission.cpp:553-558`, the restore-volume head).
+/// Consumes the pending restore when no frame has been skipped yet and
+/// reports whether it fired; the device `SetVolume` stays with the sound
+/// owner (DEFERRED).
+pub fn tick_consume_restore_volume(restore: &mut bool, skip_frames: i32) -> bool {
+    if *restore && skip_frames < 1 {
+        *restore = false;
+        true
+    } else {
+        false
+    }
+}
+
+/// Classified act-state word for `change_act_state`.
+/// Native values from mafia-re `game/actors/C_actor.h:61-63`:
+/// `ACTSTATE_ACTIVE 0`, `ACTSTATE_INACTIVE 1`, `ACTSTATE_NONE 2`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActStateClass {
+    Active,
+    Inactive,
+    None,
+    Other(u32),
+}
+
+/// Live actor participant for `change_act_state`. Both words are reread
+/// after every mutating `ChangeState`, as the original does.
+pub trait ActStateParticipant {
+    fn act_state(&self) -> ActStateClass;
+    fn change_state(&mut self);
+}
+
+/// FUNCTION: GAME RVA 0x1a5070, VA 0x5a5070 (`game.cpp:1817-1847`,
+/// `C_game::ChangeActState`).
+/// Clears the pending flag, then moves every actor whose state left its
+/// list's class to the other list (an actor that reached `None` leaves both
+/// lists). Removals are swap-with-back plus `pop_back` with no index advance;
+/// `ChangeState` side effects stay behind the trait (DEFERRED owner).
+pub fn change_act_state<A: ActStateParticipant>(
+    changed: &mut bool,
+    active: &mut Vec<A>,
+    inactive: &mut Vec<A>,
+) {
+    *changed = false;
+    let mut index = 0;
+    while index < active.len() {
+        if active[index].act_state() != ActStateClass::Active {
+            active[index].change_state();
+            let keep = active[index].act_state() != ActStateClass::None;
+            let actor = active.swap_remove(index);
+            if keep {
+                inactive.push(actor);
+            }
+        } else {
+            index += 1;
+        }
+    }
+    let mut index = 0;
+    while index < inactive.len() {
+        if inactive[index].act_state() != ActStateClass::Inactive {
+            inactive[index].change_state();
+            let keep = inactive[index].act_state() != ActStateClass::None;
+            let actor = inactive.swap_remove(index);
+            if keep {
+                active.push(actor);
+            }
+        } else {
+            index += 1;
+        }
+    }
+}
+
+/// Player-control sink for `update_controls_players`: classification stays
+/// with the actor owner, the control refresh with the player owner.
+pub trait PlayerControlsBackend<A> {
+    fn is_player(&self, actor: &A) -> bool;
+    fn update_controls(&mut self, actor: &A);
+}
+
+/// FUNCTION: GAME RVA 0x1a7ff0, VA 0x5a7ff0 (`game.cpp:2500-2509`,
+/// `C_game::UpdateControls`).
+/// While initialized, every player actor (scanned from the last one)
+/// refreshes its controls through the backend.
+pub fn update_controls_players<A>(
+    initialized: bool,
+    actors: &[A],
+    backend: &mut impl PlayerControlsBackend<A>,
+) {
+    if !initialized {
+        return;
+    }
+    for index in (0..actors.len()).rev() {
+        if backend.is_player(&actors[index]) {
+            backend.update_controls(&actors[index]);
+        }
+    }
+}
+
+/// FUNCTION: GAME RVA 0x1a3960, VA 0x5a3960 (`game.cpp:1029-1036`,
+/// `_show_progress_`).
+/// The whole contract is the null gate: with no loading screen there is
+/// nothing to drive. Returns whether the caller must run
+/// `SetProgressGameInit(fraction)` followed by `Present()`; the device
+/// calls stay with the load-save owner (DEFERRED).
+pub fn show_progress_gate(has_progress_screen: bool) -> bool {
+    has_progress_screen
+}
+
+/// Explicit-unsupported boundary for `PrepareBaseBlocks`:
+/// GAME RVA 0x1a3990, VA 0x5a3990 (`game.cpp:1040-1043`).
+/// The original only logs the stub marker; the base-block owner that would
+/// give this a behavior does not exist in this tree.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GameStartupUnsupported {
+    PrepareBaseBlocks,
+}
+
+/// STUB: GAME RVA 0x1a3990, VA 0x5a3990 (`game.cpp:1040-1043`,
+/// `PrepareBaseBlocks`). Always reports the unsupported boundary.
+pub fn prepare_base_blocks() -> Result<(), GameStartupUnsupported> {
+    Err(GameStartupUnsupported::PrepareBaseBlocks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn c_str_less_rva_13efb0_matches_strcmp_ordering() {
+        assert!(c_str_less(b"a", b"b"));
+        assert!(!c_str_less(b"b", b"a"));
+        assert!(!c_str_less(b"same", b"same"));
+        assert!(c_str_less(b"prefix", b"prefix-long"));
+        assert!(!c_str_less(b"", b""));
+        assert!(c_str_less(b"", b"x"));
+        // Unsigned bytes: 0xFF sorts after ASCII, unlike a signed-char build.
+        assert!(!c_str_less(&[0xff], b"a"));
+        assert!(c_str_less(b"mission", b"missions"));
+    }
+
+    #[test]
+    fn add_anim_model_rva_13f520_dedups_and_gates_on_animation_set() {
+        let mut models = Vec::new();
+        assert!(add_anim_model(&mut models, 7, true));
+        assert!(!add_anim_model(&mut models, 7, true));
+        assert!(!add_anim_model(&mut models, 9, false));
+        assert_eq!(
+            models,
+            vec![AnimModel {
+                model: 7,
+                game_model: false
+            }]
+        );
+    }
+
+    #[test]
+    fn del_anim_model_rva_13f710_removes_ordered_and_reports() {
+        let mut models = vec![
+            AnimModel {
+                model: 1,
+                game_model: false,
+            },
+            AnimModel {
+                model: 2,
+                game_model: true,
+            },
+            AnimModel {
+                model: 3,
+                game_model: false,
+            },
+        ];
+        assert!(del_anim_model(&mut models, 2));
+        assert_eq!(
+            models.iter().map(|entry| entry.model).collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+        assert!(!del_anim_model(&mut models, 2));
+        assert!(!del_anim_model(&mut Vec::new(), 1));
+    }
+
+    #[test]
+    fn clear_game_anim_models_rva_13f770_swap_removes_flagged() {
+        let mut models = vec![
+            AnimModel {
+                model: 1,
+                game_model: false,
+            },
+            AnimModel {
+                model: 2,
+                game_model: true,
+            },
+            AnimModel {
+                model: 3,
+                game_model: true,
+            },
+            AnimModel {
+                model: 4,
+                game_model: false,
+            },
+        ];
+        clear_game_anim_models(&mut models);
+        let mut kept: Vec<ModelId> = models.iter().map(|entry| entry.model).collect();
+        kept.sort_unstable();
+        assert_eq!(kept, vec![1, 4]);
+        assert!(models.iter().all(|entry| !entry.game_model));
+    }
+
+    #[test]
+    fn add_actor_rva_13fea0_dedups_both_lists() {
+        let (mut actors, mut not_me) = (Vec::new(), Vec::new());
+        assert_eq!(
+            add_actor(&mut actors, &mut not_me, 5, true),
+            ActorAddReport {
+                actor_added: true,
+                not_me_added: true
+            }
+        );
+        assert_eq!(
+            add_actor(&mut actors, &mut not_me, 5, true),
+            ActorAddReport {
+                actor_added: false,
+                not_me_added: false
+            }
+        );
+        assert_eq!(
+            add_actor(&mut actors, &mut not_me, 6, false),
+            ActorAddReport {
+                actor_added: true,
+                not_me_added: false
+            }
+        );
+        assert_eq!(actors, vec![5, 6]);
+        assert_eq!(not_me, vec![5]);
+    }
+
+    #[test]
+    fn unload_actor_rva_140080_erases_ordered_and_reports_membership() {
+        let (mut actors, mut not_me) = (vec![1, 2, 3], vec![2, 9]);
+        assert!(unload_actor(&mut actors, &mut not_me, 2));
+        assert_eq!(actors, vec![1, 3]);
+        assert_eq!(not_me, vec![9]);
+        assert!(!unload_actor(&mut actors, &mut not_me, 2));
+        assert!(!unload_actor(&mut actors, &mut not_me, 42));
+    }
+
+    #[test]
+    fn del_actor_rva_140130_reports_frame_and_erases_not_me_first() {
+        let (mut actors, mut not_me) = (vec![1, 2, 3], vec![2]);
+        let outcome = del_actor(&mut actors, &mut not_me, 2, |actor| {
+            (actor == 2).then_some(20)
+        });
+        assert_eq!(outcome, DelActorOutcome::Removed { frame: Some(20) });
+        assert_eq!(actors, vec![1, 3]);
+        assert!(not_me.is_empty());
+        assert_eq!(
+            del_actor(&mut actors, &mut not_me, 9, |_| None),
+            DelActorOutcome::NotFound
+        );
+        // An actor without a frame still leaves the lists; detach is skipped.
+        assert_eq!(
+            del_actor(&mut actors, &mut not_me, 1, |_| None),
+            DelActorOutcome::Removed { frame: None }
+        );
+        assert_eq!(actors, vec![3]);
+    }
+
+    #[test]
+    fn del_actors_rva_140240_clears_both_lists_in_reverse_order() {
+        let (mut actors, mut not_me) = (vec![1, 2, 3], vec![2]);
+        let frames = del_actors(&mut actors, &mut not_me, |actor| {
+            (actor != 2).then_some(actor + 100)
+        });
+        assert_eq!(frames, vec![103, 101]);
+        assert!(actors.is_empty());
+        assert!(not_me.is_empty());
+    }
+
+    #[test]
+    fn del_not_me_actors_rva_140300_keeps_unrelated_actors() {
+        let (mut actors, mut not_me) = (vec![1, 2, 3, 4], vec![4, 2]);
+        let frames = del_not_me_actors(&mut actors, &mut not_me, |actor| Some(actor + 100));
+        assert_eq!(frames, vec![102, 104]);
+        assert_eq!(actors, vec![1, 3]);
+        assert!(not_me.is_empty());
+    }
+
+    #[test]
+    fn is_own_actor_rva_140420_excludes_not_me_members() {
+        let (actors, not_me) = (vec![1, 2], vec![2]);
+        assert!(is_own_actor(&actors, &not_me, 1));
+        assert!(!is_own_actor(&actors, &not_me, 2));
+        assert!(!is_own_actor(&actors, &not_me, 9));
+        assert!(!is_own_actor(&[], &[], 1));
+    }
+
+    #[test]
+    fn find_actor_by_name_rva_140490_prefers_last_match_and_null() {
+        let actors = vec![1, 2, 3];
+        let name_of = |actor: ActorId| match actor {
+            1 => Some("alpha"),
+            2 => Some("beta"),
+            3 => Some("beta"),
+            _ => None,
+        };
+        assert_eq!(find_actor_by_name(&actors, Some("beta"), name_of), Some(3));
+        assert_eq!(find_actor_by_name(&actors, Some("alpha"), name_of), Some(1));
+        assert_eq!(find_actor_by_name(&actors, Some("gamma"), name_of), None);
+        assert_eq!(find_actor_by_name(&actors, None, name_of), None);
+        assert_eq!(find_actor_by_name(&[], Some("beta"), name_of), None);
+    }
+
+    #[test]
+    fn tick_transparent_rva_1407e0_fades_and_swap_removes_finished() {
+        let mut entries = vec![
+            TransparentEntry {
+                object: 1,
+                time: 0,
+                fade_time: 10,
+            },
+            TransparentEntry {
+                object: 2,
+                time: 9,
+                fade_time: 10,
+            },
+        ];
+        let effects = tick_transparent(&mut entries, 1);
+        assert_eq!(
+            effects,
+            vec![
+                TransparentEffect {
+                    object: 1,
+                    alpha: 0.1,
+                    released: false
+                },
+                TransparentEffect {
+                    object: 2,
+                    alpha: 1.0,
+                    released: true
+                },
+            ]
+        );
+        assert_eq!(
+            entries,
+            vec![TransparentEntry {
+                object: 1,
+                time: 1,
+                fade_time: 10
+            }]
+        );
+        // A zero fade finishes immediately without dividing.
+        let mut zero = vec![TransparentEntry {
+            object: 3,
+            time: 0,
+            fade_time: 0,
+        }];
+        let effects = tick_transparent(&mut zero, 0);
+        assert_eq!(
+            effects,
+            vec![TransparentEffect {
+                object: 3,
+                alpha: 1.0,
+                released: true
+            }]
+        );
+        assert!(zero.is_empty());
+    }
+
+    #[test]
+    fn tick_consume_restore_volume_rva_1407e0_fires_once_before_first_frame() {
+        let mut restore = true;
+        assert!(tick_consume_restore_volume(&mut restore, 0));
+        assert!(!restore);
+        assert!(!tick_consume_restore_volume(&mut restore, 0));
+        let mut skipped = true;
+        assert!(!tick_consume_restore_volume(&mut skipped, 1));
+        assert!(skipped);
+    }
+
+    struct ScriptedActor {
+        state: ActStateClass,
+        after_change: ActStateClass,
+        changes: usize,
+    }
+
+    impl ActStateParticipant for ScriptedActor {
+        fn act_state(&self) -> ActStateClass {
+            self.state
+        }
+        fn change_state(&mut self) {
+            self.changes += 1;
+            self.state = self.after_change;
+        }
+    }
+
+    #[test]
+    fn change_act_state_rva_1a5070_moves_stale_actors_and_clears_flag() {
+        let mut changed = true;
+        let mut active = vec![
+            ScriptedActor {
+                state: ActStateClass::Active,
+                after_change: ActStateClass::Active,
+                changes: 0,
+            },
+            ScriptedActor {
+                state: ActStateClass::Inactive,
+                after_change: ActStateClass::Inactive,
+                changes: 0,
+            },
+            ScriptedActor {
+                state: ActStateClass::Inactive,
+                after_change: ActStateClass::None,
+                changes: 0,
+            },
+        ];
+        let mut inactive = vec![ScriptedActor {
+            state: ActStateClass::Active,
+            after_change: ActStateClass::Active,
+            changes: 0,
+        }];
+        change_act_state(&mut changed, &mut active, &mut inactive);
+        assert!(!changed);
+        // One stayed active, one arrived from the inactive list; the
+        // NONE-bound actor left both lists without a push.
+        assert_eq!(active.len(), 2);
+        assert!(active.iter().all(|actor| actor.state == ActStateClass::Active));
+        assert_eq!(inactive.len(), 1);
+        assert_eq!(inactive[0].state, ActStateClass::Inactive);
+        assert_eq!(inactive[0].changes, 1);
+    }
+
+    struct ControlProbe {
+        players: Vec<u32>,
+        refreshed: Vec<u32>,
+    }
+
+    impl PlayerControlsBackend<u32> for ControlProbe {
+        fn is_player(&self, actor: &u32) -> bool {
+            self.players.contains(actor)
+        }
+        fn update_controls(&mut self, actor: &u32) {
+            self.refreshed.push(*actor);
+        }
+    }
+
+    #[test]
+    fn update_controls_players_rva_1a7ff0_scans_backwards_while_initialized() {
+        let actors = vec![1, 2, 3];
+        let mut probe = ControlProbe {
+            players: vec![1, 3],
+            refreshed: Vec::new(),
+        };
+        update_controls_players(true, &actors, &mut probe);
+        assert_eq!(probe.refreshed, vec![3, 1]);
+        probe.refreshed.clear();
+        update_controls_players(false, &actors, &mut probe);
+        assert!(probe.refreshed.is_empty());
+    }
+
+    #[test]
+    fn show_progress_gate_rva_1a3960_reports_screen_presence() {
+        assert!(show_progress_gate(true));
+        assert!(!show_progress_gate(false));
+    }
+
+    #[test]
+    fn prepare_base_blocks_rva_1a3990_is_explicitly_unsupported() {
+        assert_eq!(
+            prepare_base_blocks(),
+            Err(GameStartupUnsupported::PrepareBaseBlocks)
+        );
+    }
+}

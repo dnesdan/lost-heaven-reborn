@@ -201,7 +201,10 @@ class RewriteProgressTests(unittest.TestCase):
         # marker-only, tests green; differential after Ghidra bodies).
         # +16 animation differential (all non-STUB; Ghidra bodies 19-132
         # insns + pinning tests; 3 STUBs stay contract).
-        self.assertEqual(game["ported"], 149 + 330)
+        # +13 mission actor-list contracts (C_mission/C_game 0x13efb0-0x1a3990;
+        # marker-only; add_actor 0x13fea0 + unload 0x140080 + Tick 0x1407e0
+        # honestly unfiled as ledger-credited; 17 tests green).
+        self.assertEqual(game["ported"], 149 + 343)
         self.assertEqual(game["verified"], 149 + 82)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
