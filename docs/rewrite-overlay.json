@@ -8480,8 +8480,8 @@
       "va": "0x5e0670",
       "name": "GM_MainMenu::OnBeforeCreate",
       "symbol": "lhr_engine::main_menu::select_main_menu_mission",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/ui/g_m_func.cpp:271-280 (GM_MainMenu::OnBeforeCreate selects mainmenu when RacingInMainMenu is false, mainmenurac when true) + game/ui/g_menu.cpp GM_Menu::Create 0x5ea2e0 chain (cited only, never vendored) + RacingInMainMenu caller game/Main.cpp:262-266 (FUNCTION GAME 0x5bebd0, body return false) and game/Main.h:28; Game.exe SHA256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27 base 0x400000 (VA 0x5e0670, RVA 0x1e0670, 20-byte leaf VA 0x5e0670-0x5e0683 (RET at 0x5e0683): CALL 0x5bebd0, TEST AL,AL, EAX select with explicit binding 0x6381d0=mainmenu (fall-through/false arm) / 0x6381dc=mainmenurac (JNZ-taken/true arm), RET; mainmenu/mainmenurac strings verified; single vtable ref 0x625eb8); REA ev_1b813b8d (body bytes) + ev_752737b8 (marker name is a LAB_ label, NOT a Ghidra function entry, disclosed) + ev_1033bebe (xrefs) + ev_7056efa9 (strings); analyze_function REJECTED (LAB_ leaf, no procedure), so marker plus binary-read evidence only, NOT a Ghidra body; tier contract, differential unwarranted; SCOPE: typed name-select only (MainMenuMission Mainmenu|MainmenuRac consuming racing_in_main_menu(), main_menu.rs select_main_menu_mission/main_menu_mission/mission_name); DEFERRED with explicit code markers and no credit: OnCreate VA 0x5e0690/RVA 0x1e0690 (needs camera/freeride owners), gap VA 0x5e0684-0x5e068f (present-but-uncredited 12-byte code run needing an owner; the 0x5e0670-0x5e0683 tail belongs to this leaf), OnChange/OnClick, GM_Menu::Create stack, GameLoopSingle; authored tests in main_menu.rs (false->mainmenu, true->mainmenurac, determinism plus live-predicate consumption) not executed (cargo unavailable on this host); overlap check: RVA 0x1e0670 absent from docs/rewrite-overlay.json functions and not a docs/progress.json ledger port (neighbor 0x1e0690 is retained inventory only); base rust-engine fce422a, no commit, no detector/police/human_actor/camera/VM files touched; no REA session left open; executed green by orchestrator: `cargo test -p lhr-engine --lib main_menu` 4 passed (base fce422a + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_d235df7bd8 + complete walk (CALL RacingInMainMenu + TEST + select string, 5 insns); pin tests main_menu 17 pass"
     },
     {
       "binary": "Game.exe",
@@ -8588,8 +8588,8 @@
       "va": "0x5e4a50",
       "name": "GM_MainMenu::OnChange",
       "symbol": "lhr_engine::main_menu::main_menu_onchange",
-      "tier": "contract",
-      "evidence": "Active-component id routed to the MenuCameraTarget latch per mafia-re g_m_func.cpp:299 (GAME 0x5e4a50). Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_91d5d05b15 + complete walk 7 insns (null-check + CALL 0x5ebe80 + RET 8); pin tests main_menu_onchange"
     },
     {
       "binary": "Game.exe",
@@ -8615,8 +8615,8 @@
       "va": "0x5f6b70",
       "name": "G_IndicatorsClass::ctor",
       "symbol": "lhr_engine::indicators::IndicatorsState::constructed",
-      "tier": "contract",
-      "evidence": "Zeroed-state construction per mafia-re g_indicators.cpp:118 (GAME 0x5f6b70). Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_6bf4299d04 + Ghidra body 85 insns/3 bbs, ctor; pin tests indicators 34 pass"
     },
     {
       "binary": "Game.exe",
@@ -8624,8 +8624,8 @@
       "va": "0x5f70e0",
       "name": "G_IndicatorsClass::Create",
       "symbol": "lhr_engine::indicators::IndicatorsState::create",
-      "tier": "contract",
-      "evidence": "Create-time flag/texture-slot intake per mafia-re g_indicators.cpp:256 (GAME 0x5f70e0); device loads deferred. Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_7bcbb381aa + Ghidra body 111 insns/1 bb, Create; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -8633,8 +8633,8 @@
       "va": "0x5f7250",
       "name": "G_IndicatorsClass::Destroy",
       "symbol": "lhr_engine::indicators::IndicatorsState::destroy",
-      "tier": "contract",
-      "evidence": "Teardown clearing owned slots per mafia-re g_indicators.cpp:298 (GAME 0x5f7250). Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_a14647b710 + Ghidra body 126 insns/35 bbs, Destroy; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -8642,8 +8642,8 @@
       "va": "0x5f6cf0",
       "name": "G_IndicatorsClass::ResetValues",
       "symbol": "lhr_engine::indicators::IndicatorsState::reset_values",
-      "tier": "contract",
-      "evidence": "Default-row reset per mafia-re g_indicators.cpp:140 (GAME 0x5f6cf0), covered by reset/lifecycle tests. Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_88249539ad + Ghidra body 164 insns/7 bbs, ResetValues; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -8651,8 +8651,8 @@
       "va": "0x5f7500",
       "name": "G_IndicatorsClass::TimerSetTime",
       "symbol": "lhr_engine::indicators::IndicatorsState::timer_set_time",
-      "tier": "contract",
-      "evidence": "Clock-word intake per mafia-re timer setters (GAME 0x5f7500 family); truncation/clamp behavior tested. Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_dd9e905d0d + Ghidra body 11 insns/1 bb, TimerSetTime; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -8660,8 +8660,8 @@
       "va": "0x5f73c0",
       "name": "G_IndicatorsClass::GameInit (texture-plan scope)",
       "symbol": "lhr_engine::indicators::IndicatorsState::game_init_texture_plan",
-      "tier": "contract",
-      "evidence": "Night/mph to 2int*.tga asset-name plan per mafia-re g_indicators.cpp:355 (GAME 0x5f73c0); device release/load deferred. Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_47a6d542cc + Ghidra body 82 insns/17 bbs, GameInit texture-plan; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -8669,8 +8669,8 @@
       "va": "0x5f74a0",
       "name": "G_IndicatorsClass::GameDone",
       "symbol": "lhr_engine::indicators::IndicatorsState::game_done",
-      "tier": "contract",
-      "evidence": "Map/radar/bonus/race-start clear + interval re-apply per mafia-re g_indicators.cpp:391-402 (GAME 0x5f74a0); hiding case stores 0xff verbatim. Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_dfd5a30a08 + Ghidra body 28 insns/3 bbs, GameDone; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -8678,8 +8678,8 @@
       "va": "0x5f4bc0",
       "name": "G_Dabing::Init",
       "symbol": "lhr_engine::dabing::DabingOwner::dabing_init",
-      "tier": "contract",
-      "evidence": "Channel/model reset per g_dabing.cpp:24 (GAME 0x5f4bc0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_57c91f14ef + Ghidra body 31 insns/5 bbs, Dabing Init; pin tests dabing 10 pass"
     },
     {
       "binary": "Game.exe",
@@ -8687,8 +8687,8 @@
       "va": "0x5f4c10",
       "name": "G_Dabing::Done",
       "symbol": "lhr_engine::dabing::DabingOwner::dabing_done",
-      "tier": "contract",
-      "evidence": "Teardown via audio probe per g_dabing.cpp:32 (GAME 0x5f4c10). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2e10b52f81 + Ghidra body 51 insns/12 bbs, Dabing Done; pin tests dabing"
     },
     {
       "binary": "Game.exe",
@@ -8696,8 +8696,8 @@
       "va": "0x5f4ca0",
       "name": "G_Dabing::GetFreeChanel",
       "symbol": "lhr_engine::dabing::DabingOwner::dabing_get_free_chanel",
-      "tier": "contract",
-      "evidence": "First FREE channel scan per g_dabing.cpp:47 (GAME 0x5f4ca0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_f5eedba16e + Ghidra body 10 insns/5 bbs, GetFreeChanel; pin tests dabing"
     },
     {
       "binary": "Game.exe",

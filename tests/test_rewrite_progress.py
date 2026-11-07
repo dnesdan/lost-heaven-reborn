@@ -216,8 +216,12 @@ class RewriteProgressTests(unittest.TestCase):
         # +4 actor/collision/menu batch (GetPos 0x7fe0 / TestPanak2 0x1d59c0 /
         # Intern_UseCar 0x17e020 / OnCreate 0x1e0690; 6 others already
         # differential, no double-credit).
+        # +12 indicators/dabing/menu batch (ctor/Create/Destroy/Reset/Timer/
+        # GameInit/GameDone 0x1f6b70-0x1f74a0, Dabing Init/Done/FreeCh
+        # 0x1f4bc0-0x1f4ca0, OnBeforeCreate/OnChange walks; 10 dossiers +
+        # 2 walks; 0x1f9d10 ledger, 5 unported, scopes held).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 121)
+        self.assertEqual(game["verified"], 149 + 133)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
