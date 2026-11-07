@@ -10226,8 +10226,8 @@
       "va": "0x404f30",
       "name": "C_actor::RecordKey",
       "symbol": "lhr_engine::actor_world::BaseActorState::record_key",
-      "tier": "contract",
-      "evidence": "Constant -1 (GAME 0x404f30). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_e74b0fc361 + complete walk 2 insns (OR EAX,-1; RET 4), returns -1; pin test record_key 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -10235,8 +10235,8 @@
       "va": "0x587d30",
       "name": "C_human::cbCollTester",
       "symbol": "lhr_engine::human_actor::HumanState::cb_coll_tester",
-      "tier": "contract",
-      "evidence": "Effects-gated footprint (GAME 0x587d30). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_041fd4de12 + complete walk (~13 insns, flag check + stores + RET 4); pin test coll_tester 1 pass"
     },
     {
       "binary": "Game.exe",
@@ -10244,8 +10244,8 @@
       "va": "0x57d360",
       "name": "C_human::Go_Front",
       "symbol": "lhr_engine::human_actor::HumanState::apply_go_front",
-      "tier": "contract",
-      "evidence": "Walk arm 5.0/1.7 with car-seat guard (GAME 0x57d360). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_1efb49597d + Ghidra body 57 insns/13 bbs, Go_Front; pin tests human_actor 19 pass"
     },
     {
       "binary": "Game.exe",
@@ -10253,8 +10253,8 @@
       "va": "0x57d430",
       "name": "C_human::Go_Back",
       "symbol": "lhr_engine::human_actor::HumanState::apply_go_back",
-      "tier": "contract",
-      "evidence": "Backpedal arm (GAME 0x57d430). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_03a4a7abd8 + Ghidra body 40 insns/5 bbs, Go_Back; pin tests human_actor"
     },
     {
       "binary": "Game.exe",
@@ -10262,8 +10262,8 @@
       "va": "0x57d4d0",
       "name": "C_human::Go_Left",
       "symbol": "lhr_engine::human_actor::HumanState::apply_go_left",
-      "tier": "contract",
-      "evidence": "Strafe arm (GAME 0x57d4d0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_139d57d154 + Ghidra body 48 insns/13 bbs, Go_Left; pin tests human_actor"
     },
     {
       "binary": "Game.exe",
@@ -10271,8 +10271,8 @@
       "va": "0x57d5a0",
       "name": "C_human::Go_Right",
       "symbol": "lhr_engine::human_actor::HumanState::apply_go_right",
-      "tier": "contract",
-      "evidence": "Strafe mirror (GAME 0x57d5a0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2b9fd8dbe8 + Ghidra body 48 insns/13 bbs, Go_Right; pin tests human_actor"
     },
     {
       "binary": "Game.exe",
@@ -10280,8 +10280,8 @@
       "va": "0x57f830",
       "name": "C_human::Do_Aimed",
       "symbol": "lhr_engine::human_actor::HumanState::apply_do_aimed",
-      "tier": "contract",
-      "evidence": "Aim latch with box/dead gate (GAME 0x57f830). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7706471511 + Ghidra body 32 insns/10 bbs, Do_Aimed; pin tests human_actor"
     },
     {
       "binary": "Game.exe",
@@ -10289,8 +10289,8 @@
       "va": "0x57f9a0",
       "name": "C_human::InventoryTruncate",
       "symbol": "lhr_engine::human_actor::HumanState::apply_inventory_truncate",
-      "tier": "contract",
-      "evidence": "Ammo clamp (GAME 0x57f9a0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_8a52e65d8e + Ghidra body 76 insns/21 bbs, InventoryTruncate; pin tests human_actor"
     },
     {
       "binary": "Game.exe",
@@ -10298,8 +10298,8 @@
       "va": "0x4081d0",
       "name": "C_actor::AddFrameForPossibleColl",
       "symbol": "lhr_engine::actor_registry::add_frame_for_possible_coll",
-      "tier": "contract",
-      "evidence": "Dedup-push frame evidence (GAME 0x4081d0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ee433173ff + Ghidra body 181 insns/29 bbs, AddFrameForPossibleColl; pin tests human_actor"
     },
     {
       "binary": "Game.exe",
@@ -10307,8 +10307,8 @@
       "va": "0x4083e0",
       "name": "C_actor::DelFrameForPossibleColl",
       "symbol": "lhr_engine::actor_registry::del_frame_for_possible_coll",
-      "tier": "contract",
-      "evidence": "Swap-remove frame evidence (GAME 0x4083e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_061d0c13a0 + Ghidra body 41 insns/10 bbs, DelFrameForPossibleColl; pin tests human_actor"
     },
     {
       "binary": "Game.exe",

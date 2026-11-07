@@ -258,8 +258,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +10 scene/vehicle batch (Add-FinishTimeTransparent/Update-Restore
         # Settings/FrmActBuff_StoreModel + SetFuel/Unstable/Size/Pivot/Lock;
         # bodies 4-239 insns).
+        # +10 movement/coll batch (RecordKey/cbCollTester walks + Go_Front/
+        # Back/Left/Right + Do_Aimed/InventoryTruncate + Add-DelFrameColl;
+        # 2 walks + 8 dossiers 32-181 insns).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 240)
+        self.assertEqual(game["verified"], 149 + 250)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
