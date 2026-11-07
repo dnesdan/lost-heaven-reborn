@@ -8318,8 +8318,8 @@
       "va": "0x47b750",
       "name": "C_detector::GetSignal (upstream working name, NOT original)",
       "symbol": "lhr_engine::actor_world::ActorWorld::detector_signal",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/actors/C_detector.h:60-64 (GAME 0x47b750, read by the C_program ISSIGNAL case game/mission/C_program.cpp:3351-3365 dispatching C_program::Process 0x46d3b0) + Rust tests; contract tier: no REA body re-observed in this session; executed green: detector 11 passed (base dce136d + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_6419d3935e + Ghidra body 2 insns, bool load + NotDetector gate; pin test detector_signal_defaults_false_and_round_trips_with_actor_byte_clear"
     },
     {
       "binary": "Game.exe",
@@ -8327,8 +8327,8 @@
       "va": "0x47b760",
       "name": "C_detector::SetSignal (upstream working name, NOT original)",
       "symbol": "lhr_engine::actor_world::ActorWorld::set_detector_signal",
-      "tier": "contract",
-      "evidence": "mafia-re 113b5b6 game/actors/C_detector.h:65-71 (GAME 0x47b760, stored by the C_program SETSIGNAL case game/mission/C_program.cpp:3341-3350 dispatching C_program::Process 0x46d3b0; clears C_actor+0x65 then stores +0xdc) + Rust tests; contract tier: no REA body re-observed in this session; executed green: detector 11 passed (base dce136d + uncommitted)"
+      "tier": "differential",
+      "evidence": "REA ev_3e91afee74 + Ghidra body 4 insns, bool store byte-exact +0xde; pin tests detector_signal round-trip + rejects_non_detector_owner"
     },
     {
       "binary": "Game.exe",
@@ -8525,8 +8525,8 @@
       "va": "0x406da0",
       "name": "C_actor::SetActState",
       "symbol": "lhr_engine::actor_world::ActorWorld::set_actor_act_state",
-      "tier": "contract",
-      "evidence": "Stores the +0x1c ACTSTATE word (C_actor.h act_state at 0x1c); the game-side change notification has no Game owner yet (actor_world.rs:3363-3376). Guard/no-op/retention tests pass. Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_deecf2f5e0 + Ghidra body 11 insns, write-through byte; pin test act_state_and_weapon_write_through_authoritative_owners"
     },
     {
       "binary": "Game.exe",
@@ -8966,8 +8966,8 @@
       "va": "0x5a8470",
       "name": "C_game::SetTrafficVisible (STUB state)",
       "symbol": "lhr_engine::traffic_generator::CityTrafficVisibleState",
-      "tier": "contract",
-      "evidence": "Visibility state owner (GAME 0x5a8470 STUB). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_c4f38f21ef + Ghidra body 11 insns, STUB bool store p[0]!=0; pin test city_traffic_visible_starts_visible_and_stores_bool"
     },
     {
       "binary": "Game.exe",
@@ -9002,8 +9002,8 @@
       "va": "0x5b64c0",
       "name": "C_game::GetIShow",
       "symbol": "lhr_engine::ishow_renderer::cgame_get_ishow",
-      "tier": "contract",
-      "evidence": "Reverse id lookup (GAME 0x5b64c0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_cdc30d9d32 + Ghidra body 34 insns, back-to-front IShow walk order; pin test get_store_loop_and_set_volume_walk_back_to_front"
     },
     {
       "binary": "Game.exe",
@@ -9092,8 +9092,8 @@
       "va": "0x5f70d0",
       "name": "G_IndicatorsClass::GetLanguage",
       "symbol": "lhr_engine::indicators::IndicatorsState::get_language",
-      "tier": "contract",
-      "evidence": "Low-first language convention (GAME 0x5f70d0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_411005b79b + Ghidra body 2 insns, u32 load staging convention; pin test language_stages_get_language_convention"
     },
     {
       "binary": "Game.exe",
@@ -9110,8 +9110,8 @@
       "va": "0x5f7620",
       "name": "G_IndicatorsClass::TimerGetInterval",
       "symbol": "lhr_engine::indicators::IndicatorsState::timer_get_interval",
-      "tier": "contract",
-      "evidence": "Interval read (GAME 0x5f7620). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_8977a75292 + Ghidra body 6 insns, u32 load interval; pin test timer_interval_zero_wraps_from_current_clock"
     },
     {
       "binary": "Game.exe",
@@ -9119,8 +9119,8 @@
       "va": "0x5f7680",
       "name": "SpocitejRafiku2 (corner math)",
       "symbol": "lhr_engine::indicators::compute_needle_corners",
-      "tier": "contract",
-      "evidence": "Needle corner math (GAME 0x5f7680); device fill deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_c759e5addb + Ghidra body 243 insns, pure f64 corner math + clamp, no IO; pin test needle_corners_match_f64_reference_and_clamp"
     },
     {
       "binary": "Game.exe",
@@ -9128,8 +9128,8 @@
       "va": "0x5f8690",
       "name": "TachometrSetGear",
       "symbol": "lhr_engine::indicators::IndicatorsState::tachometr_set_gear",
-      "tier": "contract",
-      "evidence": "Gear store (GAME 0x5f8690). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_4d11663c92 + Ghidra body 6 insns, i32 + mode flag store; pin test tachometer_values_convert_and_flag_fuel"
     },
     {
       "binary": "Game.exe",
@@ -9146,8 +9146,8 @@
       "va": "0x5f88e0",
       "name": "PlayerSetLives",
       "symbol": "lhr_engine::indicators::IndicatorsState::player_set_lives",
-      "tier": "contract",
-      "evidence": "Signed-format lives (GAME 0x5f88e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_f74bd260cf + Ghidra body 9 insns, plain u32 stores signed format; pin test lives_ammo_text_uses_signed_format"
     },
     {
       "binary": "Game.exe",
@@ -9227,8 +9227,8 @@
       "va": "0x5fa400",
       "name": "FadeInOutIsDark",
       "symbol": "lhr_engine::indicators::IndicatorsState::fade_in_out_is_dark",
-      "tier": "contract",
-      "evidence": "Dark-flag read (GAME 0x5fa400). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_658d84388e + Ghidra body 4 insns, flag-word read; pin test fade_dark_reads_flag_word"
     },
     {
       "binary": "Game.exe",
@@ -9263,8 +9263,8 @@
       "va": "0x5fa720",
       "name": "RadarRemoveCar",
       "symbol": "lhr_engine::indicators::IndicatorsState::radar_remove_car",
-      "tier": "contract",
-      "evidence": "First-row removal (GAME 0x5fa720). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_0b0d4871b7 + Ghidra body 32 insns, first-row linear remove bool; pin test radar_remove_matches_first_row_only"
     },
     {
       "binary": "Game.exe",
@@ -9290,8 +9290,8 @@
       "va": "0x5fadf0",
       "name": "RaceSetStartFlag",
       "symbol": "lhr_engine::indicators::IndicatorsState::race_set_start_flag",
-      "tier": "contract",
-      "evidence": "Flag history inc. 0xff hiding case (GAME 0x5fadf0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2e5251c5a0 + Ghidra body 32 insns, u32 rotate history; pin test race_start_flag_rotates_history"
     },
     {
       "binary": "Game.exe",
@@ -9308,8 +9308,8 @@
       "va": "0x601520",
       "name": "ResolutionChanged",
       "symbol": "lhr_engine::indicators::IndicatorsState::resolution_changed",
-      "tier": "contract",
-      "evidence": "Pure layout branches (GAME 0x601520). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7dd19cbe5f + Ghidra body 929 insns, 2x u32 branch layout; pin test resolution_changed_layout_matches_native_branches"
     },
     {
       "binary": "Game.exe",
@@ -9317,8 +9317,8 @@
       "va": "0x6025f0",
       "name": "SetRectVertices",
       "symbol": "lhr_engine::indicators::set_rect_vertices",
-      "tier": "contract",
-      "evidence": "Rect writes (GAME 0x6025f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_8037da69b8 + Ghidra body 69 insns, 6x vertex writes; pin test rect_and_diamond_vertices_match_native_writes"
     },
     {
       "binary": "Game.exe",
@@ -9398,8 +9398,8 @@
       "va": "0x5eae10",
       "name": "GM_Menu::MenuClose",
       "symbol": "lhr_engine::menu::MenuStack::menu_close",
-      "tier": "contract",
-      "evidence": "Close latch (GAME 0x5eae10). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_82ffca13ca + Ghidra body 21 insns, latch-store + rebuild; pin test close_latches_and_exchange_rebuild_preserve_requests"
     },
     {
       "binary": "Game.exe",
@@ -9461,8 +9461,8 @@
       "va": "0x5eb2f0",
       "name": "GM_Menu::FindComponentByID",
       "symbol": "lhr_engine::menu::MenuStack::find_component_by_id",
-      "tier": "contract",
-      "evidence": "By-id search (GAME 0x5eb2f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_3d3b8ba913 + Ghidra body 18 insns, wrap-around component search; pin test id_and_list_searches_wrap_like_the_original_fallbacks"
     },
     {
       "binary": "Game.exe",
@@ -9731,8 +9731,8 @@
       "va": "0x4cda20",
       "name": "C_Vehicle::OpenDoor",
       "symbol": "lhr_engine::car_actor::CarActorState::open_door",
-      "tier": "contract",
-      "evidence": "Door request latch with clamp (GAME 0x4cda20); frame/sound deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ec75a83d1f + Ghidra body 48 insns, clamp store + reject negative; pin test door_open_request_stores_clamped_amount_and_rejects_negative"
     },
     {
       "binary": "Game.exe",
@@ -9749,8 +9749,8 @@
       "va": "0x4d7c80",
       "name": "C_Vehicle::IsWindowOpen",
       "symbol": "lhr_engine::car_actor::CarActorState::is_window_open",
-      "tier": "contract",
-      "evidence": "Seat-indexed query (GAME 0x4d7c80). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_bd8781f4a9 + Ghidra body 23 insns, bool lookup per-seat with bounds errors; pin test window_store_round_trips_per_seat_with_bounds_errors"
     },
     {
       "binary": "Game.exe",
@@ -9938,8 +9938,8 @@
       "va": "0x49d390",
       "name": "C_shvestky::JakPicusNaTomJest",
       "symbol": "lhr_engine::police_state::PolicePursuitRecord::status_word",
-      "tier": "contract",
-      "evidence": "State word read (GAME 0x49d390). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_3c5046d2c1 + Ghidra body 30 insns, status word getter; pin test record_status_crash_fire_offenses_nevi_read_fields"
     },
     {
       "binary": "Game.exe",
@@ -9965,8 +9965,8 @@
       "va": "0x49d460",
       "name": "C_shvestky::PocetNasranych",
       "symbol": "lhr_engine::police_state::angry_count",
-      "tier": "contract",
-      "evidence": "Angry-list length (GAME 0x49d460). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_9b57bd57b7 + Ghidra body 34 insns, len/live filter; pin test angry_counts_length_and_live_filter"
     },
     {
       "binary": "Game.exe",
@@ -10010,8 +10010,8 @@
       "va": "0x47afc0",
       "name": "C_human::GetDead",
       "symbol": "lhr_engine::actor_world::ActorWorld::actor_dead",
-      "tier": "contract",
-      "evidence": "Dead-latch read with setter round-trip (GAME 0x47afc0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_be5c150e73 + Ghidra body 2 insns, bool read-through; pin test actor_dead_round_trips_via_setter"
     },
     {
       "binary": "Game.exe",
@@ -10019,8 +10019,8 @@
       "va": "0x47b7b0",
       "name": "C_human::GetCar",
       "symbol": "lhr_engine::actor_world::ActorWorld::human_car",
-      "tier": "contract",
-      "evidence": "Seat latch read; non-human gate to None (GAME 0x47b7b0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_cf97030d97 + Ghidra body 2 insns, latch read + gate; pin test human_car_latches_seat_owner_and_gates_non_humans"
     },
     {
       "binary": "Game.exe",
@@ -10028,8 +10028,8 @@
       "va": "0x47b0f0",
       "name": "C_Vehicle::GetSpeed",
       "symbol": "lhr_engine::actor_world::ActorWorld::car_speed",
-      "tier": "contract",
-      "evidence": "None for non-car, m/s latch for cars (GAME 0x47b0f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_0e9d6a8586 + Ghidra body 2 insns, Option<f32> read None/0 branches; pin test car_speed_none_for_non_car_and_zero_latch_for_fresh_car"
     },
     {
       "binary": "Game.exe",
@@ -10037,8 +10037,8 @@
       "va": "0x429850",
       "name": "C_car::IsCarUsable",
       "symbol": "lhr_engine::actor_world::ActorWorld::is_car_usable",
-      "tier": "contract",
-      "evidence": "None for non-car, STUB false for cars (GAME 0x429850). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_2b66e65624 + Ghidra body 135 insns, stub-false + None gate; pin test is_car_usable_none_for_non_car_and_stub_false_for_car"
     },
     {
       "binary": "Game.exe",
@@ -10046,8 +10046,8 @@
       "va": "0x47b3e0",
       "name": "C_car::SetBreakMotor",
       "symbol": "lhr_engine::actor_world::ActorWorld::set_car_break_motor",
-      "tier": "contract",
-      "evidence": "False for non-car, latch for cars (GAME 0x47b3e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_a1e247c8cd + Ghidra body 3 insns, bool store with kind gate; pin test set_car_break_motor_false_for_pedestrian_true_for_car"
     },
     {
       "binary": "Game.exe",
