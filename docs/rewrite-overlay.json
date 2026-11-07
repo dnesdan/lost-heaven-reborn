@@ -10937,8 +10937,8 @@
       "va": "0x53efb0",
       "name": "C_mission::c_str_less",
       "symbol": "lhr_engine::mission_actor_lists::c_str_less",
-      "tier": "contract",
-      "evidence": "CString less (GAME 0x53efb0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_1cb5acff25 + Ghidra body 46 insns/12 bbs, c_str_less; pin tests mission_actor_lists 17 pass"
     },
     {
       "binary": "Game.exe",
@@ -10946,8 +10946,8 @@
       "va": "0x53f520",
       "name": "C_mission::AddGameAnimModel",
       "symbol": "lhr_engine::mission_actor_lists::add_anim_model",
-      "tier": "contract",
-      "evidence": "Add anim model (GAME 0x53f520). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_77557057f0 + Ghidra body 186 insns/28 bbs, AddGameAnimModel; pin tests mission_actor_lists"
     },
     {
       "binary": "Game.exe",
@@ -10955,8 +10955,8 @@
       "va": "0x53f710",
       "name": "C_mission::DelGameAnimModel",
       "symbol": "lhr_engine::mission_actor_lists::del_anim_model",
-      "tier": "contract",
-      "evidence": "Del anim model (GAME 0x53f710). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_aab20d829e + Ghidra body 42 insns/11 bbs, DelGameAnimModel; pin tests mission_actor_lists"
     },
     {
       "binary": "Game.exe",
@@ -10964,8 +10964,8 @@
       "va": "0x53f770",
       "name": "C_mission::ClearGameAnimModels",
       "symbol": "lhr_engine::mission_actor_lists::clear_game_anim_models",
-      "tier": "contract",
-      "evidence": "Clear anim models (GAME 0x53f770). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_333e8d0e60 + Ghidra body 43 insns/10 bbs, ClearGameAnimModels; pin tests mission_actor_lists"
     },
     {
       "binary": "Game.exe",
@@ -10973,8 +10973,8 @@
       "va": "0x540130",
       "name": "C_mission::DelActor",
       "symbol": "lhr_engine::mission_actor_lists::del_actor",
-      "tier": "contract",
-      "evidence": "Del actor (GAME 0x540130). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_e9789c1a0b + Ghidra body 107 insns/28 bbs, DelActor; pin tests mission_actor_lists"
     },
     {
       "binary": "Game.exe",
@@ -10982,8 +10982,8 @@
       "va": "0x540240",
       "name": "C_mission::DelActors",
       "symbol": "lhr_engine::mission_actor_lists::del_actors",
-      "tier": "contract",
-      "evidence": "Del actors (GAME 0x540240). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_da6a1f8bf9 + Ghidra body 78 insns/18 bbs, DelActors; pin tests mission_actor_lists"
     },
     {
       "binary": "Game.exe",
@@ -10991,8 +10991,8 @@
       "va": "0x540300",
       "name": "C_mission::DelNotMeActors",
       "symbol": "lhr_engine::mission_actor_lists::del_not_me_actors",
-      "tier": "contract",
-      "evidence": "Del not-me actors (GAME 0x540300). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_62031de35d + Ghidra body 102 insns/26 bbs, DelNotMeActors; pin tests mission_actor_lists"
     },
     {
       "binary": "Game.exe",
@@ -11000,8 +11000,8 @@
       "va": "0x540420",
       "name": "C_mission::IsOwnActor",
       "symbol": "lhr_engine::mission_actor_lists::is_own_actor",
-      "tier": "contract",
-      "evidence": "Is own actor (GAME 0x540420). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_6b1abc22bc + Ghidra body 51 insns/14 bbs, IsOwnActor; pin tests mission_actor_lists"
     },
     {
       "binary": "Game.exe",
@@ -11009,8 +11009,8 @@
       "va": "0x540490",
       "name": "C_mission::FindActorByName",
       "symbol": "lhr_engine::mission_actor_lists::find_actor_by_name",
-      "tier": "contract",
-      "evidence": "Find actor by name last-match (GAME 0x540490). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_f78c20aff7 + Ghidra body 60 insns/17 bbs, FindActorByName; pin tests mission_actor_lists"
     },
     {
       "binary": "Game.exe",
@@ -11018,8 +11018,8 @@
       "va": "0x5a5070",
       "name": "C_game::ChangeActState",
       "symbol": "lhr_engine::mission_actor_lists::change_act_state",
-      "tier": "contract",
-      "evidence": "Change act state (GAME 0x5a5070). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_d73093984b + Ghidra body 104 insns/21 bbs, ChangeActState; pin tests mission_actor_lists"
     },
     {
       "binary": "Game.exe",
