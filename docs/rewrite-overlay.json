@@ -9857,8 +9857,8 @@
       "va": "0x60fba0",
       "name": "G_TextDatabase::GetTextOrNull",
       "symbol": "lhr_engine::text_database::TextDatabase::get_text_or_null",
-      "tier": "contract",
-      "evidence": "Same search, miss to None (GAME 0x60fba0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ac5d2f95a9 + Ghidra body 38 insns/14 bbs, GetTextOrNull; pin tests text_database 6 pass"
     },
     {
       "binary": "Game.exe",
@@ -10118,8 +10118,8 @@
       "va": "0x5b2590",
       "name": "CharacterStackClear",
       "symbol": "lhr_engine::game_housekeeping::character_stack_clear",
-      "tier": "contract",
-      "evidence": "Stack clear (GAME 0x5b2590). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_0700249a56 + Ghidra body 17 insns/5 bbs, CharacterStackClear; pin tests housekeeping 20 pass"
     },
     {
       "binary": "Game.exe",
@@ -10316,8 +10316,8 @@
       "va": "0x408690",
       "name": "compare_anim_index",
       "symbol": "lhr_engine::animation_index::compare_anim_index",
-      "tier": "contract",
-      "evidence": "Unsigned id comparator (GAME 0x408690). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_e139b43592 + complete walk (deref + CMP + SBB/AND/INC -> -1/0/1); pin tests compare_anim_index"
     },
     {
       "binary": "Game.exe",
@@ -10325,8 +10325,8 @@
       "va": "0x4c6010",
       "name": "C_Vehicle::GetWheelCamPos",
       "symbol": "lhr_engine::vehicle_init::get_wheel_cam_pos",
-      "tier": "contract",
-      "evidence": "Mirrored wheel-cam offset (GAME 0x4c6010); filed via vehicle_init re-export. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_6a819450ca + Ghidra body 43 insns/6 bbs, GetWheelCamPos; pin tests vehicle 298 pass"
     },
     {
       "binary": "Game.exe",
@@ -10334,8 +10334,8 @@
       "va": "0x4ce560",
       "name": "C_Vehicle::AddSectorForProjectorLights",
       "symbol": "lhr_engine::vehicle_owner::add_sector_for_projector_lights",
-      "tier": "contract",
-      "evidence": "Dedup sector push (GAME 0x4ce560). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_3726f2ddbd + Ghidra body 177 insns/30 bbs, AddSectorForProjectorLights; pin tests vehicle"
     },
     {
       "binary": "Game.exe",
@@ -10343,8 +10343,8 @@
       "va": "0x4ce760",
       "name": "C_Vehicle::AddSectorForSounds",
       "symbol": "lhr_engine::vehicle_owner::add_sector_for_sounds",
-      "tier": "contract",
-      "evidence": "Dedup sector push (GAME 0x4ce760). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_358ba209ac + Ghidra body 177 insns/30 bbs, AddSectorForSounds; pin tests vehicle"
     },
     {
       "binary": "Game.exe",
@@ -10352,8 +10352,8 @@
       "va": "0x5acfb0",
       "name": "C_game::CompareShadows",
       "symbol": "lhr_engine::game_housekeeping::compare_shadows",
-      "tier": "contract",
-      "evidence": "Shadow-item distance comparator (GAME 0x5acfb0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_38cc9f4ff1 + complete walk both branches (FCOMP [+0x18] pair + FNSTSW -> -1/0/1); pin tests compare_shadows"
     },
     {
       "binary": "Game.exe",
@@ -10361,8 +10361,8 @@
       "va": "0x408490",
       "name": "C_actor::AngleTo2",
       "symbol": "lhr_engine::native_transform::animation_angle",
-      "tier": "contract",
-      "evidence": "Signed atan2-difference wrapped to [-pi,pi] (GAME 0x408490); filed via native_transform re-export. NOT the unsigned LS3DF AngleTo (0x2ceb0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_94cbaadae3 + Ghidra body 20 insns/5 bbs, AngleTo2; pin tests compare 6 pass"
     },
     {
       "binary": "Game.exe",
@@ -10370,8 +10370,8 @@
       "va": "0x408630",
       "name": "C_actor::RotateDirNoNorm",
       "symbol": "lhr_engine::native_transform::rotate_y",
-      "tier": "contract",
-      "evidence": "Same lane without the normalization step (GAME 0x408630); filed via native_transform re-export. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_c8b811d018 + Ghidra body 30 insns/1 bb, RotateDirNoNorm; pin tests compare"
     },
     {
       "binary": "Game.exe",
