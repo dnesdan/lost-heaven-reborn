@@ -197,7 +197,9 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x09f780, DecrementCount/Save 0x0b9560-0x0aabf0, GetAIPos/Nav
         # 0x029510/0x0299c0, railway Save 0x086920, roads edge/ctor;
         # 10 dossiers + 3 walks).
-        self.assertEqual(game["ported"], 149 + 311)
+        # +19 animation blending contracts (C_animations 0x00e020-0x0103d0;
+        # marker-only, tests green; differential after Ghidra bodies).
+        self.assertEqual(game["ported"], 149 + 330)
         self.assertEqual(game["verified"], 149 + 66)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

@@ -8,6 +8,7 @@ pub mod actor_tick;
 pub mod actor_world;
 pub mod ai_driver_tick;
 pub mod animation_binding;
+pub mod animation_blending;
 pub mod animation_catalog;
 pub mod animation_controller;
 pub mod animation_index;
