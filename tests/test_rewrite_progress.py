@@ -297,8 +297,10 @@ class RewriteProgressTests(unittest.TestCase):
         # SetOutVol/SetVolume/SetLoop/SetCurrTime/SetVelocity/GetCurrTime;
         # complete walks + pinning tests; SetSoundType/SetFrequency held as
         # hardening ODCHYLKA).
+        # +7 listener tranche F (SetDir/SetVelocity/Distance/Doppler/Rolloff
+        # 0x7b120-0x7b1a0 walks + 3dsound ctor/dtor; pin tests).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 317)
+        self.assertEqual(ls3df["verified"], 145 + 324)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

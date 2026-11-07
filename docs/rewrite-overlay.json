@@ -6446,8 +6446,8 @@
       "va": "0x1007b120",
       "name": "ISND_3Dlistener::SetDir (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_listener_set_dir",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:58; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_dir_stores)"
+      "tier": "differential",
+      "evidence": "REA ev_fc871f5e43 + walk 16 insns copy front/top 6 dwords to +0x24-+0x38, RET 0xc; pin tests listener_set_dir"
     },
     {
       "binary": "LS3DF.dll",
@@ -6455,8 +6455,8 @@
       "va": "0x1007b160",
       "name": "ISND_3Dlistener::SetVelocity (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_listener_set_velocity",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:71; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_velocity_stores)"
+      "tier": "differential",
+      "evidence": "REA ev_294e260b14 + walk 10 insns copy 3 dwords to +0x18-+0x20, RET 0x8; pin tests listener_set_velocity"
     },
     {
       "binary": "LS3DF.dll",
@@ -6464,8 +6464,8 @@
       "va": "0x1007b180",
       "name": "ISND_3Dlistener::SetDistanceFactor (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_listener_set_distance_factor",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/ISound.h:238-245 (folded with I3D_material::SetEnvAlpha, marker by PDB name); tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_distance_factor_stores)"
+      "tier": "differential",
+      "evidence": "REA ev_e9b1dbed10 + walk 5 insns FLD/FSTP to +0x3c, RET 0x8; pin tests set_distance_factor"
     },
     {
       "binary": "LS3DF.dll",
@@ -6473,8 +6473,8 @@
       "va": "0x1007b190",
       "name": "ISND_3Dlistener::SetDopplerFactor (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_listener_set_doppler_factor",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:88; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_doppler_factor_stores)"
+      "tier": "differential",
+      "evidence": "REA ev_28a2514e42 + walk 5 insns FLD/FSTP to +0x44, RET 0x8; pin tests set_doppler_factor"
     },
     {
       "binary": "LS3DF.dll",
@@ -6482,8 +6482,8 @@
       "va": "0x1007b1a0",
       "name": "ISND_3Dlistener::SetRolloffFactor (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_listener_set_rolloff_factor",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dlistener.cpp:96; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_listener_set_rolloff_factor_stores)"
+      "tier": "differential",
+      "evidence": "REA ev_59136f1047 + walk 5 insns FLD/FSTP to +0x40, RET 0x8; pin tests set_rolloff_factor"
     },
     {
       "binary": "LS3DF.dll",
@@ -6518,8 +6518,8 @@
       "va": "0x1007b370",
       "name": "ISND_3Dsound::ISND_3Dsound (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_new",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:7; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_new_words)"
+      "tier": "differential",
+      "evidence": "REA ev_cff1cf541d + Ghidra body 10 insns 3dsound ctor; pin tests 3dsound_new"
     },
     {
       "binary": "LS3DF.dll",
@@ -6527,8 +6527,8 @@
       "va": "0x1007b3b0",
       "name": "ISND_3Dsound::~ISND_3Dsound (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_3dsound_destroy",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_3Dsound.cpp:13; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_3dsound_destroy_runs_close)"
+      "tier": "differential",
+      "evidence": "REA ev_565af9175b + Ghidra body 29 insns 3dsound dtor; pin tests 3dsound_destroy"
     },
     {
       "binary": "LS3DF.dll",
