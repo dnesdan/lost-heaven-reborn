@@ -333,8 +333,8 @@ class RewriteProgressTests(unittest.TestCase):
         # Hydrants/Talk x3 STUBs + Garage x4 + Steal/IsCarIn; marker-only).
         # +11 garage/loadsave differential (Ghidra bodies 2-290 insns; pin
         # tests housekeeping 45 / loadsave 30; 4 STUBs held as contract).
-        self.assertEqual(game["ported"], 149 + 511)
-        self.assertEqual(game["verified"], 149 + 428)
+        self.assertEqual(game["ported"], 149 + 525)
+        self.assertEqual(game["verified"], 149 + 441)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

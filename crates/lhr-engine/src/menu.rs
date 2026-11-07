@@ -561,6 +561,16 @@ pub struct MenuStack {
     closing: bool,
     close_code: u32,
     open_id: u32,
+    /// Staged per-component value latches for the GM_Menu value wrappers
+    /// (GAME 0x5eb010-0x5eb190). Only ids with a looked-up component are
+    /// staged; reads fall back to the native base-class defaults (NULL/0).
+    /// Device-owned payloads (textures, text-database resolution) stay
+    /// DEFERRED; these maps hold only the admitted host bytes/scalars.
+    staged_texts: std::collections::BTreeMap<u32, Vec<u8>>,
+    /// Staged float values as raw f32 bits (keeps the owner `Eq`; bit-exact).
+    staged_floats: std::collections::BTreeMap<u32, u32>,
+    staged_dwords: std::collections::BTreeMap<u32, u32>,
+    staged_bools: std::collections::BTreeMap<u32, bool>,
 }
 
 impl MenuStack {
@@ -655,6 +665,90 @@ impl MenuStack {
     pub fn get_text_id(&self, id: u32) -> u32 {
         self.find_component_by_id(id)
             .map_or(0, MenuComponent::get_text_id)
+    }
+
+    /// GM_Menu::SetText (GAME VA 0x5eb010, RVA 0x1eb010; sibling
+    /// game/ui/g_menu.cpp:946-952, cited only): stages the text bytes on the
+    /// looked-up component; no-op where the menu has no such component.
+    /// The native stores the caller pointer (base `GM_Component::SetText`,
+    /// sibling game/ui/g_m_comps.h:108); the host stages a copy, and the
+    /// class-specific device effects stay DEFERRED.
+    pub fn set_text(&mut self, id: u32, text: Vec<u8>) {
+        if self.find_component_by_id(id).is_some() {
+            self.staged_texts.insert(id, text);
+        }
+    }
+
+    /// GM_Menu::GetText (GAME VA 0x5eb050, RVA 0x1eb050; sibling
+    /// game/ui/g_menu.cpp:962-969, cited only): the staged text, None where
+    /// the menu has no such component or nothing was staged (the native NULL
+    /// in both cases; text-database resolution stays DEFERRED).
+    pub fn get_text(&self, id: u32) -> Option<&[u8]> {
+        if self.find_component_by_id(id).is_none() {
+            return None;
+        }
+        self.staged_texts.get(&id).map(Vec::as_slice)
+    }
+
+    /// GM_Menu::SetFloat (GAME VA 0x5eb070, RVA 0x1eb070; sibling
+    /// game/ui/g_menu.cpp:971-977, cited only): stages the float on the
+    /// looked-up component (progress bars, sliders); no-op where missing.
+    pub fn set_float(&mut self, id: u32, value: f32) {
+        if self.find_component_by_id(id).is_some() {
+            self.staged_floats.insert(id, value.to_bits());
+        }
+    }
+
+    /// GM_Menu::GetFloat (GAME VA 0x5eb090, RVA 0x1eb090; sibling
+    /// game/ui/g_menu.cpp:979-986, cited only): the staged float, 0.0 where
+    /// the menu has no such component or nothing was staged (the native
+    /// base-class default).
+    pub fn get_float(&self, id: u32) -> f32 {
+        if self.find_component_by_id(id).is_none() {
+            return 0.0;
+        }
+        self.staged_floats
+            .get(&id)
+            .map(|bits| f32::from_bits(*bits))
+            .unwrap_or(0.0)
+    }
+
+    /// GM_Menu::SetDword (GAME VA 0x5eb0c0, RVA 0x1eb0c0; sibling
+    /// game/ui/g_menu.cpp:988-994, cited only): stages the dword on the
+    /// looked-up component; no-op where missing.
+    pub fn set_dword(&mut self, id: u32, value: u32) {
+        if self.find_component_by_id(id).is_some() {
+            self.staged_dwords.insert(id, value);
+        }
+    }
+
+    /// GM_Menu::GetDword (GAME VA 0x5eb0e0, RVA 0x1eb0e0; sibling
+    /// game/ui/g_menu.cpp:996-1003, cited only): the staged dword, 0 where
+    /// the menu has no such component or nothing was staged.
+    pub fn get_dword(&self, id: u32) -> u32 {
+        if self.find_component_by_id(id).is_none() {
+            return 0;
+        }
+        self.staged_dwords.get(&id).copied().unwrap_or(0)
+    }
+
+    /// GM_Menu::SetBool (GAME VA 0x5eb100, RVA 0x1eb100; sibling
+    /// game/ui/g_menu.cpp:1005-1011, cited only): stages the flag on the
+    /// looked-up component; no-op where missing.
+    pub fn set_bool(&mut self, id: u32, value: bool) {
+        if self.find_component_by_id(id).is_some() {
+            self.staged_bools.insert(id, value);
+        }
+    }
+
+    /// GM_Menu::GetBool (GAME VA 0x5eb120, RVA 0x1eb120; sibling
+    /// game/ui/g_menu.cpp:1013-1020, cited only): the staged flag, false
+    /// where the menu has no such component or nothing was staged.
+    pub fn get_bool(&self, id: u32) -> bool {
+        if self.find_component_by_id(id).is_none() {
+            return false;
+        }
+        self.staged_bools.get(&id).copied().unwrap_or(false)
     }
 
     fn set_active_id(&mut self, id: Option<u32>) {
@@ -884,6 +978,29 @@ impl MenuStack {
 /// global need the device menu owner and stay DEFERRED.
 pub fn menu_open_definition(target: main_menu::MainMenuOpenTarget) -> &'static str {
     target.definition_name()
+}
+
+/// Loading-screen progress-bar item id (`LOADPROGRESS_BAR 0x12c`, sibling
+/// game/ui/g_m_func.h:162, cited only): the `pbar` the mission opening fills
+/// to `mission_part` and the game init fills for the rest.
+pub const LOADPROGRESS_BAR_ID: u32 = 0x12c;
+
+/// GM_LoadProgress::SetProgressGameInit pure bar math (GAME VA 0x5e3cf0,
+/// RVA 0x1e3cf0; sibling game/ui/g_m_func.cpp:1008-1013, cited only): the
+/// game-init fraction mapped onto the bar past `mission_part`. The
+/// `SetRawProgress` routing (`SetFloat(LOADPROGRESS_BAR, ...)`) stays with
+/// the menu host (`MenuStack::set_float`); device drawing/presenting stays
+/// DEFERRED.
+pub fn load_progress_game_init_value(mission_part: f32, progress: f32) -> f32 {
+    (1.0 - mission_part) * progress + mission_part
+}
+
+/// GM_LoadProgress::SetProgressMissionOpen pure bar math (GAME VA 0x5e3d20,
+/// RVA 0x1e3d20; sibling game/ui/g_m_func.cpp:1015-1019, cited only): the
+/// mission-open fraction mapped onto the bar up to `mission_part`. Same
+/// routing split as above.
+pub fn load_progress_mission_open_value(mission_part: f32, progress: f32) -> f32 {
+    progress * mission_part
 }
 
 /// CreateCompsByDef file probe (GAME 0x5ea370; sibling game/ui/g_menu.cpp:639-660,
@@ -1771,5 +1888,124 @@ mod tests {
             main_menu::TEXT_QUIT_GAME
         );
         assert_eq!(main_menu::TEXT_QUIT_GAME, 0x77);
+    }
+
+    #[test]
+    fn rva_1eb010_set_text_stages_only_for_known_component() {
+        // GM_Menu::SetText GAME VA 0x5eb010 (RVA 0x1eb010).
+        let mut stack = MenuStack::create(&stack_definition());
+        stack.set_text(424242, b"missing".to_vec());
+        assert_eq!(stack.get_text(424242), None);
+        stack.set_text(main_menu::MAINMENU_ITEM_INTRO, b"intro".to_vec());
+        assert_eq!(
+            stack.get_text(main_menu::MAINMENU_ITEM_INTRO),
+            Some(b"intro".as_slice())
+        );
+        // Other rows keep the NULL (None) latch.
+        assert_eq!(stack.get_text(main_menu::MAINMENU_ITEM_NEW_GAME), None);
+        stack.set_text(main_menu::MAINMENU_ITEM_INTRO, b"".to_vec());
+        assert_eq!(
+            stack.get_text(main_menu::MAINMENU_ITEM_INTRO),
+            Some(b"".as_slice())
+        );
+    }
+
+    #[test]
+    fn rva_1eb050_get_text_returns_none_for_missing_component() {
+        // GM_Menu::GetText GAME VA 0x5eb050 (RVA 0x1eb050).
+        let stack = MenuStack::create(&stack_definition());
+        assert_eq!(stack.get_text(424242), None);
+        assert_eq!(stack.get_text(main_menu::MAINMENU_ITEM_QUIT), None);
+    }
+
+    #[test]
+    fn rva_1eb070_set_float_stages_only_for_known_component() {
+        // GM_Menu::SetFloat GAME VA 0x5eb070 (RVA 0x1eb070).
+        let mut stack = MenuStack::create(&stack_definition());
+        stack.set_float(424242, 0.75);
+        assert_eq!(stack.get_float(424242), 0.0);
+        stack.set_float(main_menu::MAINMENU_ITEM_NEW_GAME, 0.75);
+        assert_eq!(
+            stack.get_float(main_menu::MAINMENU_ITEM_NEW_GAME).to_bits(),
+            0.75f32.to_bits()
+        );
+        stack.set_float(main_menu::MAINMENU_ITEM_NEW_GAME, -1.5);
+        assert_eq!(
+            stack.get_float(main_menu::MAINMENU_ITEM_NEW_GAME).to_bits(),
+            (-1.5f32).to_bits()
+        );
+    }
+
+    #[test]
+    fn rva_1eb090_get_float_defaults_to_zero() {
+        // GM_Menu::GetFloat GAME VA 0x5eb090 (RVA 0x1eb090): 0.0 where the
+        // menu has no such component or nothing was staged.
+        let stack = MenuStack::create(&stack_definition());
+        assert_eq!(stack.get_float(424242), 0.0);
+        assert_eq!(stack.get_float(main_menu::MAINMENU_ITEM_INTRO), 0.0);
+    }
+
+    #[test]
+    fn rva_1eb0c0_set_dword_stages_only_for_known_component() {
+        // GM_Menu::SetDword GAME VA 0x5eb0c0 (RVA 0x1eb0c0).
+        let mut stack = MenuStack::create(&stack_definition());
+        stack.set_dword(424242, 0xdead);
+        assert_eq!(stack.get_dword(424242), 0);
+        stack.set_dword(main_menu::MAINMENU_ITEM_QUIT, 0xdead_beef);
+        assert_eq!(stack.get_dword(main_menu::MAINMENU_ITEM_QUIT), 0xdead_beef);
+        stack.set_dword(main_menu::MAINMENU_ITEM_QUIT, u32::MAX);
+        assert_eq!(stack.get_dword(main_menu::MAINMENU_ITEM_QUIT), u32::MAX);
+    }
+
+    #[test]
+    fn rva_1eb0e0_get_dword_defaults_to_zero() {
+        // GM_Menu::GetDword GAME VA 0x5eb0e0 (RVA 0x1eb0e0): 0 where the
+        // menu has no such component or nothing was staged.
+        let stack = MenuStack::create(&stack_definition());
+        assert_eq!(stack.get_dword(424242), 0);
+        assert_eq!(stack.get_dword(main_menu::MAINMENU_ITEM_QUIT), 0);
+    }
+
+    #[test]
+    fn rva_1eb100_set_bool_stages_only_for_known_component() {
+        // GM_Menu::SetBool GAME VA 0x5eb100 (RVA 0x1eb100).
+        let mut stack = MenuStack::create(&stack_definition());
+        stack.set_bool(424242, true);
+        assert!(!stack.get_bool(424242));
+        stack.set_bool(main_menu::MAINMENU_ITEM_INTRO, true);
+        assert!(stack.get_bool(main_menu::MAINMENU_ITEM_INTRO));
+        stack.set_bool(main_menu::MAINMENU_ITEM_INTRO, false);
+        assert!(!stack.get_bool(main_menu::MAINMENU_ITEM_INTRO));
+    }
+
+    #[test]
+    fn rva_1eb120_get_bool_defaults_to_false() {
+        // GM_Menu::GetBool GAME VA 0x5eb120 (RVA 0x1eb120): false where the
+        // menu has no such component or nothing was staged.
+        let stack = MenuStack::create(&stack_definition());
+        assert!(!stack.get_bool(424242));
+        assert!(!stack.get_bool(main_menu::MAINMENU_ITEM_INTRO));
+    }
+
+    #[test]
+    fn rva_1e3cf0_set_progress_game_init_maps_past_mission_part() {
+        // GM_LoadProgress::SetProgressGameInit GAME VA 0x5e3cf0 (RVA 0x1e3cf0).
+        assert_eq!(LOADPROGRESS_BAR_ID, 0x12c);
+        assert_eq!(load_progress_game_init_value(0.7, 0.0), 0.7);
+        assert_eq!(load_progress_game_init_value(0.7, 1.0), 1.0);
+        let mid = load_progress_game_init_value(0.7, 0.5);
+        assert!((mid - 0.85).abs() < 1e-6, "{mid}");
+        assert_eq!(load_progress_game_init_value(0.0, 0.25), 0.25);
+    }
+
+    #[test]
+    fn rva_1e3d20_set_progress_mission_open_maps_up_to_mission_part() {
+        // GM_LoadProgress::SetProgressMissionOpen GAME VA 0x5e3d20
+        // (RVA 0x1e3d20).
+        assert_eq!(load_progress_mission_open_value(0.7, 0.0), 0.0);
+        assert_eq!(load_progress_mission_open_value(0.7, 1.0), 0.7);
+        let mid = load_progress_mission_open_value(0.7, 0.5);
+        assert!((mid - 0.35).abs() < 1e-6, "{mid}");
+        assert_eq!(load_progress_mission_open_value(0.0, 1.0), 0.0);
     }
 }

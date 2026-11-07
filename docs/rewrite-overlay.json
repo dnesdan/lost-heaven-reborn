@@ -12595,6 +12595,132 @@
       "symbol": "lhr_engine::game_loadsave_lifecycle::is_car_in",
       "tier": "differential",
       "evidence": "REA ev_a99c943847 + Ghidra body 13 insns/5 bbs; pin tests housekeeping 45 / loadsave 30 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb010",
+      "va": "0x5eb010",
+      "name": "GM_Menu::SetText",
+      "symbol": "lhr_engine::menu::MenuStack::set_text",
+      "tier": "differential",
+      "evidence": "REA ev_35ca22327f + Ghidra body 11 insns/3 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb050",
+      "va": "0x5eb050",
+      "name": "GM_Menu::GetText",
+      "symbol": "lhr_engine::menu::MenuStack::get_text",
+      "tier": "differential",
+      "evidence": "REA ev_6414a3e595 + Ghidra body 11 insns/3 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb070",
+      "va": "0x5eb070",
+      "name": "GM_Menu::SetFloat",
+      "symbol": "lhr_engine::menu::MenuStack::set_float",
+      "tier": "differential",
+      "evidence": "REA ev_a52eaf8a48 + Ghidra body 11 insns/3 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb090",
+      "va": "0x5eb090",
+      "name": "GM_Menu::GetFloat",
+      "symbol": "lhr_engine::menu::MenuStack::get_float",
+      "tier": "differential",
+      "evidence": "REA ev_3fbcb16648 + Ghidra body 11 insns/3 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb0c0",
+      "va": "0x5eb0c0",
+      "name": "GM_Menu::SetDword",
+      "symbol": "lhr_engine::menu::MenuStack::set_dword",
+      "tier": "differential",
+      "evidence": "REA ev_0b32ee95c6 + Ghidra body 11 insns/3 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb0e0",
+      "va": "0x5eb0e0",
+      "name": "GM_Menu::GetDword",
+      "symbol": "lhr_engine::menu::MenuStack::get_dword",
+      "tier": "differential",
+      "evidence": "REA ev_671f572927 + Ghidra body 11 insns/3 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb100",
+      "va": "0x5eb100",
+      "name": "GM_Menu::SetBool",
+      "symbol": "lhr_engine::menu::MenuStack::set_bool",
+      "tier": "differential",
+      "evidence": "REA ev_60655f7ea4 + Ghidra body 11 insns/3 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb120",
+      "va": "0x5eb120",
+      "name": "GM_Menu::GetBool",
+      "symbol": "lhr_engine::menu::MenuStack::get_bool",
+      "tier": "differential",
+      "evidence": "REA ev_03db451e5c + Ghidra body 11 insns/3 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e3cf0",
+      "va": "0x5e3cf0",
+      "name": "GM_LoadProgress::SetProgressGameInit",
+      "symbol": "lhr_engine::menu::load_progress_game_init_value",
+      "tier": "differential",
+      "evidence": "REA ev_1c1f7652a4 + Ghidra body 9 insns/1 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e3d20",
+      "va": "0x5e3d20",
+      "name": "GM_LoadProgress::SetProgressMissionOpen",
+      "symbol": "lhr_engine::menu::load_progress_mission_open_value",
+      "tier": "differential",
+      "evidence": "REA ev_aec8759964 + Ghidra body 7 insns/1 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ad900",
+      "va": "0x5ad900",
+      "name": "C_game::S_hlp::cbFindSemaphores",
+      "symbol": "lhr_engine::game_housekeeping::classify_semaphore_phase",
+      "tier": "contract",
+      "evidence": "Semaphore admission (GAME 0x5ad900). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1add10",
+      "va": "0x5add10",
+      "name": "C_game::LoadSemaphores",
+      "symbol": "lhr_engine::game_housekeeping::load_semaphores_reset",
+      "tier": "differential",
+      "evidence": "REA ev_5ef86ada71 + Ghidra body 34 insns/5 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ade20",
+      "va": "0x5ade20",
+      "name": "C_game::TickSemaphores",
+      "symbol": "lhr_engine::game_housekeeping::tick_semaphores",
+      "tier": "differential",
+      "evidence": "REA ev_a4c83330ac + Ghidra body 67 insns/12 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b6e00",
+      "va": "0x5b6e00",
+      "name": "C_game::LoadTelephones",
+      "symbol": "lhr_engine::game_housekeeping::load_telephones_reset",
+      "tier": "differential",
+      "evidence": "REA ev_fcb0c47b53 + Ghidra body 315 insns/41 bbs; pin tests menu 55 / housekeeping 49 pass"
     }
   ],
   "vm": {

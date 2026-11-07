@@ -335,6 +335,120 @@ pub fn cb_telephones(frame: FrameId, file_name: &str, out: &mut Vec<TelephoneEnt
     true
 }
 
+/// `S_semaphore_lights` phase table (`game.cpp:90-97` at pin 113b5b6; the
+/// name is a mafia-re working guess, the values are evidenced). Each entry
+/// is `(red, orange, green)`: red for the first five phases, green for the
+/// next four, orange for the last; the two driving directions run five
+/// phases apart.
+pub const SEMAPHORE_LIGHTS: [(bool, bool, bool); 10] = [
+    (true, false, false),
+    (true, false, false),
+    (true, false, false),
+    (true, false, false),
+    (true, false, false),
+    (false, false, true),
+    (false, false, true),
+    (false, false, true),
+    (false, false, true),
+    (false, true, false),
+];
+
+/// Which mission phase word a semaphore follows (`game.cpp:2942-2946` at pin
+/// 113b5b6): the model faces along x where `|dir.x| > |dir.z|` (`phase_x`),
+/// otherwise along z (`phase_z`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SemaphorePhase {
+    PhaseX,
+    PhaseZ,
+}
+
+/// Marker for one collected semaphore (mafia-re `S_semaphore` as used at
+/// `game.cpp:2935-2947`). Only the lamp frames (`None` is the native NULL)
+/// and the phase selection participate here; the `FindChildFrame` lookups
+/// and the scene enumeration stay with the scene owner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SemaphoreEntry {
+    pub red: Option<FrameId>,
+    pub orange: Option<FrameId>,
+    pub green: Option<FrameId>,
+    pub use_phase_x: bool,
+}
+
+/// FUNCTION: GAME VA 0x5ad900 (RVA 0x1ad900; `game.cpp:2924-2949`,
+/// `C_game::S_hlp::cbFindSemaphores`): pure admission half. The model-type
+/// check and the `RED`/`ORANGE`/`GREEN` child lookups stay with the scene
+/// owner, which calls this only for models; the basename after the last `\`
+/// (case-insensitive) `semafor.i3d` is kept and mapped to its phase by the
+/// model direction, anything else is skipped. Returns the phase where kept.
+pub fn classify_semaphore_phase(
+    file_name: &str,
+    dir_x: f32,
+    dir_z: f32,
+) -> Option<SemaphorePhase> {
+    let base = file_name.rsplit('\\').next().unwrap_or(file_name);
+    if !base.eq_ignore_ascii_case("semafor.i3d") {
+        return None;
+    }
+    if dir_x.abs() > dir_z.abs() {
+        Some(SemaphorePhase::PhaseX)
+    } else {
+        Some(SemaphorePhase::PhaseZ)
+    }
+}
+
+/// FUNCTION: GAME VA 0x5add10 (RVA 0x1add10; `game.cpp:2951-2957`,
+/// `C_game::LoadSemaphores`): reset half. Empties the list; the sector
+/// enumeration (`EnumFrames` with `cbFindSemaphores`) stays with the scene
+/// owner.
+pub fn load_semaphores_reset(semaphores: &mut Vec<SemaphoreEntry>) {
+    semaphores.clear();
+}
+
+/// Native per-lamp sink for [`tick_semaphores`]: switching one lamp frame
+/// on or off.
+pub trait SemaphoreLightBackend {
+    fn set_light(&mut self, frame: FrameId, on: bool);
+}
+
+/// FUNCTION: GAME VA 0x5ade20 (RVA 0x1ade20; `game.cpp:2975-2988`,
+/// `C_game::TickSemaphores`). Applies each semaphore's direction phase from
+/// the lights table, from the back like the original; absent lamps
+/// (`None`) are skipped. The caller stages `phase_x`/`phase_z` in `0..10`
+/// (native `Init` starts them at 0/5 and `Tick` wraps past 9 back to 0).
+pub fn tick_semaphores(
+    semaphores: &[SemaphoreEntry],
+    phase_x: usize,
+    phase_z: usize,
+    backend: &mut impl SemaphoreLightBackend,
+) {
+    let (red_x, orange_x, green_x) = SEMAPHORE_LIGHTS[phase_x];
+    let (red_z, orange_z, green_z) = SEMAPHORE_LIGHTS[phase_z];
+    for entry in semaphores.iter().rev() {
+        let (red, orange, green) = if entry.use_phase_x {
+            (red_x, orange_x, green_x)
+        } else {
+            (red_z, orange_z, green_z)
+        };
+        if let Some(frame) = entry.red {
+            backend.set_light(frame, red);
+        }
+        if let Some(frame) = entry.orange {
+            backend.set_light(frame, orange);
+        }
+        if let Some(frame) = entry.green {
+            backend.set_light(frame, green);
+        }
+    }
+}
+
+/// FUNCTION: GAME VA 0x5b6e00 (RVA 0x1b6e00; `game.cpp:3641-3648`,
+/// `C_game::LoadTelephones`): reset half. Empties the list; the sector
+/// enumeration runs through the already ported [`cb_telephones`], and the
+/// base-cache model-set pass stays with the cache owner.
+pub fn load_telephones_reset(telephones: &mut Vec<TelephoneEntry>) {
+    telephones.clear();
+}
+
 /// Marker for a collected scream area (`game.h`, `S_scream_area`).
 /// Only the parsed hexadecimal `id` and the source frame participate here.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1106,6 +1220,112 @@ mod tests {
                 ScreamAreaEntry { frame: 2, id: 0 },
             ]
         );
+    }
+
+    #[test]
+    fn rva_1ad900_classify_semaphore_phase_matches_model_and_direction() {
+        // C_game::S_hlp::cbFindSemaphores GAME RVA 0x1ad900 (VA 0x5ad900).
+        assert_eq!(
+            classify_semaphore_phase("models\\semafor.i3d", 1.0, 0.0),
+            Some(SemaphorePhase::PhaseX)
+        );
+        assert_eq!(
+            classify_semaphore_phase("SEMAFOR.I3D", 0.0, 1.0),
+            Some(SemaphorePhase::PhaseZ)
+        );
+        // Equal components take the z branch (`>` is strict).
+        assert_eq!(
+            classify_semaphore_phase("semafor.i3d", 1.0, 1.0),
+            Some(SemaphorePhase::PhaseZ)
+        );
+        assert_eq!(
+            classify_semaphore_phase("semafor.i3d", -3.0, 2.0),
+            Some(SemaphorePhase::PhaseX)
+        );
+        assert_eq!(classify_semaphore_phase("models\\alarm01.i3d", 5.0, 0.0), None);
+        assert_eq!(classify_semaphore_phase("other.i3d", 0.0, 0.0), None);
+        // Basename matching is case-insensitive past the last backslash.
+        assert_eq!(
+            classify_semaphore_phase("x\\SemAfor.I3D", 0.0, -2.0),
+            Some(SemaphorePhase::PhaseZ)
+        );
+    }
+
+    #[test]
+    fn rva_1add10_load_semaphores_reset_empties() {
+        // C_game::LoadSemaphores GAME RVA 0x1add10 (VA 0x5add10): reset half.
+        let mut semaphores = vec![SemaphoreEntry {
+            red: Some(1),
+            orange: None,
+            green: Some(3),
+            use_phase_x: true,
+        }];
+        load_semaphores_reset(&mut semaphores);
+        assert!(semaphores.is_empty());
+        load_semaphores_reset(&mut semaphores);
+        assert!(semaphores.is_empty());
+    }
+
+    struct SemaphoreLog {
+        states: Vec<(FrameId, bool)>,
+    }
+
+    impl SemaphoreLightBackend for SemaphoreLog {
+        fn set_light(&mut self, frame: FrameId, on: bool) {
+            self.states.push((frame, on));
+        }
+    }
+
+    #[test]
+    fn rva_1ade20_tick_semaphores_applies_phase_table_back_to_front() {
+        // C_game::TickSemaphores GAME RVA 0x1ade20 (VA 0x5ade20).
+        assert_eq!(SEMAPHORE_LIGHTS[0], (true, false, false));
+        assert_eq!(SEMAPHORE_LIGHTS[9], (false, true, false));
+        let semaphores = vec![
+            SemaphoreEntry {
+                red: Some(1),
+                orange: Some(2),
+                green: Some(3),
+                use_phase_x: true,
+            },
+            SemaphoreEntry {
+                red: None,
+                orange: Some(4),
+                green: Some(5),
+                use_phase_x: false,
+            },
+        ];
+        // phase_x = 0 is red, phase_z = 5 is green; the back entry runs first.
+        let mut backend = SemaphoreLog { states: vec![] };
+        tick_semaphores(&semaphores, 0, 5, &mut backend);
+        assert_eq!(
+            backend.states,
+            vec![(4, false), (5, true), (1, true), (2, false), (3, false)]
+        );
+        // The orange phase lights only the orange lamp.
+        let mut backend = SemaphoreLog { states: vec![] };
+        tick_semaphores(&semaphores, 9, 9, &mut backend);
+        assert_eq!(
+            backend.states,
+            vec![(4, true), (5, false), (1, false), (2, true), (3, false)]
+        );
+        // Empty input drives no lamp.
+        let mut backend = SemaphoreLog { states: vec![] };
+        tick_semaphores(&[], 0, 5, &mut backend);
+        assert!(backend.states.is_empty());
+    }
+
+    #[test]
+    fn rva_1b6e00_load_telephones_reset_empties() {
+        // C_game::LoadTelephones GAME RVA 0x1b6e00 (VA 0x5b6e00): reset half.
+        let mut telephones = vec![TelephoneEntry {
+            frame: 1,
+            phone_box: false,
+        }];
+        load_telephones_reset(&mut telephones);
+        assert!(telephones.is_empty());
+        load_telephones_reset(&mut telephones);
+        assert!(telephones.is_empty());
     }
 
     #[test]
