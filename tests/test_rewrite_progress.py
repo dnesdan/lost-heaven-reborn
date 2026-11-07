@@ -311,8 +311,10 @@ class RewriteProgressTests(unittest.TestCase):
         # Objectives x4 + Garage x4; VA-form ok; marker-only, tests green).
         # +15 loadsave differential (Ghidra bodies 2-172 insns; pin tests
         # game_loadsave 24 pass).
+        # +3 cutscene flag differential (complete both-branch walks: record
+        # 0x8/0x2 + play 0x4/0x1 rotates; pin tests cutscene 19 pass).
         self.assertEqual(game["ported"], 149 + 453)
-        self.assertEqual(game["verified"], 149 + 383)
+        self.assertEqual(game["verified"], 149 + 386)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

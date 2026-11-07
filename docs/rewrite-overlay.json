@@ -11747,8 +11747,8 @@
       "va": "0x5c27b0",
       "name": "C_actor::SetCutsceneRecord",
       "symbol": "lhr_engine::mission_actor_lists::set_cutscene_record",
-      "tier": "contract",
-      "evidence": "Cutscene record flag (GAME 0x5c27b0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_984d7cc657 + complete walk all branches (off -> clear 0x8+0x2 via AND 0xf5; on&0x2 -> keep; else set 0x8); pin tests cutscene 19 pass"
     },
     {
       "binary": "Game.exe",
@@ -11756,8 +11756,8 @@
       "va": "0x5c27d0",
       "name": "C_actor::SetCutscenePlay",
       "symbol": "lhr_engine::mission_actor_lists::set_cutscene_play",
-      "tier": "contract",
-      "evidence": "Cutscene play flag (GAME 0x5c27d0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_f692814a2c + complete walk all branches (off -> clear 0x4+0x1 via AND 0xfa; on&0x1 -> keep; else set 0x4); pin tests cutscene"
     },
     {
       "binary": "Game.exe",
@@ -11765,8 +11765,8 @@
       "va": "0x5c27f0",
       "name": "C_actor::UpdateCutsceneFlags",
       "symbol": "lhr_engine::mission_actor_lists::update_cutscene_flags",
-      "tier": "contract",
-      "evidence": "Cutscene flags update (GAME 0x5c27f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_6fda3f16ad + complete walk (rotate 0x8->0x2 then 0x4->0x1 flag pairs); pin tests cutscene"
     },
     {
       "binary": "Game.exe",
