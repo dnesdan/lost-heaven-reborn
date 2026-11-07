@@ -185,8 +185,10 @@ class RewriteProgressTests(unittest.TestCase):
         # Ghidra bodies 3-177 insns + per-function pinning tests).
         # +1 racecam dtor 0x196240 (2-insn vtable-store + base tail) + VA-form
         # remediation of 33 Game + 13 LS3DF entries (no count change).
-        self.assertEqual(game["ported"], 149 + 310)
-        self.assertEqual(game["verified"], 149 + 16)
+        # +3 driving tables (LoadMaterials 0x1c7f0 / LoadTyres 0x1d480 upgrades
+        # + ConvertTyres 0x1d770 new filing; Ghidra bodies 164/240/49 insns).
+        self.assertEqual(game["ported"], 149 + 311)
+        self.assertEqual(game["verified"], 149 + 19)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
