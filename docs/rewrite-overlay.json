@@ -2846,8 +2846,8 @@
       "va": "0x10026930",
       "name": "I3D_lit_object::Destruct (mafia-re evidenced name)",
       "symbol": "lhr_engine::i3d_object::ObjectResources::destruct_active_lighting",
-      "tier": "contract",
-      "evidence": "Ghidra formed no body (entry/mid probes only) + mafia-re I3d_lit_object.cpp:1125-1136 (constructed=false first, 10 deletes, flags ignored) + constructed-first failure tests; reuses existing port; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_a2d1272c11 + complete walk (~25 insns, flag clear + loop of 10 vcall-release+null, RET 8); pin test lit_destruct_marks_unconstructed_first_despite_backend_failure"
     },
     {
       "binary": "LS3DF.dll",
@@ -2918,8 +2918,8 @@
       "va": "0x100217d0",
       "name": "I3D_lit_object::GetNumRectInfos (mafia-re evidenced name)",
       "symbol": "lhr_engine::i3d_object::ObjectResources::lit_rect_count",
-      "tier": "contract",
-      "evidence": "Ghidra formed no procedure; 11-insn walk (IMUL 0x38 stride, null->0, count word litLod+0x54) + mafia-re I3d_lit_object.cpp:115-123 + null/lightmap/bounds tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_8c42af8a96 + complete walk both branches (index IMUL 0x38 + LEA +0x220 + load [+0x10]; null -> RET; else [EAX+0x54] count + RET); pin test lit_rect_count_and_placements_words"
     },
     {
       "binary": "LS3DF.dll",
@@ -2927,8 +2927,8 @@
       "va": "0x10021800",
       "name": "I3D_lit_object::GetRectInfos (mafia-re evidenced name)",
       "symbol": "lhr_engine::i3d_object::ObjectResources::lit_rect_placements",
-      "tier": "contract",
-      "evidence": "Ghidra formed no procedure; 11-insn walk (array word litLod+0x50, null->NULL) + mafia-re I3d_lit_object.cpp:125-133 + live-slice/borrow tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_3cab9c7d78 + complete walk both branches (same index; null -> RET; else [EAX+0x50] placements + RET); pin test lit_rect_count_and_placements_words"
     },
     {
       "binary": "LS3DF.dll",

@@ -343,8 +343,10 @@ class RewriteProgressTests(unittest.TestCase):
         # repair/Init from-record; 5 dossiers + 1 walk; Init mark held).
         # +1 driver SetVolume (complete 60-insn walk: init-flag + MRG_ZERO +
         # clamp [0.0..1.0] via FCOMP + voice loop OR 0x8; close/initbuf held).
+        # +3 lit_object tranche J (GetNumRectInfos/GetRectInfos/Destruct;
+        # complete both-branch walks; SetActiveLevel loop held).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 360)
+        self.assertEqual(ls3df["verified"], 145 + 363)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
