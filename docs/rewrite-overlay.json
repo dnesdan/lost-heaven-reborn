@@ -8993,8 +8993,8 @@
       "va": "0x5ae1b0",
       "name": "C_game::CityMusicPaused",
       "symbol": "lhr_engine::ishow_renderer::cgame_city_music_paused",
-      "tier": "contract",
-      "evidence": "Paused-flag store, working hypothesis pending REA (GAME 0x5ae1b0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_de9fabff7d + Ghidra body 6 insns/3 bbs, paused-flag store; pin test tick_city_music_area_change_rotates_loop_and_fades"
     },
     {
       "binary": "Game.exe",
@@ -9011,8 +9011,8 @@
       "va": "0x5b6520",
       "name": "C_game::IShowStoreVolume",
       "symbol": "lhr_engine::ishow_renderer::cgame_ishow_store_volume",
-      "tier": "contract",
-      "evidence": "Volume store (GAME 0x5b6520). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_83678b141b + Ghidra body 34 insns/8 bbs, IShow store volume; pin test get_store_loop_and_set_volume_walk_back_to_front"
     },
     {
       "binary": "Game.exe",
@@ -9020,8 +9020,8 @@
       "va": "0x5b6580",
       "name": "C_game::IShowLoop",
       "symbol": "lhr_engine::ishow_renderer::cgame_ishow_loop",
-      "tier": "contract",
-      "evidence": "Loop flag store (GAME 0x5b6580). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_99d42065c5 + Ghidra body 48 insns/10 bbs, IShow loop flag; pin test get_store_loop"
     },
     {
       "binary": "Game.exe",
@@ -9029,8 +9029,8 @@
       "va": "0x5b6600",
       "name": "C_game::IShowSetVolume",
       "symbol": "lhr_engine::ishow_renderer::cgame_ishow_set_volume",
-      "tier": "contract",
-      "evidence": "Reverse device submit (GAME 0x5b6600). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_e733500906 + Ghidra body 36 insns/6 bbs, IShow set volume reverse submit; pin test get_store_loop"
     },
     {
       "binary": "Game.exe",
@@ -9038,8 +9038,8 @@
       "va": "0x5b6d50",
       "name": "C_game::DelSemaphore",
       "symbol": "lhr_engine::game_crash_registry::del_semaphore",
-      "tier": "contract",
-      "evidence": "Semaphore row removal (GAME 0x5b6d50). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_8de0738991 + Ghidra body 60 insns/13 bbs, semaphore row removal; pin test duplicate_semaphore_removal_uses_last_match_and_swaps_entire_row"
     },
     {
       "binary": "Game.exe",
@@ -9047,8 +9047,8 @@
       "va": "0x5b7440",
       "name": "C_game::DelTelephones",
       "symbol": "lhr_engine::game_crash_registry::del_telephones",
-      "tier": "contract",
-      "evidence": "Telephone row removal (GAME 0x5b7440). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ce54ed9f15 + Ghidra body 67 insns/13 bbs, telephone row removal; pin test telephone_removal_preserves_nonmatching_rows_and_empty_guards"
     },
     {
       "binary": "Game.exe",
@@ -9101,8 +9101,8 @@
       "va": "0x5f7540",
       "name": "G_IndicatorsClass::TimerSetInterval",
       "symbol": "lhr_engine::indicators::IndicatorsState::timer_set_interval",
-      "tier": "contract",
-      "evidence": "Interval store with clock wrap (GAME 0x5f7540). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_48cb8b4e96 + Ghidra body 43 insns/4 bbs, TimerSetInterval wrap store; pin test timer_interval_zero_wraps_from_current_clock"
     },
     {
       "binary": "Game.exe",

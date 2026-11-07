@@ -223,8 +223,11 @@ class RewriteProgressTests(unittest.TestCase):
         # +5 music/speed/ctor batch (SetSpeed 0x7b4f0 / mission ctor 0x13f010 /
         # IsSpeaking 0x1f5c40 / LoadCityMusicAreas 0x1adee0 / CityMusicOff
         # 0x1ae130; bodies 5-59 insns; markers/scopes held).
+        # +7 ishow/registry/timer batch (CityMusicPaused 0x1ae1b0 / IShow
+        # store-loop-setvol 0x1b6520-0x1b6600 / DelSemaphore-Telephones /
+        # TimerSetInterval; bodies 6-67 insns; tick/speak/decode held).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 138)
+        self.assertEqual(game["verified"], 149 + 145)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
