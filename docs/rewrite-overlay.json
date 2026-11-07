@@ -8813,8 +8813,8 @@
       "va": "0x47a070",
       "name": "C_indicators::SetFlags",
       "symbol": "lhr_engine::indicators::IndicatorsState::set_flags",
-      "tier": "contract",
-      "evidence": "Exact flag store (GAME 0x47a070). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_39ac837f + Ghidra body, plain dword store at +0x40a4 (MOV [ECX+0x40a4],EAX; pin test pin_set_flags_is_plain_store_at_40a4)"
     },
     {
       "binary": "Game.exe",
@@ -8822,8 +8822,8 @@
       "va": "0x47a080",
       "name": "C_indicators::AddFlags",
       "symbol": "lhr_engine::indicators::IndicatorsState::add_flags",
-      "tier": "contract",
-      "evidence": "Flag union (GAME 0x47a080). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_24d47b07 + Ghidra body, OR-union into +0x40a4 (pin test pin_add_flags_unions_bits)"
     },
     {
       "binary": "Game.exe",
@@ -8831,8 +8831,8 @@
       "va": "0x47a0a0",
       "name": "C_indicators::RemoveFlags",
       "symbol": "lhr_engine::indicators::IndicatorsState::remove_flags",
-      "tier": "contract",
-      "evidence": "Flag removal (GAME 0x47a0a0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ab995d25 + Ghidra body, NOT+AND clear of masked bits (pin test pin_remove_flags_clears_only_masked_bits)"
     },
     {
       "binary": "Game.exe",
@@ -8840,8 +8840,8 @@
       "va": "0x47a0c0",
       "name": "C_indicators::IsShown",
       "symbol": "lhr_engine::indicators::IndicatorsState::is_shown",
-      "tier": "contract",
-      "evidence": "Flag read (GAME 0x47a0c0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_6aa412ed + Ghidra body, nonzero-intersection test, not equality (pin test pin_is_shown_tests_nonzero_intersection)"
     },
     {
       "binary": "Game.exe",
@@ -8849,8 +8849,8 @@
       "va": "0x47a0e0",
       "name": "C_indicators::PushFlags",
       "symbol": "lhr_engine::indicators::IndicatorsState::push_flags",
-      "tier": "contract",
-      "evidence": "Flag stack push (GAME 0x47a0e0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_73eeb328 + Ghidra body, vector push at +0x40a8 returning live flags (pin test pin_push_flags_stacks_and_returns_current)"
     },
     {
       "binary": "Game.exe",
@@ -8858,8 +8858,8 @@
       "va": "0x47a2a0",
       "name": "C_indicators::PopFlags",
       "symbol": "lhr_engine::indicators::IndicatorsState::pop_flags",
-      "tier": "contract",
-      "evidence": "Flag stack pop (GAME 0x47a2a0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_360538ca + Ghidra body, guarded pop restoring last flags, empty pop keeps (pin test pin_pop_flags_restores_or_keeps_on_empty)"
     },
     {
       "binary": "Game.exe",
@@ -8867,8 +8867,8 @@
       "va": "0x47a300",
       "name": "C_indicators::SetSymbol",
       "symbol": "lhr_engine::indicators::IndicatorsState::set_symbol",
-      "tier": "contract",
-      "evidence": "Symbol+alpha store (GAME 0x47a300). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ee6bff18 + Ghidra body, alpha*255 trunc, 0xff clamp, SHL24|0xffffff (pin test pin_set_symbol_alpha_truncates_and_clamps)"
     },
     {
       "binary": "Game.exe",
@@ -8876,8 +8876,8 @@
       "va": "0x47a340",
       "name": "C_indicators::SetProgress",
       "symbol": "lhr_engine::indicators::IndicatorsState::set_progress",
-      "tier": "contract",
-      "evidence": "Progress store (GAME 0x47a340). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ad26278d + Ghidra body, verbatim f32 store (pin test pin_set_progress_stores_value_verbatim)"
     },
     {
       "binary": "Game.exe",

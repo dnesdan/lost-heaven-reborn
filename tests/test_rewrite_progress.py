@@ -181,8 +181,10 @@ class RewriteProgressTests(unittest.TestCase):
         # Do_Breath 0x17d310, MapEnable 0x1f9d10) and 5 within-overlay dupes
         # (InitAttempt working-name, AiGhostStore pair, free-fn merge scope,
         # RotateDir dup). Net honest count now.
+        # +8 verified-upgrade tranche B (indicators flag lanes 0x7a070-0x7a340:
+        # Ghidra bodies 3-177 insns + per-function pinning tests).
         self.assertEqual(game["ported"], 149 + 310)
-        self.assertEqual(game["verified"], 149 + 7)
+        self.assertEqual(game["verified"], 149 + 15)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

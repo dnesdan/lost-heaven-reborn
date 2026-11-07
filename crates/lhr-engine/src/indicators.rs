@@ -2027,4 +2027,89 @@ mod tests {
         state.set_compass_destination(false);
         assert!(!state.compass_destination_present());
     }
+    #[test]
+    fn pin_set_flags_is_plain_store_at_40a4() {
+        // GAME 0x47a070: MOV [ECX+0x40a4],EAX — exact store, not a union.
+        // REA ev subagent-batch-1.
+        let mut state = IndicatorsState::constructed(staged_clock());
+        state.set_flags(INDF_PLAYER);
+        state.set_flags(INDF_TIMER);
+        assert_eq!(state.show_flags(), INDF_TIMER);
+        assert!(!state.is_shown(INDF_PLAYER));
+    }
+    #[test]
+    fn pin_add_flags_unions_bits() {
+        // GAME 0x47a080: OR over [ECX+0x40a4].
+        let mut state = IndicatorsState::constructed(staged_clock());
+        state.set_flags(INDF_PLAYER);
+        state.add_flags(INDF_TIMER | INDF_CROSSHAIR);
+        assert_eq!(state.show_flags(), INDF_PLAYER | INDF_TIMER | INDF_CROSSHAIR);
+        state.add_flags(0);
+        assert_eq!(state.show_flags(), INDF_PLAYER | INDF_TIMER | INDF_CROSSHAIR);
+    }
+    #[test]
+    fn pin_remove_flags_clears_only_masked_bits() {
+        // GAME 0x47a0a0: NOT then AND over [ECX+0x40a4].
+        let mut state = IndicatorsState::constructed(staged_clock());
+        state.set_flags(INDF_PLAYER | INDF_TIMER | INDF_CROSSHAIR);
+        state.remove_flags(INDF_TIMER);
+        assert_eq!(state.show_flags(), INDF_PLAYER | INDF_CROSSHAIR);
+        state.remove_flags(0);
+        assert_eq!(state.show_flags(), INDF_PLAYER | INDF_CROSSHAIR);
+        state.remove_flags(0xffff_ffff);
+        assert_eq!(state.show_flags(), 0);
+    }
+    #[test]
+    fn pin_is_shown_tests_nonzero_intersection() {
+        // GAME 0x47a0c0: TEST + SETNZ — any shared bit suffices.
+        let mut state = IndicatorsState::constructed(staged_clock());
+        state.set_flags(INDF_PLAYER);
+        assert!(state.is_shown(INDF_PLAYER | INDF_TIMER));
+        assert!(!state.is_shown(INDF_TIMER | INDF_CROSSHAIR));
+        assert!(!state.is_shown(0));
+    }
+    #[test]
+    fn pin_push_flags_stacks_and_returns_current() {
+        // GAME 0x47a0e0: vector push at [ECX+0x40a8], returns show_flags.
+        let mut state = IndicatorsState::constructed(staged_clock());
+        state.set_flags(INDF_PLAYER | INDF_TIMER);
+        assert_eq!(state.push_flags(), INDF_PLAYER | INDF_TIMER);
+        state.set_flags(INDF_MENU);
+        assert_eq!(state.push_flags(), INDF_MENU);
+        assert_eq!(state.show_flags_stack_depth(), 2);
+    }
+    #[test]
+    fn pin_pop_flags_restores_or_keeps_on_empty() {
+        // GAME 0x47a2a0: guarded pop; empty stack returns show_flags unchanged.
+        let mut state = IndicatorsState::constructed(staged_clock());
+        state.set_flags(INDF_PLAYER);
+        state.push_flags();
+        state.set_flags(INDF_MENU);
+        assert_eq!(state.pop_flags(), INDF_PLAYER);
+        assert_eq!(state.show_flags_stack_depth(), 0);
+        state.set_flags(INDF_TIMER);
+        assert_eq!(state.pop_flags(), INDF_TIMER);
+    }
+    #[test]
+    fn pin_set_symbol_alpha_truncates_and_clamps() {
+        // GAME 0x47a300: FMUL 255.0, __ftol, CMP 0xff clamp, SHL 24, OR 0xffffff.
+        let mut state = IndicatorsState::constructed(staged_clock());
+        state.set_symbol(2, 0.5);
+        assert_eq!(state.symbol(), (2, 0x7fffffff));
+        state.set_symbol(1, 1.0);
+        assert_eq!(state.symbol(), (1, 0xffffffffu32 as i32));
+        state.set_symbol(3, 2.0);
+        assert_eq!(state.symbol().1, 0xffffffffu32 as i32);
+        state.set_symbol(4, 0.0);
+        assert_eq!(state.symbol(), (4, 0x00ffffff));
+    }
+    #[test]
+    fn pin_set_progress_stores_value_verbatim() {
+        // GAME 0x47a340: MOV [ECX+0x46e8],EAX — no scaling or clamp.
+        let mut state = IndicatorsState::constructed(staged_clock());
+        state.set_progress(0.25);
+        assert_eq!(state.progress(), 0.25);
+        state.set_progress(1.5);
+        assert_eq!(state.progress(), 1.5);
+    }
 }
