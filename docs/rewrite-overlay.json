@@ -12172,6 +12172,114 @@
       "symbol": "lhr_engine::traffic_generator::vyfun_od_te_masiny",
       "tier": "contract",
       "evidence": "STUB: pedestrian owner deferred (GAME 0x4512a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b810",
+      "va": "0x47b810",
+      "name": "C_human::IsReady",
+      "symbol": "lhr_engine::human_actor::HumanState::is_ready",
+      "tier": "differential",
+      "evidence": "REA ev_0d62689410 + Ghidra body 20 insns/8 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17a630",
+      "va": "0x57a630",
+      "name": "C_human::GetAnimIDForDeath",
+      "symbol": "lhr_engine::human_actor::HumanState::get_anim_id_for_death",
+      "tier": "differential",
+      "evidence": "REA ev_760d94c961 + Ghidra body 80 insns/15 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18e270",
+      "va": "0x58e270",
+      "name": "C_human::Can_Hit_FilterHumanType",
+      "symbol": "lhr_engine::human_actor::HumanState::can_hit_filter_human_type",
+      "tier": "differential",
+      "evidence": "REA ev_7add94adfa + Ghidra body 54 insns/17 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18b870",
+      "va": "0x58b870",
+      "name": "C_human::ResetActions",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_reset_actions",
+      "tier": "differential",
+      "evidence": "REA ev_ece8c0d9f5 + Ghidra body 25 insns/5 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18a790",
+      "va": "0x58a790",
+      "name": "C_human::Can_Aimed",
+      "symbol": "lhr_engine::human_actor::HumanState::can_aimed",
+      "tier": "differential",
+      "evidence": "REA ev_57605bad2e + Ghidra body 127 insns/19 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18cfb0",
+      "va": "0x58cfb0",
+      "name": "C_human::IsThisCarStealing",
+      "symbol": "lhr_engine::human_actor::HumanState::car_has_human_claimant",
+      "tier": "differential",
+      "evidence": "REA ev_322f68bb94 + Ghidra body 39 insns/12 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18aa60",
+      "va": "0x58aa60",
+      "name": "C_human::Do_CornerFire",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_corner_fire",
+      "tier": "differential",
+      "evidence": "REA ev_e7d9393424 + Ghidra body 76 insns/19 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18ab80",
+      "va": "0x58ab80",
+      "name": "C_human::Do_CornerFireAimed",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_corner_fire_aimed",
+      "tier": "differential",
+      "evidence": "REA ev_7fb37d979d + Ghidra body 56 insns/17 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x185f40",
+      "va": "0x585f40",
+      "name": "C_human::GetBoundPoints2D",
+      "symbol": "lhr_engine::human_actor::HumanState::bound_points_2d",
+      "tier": "contract",
+      "evidence": "Bound-points geometry (GAME 0x585f40). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x184480",
+      "va": "0x584480",
+      "name": "C_human::Do_Castrate",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_castrate",
+      "tier": "differential",
+      "evidence": "REA ev_0f8ed3b10a + Ghidra body 66 insns/15 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x184550",
+      "va": "0x584550",
+      "name": "C_human::Do_HardHead",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_hard_head",
+      "tier": "differential",
+      "evidence": "REA ev_97f46e194c + Ghidra body 66 insns/15 bbs; pin tests human_actor 44 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x187bc0",
+      "va": "0x587bc0",
+      "name": "C_human::Do_ShockStart",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_shock_start",
+      "tier": "differential",
+      "evidence": "REA ev_bda6cebb04 + Ghidra body 33 insns/8 bbs; pin tests human_actor 44 pass"
     }
   ],
   "vm": {

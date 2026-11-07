@@ -318,8 +318,13 @@ class RewriteProgressTests(unittest.TestCase):
         # marker-only, tests green).
         # +3 police/traffic differential (GetActive/SetGlobal/ActionStatus
         # no-chase; Ghidra bodies 2-38 insns; 12 STUBs held as contract).
-        self.assertEqual(game["ported"], 149 + 468)
-        self.assertEqual(game["verified"], 149 + 389)
+        # +12 human flag/action contracts (IsReady/AnimIDForDeath/HitFilter/
+        # ResetActions/CanAimed/CarClaimant/CornerFire(x2)/BoundPoints/
+        # Castrate/HardHead/ShockStart; marker-only, tests green).
+        # +11 human differential (Ghidra bodies 2-127 insns; pin tests
+        # human_actor 44 pass; bound-points loop held as contract).
+        self.assertEqual(game["ported"], 149 + 480)
+        self.assertEqual(game["verified"], 149 + 400)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

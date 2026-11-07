@@ -635,6 +635,152 @@ pub const ANIM_ENM_ROH_DREP_NAHL_T: i32 = 0x52;
 /// by the Do_DeadBodyDrop core of this slice; the PersonAnim/SetWaitAnim
 /// remap stays DEFERRED.
 pub const ANIM_NOSENI_MRTVOLY_TOM_SHOZENI: i32 = 0xa8;
+/// Original "Strength" property index (mafia-re 113b5b6
+/// game/actors/C_human.h:38 HUMAN_PROPERTY_STRENGTH 0): read from the live
+/// bank by the Do_Castrate/Do_HardHead strike cores.
+pub const HUMAN_PROPERTY_STRENGTH: usize = 0;
+/// Original "Energy" property index (mafia-re 113b5b6
+/// game/actors/C_human.h:39 HUMAN_PROPERTY_ENERGY 1, the health): read and
+/// written on the live bank by the Do_Castrate/Do_HardHead strike cores.
+pub const HUMAN_PROPERTY_ENERGY: usize = 1;
+/// Original player actor kind (mafia-re 113b5b6 game/actors/C_actor.h:19
+/// ACTOR_PLAYER 2): scanned by the IsThisCarStealing claimant loop.
+pub const ACTOR_PLAYER: u32 = 2;
+/// Original entity actor kind (mafia-re 113b5b6 game/actors/C_actor.h:41
+/// ACTOR_ENTITY 0x1b): scanned by the IsThisCarStealing claimant loop.
+pub const ACTOR_ENTITY: u32 = 0x1b;
+/// Original empty-hands weapon kind (mafia-re 113b5b6 game/g_material.h:170
+/// WEAPON_KIND_FISTS 0): the corner-fire guard refuses rifles and fists.
+pub const WEAPON_KIND_FISTS: u32 = 0;
+/// Original rifle weapon kind (mafia-re 113b5b6 game/g_material.h:172
+/// WEAPON_KIND_RIFLE 2, the Springfield and the Mosin-Nagant): refused by
+/// the corner-fire guard.
+pub const WEAPON_KIND_RIFLE: u32 = 2;
+/// Original Thompson fire-animation number (mafia-re 113b5b6
+/// game/g_material.h:183 GUN_ANIM_THOMPSON 4): the corner fire selects its
+/// own SAP animation for it when standing.
+pub const GUN_ANIM_THOMPSON: u32 = 4;
+/// Original head hit-part value (mafia-re 113b5b6 game/actors/C_human.h:53
+/// HIT_PART_HEAD 6): selects the head branch of GetAnimIDForDeath.
+pub const HIT_PART_HEAD: u32 = 6;
+/// Original friend human type (mafia-re 113b5b6 game/actors/C_human.h:58
+/// HUMAN_TYPE_FRIEND 2): the strike cheat gate spares friends.
+pub const HUMAN_TYPE_FRIEND: u32 = 2;
+/// Original Formula get-in animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:744: 0x13c, "FormuleNastupL.i3d"). Read by the
+/// GetAnimIDForUseCar select; the animation owner stays DEFERRED.
+pub const ANIM_FORMULE_NASTUP_L: i32 = 0x13c;
+/// Original Formula get-out animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:745: 0x13d, "FormuleVystupL.i3d"). Read by the
+/// GetAnimIDForUseCar select; the animation owner stays DEFERRED.
+pub const ANIM_FORMULE_VYSTUP_L: i32 = 0x13d;
+/// Original car get-in base animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:730: 0x10f, "AutoSmNas FL.i3d"). Base of the
+/// GetAnimIDForUseCar bit-built select; the animation owner stays DEFERRED.
+pub const ANIM_AUTO_SM_NAS_FL: i32 = 0x10f;
+/// Original crouched death-from-behind animation base (mafia-re 113b5b6
+/// game/actors/C_actor.h:647: 0x8c, "smrt drep zada A.I3D"). Read by the
+/// GetAnimIDForDeath select; the animation owner stays DEFERRED.
+pub const ANIM_SMRT_DREP_ZADA_A: i32 = 0x8c;
+/// Original crouched death-from-front animation base (mafia-re 113b5b6
+/// game/actors/C_actor.h:648: 0x8e, "smrt drep bricho A.I3D"). Read by the
+/// GetAnimIDForDeath select; the animation owner stays DEFERRED.
+pub const ANIM_SMRT_DREP_BRICHO_A: i32 = 0x8e;
+/// Original crouched head-death-from-behind animation base (mafia-re 113b5b6
+/// game/actors/C_actor.h:649: 0x90, "smrt drep hlava zezadu.I3D"). Read by
+/// the GetAnimIDForDeath select; the animation owner stays DEFERRED.
+pub const ANIM_SMRT_DREP_HLAVA_ZEZADU: i32 = 0x90;
+/// Original crouched head-death-from-front animation base (mafia-re 113b5b6
+/// game/actors/C_actor.h:650: 0x91, "smrt drep hlava zepredu.I3D"). Read by
+/// the GetAnimIDForDeath select; the animation owner stays DEFERRED.
+pub const ANIM_SMRT_DREP_HLAVA_ZEPREDU: i32 = 0x91;
+/// Original standing death-from-behind animation base (mafia-re 113b5b6
+/// game/actors/C_actor.h:643: 0x83, "smrt stoj zada A.I3D"). Read by the
+/// GetAnimIDForDeath select; the animation owner stays DEFERRED.
+pub const ANIM_SMRT_STOJ_ZADA_A: i32 = 0x83;
+/// Original standing death-from-front animation base (mafia-re 113b5b6
+/// game/actors/C_actor.h:644: 0x86, "smrt stoj bricho A.i3d"). Read by the
+/// GetAnimIDForDeath select; the animation owner stays DEFERRED.
+pub const ANIM_SMRT_STOJ_BRICHO_A: i32 = 0x86;
+/// Original standing head-death-from-behind animation base (mafia-re 113b5b6
+/// game/actors/C_actor.h:645: 0x89, "smrt stoj hlava zezadu.i3d"). Read by
+/// the GetAnimIDForDeath select; the animation owner stays DEFERRED.
+pub const ANIM_SMRT_STOJ_HLAVA_ZEZADU: i32 = 0x89;
+/// Original standing head-death-from-front animation base (mafia-re 113b5b6
+/// game/actors/C_actor.h:646: 0x8a, "smrt stoj hlava zepredu.I3D"). Read by
+/// the GetAnimIDForDeath select; the animation owner stays DEFERRED.
+pub const ANIM_SMRT_STOJ_HLAVA_ZEPREDU: i32 = 0x8a;
+/// Original groin-strike animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:710: 0xf1, "boj box rozkrok.i3d"). Written by the
+/// Do_Castrate core; the PersonAnim remap stays DEFERRED.
+pub const ANIM_BOJ_BOX_ROZKROK: i32 = 0xf1;
+/// Original groin-strike victim animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:711: 0xf2, "boj zasah rozkrok sm.i3d"). Written by
+/// the Do_Castrate core on the target; the PersonAnim remap stays DEFERRED.
+pub const ANIM_BOJ_ZASAH_ROZKROK_SM: i32 = 0xf2;
+/// Original headbutt animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:712: 0xf3, "boj box hlavicka.i3d"). Written by the
+/// Do_HardHead core; the PersonAnim remap stays DEFERRED.
+pub const ANIM_BOJ_BOX_HLAVICKA: i32 = 0xf3;
+/// Original headbutt victim animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:713: 0xf4, "boj zasah hlavicka.i3d"). Written by
+/// the Do_HardHead core on the target; the PersonAnim remap stays DEFERRED.
+pub const ANIM_BOJ_ZASAH_HLAVICKA: i32 = 0xf4;
+/// Original startle animation id, first variant (mafia-re 113b5b6
+/// game/actors/C_actor.h:594: 0x2f, "panika leknuti01L.i3d"). Written by the
+/// Do_ShockStart core on a nonzero draw; the PersonAnim remap stays
+/// DEFERRED.
+pub const ANIM_PANIKA_LEKNUTI01L: i32 = 0x2f;
+/// Original startle animation id, second variant (mafia-re 113b5b6
+/// game/actors/C_actor.h:595: 0x33, "panika leknuti02L.i3d"). Written by the
+/// Do_ShockStart core on a zero draw; the PersonAnim remap stays DEFERRED.
+pub const ANIM_PANIKA_LEKNUTI02L: i32 = 0x33;
+/// Original standing left corner-fire animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:611: 0x53, "enm roh pis stoj fire01 L.i3d").
+/// Written by the Do_CornerFire core; the PersonAnim/SetWaitAnim remap
+/// stays DEFERRED.
+pub const ANIM_ENM_ROH_FIRE01_L: i32 = 0x53;
+/// Original standing left Thompson corner-fire animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:612: 0x54, "enm roh sap stoj fire01 L.i3d").
+/// Written by the Do_CornerFire core for the Thompson while standing.
+pub const ANIM_ENM_ROH_SAP_STOJ_FIRE01_L: i32 = 0x54;
+/// Original standing right corner-fire animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:613: 0x55, "enm roh pis stoj fire01 R.i3d").
+/// Written by the Do_CornerFire core; the PersonAnim/SetWaitAnim remap
+/// stays DEFERRED.
+pub const ANIM_ENM_ROH_FIRE01_R: i32 = 0x55;
+/// Original standing right Thompson corner-fire animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:614: 0x56, "enm roh sap stoj fire01 R.i3d").
+/// Written by the Do_CornerFire core for the Thompson while standing.
+pub const ANIM_ENM_ROH_SAP_STOJ_FIRE01_R: i32 = 0x56;
+/// Original crouched corner-fire animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:615: 0x57, "enm roh pis drep fire01 T.i3d").
+/// Written by the Do_CornerFire core on the crouched CORNER_2 path.
+pub const ANIM_ENM_ROH_DREP_FIRE01_T: i32 = 0x57;
+/// Original standing left aimed corner-fire animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:616: 0x58, "enm roh pis stoj fire02 L.i3d").
+/// Written by the Do_CornerFireAimed core; the PersonAnim remap stays
+/// DEFERRED.
+pub const ANIM_ENM_ROH_FIRE02_L: i32 = 0x58;
+/// Original standing left Thompson aimed corner-fire animation id (mafia-re
+/// 113b5b6 game/actors/C_actor.h:617: 0x59, "enm roh sap stoj fire02
+/// L.i3d"). Written by the Do_CornerFireAimed core for the Thompson while
+/// standing.
+pub const ANIM_ENM_ROH_SAP_STOJ_FIRE02_L: i32 = 0x59;
+/// Original standing right aimed corner-fire animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:618: 0x5a, "enm roh pis stoj fire02 R.i3d").
+/// Written by the Do_CornerFireAimed core; the PersonAnim remap stays
+/// DEFERRED.
+pub const ANIM_ENM_ROH_FIRE02_R: i32 = 0x5a;
+/// Original standing right Thompson aimed corner-fire animation id (mafia-re
+/// 113b5b6 game/actors/C_actor.h:619: 0x5b, "enm roh sap stoj fire02
+/// R.i3d"). Written by the Do_CornerFireAimed core for the Thompson while
+/// standing.
+pub const ANIM_ENM_ROH_SAP_STOJ_FIRE02_R: i32 = 0x5b;
+/// Original crouched aimed corner-fire animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:620: 0x5c, "enm roh pis drep fire02 T.i3d").
+/// Written by the Do_CornerFireAimed core on the crouched CORNER_2 path.
+pub const ANIM_ENM_ROH_DREP_FIRE02_T: i32 = 0x5c;
 /// Pocket count the truncate core iterates (mafia-re 113b5b6
 /// game/actors/g_inventory.h:41 INVENTORY_POCKETS 5, iterated at
 /// game/actors/C_human.cpp:6138).
@@ -701,13 +847,26 @@ pub struct HumanPersonAnimRequest {
 /// game/actors/C_human.h:464-470: PS2 C_human::E_corner_view, CORNER_0,
 /// CORNER_1, CORNER_2 with the crouched-only note; the upstream values are
 /// not evidenced beyond the declaration order, so the plain 0/1/2 order is
-/// the working representation). Read by the Do_CornerBreath/Do_CornerView
-/// cores of this slice; the corner-fire writers stay DEFERRED.
+/// the working representation). Read by the Do_CornerBreath/Do_CornerView/
+/// Do_CornerFire/Do_CornerFireAimed cores of this slice.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CornerView {
     Corner0 = 0,
     Corner1 = 1,
     Corner2 = 2,
+}
+
+/// Caller-supplied projection of one active actor for the IsThisCarStealing
+/// claimant scan (mafia-re 113b5b6 game/actors/C_human.cpp:9597-9606):
+/// the actor kind (ACTOR_PLAYER/ACTOR_ENTITY pass the gate) plus the three
+/// car latches the scan compares (`stealing_car`, `car`, `using_car`; None
+/// for NULL). The active-actor list owner stays DEFERRED.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CarTheftClaimant {
+    pub actor_type: u32,
+    pub stealing_car: Option<ActorReferenceId>,
+    pub car: Option<ActorReferenceId>,
+    pub using_car: Option<ActorReferenceId>,
 }
 
 #[derive(Debug)]
@@ -895,6 +1054,26 @@ pub struct HumanState {
     /// shut_up, HUMAN_SHUTUP's; SetShutUp GAME 0x47b850 writes it). The
     /// NewScream gate stays DEFERRED. Starts clear.
     shut_up: bool,
+    /// Held-shot latch (mafia-re 113b5b6 game/actors/C_human.h:737: 0x1ec,
+    /// the shot or strike held; Do_Shoot sets it on the press and clears it
+    /// on the release). Cleared by the ResetActions core of this slice; the
+    /// Do_Shoot writers and the INDF_THIEF indicator effect stay DEFERRED.
+    /// Starts clear.
+    fire_held: bool,
+    /// Weapon-kind word (mafia-re 113b5b6 game/g_material.h:167-177:
+    /// S_item_def kind, WEAPON_KIND_*). Read by the Do_CornerFire and
+    /// Do_CornerFireAimed guards of this slice; the GameInit writer (FISTS)
+    /// and every ChangeWeaponModel/inventory writer stay DEFERRED. Starts at
+    /// FISTS (working deterministic default matching the GameInit write;
+    /// the native constructor leaves the word untouched).
+    weapon_kind: u32,
+    /// Staged fire-animation number of the right-hand weapon (mafia-re 113b5b6
+    /// game/actors/g_material.h:194-196: S_item_def fire_anim, GUN_ANIM_*;
+    /// read as inventory.GetWeaponInRightHand()->fire_anim). Read by the
+    /// corner-fire Thompson selects of this slice; the inventory Select/
+    /// Holster/Insert placement writers stay DEFERRED. Starts at 0 (no
+    /// Thompson select).
+    right_hand_fire_anim: u32,
 }
 impl HumanState {
     pub(crate) fn construct(seed: HumanSeed) -> Self {
@@ -949,6 +1128,9 @@ impl HumanState {
             no_anim_hit: false,
             idle_anims: false,
             shut_up: false,
+            fire_held: false,
+            weapon_kind: WEAPON_KIND_FISTS,
+            right_hand_fire_anim: 0,
         }
     }
     pub fn human_type_mask(&self) -> u32 {
@@ -1175,6 +1357,34 @@ impl HumanState {
     /// Shut-up latch staged by SetShutUp.
     pub fn shut_up(&self) -> bool {
         self.shut_up
+    }
+    /// Test/host setter for the held-shot latch (Do_Shoot press/release
+    /// writers DEFERRED; the ResetActions core of this slice clears it).
+    pub fn set_fire_held(&mut self, held: bool) {
+        self.fire_held = held;
+    }
+    /// Held-shot latch cleared by the ResetActions core.
+    pub fn fire_held(&self) -> bool {
+        self.fire_held
+    }
+    /// Test/host setter for the weapon-kind staging (GameInit/inventory
+    /// writers DEFERRED; the corner-fire guards of this slice read it).
+    pub fn set_weapon_kind(&mut self, kind: u32) {
+        self.weapon_kind = kind;
+    }
+    /// Weapon-kind staging read by the corner-fire guards.
+    pub fn weapon_kind(&self) -> u32 {
+        self.weapon_kind
+    }
+    /// Test/host setter for the right-hand fire-animation staging
+    /// (inventory placement writers DEFERRED).
+    pub fn set_right_hand_fire_anim(&mut self, fire_anim: u32) {
+        self.right_hand_fire_anim = fire_anim;
+    }
+    /// Right-hand fire-animation staging read by the corner-fire Thompson
+    /// selects.
+    pub fn right_hand_fire_anim(&self) -> u32 {
+        self.right_hand_fire_anim
     }
     pub fn collection_is_empty(&self, slot: HumanResourceSlot) -> bool {
         match slot {
@@ -1790,6 +2000,396 @@ impl HumanState {
         }
         self.anim_id = 0;
         self.next_anim_id = ANIM_NOSENI_MRTVOLY_TOM_SHOZENI;
+        self.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        });
+    }
+    /// GAME 0x47b810 (RVA 0x7b810) C_human::IsReady (mafia-re 113b5b6
+    /// game/actors/C_human.h:1145-1151): alive with the action STAND, WALK or
+    /// CAR and a non-blocking animation machine. `anim_blocking` stages the
+    /// `anim_machine.IsBlocking()` verdict, whose animation-machine owner
+    /// stays DEFERRED; no invented blocking state.
+    pub fn is_ready(&self, anim_blocking: bool) -> bool {
+        self.alive
+            && (self.action_state == HUMAN_ACTION_STAND
+                || self.action_state == HUMAN_ACTION_WALK
+                || self.action_state == HUMAN_ACTION_CAR)
+            && !anim_blocking
+    }
+    /// GAME 0x57a630 (RVA 0x17a630) C_human::GetAnimIDForDeath pure select
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:4723-4748): the death
+    /// animation id from the hit part, the crouch arm, the facing-angle
+    /// verdict and the native random draws. `close_range` stages
+    /// `v2.AngleTo(v1) < PI / 2` (vector owner DEFERRED); `draw2`/`draw3`
+    /// stage the native `rnd(2)`/`rnd(3)` draws, so the caller supplies
+    /// values already in 0..2/0..3. The random source and the animation
+    /// owner stay DEFERRED.
+    pub fn get_anim_id_for_death(
+        hit_part: u32,
+        crouched: bool,
+        close_range: bool,
+        draw2: u32,
+        draw3: u32,
+    ) -> i32 {
+        if crouched {
+            if hit_part == HIT_PART_HEAD {
+                if close_range {
+                    return (if draw2 != 0 { 2 } else { 0 }) + ANIM_SMRT_DREP_HLAVA_ZEZADU;
+                }
+                return (if draw2 != 0 { 1 } else { 0 }) + ANIM_SMRT_DREP_HLAVA_ZEPREDU;
+            }
+            if close_range {
+                return draw2 as i32 + ANIM_SMRT_DREP_ZADA_A;
+            }
+            return draw2 as i32 + ANIM_SMRT_DREP_BRICHO_A;
+        }
+        if hit_part == HIT_PART_HEAD {
+            if close_range {
+                return (if draw2 != 0 { 2 } else { 0 }) + ANIM_SMRT_STOJ_HLAVA_ZEZADU;
+            }
+            return (if draw2 != 0 { 1 } else { 0 }) + ANIM_SMRT_STOJ_HLAVA_ZEPREDU;
+        }
+        if close_range {
+            return draw3 as i32 + ANIM_SMRT_STOJ_ZADA_A;
+        }
+        draw3 as i32 + ANIM_SMRT_STOJ_BRICHO_A
+    }
+    /// GAME 0x58e270 (RVA 0x18e270) C_human::Can_Hit_FilterHumanType pure
+    /// table leaf (mafia-re 113b5b6 game/actors/C_human.cpp:10083-10129):
+    /// whether the shooter type may hit the target type, by the types' bit
+    /// numbers in the static 11x11 table (GLOBAL GAME 0x636908, embedded here
+    /// verbatim). A zero mask on either side admits; bit numbers above 10
+    /// admit. On the (1, 0) cell the table's `true` is gated by the entity
+    /// anger log (`ai_character_log`), whose owner stays DEFERRED, so the
+    /// caller supplies `target_is_angry_focus` for that single cell.
+    pub fn can_hit_filter_human_type(
+        shooter_type: u32,
+        target_type: u32,
+        target_is_angry_focus: bool,
+    ) -> bool {
+        const CAN_HIT: [[bool; 11]; 11] = [
+            [true, true, true, true, true, true, true, true, true, true, true],
+            [true, false, true, true, true, true, true, true, true, true, true],
+            [true, true, false, true, true, true, true, true, true, true, true],
+            [true, true, true, false, false, true, true, true, true, true, true],
+            [true, true, true, false, false, true, true, true, true, true, true],
+            [true, true, true, true, true, false, true, true, true, true, true],
+            [true, true, true, true, true, true, false, true, true, true, true],
+            [true, true, true, true, true, true, true, true, true, true, true],
+            [true, true, true, true, true, true, true, true, true, true, true],
+            [true, true, true, true, true, true, true, true, true, true, true],
+            [true, true, true, true, true, true, true, true, true, true, true],
+        ];
+        let mut mask = shooter_type;
+        if mask == 0 {
+            return true;
+        }
+        let mut shooter_bit = 0;
+        while mask & 1 == 0 {
+            mask >>= 1;
+            shooter_bit += 1;
+        }
+        mask = target_type;
+        if mask == 0 {
+            return true;
+        }
+        let mut target_bit = 0;
+        while mask & 1 == 0 {
+            mask >>= 1;
+            target_bit += 1;
+        }
+        if shooter_bit > 10 || target_bit > 10 {
+            return true;
+        }
+        if shooter_bit == 1 && target_bit == 0 {
+            return target_is_angry_focus;
+        }
+        CAN_HIT[shooter_bit as usize][target_bit as usize]
+    }
+    /// GAME 0x58b870 (RVA 0x18b870) C_human::ResetActions owned latch slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:9282-9300): stand the human
+    /// down through Do_Crouched(false) (the headroom probe verdict arrives as
+    /// `headroom_clear`, its frame/collision owners stay DEFERRED), clear the
+    /// aimed and held-shot latches, and on the alive path clear anim_id,
+    /// select ANIM_BREATH01A and invoke PersonAnim(0.0, true, false),
+    /// recorded here as the handoff for the future animation owner. SCOPE:
+    /// latch and anim-select words only. DEFERRED with explicit markers, no
+    /// new owner here: PoseNullRotate (no pose owner, ledger-claimed at
+    /// 0x17a560 outside this module), the player fade_alpha/SetAlpha branch
+    /// (no actor-type/player owner), the INDF_THIEF indicator effect, and
+    /// every Movement/Update writer of these words.
+    pub fn apply_reset_actions(&mut self, headroom_clear: bool) {
+        self.apply_do_crouched(false, headroom_clear);
+        self.aimed = false;
+        self.fire_held = false;
+        if self.alive {
+            self.anim_id = 0;
+            self.next_anim_id = ANIM_BREATH01A;
+            self.person_anim_request = Some(HumanPersonAnimRequest {
+                blend: 0.0,
+                stance: true,
+                play_once: false,
+            });
+        }
+    }
+    /// GAME 0x58a790 (RVA 0x18a790) C_human::Can_Aimed probe verdict leaf
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:8911-8918): true when the
+    /// head-height forward TestLineH probe finds no wall. The frame read
+    /// (1.5 m lift, world direction) and the collision probe stay DEFERRED
+    /// with their owners; the caller supplies `wall_ahead` (the probe hit
+    /// verdict) and this leaf owns only the inversion.
+    pub fn can_aimed(wall_ahead: bool) -> bool {
+        !wall_ahead
+    }
+    /// GAME 0x58cfb0 (RVA 0x18cfb0) C_human::IsThisCarStealing claimant scan
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:9592-9610): whether any
+    /// PLAYER/ENTITY claimant holds the car as stealing_car, car or
+    /// using_car. The active-actor scan stays with the mission owner
+    /// (DEFERRED); the caller supplies the claimant projection and this leaf
+    /// owns only the type gate and the identity compare. None (NULL) admits
+    /// no claimant.
+    pub fn car_has_human_claimant(
+        car: Option<ActorReferenceId>,
+        claimants: &[CarTheftClaimant],
+    ) -> bool {
+        let Some(car) = car else {
+            return false;
+        };
+        claimants.iter().any(|claimant| {
+            (claimant.actor_type == ACTOR_PLAYER || claimant.actor_type == ACTOR_ENTITY)
+                && (claimant.stealing_car == Some(car)
+                    || claimant.car == Some(car)
+                    || claimant.using_car == Some(car))
+        })
+    }
+    /// GAME 0x58aa60 (RVA 0x18aa60) C_human::Do_CornerFire owned select slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:8963-8993): carrying a box
+    /// or a dead body refuses; rifles and fists refuse. Otherwise CORNER_0
+    /// selects FIRE01_L (SAP_STOJ_FIRE01_L for the Thompson while standing),
+    /// CORNER_1 the right-hand pair, and CORNER_2 refuses unless crouching
+    /// and then selects DREP_FIRE01_T. On admission the inline SetWaitAnim
+    /// runs: its PersonAnim(0.0, true, false) invocation is recorded here as
+    /// the handoff for the future animation owner, while its
+    /// action_time/last_velocity/velocity_ramp writes plus the
+    /// HUMAN_ACTION_WAIT select stay DEFERRED with an explicit marker; then
+    /// aimed latches. The weapon-kind and right-hand fire-animation reads
+    /// stage the inventory/weapon owners (DEFERRED). Returns true on
+    /// admission.
+    pub fn apply_do_corner_fire(&mut self, view: CornerView) -> bool {
+        if self.carrying_box || self.carrying_dead_body {
+            return false;
+        }
+        if self.weapon_kind == WEAPON_KIND_RIFLE || self.weapon_kind == WEAPON_KIND_FISTS {
+            return false;
+        }
+        let thompson_standing =
+            !self.crouching && self.right_hand_fire_anim == GUN_ANIM_THOMPSON;
+        match view {
+            CornerView::Corner0 => {
+                self.next_anim_id = if thompson_standing {
+                    ANIM_ENM_ROH_SAP_STOJ_FIRE01_L
+                } else {
+                    ANIM_ENM_ROH_FIRE01_L
+                };
+            }
+            CornerView::Corner1 => {
+                self.next_anim_id = if thompson_standing {
+                    ANIM_ENM_ROH_SAP_STOJ_FIRE01_R
+                } else {
+                    ANIM_ENM_ROH_FIRE01_R
+                };
+            }
+            CornerView::Corner2 => {
+                if !self.crouching {
+                    return false;
+                }
+                self.next_anim_id = ANIM_ENM_ROH_DREP_FIRE01_T;
+            }
+        }
+        self.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        });
+        self.aimed = true;
+        true
+    }
+    /// GAME 0x58ab80 (RVA 0x18ab80) C_human::Do_CornerFireAimed owned select
+    /// slice (mafia-re 113b5b6 game/actors/C_human.cpp:8995-9025): the same
+    /// guards and FIRE02/SAP_STOJ_FIRE02/DREP_FIRE02_T selects as
+    /// Do_CornerFire, but PersonAnim(0.0, true, false) runs directly (no
+    /// SetWaitAnim wait words) before the aimed latch. SCOPE and DEFERRED
+    /// markers as in `apply_do_corner_fire`. Returns true on admission.
+    pub fn apply_do_corner_fire_aimed(&mut self, view: CornerView) -> bool {
+        if self.carrying_box || self.carrying_dead_body {
+            return false;
+        }
+        if self.weapon_kind == WEAPON_KIND_RIFLE || self.weapon_kind == WEAPON_KIND_FISTS {
+            return false;
+        }
+        let thompson_standing =
+            !self.crouching && self.right_hand_fire_anim == GUN_ANIM_THOMPSON;
+        match view {
+            CornerView::Corner0 => {
+                self.next_anim_id = if thompson_standing {
+                    ANIM_ENM_ROH_SAP_STOJ_FIRE02_L
+                } else {
+                    ANIM_ENM_ROH_FIRE02_L
+                };
+            }
+            CornerView::Corner1 => {
+                self.next_anim_id = if thompson_standing {
+                    ANIM_ENM_ROH_SAP_STOJ_FIRE02_R
+                } else {
+                    ANIM_ENM_ROH_FIRE02_R
+                };
+            }
+            CornerView::Corner2 => {
+                if !self.crouching {
+                    return false;
+                }
+                self.next_anim_id = ANIM_ENM_ROH_DREP_FIRE02_T;
+            }
+        }
+        self.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        });
+        self.aimed = true;
+        true
+    }
+    /// GAME 0x585f40 (RVA 0x185f40) C_human::GetBoundPoints2D pure geometry
+    /// leaf (mafia-re 113b5b6 game/actors/C_human.cpp:7630-7638): the four
+    /// 2D bound points around the world position, 0.7 m out on each axis.
+    /// The frame read stays with the frame owner (DEFERRED); the caller
+    /// stages the position as `center_x`/`center_z`. The original returns
+    /// true unconditionally, which carries no information and is not
+    /// replicated.
+    pub fn bound_points_2d(center_x: f32, center_z: f32) -> [[f32; 2]; 4] {
+        [
+            [center_x + 0.7, center_z],
+            [center_x - 0.7, center_z],
+            [center_x, center_z + 0.7],
+            [center_x, center_z - 0.7],
+        ]
+    }
+    /// GAME 0x584480 (RVA 0x184480) C_human::Do_Castrate owned strike slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:7213-7234): a missing target
+    /// or an unready target refuses; the invulnerability cheat gate (player
+    /// or friend target spared) arrives as the caller verdict
+    /// `cheat_refusal`, its game/player/type owners stay DEFERRED. On
+    /// admission the striker selects ANIM_BOJ_BOX_ROZKROK and the target
+    /// ANIM_BOJ_ZASAH_ROZKROK_SM, both with a PersonAnim(0.0, true, false)
+    /// handoff for the future animation owner, and the target loses
+    /// `strength * 10` energy on the live property bank. SCOPE: anim selects,
+    /// handoffs and the energy write only. DEFERRED with explicit markers:
+    /// the target IsReady probe behind `target_ready`, collision, tick, and
+    /// every frame/weapon effect of the strike.
+    pub fn apply_do_castrate(
+        &mut self,
+        target: Option<&mut HumanState>,
+        target_ready: bool,
+        cheat_refusal: bool,
+    ) -> bool {
+        let Some(target) = target else {
+            return false;
+        };
+        if !target_ready {
+            return false;
+        }
+        if cheat_refusal {
+            return false;
+        }
+        self.next_anim_id = ANIM_BOJ_BOX_ROZKROK;
+        self.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        });
+        target.next_anim_id = ANIM_BOJ_ZASAH_ROZKROK_SM;
+        target.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        });
+        let strength = self
+            .current_properties
+            .float_component(HUMAN_PROPERTY_STRENGTH);
+        let energy = target
+            .current_properties
+            .float_component(HUMAN_PROPERTY_ENERGY);
+        target
+            .current_properties
+            .set_component_bits(HUMAN_PROPERTY_ENERGY, (energy - strength * 10.0).to_bits());
+        true
+    }
+    /// GAME 0x584550 (RVA 0x184550) C_human::Do_HardHead owned strike slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:7236-7257): the same guards
+    /// as Do_Castrate, but the striker selects ANIM_BOJ_BOX_HLAVICKA and the
+    /// target ANIM_BOJ_ZASAH_HLAVICKA, with the same handoffs and the same
+    /// `strength * 10` live-energy write. SCOPE and DEFERRED markers as in
+    /// `apply_do_castrate`.
+    pub fn apply_do_hard_head(
+        &mut self,
+        target: Option<&mut HumanState>,
+        target_ready: bool,
+        cheat_refusal: bool,
+    ) -> bool {
+        let Some(target) = target else {
+            return false;
+        };
+        if !target_ready {
+            return false;
+        }
+        if cheat_refusal {
+            return false;
+        }
+        self.next_anim_id = ANIM_BOJ_BOX_HLAVICKA;
+        self.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        });
+        target.next_anim_id = ANIM_BOJ_ZASAH_HLAVICKA;
+        target.person_anim_request = Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        });
+        let strength = self
+            .current_properties
+            .float_component(HUMAN_PROPERTY_STRENGTH);
+        let energy = target
+            .current_properties
+            .float_component(HUMAN_PROPERTY_ENERGY);
+        target
+            .current_properties
+            .set_component_bits(HUMAN_PROPERTY_ENERGY, (energy - strength * 10.0).to_bits());
+        true
+    }
+    /// GAME 0x587bc0 (RVA 0x187bc0) C_human::Do_ShockStart owned select slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:8107-8118): carrying a box
+    /// or a dead body is a no-op; otherwise the variant clamps to 0..3 and
+    /// the next animation selects LEKNUTI01L plus the variant on a nonzero
+    /// native `rnd(2)` draw, LEKNUTI02L plus the variant on zero, staged here
+    /// as `draw`. PersonAnim(0.0, true, false) runs, recorded here as the
+    /// handoff for the future animation owner. The random source stays
+    /// DEFERRED. SCOPE: anim select plus handoff only. DEFERRED with explicit
+    /// markers, no new owner here: the PersonAnim/Update/Movement writers of
+    /// the word, collision, tick.
+    pub fn apply_do_shock_start(&mut self, variant: i32, draw: u32) {
+        if self.carrying_box || self.carrying_dead_body {
+            return;
+        }
+        let variant = variant.clamp(0, 3);
+        self.next_anim_id = if draw != 0 {
+            ANIM_PANIKA_LEKNUTI01L + variant
+        } else {
+            ANIM_PANIKA_LEKNUTI02L + variant
+        };
         self.person_anim_request = Some(HumanPersonAnimRequest {
             blend: 0.0,
             stance: true,
@@ -2975,5 +3575,337 @@ mod tests {
         // The body release itself stays with the body owner: the latch is
         // not cleared by this slice.
         assert!(human.carrying_dead_body());
+    }
+}
+
+#[cfg(test)]
+mod human_state_flags_tests {
+    use super::*;
+    use crate::script_scheduler::ActorReferenceId;
+    fn seed() -> HumanSeed {
+        HumanSeed {
+            allocator_tag: 0xd7,
+            animation_machine: HumanAnimationMachineSeed {
+                untouched_word: 0xa5a5_a5a5,
+            },
+            previous_animation_code: 0,
+            requested_animation_code: 0,
+            human_type_mask: 0,
+            current_properties: HumanProperties::from_record([0; 64]),
+            target_e: None,
+            target_n: None,
+            base_frame: None,
+            auxiliary: std::array::from_fn(|_| HumanAuxiliarySeed {
+                untouched_word: 0xa5a5_a5a5,
+                padding: [0xa5; 3],
+                untouched_tail: [0xa5; 16],
+            }),
+        }
+    }
+    fn handoff() -> Option<HumanPersonAnimRequest> {
+        Some(HumanPersonAnimRequest {
+            blend: 0.0,
+            stance: true,
+            play_once: false,
+        })
+    }
+    #[test]
+    // GAME 0x47b810 (RVA 0x7b810) C_human::IsReady (mafia-re 113b5b6
+    // game/actors/C_human.h:1147-1151): alive plus STAND/WALK/CAR without a
+    // blocking animation; dead, other actions and blocking refuse.
+    fn is_ready_rva_7b810_reads_alive_action_and_blocking() {
+        let mut human = HumanState::construct(seed());
+        assert!(!human.is_ready(false));
+        human.set_alive(true);
+        assert!(human.is_ready(false));
+        assert!(!human.is_ready(true));
+        human.action_state = HUMAN_ACTION_WALK;
+        assert!(human.is_ready(false));
+        human.action_state = HUMAN_ACTION_CAR;
+        assert!(human.is_ready(false));
+        human.action_state = HUMAN_ACTION_FALL;
+        assert!(!human.is_ready(false));
+        human.set_alive(false);
+        assert!(!human.is_ready(false));
+    }
+    #[test]
+    // GAME 0x57a630 (RVA 0x17a630) C_human::GetAnimIDForDeath (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:4723-4748): the crouch/head/range arms
+    // with the caller draws added verbatim.
+    fn death_anim_rva_17a630_selects_part_stance_and_range() {
+        assert_eq!(
+            HumanState::get_anim_id_for_death(HIT_PART_HEAD, false, true, 1, 0),
+            0x89 + 2
+        );
+        assert_eq!(
+            HumanState::get_anim_id_for_death(HIT_PART_HEAD, false, true, 0, 0),
+            0x89
+        );
+        assert_eq!(
+            HumanState::get_anim_id_for_death(HIT_PART_HEAD, false, false, 1, 0),
+            0x8a + 1
+        );
+        assert_eq!(
+            HumanState::get_anim_id_for_death(HIT_PART_HEAD, true, true, 1, 0),
+            0x90 + 2
+        );
+        assert_eq!(
+            HumanState::get_anim_id_for_death(HIT_PART_HEAD, true, false, 0, 0),
+            0x91
+        );
+        assert_eq!(
+            HumanState::get_anim_id_for_death(0, false, true, 1, 1),
+            0x83 + 1
+        );
+        assert_eq!(
+            HumanState::get_anim_id_for_death(0, true, false, 2, 0),
+            0x8e + 2
+        );
+        assert_eq!(
+            HumanState::get_anim_id_for_death(0, false, false, 0, 2),
+            0x86 + 2
+        );
+    }
+    #[test]
+    // GAME 0x58e270 (RVA 0x18e270) C_human::Can_Hit_FilterHumanType (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:10083-10129): zero masks and
+    // out-of-table bit numbers admit; the table cells refuse as evidenced;
+    // the (1, 0) cell follows the caller anger verdict.
+    fn hit_filter_rva_18e270_applies_table_and_gates() {
+        assert!(HumanState::can_hit_filter_human_type(0, 5, false));
+        assert!(HumanState::can_hit_filter_human_type(5, 0, false));
+        assert!(HumanState::can_hit_filter_human_type(2, 1, true));
+        assert!(!HumanState::can_hit_filter_human_type(2, 1, false));
+        assert!(HumanState::can_hit_filter_human_type(4, 8, false));
+        assert!(!HumanState::can_hit_filter_human_type(8, 8, false));
+        assert!(!HumanState::can_hit_filter_human_type(8, 16, false));
+        assert!(HumanState::can_hit_filter_human_type(16, 2, false));
+        assert!(HumanState::can_hit_filter_human_type(0x800, 1, false));
+        assert!(HumanState::can_hit_filter_human_type(1, 0x800, false));
+    }
+    #[test]
+    // GAME 0x58b870 (RVA 0x18b870) C_human::ResetActions (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9282-9300): crouch/aim/held-shot latches drop
+    // and the alive path re-arms the breath with the handoff; the dead path
+    // leaves the anim words alone and a blocked headroom keeps the crouch.
+    fn reset_actions_rva_18b870_drops_latches_and_rebreathes_alive() {
+        let mut human = HumanState::construct(seed());
+        human.set_alive(true);
+        human.set_crouching(true);
+        human.apply_do_aimed(true);
+        human.set_fire_held(true);
+        human.anim_id = 7;
+        human.next_anim_id = 0x42;
+        human.apply_reset_actions(true);
+        assert!(!human.crouching());
+        assert!(!human.aimed());
+        assert!(!human.fire_held());
+        assert_eq!(human.anim_id(), 0);
+        assert_eq!(human.next_anim_id(), ANIM_BREATH01A);
+        assert_eq!(human.person_anim_request(), handoff());
+        let mut dead = HumanState::construct(seed());
+        dead.anim_id = 7;
+        dead.next_anim_id = 0x42;
+        dead.apply_reset_actions(true);
+        assert_eq!(dead.anim_id(), 7);
+        assert_eq!(dead.next_anim_id(), 0x42);
+        assert_eq!(dead.person_anim_request(), None);
+        let mut low = HumanState::construct(seed());
+        low.set_alive(true);
+        low.set_crouching(true);
+        low.apply_reset_actions(false);
+        assert!(low.crouching());
+    }
+    #[test]
+    // GAME 0x58a790 (RVA 0x18a790) C_human::Can_Aimed (mafia-re 113b5b6
+    // game/actors/C_human.cpp:8911-8918): the probe verdict inverts.
+    fn can_aimed_rva_18a790_inverts_wall_probe() {
+        assert!(HumanState::can_aimed(false));
+        assert!(!HumanState::can_aimed(true));
+    }
+    #[test]
+    // GAME 0x58cfb0 (RVA 0x18cfb0) C_human::IsThisCarStealing (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:9592-9610): only PLAYER/ENTITY
+    // claimants holding the car in any latch count; NULL admits nothing.
+    fn car_claim_rva_18cfb0_matches_player_entity_latches() {
+        let car = ActorReferenceId::from_existing(11);
+        let other = ActorReferenceId::from_existing(12);
+        let holder = CarTheftClaimant {
+            actor_type: ACTOR_PLAYER,
+            stealing_car: Some(car),
+            car: None,
+            using_car: None,
+        };
+        let driver = CarTheftClaimant {
+            actor_type: ACTOR_ENTITY,
+            stealing_car: None,
+            car: None,
+            using_car: Some(car),
+        };
+        let traffic = CarTheftClaimant {
+            actor_type: 4,
+            stealing_car: None,
+            car: Some(car),
+            using_car: None,
+        };
+        let stranger = CarTheftClaimant {
+            actor_type: ACTOR_PLAYER,
+            stealing_car: Some(other),
+            car: None,
+            using_car: None,
+        };
+        assert!(!HumanState::car_has_human_claimant(None, &[holder]));
+        assert!(HumanState::car_has_human_claimant(Some(car), &[holder]));
+        assert!(HumanState::car_has_human_claimant(
+            Some(car),
+            &[traffic, stranger, driver]
+        ));
+        assert!(!HumanState::car_has_human_claimant(
+            Some(car),
+            &[traffic, stranger]
+        ));
+        assert!(!HumanState::car_has_human_claimant(Some(car), &[]));
+    }
+    #[test]
+    // GAME 0x58aa60 (RVA 0x18aa60) C_human::Do_CornerFire (mafia-re 113b5b6
+    // game/actors/C_human.cpp:8963-8993): rifles, fists, loads and standing
+    // CORNER_2 refuse; the Thompson selects its own standing anims and the
+    // admission latches aim with the handoff.
+    fn corner_fire_rva_18aa60_selects_sides_and_thompson() {
+        let mut human = HumanState::construct(seed());
+        assert!(!human.apply_do_corner_fire(CornerView::Corner0));
+        human.set_weapon_kind(1);
+        assert!(human.apply_do_corner_fire(CornerView::Corner0));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_FIRE01_L);
+        assert!(human.aimed());
+        assert_eq!(human.person_anim_request(), handoff());
+        human.set_right_hand_fire_anim(GUN_ANIM_THOMPSON);
+        assert!(human.apply_do_corner_fire(CornerView::Corner0));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_SAP_STOJ_FIRE01_L);
+        assert!(human.apply_do_corner_fire(CornerView::Corner1));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_SAP_STOJ_FIRE01_R);
+        human.set_right_hand_fire_anim(0);
+        assert!(human.apply_do_corner_fire(CornerView::Corner1));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_FIRE01_R);
+        assert!(!human.apply_do_corner_fire(CornerView::Corner2));
+        human.set_crouching(true);
+        assert!(human.apply_do_corner_fire(CornerView::Corner2));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_DREP_FIRE01_T);
+        human.set_weapon_kind(WEAPON_KIND_RIFLE);
+        assert!(!human.apply_do_corner_fire(CornerView::Corner0));
+        human.set_weapon_kind(1);
+        human.set_carrying_box(true);
+        assert!(!human.apply_do_corner_fire(CornerView::Corner0));
+    }
+    #[test]
+    // GAME 0x58ab80 (RVA 0x18ab80) C_human::Do_CornerFireAimed (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:8995-9025): the FIRE02-side mirror of
+    // Do_CornerFire with the direct PersonAnim handoff.
+    fn corner_fire_aimed_rva_18ab80_selects_aimed_sides() {
+        let mut human = HumanState::construct(seed());
+        human.set_weapon_kind(1);
+        assert!(human.apply_do_corner_fire_aimed(CornerView::Corner0));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_FIRE02_L);
+        human.set_right_hand_fire_anim(GUN_ANIM_THOMPSON);
+        assert!(human.apply_do_corner_fire_aimed(CornerView::Corner0));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_SAP_STOJ_FIRE02_L);
+        human.set_right_hand_fire_anim(0);
+        assert!(human.apply_do_corner_fire_aimed(CornerView::Corner1));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_FIRE02_R);
+        assert!(!human.apply_do_corner_fire_aimed(CornerView::Corner2));
+        human.set_crouching(true);
+        assert!(human.apply_do_corner_fire_aimed(CornerView::Corner2));
+        assert_eq!(human.next_anim_id(), ANIM_ENM_ROH_DREP_FIRE02_T);
+        assert!(human.aimed());
+        assert_eq!(human.person_anim_request(), handoff());
+        human.set_weapon_kind(WEAPON_KIND_FISTS);
+        assert!(!human.apply_do_corner_fire_aimed(CornerView::Corner0));
+    }
+    #[test]
+    // GAME 0x585f40 (RVA 0x185f40) C_human::GetBoundPoints2D (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:7630-7638): the four axis points 0.7 m
+    // around the staged position.
+    fn bound_points_rva_185f40_offsets_axes_by_seven_tenths() {
+        let points = HumanState::bound_points_2d(1.0, 2.0);
+        let want = [[1.7, 2.0], [0.3, 2.0], [1.0, 2.7], [1.0, 1.3]];
+        for (got, want) in points.iter().flatten().zip(want.iter().flatten()) {
+            assert!((got - want).abs() < 1e-6, "got {got}, want {want}");
+        }
+    }
+    #[test]
+    // GAME 0x584480 (RVA 0x184480) C_human::Do_Castrate (mafia-re 113b5b6
+    // game/actors/C_human.cpp:7213-7234): missing/unready/cheated targets
+    // refuse; admission selects both strike anims with handoffs and bills
+    // strength * 10 energy to the target.
+    fn castrate_rva_184480_bills_strike_energy() {
+        let mut striker = HumanState::construct(seed());
+        assert!(!striker.apply_do_castrate(None, true, false));
+        let mut target = HumanState::construct(seed());
+        assert!(!striker.apply_do_castrate(Some(&mut target), false, false));
+        assert!(!striker.apply_do_castrate(Some(&mut target), true, true));
+        striker
+            .current_properties
+            .set_component_bits(HUMAN_PROPERTY_STRENGTH, 2.0f32.to_bits());
+        target
+            .current_properties
+            .set_component_bits(HUMAN_PROPERTY_ENERGY, 100.0f32.to_bits());
+        assert!(striker.apply_do_castrate(Some(&mut target), true, false));
+        assert_eq!(striker.next_anim_id(), ANIM_BOJ_BOX_ROZKROK);
+        assert_eq!(striker.person_anim_request(), handoff());
+        assert_eq!(target.next_anim_id(), ANIM_BOJ_ZASAH_ROZKROK_SM);
+        assert_eq!(target.person_anim_request(), handoff());
+        assert_eq!(
+            target
+                .current_properties
+                .float_component(HUMAN_PROPERTY_ENERGY),
+            80.0
+        );
+    }
+    #[test]
+    // GAME 0x584550 (RVA 0x184550) C_human::Do_HardHead (mafia-re 113b5b6
+    // game/actors/C_human.cpp:7236-7257): the headbutt mirror of Do_Castrate.
+    fn hard_head_rva_184550_bills_strike_energy() {
+        let mut striker = HumanState::construct(seed());
+        let mut target = HumanState::construct(seed());
+        assert!(!striker.apply_do_castrate(None, true, false));
+        assert!(!striker.apply_do_hard_head(Some(&mut target), false, false));
+        assert!(!striker.apply_do_hard_head(Some(&mut target), true, true));
+        striker
+            .current_properties
+            .set_component_bits(HUMAN_PROPERTY_STRENGTH, 1.5f32.to_bits());
+        target
+            .current_properties
+            .set_component_bits(HUMAN_PROPERTY_ENERGY, 50.0f32.to_bits());
+        assert!(striker.apply_do_hard_head(Some(&mut target), true, false));
+        assert_eq!(striker.next_anim_id(), ANIM_BOJ_BOX_HLAVICKA);
+        assert_eq!(target.next_anim_id(), ANIM_BOJ_ZASAH_HLAVICKA);
+        assert_eq!(striker.person_anim_request(), handoff());
+        assert_eq!(target.person_anim_request(), handoff());
+        assert_eq!(
+            target
+                .current_properties
+                .float_component(HUMAN_PROPERTY_ENERGY),
+            35.0
+        );
+    }
+    #[test]
+    // GAME 0x587bc0 (RVA 0x187bc0) C_human::Do_ShockStart (mafia-re 113b5b6
+    // game/actors/C_human.cpp:8107-8118): loads guard, the variant clamps to
+    // 0..3, and the draw picks the startle id with the handoff.
+    fn shock_start_rva_187bc0_clamps_variant_and_picks_draw() {
+        let mut human = HumanState::construct(seed());
+        human.next_anim_id = 0x42;
+        human.set_carrying_box(true);
+        human.apply_do_shock_start(2, 1);
+        assert_eq!(human.next_anim_id(), 0x42);
+        assert_eq!(human.person_anim_request(), None);
+        human.set_carrying_box(false);
+        human.apply_do_shock_start(-5, 1);
+        assert_eq!(human.next_anim_id(), ANIM_PANIKA_LEKNUTI01L);
+        assert_eq!(human.person_anim_request(), handoff());
+        human.apply_do_shock_start(99, 0);
+        assert_eq!(human.next_anim_id(), ANIM_PANIKA_LEKNUTI02L + 3);
+        human.apply_do_shock_start(2, 7);
+        assert_eq!(human.next_anim_id(), ANIM_PANIKA_LEKNUTI01L + 2);
     }
 }
