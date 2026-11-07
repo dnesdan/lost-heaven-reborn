@@ -11767,6 +11767,141 @@
       "symbol": "lhr_engine::mission_actor_lists::update_cutscene_flags",
       "tier": "contract",
       "evidence": "Cutscene flags update (GAME 0x5c27f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b520",
+      "va": "0x47b520",
+      "name": "C_game::GetPlayer",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::get_player",
+      "tier": "differential",
+      "evidence": "REA ev_7fb1f9e2a2 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b540",
+      "va": "0x47b540",
+      "name": "C_game::SetClearDiffData",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_clear_diff_data",
+      "tier": "differential",
+      "evidence": "REA ev_8b403b16f9 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b560",
+      "va": "0x47b560",
+      "name": "C_game::GetGameTime",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::get_game_time",
+      "tier": "differential",
+      "evidence": "REA ev_1fd87788cf + Ghidra body 2 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b570",
+      "va": "0x47b570",
+      "name": "C_game::GetInitFrames",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::get_init_frames",
+      "tier": "differential",
+      "evidence": "REA ev_cd416a74e5 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b5a0",
+      "va": "0x47b5a0",
+      "name": "C_game::SetTimeOutEvent",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_timeout_event",
+      "tier": "differential",
+      "evidence": "REA ev_1c177d6f16 + Ghidra body 5 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b5c0",
+      "va": "0x47b5c0",
+      "name": "C_game::SetPlayerFireEvent",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_player_fire_event",
+      "tier": "differential",
+      "evidence": "REA ev_ccb9faa2ac + Ghidra body 5 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b5e0",
+      "va": "0x47b5e0",
+      "name": "C_game::SetPlayerHornEvent",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_player_horn_event",
+      "tier": "differential",
+      "evidence": "REA ev_f3b34047bf + Ghidra body 5 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b600",
+      "va": "0x47b600",
+      "name": "C_game::SetPlayerWFallEvent",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_player_wfall_event",
+      "tier": "differential",
+      "evidence": "REA ev_d997f355df + Ghidra body 5 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b630",
+      "va": "0x47b630",
+      "name": "C_game::SetMissionEnd",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_mission_end",
+      "tier": "differential",
+      "evidence": "REA ev_57ea4528bb + Ghidra body 3 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b640",
+      "va": "0x47b640",
+      "name": "C_game::SetRace6State",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_race6_state",
+      "tier": "differential",
+      "evidence": "REA ev_9e2b4f0df7 + Ghidra body 6 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b660",
+      "va": "0x47b660",
+      "name": "C_game::GetRace6State",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::get_race6_state",
+      "tier": "differential",
+      "evidence": "REA ev_8cefff12ec + Ghidra body 2 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b6c0",
+      "va": "0x47b6c0",
+      "name": "C_game::SetMissionPassed",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_mission_passed",
+      "tier": "differential",
+      "evidence": "REA ev_bb515aeb84 + Ghidra body 3 insns/1 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b7500",
+      "va": "0x5b7500",
+      "name": "C_game::IsTelephoneExist",
+      "symbol": "lhr_engine::game_housekeeping::is_telephone_exist",
+      "tier": "differential",
+      "evidence": "REA ev_68b74784fc + Ghidra body 32 insns/8 bbs; pin tests housekeeping 35 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x81840",
+      "va": "0x481840",
+      "name": "C_pumper::ScriptCanPump",
+      "symbol": "lhr_engine::game_housekeeping::script_can_pump",
+      "tier": "contract",
+      "evidence": "STUB: device-deferred pump query (GAME 0x481840). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xba300",
+      "va": "0x4ba300",
+      "name": "C_traffic_car::SebraliMiKaaaruSvine",
+      "symbol": "lhr_engine::game_housekeeping::sebrali_mi_kaaaru_svine",
+      "tier": "contract",
+      "evidence": "STUB: explicit boundary (GAME 0x4ba300). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

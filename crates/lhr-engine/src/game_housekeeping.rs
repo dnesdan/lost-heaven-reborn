@@ -412,6 +412,235 @@ pub fn rnd_unit(random: u32) -> f32 {
     random as f32 * (1.0f32 / 32767.0f32)
 }
 
+/// `RACE6_STATE_*` values (`game.h:47-52` at pin 113b5b6; the enumerator
+/// names are mafia-re working guesses, the values are evidenced).
+pub const RACE6_STATE_NONE: i32 = 0;
+pub const RACE6_STATE_RUNNING: i32 = 1;
+pub const RACE6_STATE_STARTED: i32 = 2;
+pub const RACE6_STATE_END: i32 = 10;
+
+/// Minimal scalar/event state behind the `C_game` inline accessors
+/// (`game.h:841-961` at pin 113b5b6). The camera, using-object,
+/// sledovacka, sound-arena and shvestky objects stay with their owners;
+/// only the scalar, flag, handle and event-pair fields these inlines read
+/// or write are owned here.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GameInlineState {
+    player: Option<ActorId>,
+    clear_diff_data: bool,
+    game_time: i32,
+    init_frames: u32,
+    timeout_program: u32,
+    timeout_event: i32,
+    player_fire_program: u32,
+    player_fire_event: i32,
+    player_horn_program: u32,
+    player_horn_event: i32,
+    player_wfall_program: u32,
+    player_wfall_event: i32,
+    mission_end: i32,
+    race6_state: i32,
+    mission_passed: bool,
+}
+
+impl GameInlineState {
+    /// FUNCTION: GAME 0x47b520 (RVA 0x7b520, VA 0x47b520; `game.h:848-851`,
+    /// `C_game::GetPlayer`): reads the player staged by `Init` (the
+    /// mission's last `ACTOR_PLAYER`). `None` is the native NULL.
+    pub fn get_player(&self) -> Option<ActorId> {
+        self.player
+    }
+
+    /// Staging for [`GameInlineState::get_player`]; the `Init` selection
+    /// itself stays with the mission owner.
+    pub fn set_player(&mut self, player: Option<ActorId>) {
+        self.player = player;
+    }
+
+    /// FUNCTION: GAME 0x47b540 (RVA 0x7b540, VA 0x47b540; `game.h:857-862`,
+    /// `C_game::SetClearDiffData`): sets the cleared-differences flag
+    /// (`CLEARDIFFERENCES`'; PS2's does nothing).
+    pub fn set_clear_diff_data(&mut self) {
+        self.clear_diff_data = true;
+    }
+
+    /// Reads the flag written by [`GameInlineState::set_clear_diff_data`].
+    pub fn clear_diff_data(&self) -> bool {
+        self.clear_diff_data
+    }
+
+    /// FUNCTION: GAME 0x47b560 (RVA 0x7b560, VA 0x47b560; `game.h:868-873`,
+    /// `C_game::GetGameTime`): reads the game's time.
+    pub fn get_game_time(&self) -> i32 {
+        self.game_time
+    }
+
+    /// Staging for [`GameInlineState::get_game_time`]; the `Tick` advance
+    /// itself stays with the game-tick owner.
+    pub fn set_game_time(&mut self, game_time: i32) {
+        self.game_time = game_time;
+    }
+
+    /// FUNCTION: GAME 0x47b570 (RVA 0x7b570, VA 0x47b570; `game.h:874-878`,
+    /// `C_game::GetInitFrames`): reads the frames counted since `Init`.
+    pub fn get_init_frames(&self) -> u32 {
+        self.init_frames
+    }
+
+    /// Staging for [`GameInlineState::get_init_frames`]; the `Tick`
+    /// increment itself stays with the game-tick owner.
+    pub fn set_init_frames(&mut self, init_frames: u32) {
+        self.init_frames = init_frames;
+    }
+
+    /// FUNCTION: GAME 0x47b5a0 (RVA 0x7b5a0, VA 0x47b5a0; `game.h:888-894`,
+    /// `C_game::SetTimeOutEvent`): stores the timeout script and event.
+    pub fn set_timeout_event(&mut self, program: u32, event: i32) {
+        self.timeout_program = program;
+        self.timeout_event = event;
+    }
+
+    /// Reads the pair written by [`GameInlineState::set_timeout_event`].
+    pub fn timeout_event(&self) -> (u32, i32) {
+        (self.timeout_program, self.timeout_event)
+    }
+
+    /// FUNCTION: GAME 0x47b5c0 (RVA 0x7b5c0, VA 0x47b5c0; `game.h:895-900`,
+    /// `C_game::SetPlayerFireEvent`): stores the player-fire script and event.
+    pub fn set_player_fire_event(&mut self, program: u32, event: i32) {
+        self.player_fire_program = program;
+        self.player_fire_event = event;
+    }
+
+    /// Reads the pair written by [`GameInlineState::set_player_fire_event`].
+    pub fn player_fire_event(&self) -> (u32, i32) {
+        (self.player_fire_program, self.player_fire_event)
+    }
+
+    /// FUNCTION: GAME 0x47b5e0 (RVA 0x7b5e0, VA 0x47b5e0; `game.h:901-906`,
+    /// `C_game::SetPlayerHornEvent`): stores the player-horn script and event.
+    pub fn set_player_horn_event(&mut self, program: u32, event: i32) {
+        self.player_horn_program = program;
+        self.player_horn_event = event;
+    }
+
+    /// Reads the pair written by [`GameInlineState::set_player_horn_event`].
+    pub fn player_horn_event(&self) -> (u32, i32) {
+        (self.player_horn_program, self.player_horn_event)
+    }
+
+    /// FUNCTION: GAME 0x47b600 (RVA 0x7b600, VA 0x47b600; `game.h:907-912`,
+    /// `C_game::SetPlayerWFallEvent`): stores the player-fall script and event.
+    pub fn set_player_wfall_event(&mut self, program: u32, event: i32) {
+        self.player_wfall_program = program;
+        self.player_wfall_event = event;
+    }
+
+    /// Reads the pair written by [`GameInlineState::set_player_wfall_event`].
+    pub fn player_wfall_event(&self) -> (u32, i32) {
+        (self.player_wfall_program, self.player_wfall_event)
+    }
+
+    /// FUNCTION: GAME 0x47b630 (RVA 0x7b630, VA 0x47b630; `game.h:917-922`,
+    /// `C_game::SetMissionEnd`): stores how the mission ends (1 on
+    /// `ENDOFMISSION`, 2 on failure-menu exit/retry).
+    pub fn set_mission_end(&mut self, value: i32) {
+        self.mission_end = value;
+    }
+
+    /// Reads the value written by [`GameInlineState::set_mission_end`].
+    pub fn mission_end(&self) -> i32 {
+        self.mission_end
+    }
+
+    /// FUNCTION: GAME 0x47b640 (RVA 0x7b640, VA 0x47b640; `game.h:922-927`,
+    /// `C_game::SetRace6State`): `start` selects `RACING_MISSION6_START`'s
+    /// `RACE6_STATE_STARTED`, otherwise `RACE6_STATE_NONE`.
+    pub fn set_race6_state(&mut self, start: bool) {
+        self.race6_state = if start {
+            RACE6_STATE_STARTED
+        } else {
+            RACE6_STATE_NONE
+        };
+    }
+
+    /// FUNCTION: GAME 0x47b660 (RVA 0x7b660, VA 0x47b660; `game.h:927-932`,
+    /// `C_game::GetRace6State`): reads the race state.
+    pub fn get_race6_state(&self) -> i32 {
+        self.race6_state
+    }
+
+    /// FUNCTION: GAME 0x47b6c0 (RVA 0x7b6c0, VA 0x47b6c0; `game.h:957-961`,
+    /// `C_game::SetMissionPassed`): stores whether the mission passed
+    /// (`ENDOFMISSION`'s, cleared by `Init`); the garage's `GarageGameDone`
+    /// lets the player choose the cars while it is set.
+    pub fn set_mission_passed(&mut self, value: bool) {
+        self.mission_passed = value;
+    }
+
+    /// Reads the gate written by [`GameInlineState::set_mission_passed`].
+    pub fn mission_passed(&self) -> bool {
+        self.mission_passed
+    }
+}
+
+/// STUB: GAME 0x5b7500 (RVA 0x1b7500, VA 0x5b7500; `game.cpp:3710-3715`,
+/// `game.h:803-804`, `C_game::IsTelephoneExist`): whether the frame is one
+/// of the telephones. The native body is unwritten (always false); the host
+/// implements the named contract over the collected [`TelephoneEntry`]
+/// list: linear scan, first match wins.
+pub fn is_telephone_exist(telephones: &[TelephoneEntry], frame: FrameId) -> bool {
+    telephones.iter().any(|entry| entry.frame == frame)
+}
+
+/// Explicit boundary for referenced-but-unwritten Game.exe entries: the
+/// reference names the contract, but no original body is available, so the
+/// host reports the entry instead of guessing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnwrittenGameEntry {
+    Unsupported { entry: u32 },
+}
+
+impl core::fmt::Display for UnwrittenGameEntry {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            UnwrittenGameEntry::Unsupported { entry } => {
+                write!(f, "unwritten Game.exe entry {entry:#x}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for UnwrittenGameEntry {}
+
+/// STUB: GAME 0x481840 (RVA 0x81840, VA 0x481840; `C_pumper.cpp:15-20`,
+/// `C_pumper.h:31-32`, `C_pumper::ScriptCanPump`): whether the mission's
+/// fuel-pump attendant of the id can pump (the script's float register gets
+/// its int). Unwritten upstream; explicit unsupported boundary.
+pub const SCRIPT_CAN_PUMP_ENTRY: u32 = 0x481840;
+
+/// Original `C_pumper::ScriptCanPump` stub: always reports the boundary,
+/// mirroring the native zero without inventing pump semantics.
+pub fn script_can_pump(_attendant: u32) -> Result<i32, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: SCRIPT_CAN_PUMP_ENTRY,
+    })
+}
+
+/// STUB: GAME 0x4ba300 (RVA 0xba300, VA 0x4ba300; `C_trf_c.cpp:187-192`,
+/// `C_trf_c.h:50-52`, `C_traffic_car::SebraliMiKaaaruSvine`): the traffic
+/// car the human gets into (NULL where he cannot have it). Unwritten
+/// upstream; explicit unsupported boundary.
+pub const SEBRALI_MI_KAARU_SVINE_ENTRY: u32 = 0x4ba300;
+
+/// Original `C_traffic_car::SebraliMiKaaaruSvine` stub: always reports the
+/// boundary, mirroring the native NULL without inventing the hand-off.
+pub fn sebrali_mi_kaaaru_svine(_car: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: SEBRALI_MI_KAARU_SVINE_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -742,5 +971,167 @@ mod tests {
             let value = rnd_unit(random);
             assert!((0.0..=1.0).contains(&value), "{value}");
         }
+    }
+
+    #[test]
+    fn rva_7b520_get_player_returns_staged_handle() {
+        // C_game::GetPlayer GAME RVA 0x7b520 (VA 0x47b520).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.get_player(), None);
+        state.set_player(Some(9));
+        assert_eq!(state.get_player(), Some(9));
+        state.set_player(None);
+        assert_eq!(state.get_player(), None);
+    }
+
+    #[test]
+    fn rva_7b540_set_clear_diff_data_sets_flag() {
+        // C_game::SetClearDiffData GAME RVA 0x7b540 (VA 0x47b540).
+        let mut state = GameInlineState::default();
+        assert!(!state.clear_diff_data());
+        state.set_clear_diff_data();
+        assert!(state.clear_diff_data());
+    }
+
+    #[test]
+    fn rva_7b560_get_game_time_returns_staged_time() {
+        // C_game::GetGameTime GAME RVA 0x7b560 (VA 0x47b560).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.get_game_time(), 0);
+        state.set_game_time(-42);
+        assert_eq!(state.get_game_time(), -42);
+        state.set_game_time(i32::MAX);
+        assert_eq!(state.get_game_time(), i32::MAX);
+    }
+
+    #[test]
+    fn rva_7b570_get_init_frames_returns_staged_count() {
+        // C_game::GetInitFrames GAME RVA 0x7b570 (VA 0x47b570).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.get_init_frames(), 0);
+        state.set_init_frames(7);
+        assert_eq!(state.get_init_frames(), 7);
+        state.set_init_frames(u32::MAX);
+        assert_eq!(state.get_init_frames(), u32::MAX);
+    }
+
+    #[test]
+    fn rva_7b5a0_set_timeout_event_stores_pair() {
+        // C_game::SetTimeOutEvent GAME RVA 0x7b5a0 (VA 0x47b5a0).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.timeout_event(), (0, 0));
+        state.set_timeout_event(3, -1);
+        assert_eq!(state.timeout_event(), (3, -1));
+    }
+
+    #[test]
+    fn rva_7b5c0_set_player_fire_event_stores_pair() {
+        // C_game::SetPlayerFireEvent GAME RVA 0x7b5c0 (VA 0x47b5c0).
+        let mut state = GameInlineState::default();
+        state.set_player_fire_event(11, 22);
+        assert_eq!(state.player_fire_event(), (11, 22));
+    }
+
+    #[test]
+    fn rva_7b5e0_set_player_horn_event_stores_pair() {
+        // C_game::SetPlayerHornEvent GAME RVA 0x7b5e0 (VA 0x47b5e0).
+        let mut state = GameInlineState::default();
+        state.set_player_horn_event(5, 6);
+        assert_eq!(state.player_horn_event(), (5, 6));
+    }
+
+    #[test]
+    fn rva_7b600_set_player_wfall_event_stores_pair() {
+        // C_game::SetPlayerWFallEvent GAME RVA 0x7b600 (VA 0x47b600).
+        let mut state = GameInlineState::default();
+        state.set_player_wfall_event(u32::MAX, i32::MIN);
+        assert_eq!(state.player_wfall_event(), (u32::MAX, i32::MIN));
+    }
+
+    #[test]
+    fn rva_7b630_set_mission_end_stores_value() {
+        // C_game::SetMissionEnd GAME RVA 0x7b630 (VA 0x47b630).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.mission_end(), 0);
+        state.set_mission_end(1);
+        assert_eq!(state.mission_end(), 1);
+        state.set_mission_end(2);
+        assert_eq!(state.mission_end(), 2);
+    }
+
+    #[test]
+    fn rva_7b640_set_race6_state_maps_bool_to_started_or_none() {
+        // C_game::SetRace6State GAME RVA 0x7b640 (VA 0x47b640).
+        assert_eq!(RACE6_STATE_NONE, 0);
+        assert_eq!(RACE6_STATE_RUNNING, 1);
+        assert_eq!(RACE6_STATE_STARTED, 2);
+        assert_eq!(RACE6_STATE_END, 10);
+        let mut state = GameInlineState::default();
+        state.set_race6_state(false);
+        assert_eq!(state.get_race6_state(), RACE6_STATE_NONE);
+        state.set_race6_state(true);
+        assert_eq!(state.get_race6_state(), RACE6_STATE_STARTED);
+    }
+
+    #[test]
+    fn rva_7b660_get_race6_state_returns_stored_state() {
+        // C_game::GetRace6State GAME RVA 0x7b660 (VA 0x47b660).
+        let state = GameInlineState::default();
+        assert_eq!(state.get_race6_state(), RACE6_STATE_NONE);
+    }
+
+    #[test]
+    fn rva_7b6c0_set_mission_passed_stores_garage_gate() {
+        // C_game::SetMissionPassed GAME RVA 0x7b6c0 (VA 0x47b6c0).
+        let mut state = GameInlineState::default();
+        assert!(!state.mission_passed());
+        state.set_mission_passed(true);
+        assert!(state.mission_passed());
+        state.set_mission_passed(false);
+        assert!(!state.mission_passed());
+    }
+
+    #[test]
+    fn rva_1b7500_is_telephone_exist_matches_by_frame() {
+        // C_game::IsTelephoneExist GAME RVA 0x1b7500 (VA 0x5b7500).
+        let telephones = vec![
+            TelephoneEntry {
+                frame: 1,
+                phone_box: false,
+            },
+            TelephoneEntry {
+                frame: 2,
+                phone_box: true,
+            },
+        ];
+        assert!(is_telephone_exist(&telephones, 1));
+        assert!(is_telephone_exist(&telephones, 2));
+        assert!(!is_telephone_exist(&telephones, 3));
+        let empty: Vec<TelephoneEntry> = vec![];
+        assert!(!is_telephone_exist(&empty, 1));
+    }
+
+    #[test]
+    fn rva_81840_script_can_pump_reports_unsupported() {
+        // C_pumper::ScriptCanPump GAME RVA 0x81840 (VA 0x481840): STUB.
+        assert_eq!(SCRIPT_CAN_PUMP_ENTRY, 0x481840);
+        assert_eq!(
+            script_can_pump(7),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x481840 })
+        );
+        assert_eq!(
+            script_can_pump(u32::MAX),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x481840 })
+        );
+    }
+
+    #[test]
+    fn rva_ba300_sebrali_mi_kaaaru_svine_reports_unsupported() {
+        // C_traffic_car::SebraliMiKaaaruSvine GAME RVA 0xba300 (VA 0x4ba300).
+        assert_eq!(SEBRALI_MI_KAARU_SVINE_ENTRY, 0x4ba300);
+        assert_eq!(
+            sebrali_mi_kaaaru_svine(0x1234),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x4ba300 })
+        );
     }
 }

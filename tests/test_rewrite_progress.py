@@ -302,8 +302,13 @@ class RewriteProgressTests(unittest.TestCase):
         # +3 cutscene flag contracts (SetCutsceneRecord/Play/UpdateFlags
         # 0x1c27b0-0x1c27f0; bytes verified in image; tests green; 11
         # C_effects RVAs withheld (0x44xxxx outside our image)).
-        self.assertEqual(game["ported"], 149 + 423)
-        self.assertEqual(game["verified"], 149 + 355)
+        # +15 housekeeping contracts (GetPlayer/ClearDiff/GameTime/InitFrames/
+        # Timeout/Fire/Horn/WFall/MissionEnd/Race6/MissionPassed + Telephone/
+        # Pump/Sebrali STUBs; VA-form ok; marker-only, tests green).
+        # +13 housekeeping differential (Ghidra bodies 2-32 insns; pin tests
+        # housekeeping 35 pass; 2 STUBs held as contract).
+        self.assertEqual(game["ported"], 149 + 438)
+        self.assertEqual(game["verified"], 149 + 368)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
