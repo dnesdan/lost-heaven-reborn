@@ -276,6 +276,14 @@ pub fn score_set_on(state: &mut ScoreState, on: bool, hud: &mut impl HudBonusBac
     }
 }
 
+impl ScoreState {
+    /// FUNCTION: GAME 0x47b6b0 (RVA 0x7b6b0, VA 0x47b6b0; `game.h:952-956`,
+    /// `C_game::GetScore`): reads the stored score.
+    pub fn get_score(&self) -> i32 {
+        self.score
+    }
+}
+
 /// Opaque actor handle. Native `C_actor*` identity is the caller's concern.
 pub type ActorId = u32;
 
@@ -503,6 +511,29 @@ pub fn tick_semaphores(
     }
 }
 
+/// FUNCTION: GAME 0x5add70 (RVA 0x1add70, VA 0x5add70; `game.cpp:2959-2973`,
+/// `C_game::FreeSemaphores`): switches every collected lamp back on from the
+/// back, then empties the list. Absent lamps (`None`) are skipped; the scene
+/// enumeration that collected the entries stays with the scene owner.
+pub fn free_semaphores(
+    semaphores: &mut Vec<SemaphoreEntry>,
+    backend: &mut impl SemaphoreLightBackend,
+) {
+    for index in (0..semaphores.len()).rev() {
+        let entry = semaphores[index];
+        if let Some(frame) = entry.red {
+            backend.set_light(frame, true);
+        }
+        if let Some(frame) = entry.orange {
+            backend.set_light(frame, true);
+        }
+        if let Some(frame) = entry.green {
+            backend.set_light(frame, true);
+        }
+    }
+    semaphores.clear();
+}
+
 /// FUNCTION: GAME VA 0x5b6e00 (RVA 0x1b6e00; `game.cpp:3641-3648`,
 /// `C_game::LoadTelephones`): reset half. Empties the list; the sector
 /// enumeration runs through the already ported [`cb_telephones`], and the
@@ -621,6 +652,19 @@ pub struct GameInlineState {
     /// (`game.h:834-840` at pin 113b5b6). No cheat word toggles bit 6; the
     /// writer stays with the cheat owner (DEFERRED).
     cheats: u32,
+    /// Staged identities for the object accessors below. The native bodies
+    /// return references owned elsewhere (`G_Camera`, `C_using_object`,
+    /// `C_sledovacka`, `soundArena`, `C_shvestky`); the host stages the
+    /// caller-provided handle and the getters read it back. `None` is the
+    /// native NULL.
+    camera: Option<u32>,
+    using_object: Option<u32>,
+    sledovacka: Option<u32>,
+    sound_arena: Option<u32>,
+    shvestky: Option<u32>,
+    actor_lightness: bool,
+    anim_preload: bool,
+    weather_buffer: i32,
 }
 
 impl GameInlineState {
@@ -761,6 +805,105 @@ impl GameInlineState {
     /// Reads the gate written by [`GameInlineState::set_mission_passed`].
     pub fn mission_passed(&self) -> bool {
         self.mission_passed
+    }
+
+    /// FUNCTION: GAME 0x47b510 (RVA 0x7b510, VA 0x47b510; `game.h:842-846`,
+    /// `C_game::GetCamera`): reads the staged camera handle. The native body
+    /// returns the owned `G_Camera` reference; the object stays with its
+    /// owner (DEFERRED) and `None` is the native NULL.
+    pub fn get_camera(&self) -> Option<u32> {
+        self.camera
+    }
+
+    /// Staging for [`GameInlineState::get_camera`]; the camera owner itself
+    /// stays with the caller.
+    pub fn stage_camera(&mut self, camera: Option<u32>) {
+        self.camera = camera;
+    }
+
+    /// FUNCTION: GAME 0x47b530 (RVA 0x7b530, VA 0x47b530; `game.h:852-856`,
+    /// `C_game::GetUsingObject`): reads the staged using-object handle. The
+    /// native body returns the owned `C_using_object` reference; the object
+    /// stays with its owner (DEFERRED).
+    pub fn get_using_object(&self) -> Option<u32> {
+        self.using_object
+    }
+
+    /// Staging for [`GameInlineState::get_using_object`].
+    pub fn stage_using_object(&mut self, using_object: Option<u32>) {
+        self.using_object = using_object;
+    }
+
+    /// FUNCTION: GAME 0x47b550 (RVA 0x7b550, VA 0x47b550; `game.h:863-867`,
+    /// `C_game::GetSledovacka`): reads the staged sledovacka handle. The
+    /// native body returns the owned `C_sledovacka` reference; the object
+    /// stays with its owner (DEFERRED).
+    pub fn get_sledovacka(&self) -> Option<u32> {
+        self.sledovacka
+    }
+
+    /// Staging for [`GameInlineState::get_sledovacka`].
+    pub fn stage_sledovacka(&mut self, sledovacka: Option<u32>) {
+        self.sledovacka = sledovacka;
+    }
+
+    /// FUNCTION: GAME 0x47b580 (RVA 0x7b580, VA 0x47b580; `game.h:878-882`,
+    /// `C_game::GetSoundArena`): reads the staged sound-arena handle. The
+    /// native body returns the owned `soundArena` reference; the object
+    /// stays with its owner (DEFERRED).
+    pub fn get_sound_arena(&self) -> Option<u32> {
+        self.sound_arena
+    }
+
+    /// Staging for [`GameInlineState::get_sound_arena`].
+    pub fn stage_sound_arena(&mut self, sound_arena: Option<u32>) {
+        self.sound_arena = sound_arena;
+    }
+
+    /// FUNCTION: GAME 0x47b620 (RVA 0x7b620, VA 0x47b620; `game.h:913-916`,
+    /// `C_game::GetShvestky`): reads the staged shvestky (police) handle.
+    /// The native body returns the owned `C_shvestky` reference; the object
+    /// stays with its owner (DEFERRED).
+    pub fn get_shvestky(&self) -> Option<u32> {
+        self.shvestky
+    }
+
+    /// Staging for [`GameInlineState::get_shvestky`].
+    pub fn stage_shvestky(&mut self, shvestky: Option<u32>) {
+        self.shvestky = shvestky;
+    }
+
+    /// FUNCTION: GAME 0x47b680 (RVA 0x7b680, VA 0x47b680; `game.h:937-941`,
+    /// `C_game::SetActorLightness`): stores the actor-lightness switch.
+    pub fn set_actor_lightness(&mut self, on: bool) {
+        self.actor_lightness = on;
+    }
+
+    /// Reads the switch written by [`GameInlineState::set_actor_lightness`].
+    pub fn actor_lightness(&self) -> bool {
+        self.actor_lightness
+    }
+
+    /// FUNCTION: GAME 0x47b690 (RVA 0x7b690, VA 0x47b690; `game.h:942-946`,
+    /// `C_game::SetAnimPreload`): stores the animation-preload switch.
+    pub fn set_anim_preload(&mut self, on: bool) {
+        self.anim_preload = on;
+    }
+
+    /// Reads the switch written by [`GameInlineState::set_anim_preload`].
+    pub fn anim_preload(&self) -> bool {
+        self.anim_preload
+    }
+
+    /// FUNCTION: GAME 0x47b6a0 (RVA 0x7b6a0, VA 0x47b6a0; `game.h:947-951`,
+    /// `C_game::SetWeatherBuffer`): stores the weather buffer value.
+    pub fn set_weather_buffer(&mut self, value: i32) {
+        self.weather_buffer = value;
+    }
+
+    /// Reads the value written by [`GameInlineState::set_weather_buffer`].
+    pub fn weather_buffer(&self) -> i32 {
+        self.weather_buffer
     }
 
     /// Staging for [`GameInlineState::get_cheats_bit6`]; the cheat-word
@@ -1785,5 +1928,118 @@ mod tests {
             death_human_talk(9),
             Err(UnwrittenGameEntry::Unsupported { entry: 0x5b77c0 })
         );
+    }
+
+    #[test]
+    fn rva_7b510_get_camera_returns_staged_handle() {
+        // C_game::GetCamera GAME RVA 0x7b510 (VA 0x47b510).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.get_camera(), None);
+        state.stage_camera(Some(0xabcd));
+        assert_eq!(state.get_camera(), Some(0xabcd));
+        state.stage_camera(None);
+        assert_eq!(state.get_camera(), None);
+    }
+
+    #[test]
+    fn rva_7b530_get_using_object_returns_staged_handle() {
+        // C_game::GetUsingObject GAME RVA 0x7b530 (VA 0x47b530).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.get_using_object(), None);
+        state.stage_using_object(Some(41));
+        assert_eq!(state.get_using_object(), Some(41));
+    }
+
+    #[test]
+    fn rva_7b550_get_sledovacka_returns_staged_handle() {
+        // C_game::GetSledovacka GAME RVA 0x7b550 (VA 0x47b550).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.get_sledovacka(), None);
+        state.stage_sledovacka(Some(7));
+        assert_eq!(state.get_sledovacka(), Some(7));
+        state.stage_sledovacka(None);
+        assert_eq!(state.get_sledovacka(), None);
+    }
+
+    #[test]
+    fn rva_7b580_get_sound_arena_returns_staged_handle() {
+        // C_game::GetSoundArena GAME RVA 0x7b580 (VA 0x47b580).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.get_sound_arena(), None);
+        state.stage_sound_arena(Some(u32::MAX));
+        assert_eq!(state.get_sound_arena(), Some(u32::MAX));
+    }
+
+    #[test]
+    fn rva_7b620_get_shvestky_returns_staged_handle() {
+        // C_game::GetShvestky GAME RVA 0x7b620 (VA 0x47b620).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.get_shvestky(), None);
+        state.stage_shvestky(Some(99));
+        assert_eq!(state.get_shvestky(), Some(99));
+        state.stage_shvestky(None);
+        assert_eq!(state.get_shvestky(), None);
+    }
+
+    #[test]
+    fn rva_7b680_set_actor_lightness_stores_switch() {
+        // C_game::SetActorLightness GAME RVA 0x7b680 (VA 0x47b680).
+        let mut state = GameInlineState::default();
+        assert!(!state.actor_lightness());
+        state.set_actor_lightness(true);
+        assert!(state.actor_lightness());
+        state.set_actor_lightness(false);
+        assert!(!state.actor_lightness());
+    }
+
+    #[test]
+    fn rva_7b690_set_anim_preload_stores_switch() {
+        // C_game::SetAnimPreload GAME RVA 0x7b690 (VA 0x47b690).
+        let mut state = GameInlineState::default();
+        assert!(!state.anim_preload());
+        state.set_anim_preload(true);
+        assert!(state.anim_preload());
+        state.set_anim_preload(false);
+        assert!(!state.anim_preload());
+    }
+
+    #[test]
+    fn rva_7b6a0_set_weather_buffer_stores_value() {
+        // C_game::SetWeatherBuffer GAME RVA 0x7b6a0 (VA 0x47b6a0).
+        let mut state = GameInlineState::default();
+        assert_eq!(state.weather_buffer(), 0);
+        state.set_weather_buffer(-3);
+        assert_eq!(state.weather_buffer(), -3);
+        state.set_weather_buffer(i32::MAX);
+        assert_eq!(state.weather_buffer(), i32::MAX);
+    }
+
+    #[test]
+    fn rva_7b6b0_get_score_reads_stored_score() {
+        // C_game::GetScore GAME RVA 0x7b6b0 (VA 0x47b6b0).
+        let state = ScoreState { score: -12, score_on: false };
+        assert_eq!(state.get_score(), -12);
+        let state = ScoreState { score: 0, score_on: true };
+        assert_eq!(state.get_score(), 0);
+        let state = ScoreState { score: i32::MAX, score_on: true };
+        assert_eq!(state.get_score(), i32::MAX);
+    }
+
+    #[test]
+    fn rva_1add70_free_semaphores_lights_all_on_then_clears() {
+        // C_game::FreeSemaphores GAME RVA 0x1add70 (VA 0x5add70).
+        let mut semaphores = vec![
+            SemaphoreEntry { red: Some(1), orange: None, green: Some(3), use_phase_x: true },
+            SemaphoreEntry { red: None, orange: Some(4), green: None, use_phase_x: false },
+        ];
+        let mut backend = SemaphoreLog { states: vec![] };
+        free_semaphores(&mut semaphores, &mut backend);
+        assert!(semaphores.is_empty());
+        // Back entry first, every present lamp switched on.
+        assert_eq!(backend.states, vec![(4, true), (1, true), (3, true)]);
+        // Empty input drives no lamp and stays empty.
+        let mut backend = SemaphoreLog { states: vec![] };
+        free_semaphores(&mut semaphores, &mut backend);
+        assert!(backend.states.is_empty());
     }
 }

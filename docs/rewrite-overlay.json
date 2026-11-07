@@ -12910,6 +12910,141 @@
       "symbol": "lhr_engine::main_menu::options_controls_onclose",
       "tier": "differential",
       "evidence": "REA ev_4be307227a + complete walk (~15 insns, calls + RET), OptionsControls OnClose; pin tests menu"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b510",
+      "va": "0x47b510",
+      "name": "C_game::GetCamera",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::get_camera",
+      "tier": "differential",
+      "evidence": "REA ev_fbe1a7c957 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b530",
+      "va": "0x47b530",
+      "name": "C_game::GetUsingObject",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::get_using_object",
+      "tier": "differential",
+      "evidence": "REA ev_8848649f11 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b550",
+      "va": "0x47b550",
+      "name": "C_game::GetSledovacka",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::get_sledovacka",
+      "tier": "differential",
+      "evidence": "REA ev_6a0d5caf60 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b580",
+      "va": "0x47b580",
+      "name": "C_game::GetSoundArena",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::get_sound_arena",
+      "tier": "differential",
+      "evidence": "REA ev_12dc06ded2 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b620",
+      "va": "0x47b620",
+      "name": "C_game::GetShvestky",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::get_shvestky",
+      "tier": "differential",
+      "evidence": "REA ev_6d7aba8dc5 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b680",
+      "va": "0x47b680",
+      "name": "C_game::SetActorLightness",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_actor_lightness",
+      "tier": "differential",
+      "evidence": "REA ev_4de0dd921c + Ghidra body 3 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b690",
+      "va": "0x47b690",
+      "name": "C_game::SetAnimPreload",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_anim_preload",
+      "tier": "differential",
+      "evidence": "REA ev_963735aa04 + Ghidra body 3 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b6a0",
+      "va": "0x47b6a0",
+      "name": "C_game::SetWeatherBuffer",
+      "symbol": "lhr_engine::game_housekeeping::GameInlineState::set_weather_buffer",
+      "tier": "differential",
+      "evidence": "REA ev_b7ae5cf14e + Ghidra body 3 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b6b0",
+      "va": "0x47b6b0",
+      "name": "C_game::GetScore",
+      "symbol": "lhr_engine::game_housekeeping::ScoreState::get_score",
+      "tier": "differential",
+      "evidence": "REA ev_f65ffe14a2 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1add70",
+      "va": "0x5add70",
+      "name": "C_game::FreeSemaphores",
+      "symbol": "lhr_engine::game_housekeeping::free_semaphores",
+      "tier": "differential",
+      "evidence": "REA ev_c8bd045ea7 + Ghidra body 66 insns/13 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ae70",
+      "va": "0x47ae70",
+      "name": "C_mission::SetMissionNumber",
+      "symbol": "lhr_engine::mission_actor_lists::MissionCounterState::set_mission_number",
+      "tier": "differential",
+      "evidence": "REA ev_163f3634b3 + Ghidra body 3 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ae80",
+      "va": "0x47ae80",
+      "name": "C_mission::GetMissionNumber",
+      "symbol": "lhr_engine::mission_actor_lists::MissionCounterState::get_mission_number",
+      "tier": "differential",
+      "evidence": "REA ev_e5d7013891 + Ghidra body 2 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ae90",
+      "va": "0x47ae90",
+      "name": "C_mission::KeepMissionNumber",
+      "symbol": "lhr_engine::mission_actor_lists::MissionCounterState::keep_mission_number",
+      "tier": "differential",
+      "evidence": "REA ev_b34781bde9 + Ghidra body 4 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7aea0",
+      "va": "0x47aea0",
+      "name": "C_mission::SetSkipFrames",
+      "symbol": "lhr_engine::mission_actor_lists::MissionCounterState::set_skip_frames",
+      "tier": "differential",
+      "evidence": "REA ev_5d0269dea8 + Ghidra body 3 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7aeb0",
+      "va": "0x47aeb0",
+      "name": "C_mission::GetSkipFrames",
+      "symbol": "lhr_engine::mission_actor_lists::MissionCounterState::get_skip_frames",
+      "tier": "differential",
+      "evidence": "REA ev_61422eb80e + Ghidra body 2 insns/1 bbs; pin tests housekeeping 62 / mission_actor_lists 25 pass"
     }
   ],
   "vm": {

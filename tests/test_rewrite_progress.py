@@ -344,8 +344,13 @@ class RewriteProgressTests(unittest.TestCase):
         # +10 dabing/ishow/spatial/collision batch (SetHuman/Reset/Speak/Tick +
         # CreateIShow/OpenIShow/cbCityMusic + spatial publish/StopAll +
         # TestPanak2InVehicle; 9 dossiers + 1 walk; deferrals disclosed).
-        self.assertEqual(game["ported"], 149 + 546)
-        self.assertEqual(game["verified"], 149 + 465)
+        # +15 inline-state/counter contracts (GetCamera/UsingObject/Sledovacka/
+        # SoundArena/Shvestky + Lightness/AnimPreload/WeatherBuffer + Score +
+        # FreeSemaphores + MissionNumber x3/SkipFrames x2; marker-only).
+        # +15 inline-state/counter differential (Ghidra bodies 2-66 insns; pin
+        # tests housekeeping 62 / mission_actor_lists 25 pass).
+        self.assertEqual(game["ported"], 149 + 561)
+        self.assertEqual(game["verified"], 149 + 480)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

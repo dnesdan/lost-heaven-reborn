@@ -523,6 +523,62 @@ pub fn prepare_base_blocks() -> Result<(), GameStartupUnsupported> {
     Err(GameStartupUnsupported::PrepareBaseBlocks)
 }
 
+/// Scalar mission counters behind the `C_mission` inline accessors
+/// (`Mission.h:239-266` at pin 113b5b6). The scene, actors, scripts and game
+/// objects stay with their owners; only the mission-number pair and the
+/// skip-frames count these inlines read or write are owned here.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MissionCounterState {
+    next_mission_number: i32,
+    mission_number: i32,
+    skip_frames: i32,
+}
+
+impl MissionCounterState {
+    /// FUNCTION: GAME 0x47ae70 (RVA 0x7ae70, VA 0x47ae70,
+    /// `Mission.h:241-245`, `C_mission::SetMissionNumber`): stores the next
+    /// mission number (`SETMISSIONNUMBER`'s).
+    pub fn set_mission_number(&mut self, n: i32) {
+        self.next_mission_number = n;
+    }
+
+    /// Reads the pending value written by
+    /// [`MissionCounterState::set_mission_number`].
+    pub fn next_mission_number(&self) -> i32 {
+        self.next_mission_number
+    }
+
+    /// FUNCTION: GAME 0x47ae80 (RVA 0x7ae80, VA 0x47ae80,
+    /// `Mission.h:246-250`, `C_mission::GetMissionNumber`): reads the current
+    /// mission number (`GETMISSIONNUMBER`'s).
+    pub fn get_mission_number(&self) -> i32 {
+        self.mission_number
+    }
+
+    /// FUNCTION: GAME 0x47ae90 (RVA 0x7ae90, VA 0x47ae90,
+    /// `Mission.h:251-256`, `C_mission::KeepMissionNumber`): the pending
+    /// number becomes the current one (`CHANGE_MISSION`'s) and the pending
+    /// slot is cleared.
+    pub fn keep_mission_number(&mut self) {
+        self.mission_number = self.next_mission_number;
+        self.next_mission_number = 0;
+    }
+
+    /// FUNCTION: GAME 0x47aea0 (RVA 0x7aea0, VA 0x47aea0,
+    /// `Mission.h:257-261`, `C_mission::SetSkipFrames`): stores the count of
+    /// frames `Tick` runs without presenting.
+    pub fn set_skip_frames(&mut self, value: i32) {
+        self.skip_frames = value;
+    }
+
+    /// FUNCTION: GAME 0x47aeb0 (RVA 0x7aeb0, VA 0x47aeb0,
+    /// `Mission.h:262-266`, `C_mission::GetSkipFrames`): reads the count
+    /// written by [`MissionCounterState::set_skip_frames`].
+    pub fn get_skip_frames(&self) -> i32 {
+        self.skip_frames
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -914,5 +970,63 @@ mod tests {
         let mut idle = 0;
         update_cutscene_flags(&mut idle);
         assert_eq!(idle, 0);
+    }
+
+    #[test]
+    fn set_mission_number_rva_7ae70_stores_pending_number() {
+        // C_mission::SetMissionNumber GAME RVA 0x7ae70 (VA 0x47ae70).
+        let mut state = MissionCounterState::default();
+        assert_eq!(state.next_mission_number(), 0);
+        state.set_mission_number(4);
+        assert_eq!(state.next_mission_number(), 4);
+        // The current number is untouched until kept.
+        assert_eq!(state.get_mission_number(), 0);
+        state.set_mission_number(-1);
+        assert_eq!(state.next_mission_number(), -1);
+    }
+
+    #[test]
+    fn get_mission_number_rva_7ae80_reads_current_number() {
+        // C_mission::GetMissionNumber GAME RVA 0x7ae80 (VA 0x47ae80).
+        let mut state = MissionCounterState::default();
+        assert_eq!(state.get_mission_number(), 0);
+        state.set_mission_number(6);
+        state.keep_mission_number();
+        assert_eq!(state.get_mission_number(), 6);
+    }
+
+    #[test]
+    fn keep_mission_number_rva_7ae90_moves_pending_and_clears() {
+        // C_mission::KeepMissionNumber GAME RVA 0x7ae90 (VA 0x47ae90).
+        let mut state = MissionCounterState::default();
+        state.set_mission_number(9);
+        state.keep_mission_number();
+        assert_eq!(state.get_mission_number(), 9);
+        assert_eq!(state.next_mission_number(), 0);
+        // Keeping an empty pending slot clears the current number.
+        state.keep_mission_number();
+        assert_eq!(state.get_mission_number(), 0);
+        assert_eq!(state.next_mission_number(), 0);
+    }
+
+    #[test]
+    fn set_skip_frames_rva_7aea0_stores_count() {
+        // C_mission::SetSkipFrames GAME RVA 0x7aea0 (VA 0x47aea0).
+        let mut state = MissionCounterState::default();
+        assert_eq!(state.get_skip_frames(), 0);
+        state.set_skip_frames(10);
+        assert_eq!(state.get_skip_frames(), 10);
+        state.set_skip_frames(i32::MIN);
+        assert_eq!(state.get_skip_frames(), i32::MIN);
+    }
+
+    #[test]
+    fn get_skip_frames_rva_7aeb0_reads_stored_count() {
+        // C_mission::GetSkipFrames GAME RVA 0x7aeb0 (VA 0x47aeb0).
+        let mut state = MissionCounterState::default();
+        state.set_skip_frames(2);
+        assert_eq!(state.get_skip_frames(), 2);
+        state.set_skip_frames(0);
+        assert_eq!(state.get_skip_frames(), 0);
     }
 }
