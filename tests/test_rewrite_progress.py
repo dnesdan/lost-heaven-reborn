@@ -174,7 +174,14 @@ class RewriteProgressTests(unittest.TestCase):
         # +6 IShow STUB slice (DestroyIShow 0x5b62c0 / IShowFade 0x5b6710 /
         # FadeDownAll 0x5b6660 / SetFilmMusic 0x5ae1d0 / GetFilmMusic
         # 0x5ae390 / StreamDestroyAll 0x5ae3d0; all explicit-Unsupported).
-        self.assertEqual(game["ported"], 149 + 320)
+        # +0 VA-form remediation (no new ports): 161 Game.exe entries used
+        # absolute VAs as rvas (my systematic error; base tree had 0).
+        # Converted to true base-relative RVAs; dropped 5 ledger duplicates
+        # (GetText 0x20fb40, LockControls 0x195f00, GlobalProgramRun 0x1afd50,
+        # Do_Breath 0x17d310, MapEnable 0x1f9d10) and 5 within-overlay dupes
+        # (InitAttempt working-name, AiGhostStore pair, free-fn merge scope,
+        # RotateDir dup). Net honest count now.
+        self.assertEqual(game["ported"], 149 + 310)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
