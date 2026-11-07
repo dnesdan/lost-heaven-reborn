@@ -260,8 +260,14 @@ class RewriteProgressTests(unittest.TestCase):
         # ABI-only teardown bodies (vtable re-store + base tailjump, no
         # portable state effect), and partial-coverage ports. Same standard
         # as 0x2b830 throughout.
+        # +15 verified-upgrade tranche C (native_transform math: rotation
+        # X/Y/Z 0x2cdc0-0x2ce60, AngleTo 0x2ceb0, rotate product 0x2cf40,
+        # Mult4X4 0x2d520, Make4X4 0x2d780, SetDir 0x2e030, GetScale2/Uscale
+        # 0x2e510/0x2e580, CosAngleTo 0x2e710, RotateByNorm 0x2eab0, quat
+        # Inverse 0x2fd70/RotateByMatrix 0x30040, scale lanes 0x56e60;
+        # Ghidra bodies + pinning tests, 1 new test).
         self.assertEqual(ls3df["ported"], 145 + 830)
-        self.assertEqual(ls3df["verified"], 145 + 284)
+        self.assertEqual(ls3df["verified"], 145 + 299)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

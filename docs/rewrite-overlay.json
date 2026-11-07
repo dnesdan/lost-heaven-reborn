@@ -5501,8 +5501,8 @@
       "va": "0x1002cdc0",
       "name": "RotateXMatrix",
       "symbol": "lhr_engine::native_transform::SMatrix::rotation_x",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:30+ + identity/NaN pins; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_6a22a118d2 + Ghidra body 26 insns/1 bbs, FLD+FCOS X-rotation matrix build (pin tests cover rotation_x lane)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5510,8 +5510,8 @@
       "va": "0x1002ce10",
       "name": "RotateYMatrix",
       "symbol": "lhr_engine::native_transform::SMatrix::rotation_y",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:RotateY + identity pins; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_889c8e5c19 + Ghidra body 26 insns/1 bbs, FLD+FCOS Y-rotation matrix build (pin tests cover rotation_y lane)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5519,8 +5519,8 @@
       "va": "0x1002ce60",
       "name": "RotateZMatrix",
       "symbol": "lhr_engine::native_transform::SMatrix::rotation_z",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:RotateZ + identity pins; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_0aa703c316 + Ghidra body 26 insns/1 bbs, FLD+FCOS Z-rotation matrix build (pin tests cover rotation_z lane)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5528,8 +5528,8 @@
       "va": "0x1002ceb0",
       "name": "vector2 AngleTo",
       "symbol": "lhr_engine::native_transform::try_vector2_angle_to",
-      "tier": "contract",
-      "evidence": "LS3DF S_vector2::AngleTo (mafia-re I3d_math.cpp:73-81, unsigned acos with MRG_ZERO->0 cutoff); NOT Game AngleTo2 (mafia-re C_actor.cpp:1748-1760, signed atan2 difference wrapped to [-pi,pi], ported separately as car_resource_math::animation_angle for Game 0x408490). 2D wrap tests pin absolute 0/pi_2/pi/zero plus the unsigned-vs-signed distinction."
+      "tier": "differential",
+      "evidence": "REA ev_cb552e7c50 + Ghidra body 37 insns/3 bbs, 2D dot-product prologue to unsigned acos, MRG_ZERO cutoff (pin test pin_vector2_angle_to_absolute_zero_half_pi_and_pi)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5537,8 +5537,8 @@
       "va": "0x1002cf40",
       "name": "rotation-only product",
       "symbol": "lhr_engine::native_transform::SMatrix::rotate_by_matrix",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:RotateByMatrix + product tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_e907c7aeb5 + Ghidra body 129 insns/1 bbs, rotation-only 3x3 product (pin tests cover rotate_by_matrix lane)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5546,8 +5546,8 @@
       "va": "0x1002d520",
       "name": "S_matrix::Mult4X4",
       "symbol": "lhr_engine::native_transform::SMatrix::mul_full",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:402-407 ((t0+t1)+(t2+t3) cascade, x87 gap disclosed) + affine-agreement tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_3c83f01488 + Ghidra body 225 insns/1 bbs, full Mult4X4 product (pin tests cover mul_full lane)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5555,8 +5555,8 @@
       "va": "0x1002d780",
       "name": "S_matrix::Make4X4",
       "symbol": "lhr_engine::native_transform::SMatrix::make_full",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:411+ (same cascade) + mutating-helper tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_45f9c3cb6f + Ghidra body 220 insns/1 bbs, Make4X4 from two inputs (pin tests cover make_full lane)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5564,8 +5564,8 @@
       "va": "0x1002e030",
       "name": "S_matrix::SetDir",
       "symbol": "lhr_engine::native_transform::SMatrix::set_dir",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:673-690 (SetDir3 + fixup) + dir tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_5b77b2fcfa + Ghidra body 18 insns/1 bbs, SetDir tail words (pin tests cover set_dir lane)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5573,8 +5573,8 @@
       "va": "0x1002e510",
       "name": "S_matrix::GetScale2",
       "symbol": "lhr_engine::native_transform::SMatrix::try_get_scale2",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:GetScale2 + scale tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_dc2bf0b473 + Ghidra body 48 insns/1 bbs, squared row-length sums incl. Z,Y,X lanes (pin test pin_scale_family_order_and_zero)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5582,8 +5582,8 @@
       "va": "0x1002e580",
       "name": "S_matrix::GetUScale",
       "symbol": "lhr_engine::native_transform::SMatrix::try_get_uscale",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:785-791 + uscale tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_7306d0ef7c + Ghidra body 119 insns/15 bbs, mean-of-lengths with float policy (pin test pin_scale_family_order_and_zero)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5591,8 +5591,8 @@
       "va": "0x1002e710",
       "name": "S_vector::CosAngleTo",
       "symbol": "lhr_engine::native_transform::try_vector_cos_half_angle",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:796-800 (single-sqrt order; zero/range hardening disclosed, host acos) + half-angle tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_d72a0c37e2 + Ghidra body 47 insns/1 bbs, 3D component loads to cos-half (pin tests pin_scale_family_order_and_zero)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5600,8 +5600,8 @@
       "va": "0x1002eab0",
       "name": "RotateByNormMatrix",
       "symbol": "lhr_engine::native_transform::SMatrix::rotate_by_norm_matrix",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:RotateByNormMatrix + renorm tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_bdb375a019 + Ghidra body 122 insns/10 bbs, asm rotate with per-column |col|^2-vs-1 renormalize gate (pin test pin_rotate_by_norm_matrix_renormalizes_on_miss)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5627,8 +5627,8 @@
       "va": "0x1002fd70",
       "name": "S_quat::Inverse",
       "symbol": "lhr_engine::native_transform::SQuat::inverse_axis_angle",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:1175+ (host acos disclosed) + inverse tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_0f5bd5f8b1 + Ghidra body 115 insns/20 bbs, quat inverse axis-angle (pin test pin_quat_dir_roll_inverse)"
     },
     {
       "binary": "LS3DF.dll",
@@ -5636,8 +5636,8 @@
       "va": "0x10030040",
       "name": "S_quat rotate-by-matrix",
       "symbol": "lhr_engine::native_transform::SQuat::rotate_by_matrix",
-      "tier": "contract",
-      "evidence": "mafia-re I3d_math.cpp:Make+compose + rotation tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "tier": "differential",
+      "evidence": "REA ev_a99bdefda1 + Ghidra body 79 insns/1 bbs, quat rotate-by-matrix identity path (pin test pin_quat_dir_roll_inverse)"
     },
     {
       "binary": "LS3DF.dll",
@@ -7256,8 +7256,8 @@
       "va": "0x10056e60",
       "name": "S_vector::operator*= out-of-line copy (working name, NOT original; S_vector is PS2-evidenced)",
       "symbol": "lhr_engine::native_transform::scale_vector_assign",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/I3D/I3d_math.h:223-231 (out-of-line copy for I3D_joint::GetJointMatrix) + authored Rust tests (not executed here); tier contract (wave policy: no Ghidra body observed)"
+      "tier": "differential",
+      "evidence": "REA ev_d1101e96f3 + Ghidra body 12 insns/1 bbs, in-place FLD/FMUL/FSTP lane multiply (pin test scale_vector_assign_multiplies_each_lane_exactly)"
     },
     {
       "binary": "LS3DF.dll",

@@ -1944,6 +1944,16 @@ mod tests {
         );
     }
     #[test]
+    fn pin_rotate_by_norm_matrix_renormalizes_on_miss() {
+        // LS3DF RVA 0x2eab0: asm rotate then per-column renormalization
+        // (|col|^2 vs 1 gate, divide on miss). Ghidra body 122 insns, 10 bbs.
+        let m = SMatrix::identity();
+        assert_eq!(m.rotate_by_norm_matrix([1.0, 2.0, 3.0], &m).unwrap(), [1.0, 2.0, 3.0]);
+        let mut scaled = SMatrix::identity();
+        scaled.elements[0] = 2.0;
+        assert_eq!(scaled.rotate_by_norm_matrix([1.0, 0.0, 0.0], &scaled).unwrap(), [1.0, 0.0, 0.0]);
+    }
+    #[test]
     fn pin_quat_dir_roll_inverse() {
         // RVAs 0x2ed60/0x2fb50/0x2fd70/0x30040.
         assert_eq!(
