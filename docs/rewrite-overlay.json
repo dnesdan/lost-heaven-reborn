@@ -10660,6 +10660,78 @@
       "symbol": "lhr_engine::ishow_renderer::cgame_destroy_ishow_all",
       "tier": "contract",
       "evidence": "Videos/fades/film teardown (GAME 0x5b63b0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4efb40",
+      "va": "0x8efb40",
+      "name": "C_controls ctor",
+      "symbol": "lhr_engine::game_controls::GameControls::construct",
+      "tier": "contract",
+      "evidence": "Constructor prefix (GAME 0x4efb40). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4efbd0",
+      "va": "0x8efbd0",
+      "name": "C_controls dtor",
+      "symbol": "lhr_engine::game_controls::GameControls::destruct",
+      "tier": "contract",
+      "evidence": "Destructor prefix (GAME 0x4efbd0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4efc80",
+      "va": "0x8efc80",
+      "name": "C_controls::Close",
+      "symbol": "lhr_engine::game_controls::GameControls::close",
+      "tier": "contract",
+      "evidence": "Close prefix (GAME 0x4efc80). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4efde0",
+      "va": "0x8efde0",
+      "name": "C_controls::Init",
+      "symbol": "lhr_engine::game_controls::GameControls::init",
+      "tier": "contract",
+      "evidence": "Init with references (GAME 0x4efde0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4efdb0",
+      "va": "0x8efdb0",
+      "name": "SetMouseScale",
+      "symbol": "lhr_engine::game_controls::GameControls::set_mouse_scale",
+      "tier": "contract",
+      "evidence": "Mouse scale store (GAME 0x4efdb0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4f00f0",
+      "va": "0x8f00f0",
+      "name": "ClearControls",
+      "symbol": "lhr_engine::game_controls::GameControls::clear_controls",
+      "tier": "contract",
+      "evidence": "Controls clear (GAME 0x4f00f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4f02b0",
+      "va": "0x8f02b0",
+      "name": "SetControl",
+      "symbol": "lhr_engine::game_controls::GameControls::set_control",
+      "tier": "contract",
+      "evidence": "Shared key refs (GAME 0x4f02b0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15d460",
+      "va": "0x55d460",
+      "name": "PlayLogo",
+      "symbol": "lhr_engine::original_logo::play_logo",
+      "tier": "contract",
+      "evidence": "Caller-side logo projection (GAME 0x15d460); AVI/Bink runtime deferred. Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

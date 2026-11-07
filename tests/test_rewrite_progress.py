@@ -162,7 +162,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +4 rnd/don_ocas/IShowDestroy wave (rnd_mod 0x408450 / rnd_unit
         # 0x408470 / C_don_ocas ctor 0x44c640, dtor 0x44c680 honestly
         # unfiled as no-observable-state / DestroyIShowAll 0x5b63b0).
-        self.assertEqual(game["ported"], 149 + 300)
+        # +8 controls/logo wave, all contract (C_controls ctor/dtor/Close/
+        # Init 0x4efb40-0x4efde0, SetMouseScale 0x4efdb0, ClearControls
+        # 0x4f00f0, SetControl 0x4f02b0, PlayLogo 0x15d460 caller projection).
+        self.assertEqual(game["ported"], 149 + 308)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
