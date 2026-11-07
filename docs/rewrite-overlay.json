@@ -9137,8 +9137,8 @@
       "va": "0x5f86b0",
       "name": "TachometrSetValues",
       "symbol": "lhr_engine::indicators::IndicatorsState::tachometr_set_values",
-      "tier": "contract",
-      "evidence": "Value conversion (GAME 0x5f86b0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_da5a0b4c26 + Ghidra body 147 insns/17 bbs, tachometr value conversion; pin tests indicators 34 pass"
     },
     {
       "binary": "Game.exe",
@@ -9155,8 +9155,8 @@
       "va": "0x5f8910",
       "name": "PlayerSetAmmo",
       "symbol": "lhr_engine::indicators::IndicatorsState::player_set_ammo",
-      "tier": "contract",
-      "evidence": "Signed-format ammo (GAME 0x5f8910). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_91d4fbfbfc + Ghidra body 12 insns/1 bb, signed-format ammo store; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9164,8 +9164,8 @@
       "va": "0x5f8940",
       "name": "PlayerSetAccuracy",
       "symbol": "lhr_engine::indicators::IndicatorsState::player_set_accuracy",
-      "tier": "contract",
-      "evidence": "Accuracy store (GAME 0x5f8940). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_500b82c099 + Ghidra body 3 insns/1 bb, accuracy store; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9173,8 +9173,8 @@
       "va": "0x5f8950",
       "name": "PlayerSetWingmanName",
       "symbol": "lhr_engine::indicators::IndicatorsState::player_set_wingman_name",
-      "tier": "contract",
-      "evidence": "Guarded wingman name (GAME 0x5f8950). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_06c0ca3425 + Ghidra body 7 insns/3 bbs, guarded wingman name; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9182,8 +9182,8 @@
       "va": "0x5f8970",
       "name": "PlayerSetWingmanLives",
       "symbol": "lhr_engine::indicators::IndicatorsState::player_set_wingman_lives",
-      "tier": "contract",
-      "evidence": "Guarded wingman lives (GAME 0x5f8970). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_80c036e0e9 + Ghidra body 6 insns/3 bbs, guarded wingman lives; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9191,8 +9191,8 @@
       "va": "0x5f8990",
       "name": "SubtitlesClear",
       "symbol": "lhr_engine::indicators::IndicatorsState::clear_subtitles",
-      "tier": "contract",
-      "evidence": "Subtitle clear (GAME 0x5f8990). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_cdf7789e02 + Ghidra body 29 insns/5 bbs, subtitle clear; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9200,8 +9200,8 @@
       "va": "0x5f9940",
       "name": "IntroSubtitlesClear",
       "symbol": "lhr_engine::indicators::IndicatorsState::clear_intro_subtitle_slots",
-      "tier": "contract",
-      "evidence": "Intro slot clear (GAME 0x5f9940). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_3079b35e51 + Ghidra body 38 insns/7 bbs, intro slot clear; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9209,8 +9209,8 @@
       "va": "0x5fa020",
       "name": "CompassSetDestination",
       "symbol": "lhr_engine::indicators::IndicatorsState::set_compass_destination",
-      "tier": "contract",
-      "evidence": "Presence-only staging (GAME 0x5fa020). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_163b8f3892 + Ghidra body 3 insns/1 bb, compass presence staging; pin tests indicators"
     },
     {
       "binary": "Game.exe",
@@ -9218,8 +9218,8 @@
       "va": "0x5fa050",
       "name": "WideScreenSetRatio",
       "symbol": "lhr_engine::indicators::IndicatorsState::set_widescreen_ratio",
-      "tier": "contract",
-      "evidence": "Ratio store (GAME 0x5fa050); SetOn deferred. Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_8d529e08ca + Ghidra body 112 insns/1 bb, widescreen ratio store (SetOn deferred); pin tests indicators"
     },
     {
       "binary": "Game.exe",
