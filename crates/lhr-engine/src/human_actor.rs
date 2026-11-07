@@ -33,6 +33,14 @@
 //! ghost staging only is owned here (ghost_colls @0x698 push/empty plus the
 //! next_coll_owners @0x6a8 merge leaf); the C_entity ai_ghost @0x1268 refresh
 //! and the pedestrian AI Tick (GAME 0x508150) stay DEFERRED.
+//! The collision-set selects (ActivateColls/DeactivateColls), the shock-step
+//! fill (Do_ShockDown), the dead-body anim select (ChangeDeadAnim), the
+//! fire-word reset (ResetWeaponEffects), the stroke-target scan
+//! (Can_SpecialStroke), the scream gate (NewScream), the cutscene-link
+//! staging (SetCutsceneLink) and the walk-speed publish (GetActorSpeed) are
+//! owned here as pure selects and staged-word leaves; the PoseValidate,
+//! Can_DropOut*, SoundsChange and force-feedback bodies are explicit
+//! unsupported stubs (frame/collision/sound/device owners DEFERRED).
 #![forbid(unsafe_code)]
 
 use crate::mission_options::OPTION_HIGH;
@@ -332,6 +340,20 @@ fn normalize_strafe_vector(vector: [f32; 3]) -> [f32; 3] {
         vector[1] * factor,
         vector[2] * factor,
     ]
+}
+
+/// Staged S_vector::AngleTo for the Can_SpecialStroke scan (LS3DF native;
+/// the vector owner stays DEFERRED): the angle between two vectors through
+/// the clamped normalized dot product. A zero-length side yields NaN, which
+/// fails both of the scan's angle gates exactly like a missed probe.
+fn vector_angle(a: [f32; 3], b: [f32; 3]) -> f32 {
+    let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let len_a = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+    let len_b = (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]).sqrt();
+    if len_a == 0.0 || len_b == 0.0 {
+        return f32::NAN;
+    }
+    (dot / (len_a * len_b)).clamp(-1.0, 1.0).acos()
 }
 
 /// Original property-name table supplies the first fifteen labels. The
@@ -790,6 +812,67 @@ pub const INVENTORY_POCKETS: usize = 5;
 /// C_game::track_textures index of "2bfootprint.bmp", given to the steps of
 /// a human through blood by cbCollTester).
 pub const TRACK_TEXTURE_BFOOTPRINT: u8 = 6;
+/// Original standing stills action value for the animation-step player
+/// (mafia-re 113b5b6 game/actors/C_human.h:142 HUMAN_ACTION_STEPS 6):
+/// the Do_ShockDown core selects it after filling the steps.
+pub const HUMAN_ACTION_STEPS: i32 = 6;
+/// Original animation-step kinds (mafia-re 113b5b6
+/// game/actors/C_human.h:168-171 HUMAN_STEP_WAIT 0, HUMAN_STEP_ANIM 1,
+/// HUMAN_STEP_AGONY 2, HUMAN_STEP_END 3): the Do_ShockDown core writes ANIM
+/// and END steps.
+pub const HUMAN_STEP_WAIT: i32 = 0;
+/// Original play-animation step kind (mafia-re 113b5b6
+/// game/actors/C_human.h:169 HUMAN_STEP_ANIM 1).
+pub const HUMAN_STEP_ANIM: i32 = 1;
+/// Original end-of-steps kind (mafia-re 113b5b6
+/// game/actors/C_human.h:171 HUMAN_STEP_END 3).
+pub const HUMAN_STEP_END: i32 = 3;
+/// Original animation-id low-bits mask (mafia-re 113b5b6
+/// game/actors/C_actor.h:535 ANIM_BASE 0x1ff): the ChangeDeadAnim select
+/// masks the carrier's next id with it.
+pub const ANIM_BASE: i32 = 0x1ff;
+/// Original left-step animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:555: 0x8, "left1.i3d"). Read by the ChangeDeadAnim
+/// select; the animation owner stays DEFERRED.
+pub const ANIM_LEFT1: i32 = 0x8;
+/// Original right-step animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:556: 0x9, "right1.i3d"). Read by the ChangeDeadAnim
+/// select; the animation owner stays DEFERRED.
+pub const ANIM_RIGHT1: i32 = 0x9;
+/// Original panic-crouch-down animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:597: 0x3d, "x panika drep dolu.i3d"). Base of the
+/// Do_ShockDown select (`i * 3 +` it); the PersonAnim remap stays DEFERRED.
+pub const ANIM_X_PANIKA_DREP_DOLU: i32 = 0x3d;
+/// Original carried-dead pickup animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:657: 0xa7, "NoseniMrtvolyTomNahozeni.i3d"). Read
+/// by the ChangeDeadAnim select; the animation owner stays DEFERRED.
+pub const ANIM_NOSENI_MRTVOLY_TOM_NAHOZENI: i32 = 0xa7;
+/// Original active collision set selector (mafia-re 113b5b6
+/// game/actors/C_human.h:308-310 HUMAN_COLLS_ALL 0, HUMAN_COLLS_UPPER 1,
+/// HUMAN_COLLS_LOWER 2): the ActivateColls mode.
+pub const HUMAN_COLLS_ALL: i32 = 0;
+/// Original upper-collisions-only selector (mafia-re 113b5b6
+/// game/actors/C_human.h:309 HUMAN_COLLS_UPPER 1).
+pub const HUMAN_COLLS_UPPER: i32 = 1;
+/// Original lower-collisions-only selector (mafia-re 113b5b6
+/// game/actors/C_human.h:310 HUMAN_COLLS_LOWER 2).
+pub const HUMAN_COLLS_LOWER: i32 = 2;
+/// Original lower-sphere collision flag (mafia-re 113b5b6
+/// game/collision/g_colls.h:49 DYNCOLLF_LOWER 0x1): the ActivateColls LOWER
+/// arm and the DeactivateColls keep-upper arm test it.
+pub const DYNCOLLF_LOWER: u32 = 0x1;
+/// Original upper-sphere collision flag (mafia-re 113b5b6
+/// game/collision/g_colls.h:50 DYNCOLLF_UPPER 0x2): the ActivateColls ALL and
+/// UPPER arms and the DeactivateColls keep-upper arm test it.
+pub const DYNCOLLF_UPPER: u32 = 0x2;
+/// Original cutscene-recorded actor flag (mafia-re 113b5b6
+/// game/actors/C_actor.h:82 ACTF_CUTSCENE_RECORDED 0x2): the SetCutsceneLink
+/// gate. The act_flags word stays with the actor owner (DEFERRED); the
+/// caller stages the verdict.
+pub const ACTF_CUTSCENE_RECORDED: i32 = 0x2;
+/// Cutscene link name capacity (mafia-re 113b5b6
+/// game/actors/C_actor.h:97: `char name[0x24]` in S_cutscene_link).
+pub const CUTSCENE_LINK_NAME_LEN: usize = 0x24;
 
 /// Opaque identity of one dynamic collision object (`tDynamicCollObject *`).
 /// Working name and representation (NOT original): the native value is a host
@@ -867,6 +950,87 @@ pub struct CarTheftClaimant {
     pub stealing_car: Option<ActorReferenceId>,
     pub car: Option<ActorReferenceId>,
     pub using_car: Option<ActorReferenceId>,
+}
+
+/// One staged C_human animation step (mafia-re 113b5b6
+/// game/actors/C_human.h:179 struct S_anim_step, 0x14 bytes; the field
+/// names are ours): the kind (`type`), the played id, the wait time in ms,
+/// the PersonAnim stance and the step flags. Do_ShockDown fills the first
+/// two slots and ends the third; the Movement HUMAN_ACTION_STEPS player
+/// stays DEFERRED.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HumanAnimStep {
+    pub step_type: i32,
+    pub anim_id: i32,
+    pub wait_ms: i32,
+    pub stance: bool,
+    pub flags: i32,
+}
+
+impl HumanAnimStep {
+    /// Deterministic idle step (working default; the native constructor
+    /// leaves the words untouched): a WAIT of nothing.
+    pub(crate) fn idle() -> Self {
+        Self {
+            step_type: HUMAN_STEP_WAIT,
+            anim_id: 0,
+            wait_ms: 0,
+            stance: false,
+            flags: 0,
+        }
+    }
+}
+
+/// Staged identity of the C_human fire-action table (mafia-re 113b5b6
+/// game/actors/C_human.h:744-747: `const S_fire_action *fire_action` @0x1f0
+/// with `fire_step` @0x1f4 and `fire_time` @0x1f8; the table contents live
+/// with the weapon owner). Only the tables ResetWeaponEffects and
+/// RepairWeaponPosition compare against are named; any other table stages
+/// as Custom (no invented table contents).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FireActionTable {
+    Ready,
+    Aimed,
+    OnOff,
+    Custom,
+}
+
+/// Staged C_human cutscene link (mafia-re 113b5b6
+/// game/actors/C_actor.h:93-100 struct S_cutscene_link: `is_new` @0x0,
+/// `kind` @0x4, `name` @0x8, `pos` @0x2c, `rot` @0x38; the field names are
+/// ours). SetCutsceneLink allocates and fills one while the human is
+/// recorded; RecordKey consumes `is_new`. The frame placement and the
+/// linked actor's frame name arrive from the caller because both frame
+/// owners stay DEFERRED.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HumanCutsceneLink {
+    pub is_new: bool,
+    pub kind: i32,
+    pub name: [u8; CUTSCENE_LINK_NAME_LEN],
+    pub pos: [f32; 3],
+    pub rot: [f32; 4],
+}
+
+/// Caller-supplied projection of one actor for the Can_SpecialStroke scan
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:7190): the actor kind
+/// (ACTOR_PLAYER/ACTOR_ENTITY pass the gate), whether its state is active
+/// (stages `!act_state`, ACTSTATE_ACTIVE 0), its crouch latch, the IsReady
+/// inputs (alive, action word, animation-machine blocking verdict) and the
+/// property words the strike gate compares (`properties` strength on the
+/// searcher side, `properties` energy here), plus the world position and
+/// facing the distance/angle gates read. The global-actor list, the frames
+/// and the random-free IsReady machine stay DEFERRED.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpecialStrokeCandidate {
+    pub actor_type: u32,
+    pub active_state: bool,
+    pub crouching: bool,
+    pub alive: bool,
+    pub action_state: i32,
+    pub anim_blocking: bool,
+    pub energy: f32,
+    pub position: [f32; 3],
+    pub facing: [f32; 3],
 }
 
 #[derive(Debug)]
@@ -1060,6 +1224,59 @@ pub struct HumanState {
     /// Do_Shoot writers and the INDF_THIEF indicator effect stay DEFERRED.
     /// Starts clear.
     fire_held: bool,
+    /// Active-collision latch (mafia-re 113b5b6 game/actors/C_human.h:968:
+    /// 0x694 colls_active; ActivateColls sets it). Written by the
+    /// ActivateColls/DeactivateColls select slices of this slice; the
+    /// colls/colls[i] array and every DynInsert/DynErase/InvalidateColl
+    /// effect stay DEFERRED with the collision owner. Starts clear (working
+    /// deterministic default; the native constructor leaves it untouched).
+    colls_active: bool,
+    /// Animation-step staging (mafia-re 113b5b6 game/actors/C_human.h:806:
+    /// `S_anim_step anim_steps[5]` @0x23c, played by Movement under
+    /// HUMAN_ACTION_STEPS). Do_ShockDown fills the first two slots and ends
+    /// the third; the Movement player stays DEFERRED. Starts idle (working
+    /// deterministic default; the native constructor leaves the words
+    /// untouched).
+    anim_steps: [HumanAnimStep; 5],
+    /// Current step index into the staged steps (mafia-re 113b5b6
+    /// game/actors/C_human.h:807: 0x2a0 int anim_step). Written by the
+    /// Do_ShockDown core of this slice; the Movement advance stays
+    /// DEFERRED. Starts at 0.
+    anim_step: i32,
+    /// Fire-action table identity (mafia-re 113b5b6
+    /// game/actors/C_human.h:744-747: `const S_fire_action *fire_action`
+    /// @0x1f0 with `fire_step` @0x1f4 and `fire_time` @0x1f8). The
+    /// ResetWeaponEffects core of this slice selects Ready and clears the
+    /// step and the time; the table contents, the weapon-model frame
+    /// effects and every Shooting/Do_Reload writer stay DEFERRED with the
+    /// weapon owner. Starts at Custom (working deterministic default
+    /// meaning "no known table claimed"; the native constructor leaves the
+    /// pointer untouched).
+    fire_action: FireActionTable,
+    /// Current fire-action step (mafia-re 113b5b6
+    /// game/actors/C_human.h:746: 0x1f4 int fire_step). Cleared by the
+    /// ResetWeaponEffects core of this slice; the fire writers stay
+    /// DEFERRED. Starts at 0.
+    fire_step: i32,
+    /// Fire-action step time (mafia-re 113b5b6 game/actors/C_human.h:747:
+    /// 0x1f8 int fire_time). Cleared by the ResetWeaponEffects core of this
+    /// slice; the fire writers stay DEFERRED. Starts at 0.
+    fire_time: i32,
+    /// Voice priority word (mafia-re 113b5b6 game/actors/C_human.h:991:
+    /// 0x6d0 int voice_priority, -1 for none). Written by the NewScream
+    /// gate of this slice; the voice/sound-cache owners stay DEFERRED.
+    /// Starts at -1 (none).
+    voice_priority: i32,
+    /// Cutscene-recorded staging of the act_flags ACTF_CUTSCENE_RECORDED bit
+    /// (mafia-re 113b5b6 game/actors/C_actor.h:82; the act_flags word stays
+    /// with the actor owner, DEFERRED). Gates the SetCutsceneLink core of
+    /// this slice. Starts clear.
+    cutscene_recorded: bool,
+    /// Staged cutscene link (mafia-re 113b5b6 game/actors/C_actor.h:93-100
+    /// struct S_cutscene_link). Written by the SetCutsceneLink core of this
+    /// slice while recorded; the RecordKey consumer stays DEFERRED. Starts
+    /// at none.
+    cutscene_link: Option<HumanCutsceneLink>,
     /// Weapon-kind word (mafia-re 113b5b6 game/g_material.h:167-177:
     /// S_item_def kind, WEAPON_KIND_*). Read by the Do_CornerFire and
     /// Do_CornerFireAimed guards of this slice; the GameInit writer (FISTS)
@@ -1129,6 +1346,15 @@ impl HumanState {
             idle_anims: false,
             shut_up: false,
             fire_held: false,
+            colls_active: false,
+            anim_steps: [HumanAnimStep::idle(); 5],
+            anim_step: 0,
+            fire_action: FireActionTable::Custom,
+            fire_step: 0,
+            fire_time: 0,
+            voice_priority: -1,
+            cutscene_recorded: false,
+            cutscene_link: None,
             weapon_kind: WEAPON_KIND_FISTS,
             right_hand_fire_anim: 0,
         }
@@ -2547,6 +2773,393 @@ impl HumanState {
             HumanResourceSlot::Player => unreachable!("derived player owner"),
         }
     }
+    /// Active-collision latch staged by the ActivateColls/DeactivateColls
+    /// select slices.
+    pub fn colls_active(&self) -> bool {
+        self.colls_active
+    }
+    /// Staged animation steps (Do_ShockDown fills the first two and ends
+    /// the third; the Movement player stays DEFERRED).
+    pub fn anim_steps(&self) -> &[HumanAnimStep; 5] {
+        &self.anim_steps
+    }
+    /// Current staged-step index written by the Do_ShockDown core.
+    pub fn anim_step(&self) -> i32 {
+        self.anim_step
+    }
+    /// Staged fire-action table identity (weapon owner DEFERRED).
+    pub fn fire_action(&self) -> FireActionTable {
+        self.fire_action
+    }
+    /// Current fire-action step cleared by ResetWeaponEffects.
+    pub fn fire_step(&self) -> i32 {
+        self.fire_step
+    }
+    /// Fire-action step time cleared by ResetWeaponEffects.
+    pub fn fire_time(&self) -> i32 {
+        self.fire_time
+    }
+    /// Voice priority word written by the NewScream gate.
+    pub fn voice_priority(&self) -> i32 {
+        self.voice_priority
+    }
+    /// Cutscene-recorded staging gating the SetCutsceneLink core.
+    pub fn cutscene_recorded(&self) -> bool {
+        self.cutscene_recorded
+    }
+    /// Test/host setter for the cutscene-recorded staging (act_flags owner
+    /// DEFERRED).
+    pub fn set_cutscene_recorded(&mut self, recorded: bool) {
+        self.cutscene_recorded = recorded;
+    }
+    /// Staged cutscene link written by the SetCutsceneLink core, if any.
+    pub fn cutscene_link(&self) -> Option<&HumanCutsceneLink> {
+        self.cutscene_link.as_ref()
+    }
+    /// GAME 0x575fc0 (RVA 0x175fc0) C_human::ActivateColls select slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:3635): seated in a car the
+    /// body returns at once with no latch write (None). Otherwise the
+    /// active-collision latch sets and each live collision selects
+    /// insertion by mode: ALL inserts an upper-flagged coll or any coll
+    /// while alive; UPPER inserts an upper-flagged coll while alive; LOWER
+    /// inserts a lower-flagged coll while alive. `coll_flags` stages the
+    /// live `colls[i]->flags` words in order (NULL entries are the caller's
+    /// to drop; the colls array owner stays DEFERRED) and the returned mask
+    /// runs in the same order for the collision manager. `mode` stages
+    /// HUMAN_COLLS_* verbatim, so an unknown mode inserts nothing, exactly
+    /// like the original's switch. SCOPE: latch plus select only. DEFERRED
+    /// with explicit markers, no new owner here: every
+    /// `gifCollision.DynInsert` call and the colls array owner.
+    pub fn apply_activate_colls(
+        &mut self,
+        in_car: bool,
+        mode: i32,
+        coll_flags: &[u32],
+    ) -> Option<Vec<bool>> {
+        if in_car {
+            return None;
+        }
+        self.colls_active = true;
+        Some(
+            coll_flags
+                .iter()
+                .map(|flags| match mode {
+                    HUMAN_COLLS_ALL => (flags & DYNCOLLF_UPPER) != 0 || self.alive,
+                    HUMAN_COLLS_UPPER => (flags & DYNCOLLF_UPPER) != 0 && self.alive,
+                    HUMAN_COLLS_LOWER => (flags & DYNCOLLF_LOWER) != 0 && self.alive,
+                    _ => false,
+                })
+                .collect(),
+        )
+    }
+    /// GAME 0x575f60 (RVA 0x175f60) C_human::DeactivateColls select slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:3619): clear the
+    /// active-collision latch, then erase every live collision except an
+    /// upper-flagged one while `keep_upper` holds. `coll_flags` stages the
+    /// live `colls[i]->flags` words in order (NULL entries are the caller's
+    /// to drop; the colls array owner stays DEFERRED) and the returned mask
+    /// runs in the same order for the collision manager. SCOPE: latch plus
+    /// select only. DEFERRED with explicit markers, no new owner here: every
+    /// `gifCollision.DynErase`/`InvalidateColl` call and the colls array
+    /// owner.
+    pub fn apply_deactivate_colls(
+        &mut self,
+        keep_upper: bool,
+        coll_flags: &[u32],
+    ) -> Vec<bool> {
+        self.colls_active = false;
+        coll_flags
+            .iter()
+            .map(|flags| !(keep_upper && (flags & DYNCOLLF_UPPER) != 0))
+            .collect()
+    }
+    /// GAME 0x587c20 (RVA 0x187c20) C_human::Do_ShockDown owned step slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:8121): carrying a box or a
+    /// dead body refuses. Otherwise the variant clamps to 0..2 and fills
+    /// the staged steps: step 0 plays `variant * 3 + ANIM_X_PANIKA_DREP_DOLU`
+    /// once (unstanced, no flags), step 1 plays `variant * 3 +`
+    /// ANIM_X_PANIKA_DREP_STATIV the same way, step 2 ends the steps; then
+    /// HUMAN_ACTION_STEPS selects and the step index zeroes. Only the words
+    /// the original writes are written (the step waits keep their staged
+    /// values). SCOPE: step and action words only. DEFERRED with explicit
+    /// markers, no new owner here: the Movement HUMAN_ACTION_STEPS player
+    /// and every PersonAnim effect of the steps.
+    pub fn apply_do_shock_down(&mut self, variant: i32) {
+        if self.carrying_box || self.carrying_dead_body {
+            return;
+        }
+        let clamped = variant.clamp(0, 2);
+        self.anim_steps[0].anim_id = clamped * 3 + ANIM_X_PANIKA_DREP_DOLU;
+        self.anim_steps[0].step_type = HUMAN_STEP_ANIM;
+        self.anim_steps[0].stance = false;
+        self.anim_steps[0].flags = 0;
+        self.anim_steps[1].anim_id = clamped * 3 + ANIM_X_PANIKA_DREP_STATIV;
+        self.anim_steps[1].step_type = HUMAN_STEP_ANIM;
+        self.anim_steps[1].stance = false;
+        self.anim_steps[1].flags = 0;
+        self.anim_steps[2].step_type = HUMAN_STEP_END;
+        self.action_state = HUMAN_ACTION_STEPS;
+        self.anim_step = 0;
+    }
+    /// GAME 0x573ce0 (RVA 0x173ce0) C_human::ChangeDeadAnim pure select
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:2688): the carried dead's
+    /// animation from the carrier's next id masked with ANIM_BASE: walks
+    /// map to MrtWalk, backs to MrtBack, sidesteps to MrtLeft/MrtRight,
+    /// strafes to MrtStrafL/MrtStrafR, the pickup to MrtNahozeni and the
+    /// drop to MrtShozeni, anything else to MrtStat. Returns the animation
+    /// file plus the Do_PlayAnim simple/unknown pair (`!loop`, `unknown`):
+    /// only the pickup and the drop play once, only the pickup sets the
+    /// extra flag. The dead_body/dead_body_human presence gate is the
+    /// caller's (carrying_dead_body latch); the dead_body_human Do_PlayAnim
+    /// call and every using-object/scene write stay DEFERRED with their
+    /// owners.
+    pub fn dead_body_anim_for_carrier(
+        carrier_next_anim_id: i32,
+    ) -> (&'static str, bool, bool) {
+        match carrier_next_anim_id & ANIM_BASE {
+            ANIM_WALK1 | ANIM_WALKL1 | ANIM_WALKR1 => {
+                ("NoseniMrtvolyMrtWalk.I3D", false, false)
+            }
+            ANIM_BACK1 | ANIM_BACKL1 | ANIM_BACKR1 => {
+                ("NoseniMrtvolyMrtBack.I3D", false, false)
+            }
+            ANIM_LEFT1 => ("NoseniMrtvolyMrtLeft.I3D", false, false),
+            ANIM_RIGHT1 => ("NoseniMrtvolyMrtRight.I3D", false, false),
+            ANIM_STRAFL1 => ("NoseniMrtvolyMrtStrafL.I3D", false, false),
+            ANIM_STRAFR1 => ("NoseniMrtvolyMrtStrafR.I3D", false, false),
+            ANIM_NOSENI_MRTVOLY_TOM_NAHOZENI => {
+                ("NoseniMrtvolyMrtNahozeni.I3D", true, true)
+            }
+            ANIM_NOSENI_MRTVOLY_TOM_SHOZENI => {
+                ("NoseniMrtvolyMrtShozeni.I3D", true, false)
+            }
+            _ => ("NoseniMrtvolyMrtStat.I3D", false, false),
+        }
+    }
+    /// GAME 0x58df60 (RVA 0x18df60) C_human::ResetWeaponEffects owned latch
+    /// slice (mafia-re 113b5b6 game/actors/C_human.cpp:9998): select the
+    /// ready fire-action table and clear the step and its time. SCOPE: the
+    /// three fire words only. DEFERRED with explicit markers, no new owner
+    /// here: the effect_frame switch over the right-hand item
+    /// (GAMEITEM_*, weapon-model owner) and every Shooting/Do_Reload writer
+    /// of these words.
+    pub fn apply_reset_weapon_effects(&mut self) {
+        self.fire_action = FireActionTable::Ready;
+        self.fire_step = 0;
+        self.fire_time = 0;
+    }
+    /// GAME 0x584010 (RVA 0x184010) C_human::Can_SpecialStroke claimant
+    /// scan (mafia-re 113b5b6 game/actors/C_human.cpp:7190): the tail-first
+    /// scan admits the last matching stranger within a metre ahead, turned
+    /// away: an
+    /// ACTOR_PLAYER/ACTOR_ENTITY claimant in the active state, uncrouched,
+    /// ready (alive with a STAND/WALK/CAR action and a non-blocking
+    /// animation, the IsReady gate with the candidate's words), whose
+    /// energy tops ten times this human's `properties` strength, closer
+    /// than 1.0 in squared 3D distance, within 0.3 rad of this human's
+    /// facing and over 2.85 rad away from its own facing. The tail-first
+    /// order matches the original's reverse global-actor walk, so the LAST
+    /// matching slice entry wins; the caller drops this human itself (the
+    /// `human != this`
+    /// identity). Angles stage S_vector::AngleTo through the local helper
+    /// (LS3DF native; the vector owner stays DEFERRED): a zero-length side
+    /// yields NaN, which fails both gates exactly like a missed probe. The
+    /// active-actor list, the frames and the property banks behind the
+    /// staging stay DEFERRED with their owners.
+    pub fn find_special_stroke_target(
+        &self,
+        self_position: [f32; 3],
+        candidates: &[SpecialStrokeCandidate],
+    ) -> Option<usize> {
+        let strength = self
+            .properties
+            .float_component(HUMAN_PROPERTY_STRENGTH);
+        candidates.iter().rposition(|candidate| {
+            if candidate.actor_type != ACTOR_PLAYER
+                && candidate.actor_type != ACTOR_ENTITY
+            {
+                return false;
+            }
+            if !candidate.active_state || candidate.crouching {
+                return false;
+            }
+            let ready = candidate.alive
+                && (candidate.action_state == HUMAN_ACTION_STAND
+                    || candidate.action_state == HUMAN_ACTION_WALK
+                    || candidate.action_state == HUMAN_ACTION_CAR)
+                && !candidate.anim_blocking;
+            if !ready {
+                return false;
+            }
+            if strength * 10.0 >= candidate.energy {
+                return false;
+            }
+            let delta = [
+                candidate.position[0] - self_position[0],
+                candidate.position[1] - self_position[1],
+                candidate.position[2] - self_position[2],
+            ];
+            let dist_sq = delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2];
+            if dist_sq >= 1.0 {
+                return false;
+            }
+            vector_angle(delta, self.dir) < 0.3
+                && vector_angle(delta, candidate.facing) > 2.85
+        })
+    }
+    /// GAME 0x58b470 (RVA 0x18b470) C_human::NewScream owned gate slice
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:9208): the voice says
+    /// voices.def's entry `voice_id - 2` in its voice type unless shut up,
+    /// voiceless, out of the camera's scream areas, past the voice table,
+    /// talked over (a playing voice of at least the stored priority), over
+    /// priority 500, or soundless. `scream_areas`/`camera_scream_areas`
+    /// stage the ushort words widened (the game owner stays DEFERRED);
+    /// `voice_playing` stages `voice->IsPlaying(false)`,
+    /// `candidate_priority`/`candidate_sound_present` stage
+    /// `gameVoices[index].priority` and its `sounds[voice_type]` word (the
+    /// voice-table owner stays DEFERRED). The `voice_id - 2` wraps like the
+    /// native uint, so ids below 2 miss the table exactly like the
+    /// original. On admission the stored priority takes the candidate
+    /// (native uint-to-int wrap preserved) and true returns. SCOPE: gate
+    /// plus the priority word only. DEFERRED with explicit markers, no new
+    /// owner here: the voice/sound-cache pipeline (SetOn/Open/Loop/LinkTo/
+    /// SetSoundType/SetRange/SetVolume and the NOTE queue).
+    pub fn apply_new_scream_gate(
+        &mut self,
+        voice_present: bool,
+        scream_areas: u32,
+        camera_scream_areas: u32,
+        voice_id: u32,
+        num_game_voices: u32,
+        voice_playing: bool,
+        candidate_priority: u32,
+        candidate_sound_present: bool,
+    ) -> bool {
+        if self.shut_up || !voice_present {
+            return false;
+        }
+        if scream_areas & camera_scream_areas == 0 {
+            return false;
+        }
+        let index = voice_id.wrapping_sub(2);
+        if index >= num_game_voices {
+            return false;
+        }
+        if voice_playing && candidate_priority <= self.voice_priority as u32 {
+            return false;
+        }
+        if self.voice_priority > 500 {
+            return false;
+        }
+        if !candidate_sound_present {
+            return false;
+        }
+        self.voice_priority = candidate_priority as i32;
+        true
+    }
+    /// GAME 0x578e20 (RVA 0x178e20) C_human::SetCutsceneLink owned staging
+    /// slice (mafia-re 113b5b6 game/actors/C_human.cpp:4539): while the
+    /// human is not recorded nothing happens and no link is allocated.
+    /// While recorded the link is allocated on first use, then marked new
+    /// with the kind, the frame placement and the linked actor's frame name
+    /// ("" for none). `frame_pos`/`frame_rot` stage `frame->GetPos/GetRot`
+    /// and `actor_name` stages the linked `act->frame->GetName()` (both
+    /// frame owners stay DEFERRED); the name copies at most
+    /// CUTSCENE_LINK_NAME_LEN - 1 bytes plus the terminator, a host bound
+    /// for a word the original `strcpy`s without one. The RecordKey
+    /// consumer of `is_new` stays DEFERRED. SCOPE: link staging only.
+    pub fn apply_set_cutscene_link(
+        &mut self,
+        kind: i32,
+        actor_name: Option<&str>,
+        frame_pos: [f32; 3],
+        frame_rot: [f32; 4],
+    ) {
+        if !self.cutscene_recorded {
+            return;
+        }
+        let mut name = [0u8; CUTSCENE_LINK_NAME_LEN];
+        if let Some(actor_name) = actor_name {
+            let bytes = actor_name.as_bytes();
+            let len = bytes.len().min(CUTSCENE_LINK_NAME_LEN - 1);
+            name[..len].copy_from_slice(&bytes[..len]);
+        }
+        match self.cutscene_link.as_mut() {
+            Some(link) => {
+                link.is_new = true;
+                link.kind = kind;
+                link.name = name;
+                link.pos = frame_pos;
+                link.rot = frame_rot;
+            }
+            None => {
+                self.cutscene_link = Some(HumanCutsceneLink {
+                    is_new: true,
+                    kind,
+                    name,
+                    pos: frame_pos,
+                    rot: frame_rot,
+                });
+            }
+        }
+    }
+    /// GAME 0x51af20 (RVA 0x11af20) C_human::GetActorSpeed (mafia-re 113b5b6
+    /// game/actors/C_human.h:678, inline: "the human's speed, the walk's"):
+    /// copy the walk velocity into the caller's speed word. The velocity
+    /// writers (Go_*/Movement) stay DEFERRED; this leaf only publishes the
+    /// staged word.
+    pub fn actor_speed_into(&self, speed: &mut [f32; 3]) {
+        *speed = self.velocity;
+    }
+    /// GAME 0x57a5f0 (RVA 0x17a5f0) C_human::PoseValidate EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:4714):
+    /// the body is frame-only (`frame->SetPoseBlend(valid ? 1.0 : 0.0)` plus
+    /// `frame->Tick(1)`), reads and writes no human state, and both calls
+    /// belong to the frame/model owner, which does not exist here. No
+    /// verdict is produced and no owner is filed; the stub exists only to
+    /// pin the address while the frame owner stays DEFERRED.
+    pub fn pose_validate_unsupported(_valid: bool) {}
+    /// GAME 0x5802f0 (RVA 0x1802f0) C_human::Can_DropOutFromCar_Free
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6284): the verdict is a collision-probe
+    /// program (seat-side offset through the car matrix, ground TestLineV,
+    /// two room TestSphereB sweeps around DynSetNextCollOwnerMult
+    /// plumbing). The seat-property, matrix, ground and room probes all
+    /// belong to the car/collision owners, which do not exist here, so no
+    /// verdict is produced and no owner is filed; the stub exists only to
+    /// pin the address while those owners stay DEFERRED.
+    pub fn can_drop_out_from_car_free_unsupported() {}
+    /// GAME 0x5805c0 (RVA 0x1805c0) C_human::Can_DropOutFromCar EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:6326):
+    /// same boundary as Can_DropOutFromCar_Free (seat defaulting plus the
+    /// frame-relative side offset and the colls/ghost probe program). The
+    /// seat, frame and collision owners do not exist here, so no verdict
+    /// is produced and no owner is filed; the stub exists only to pin the
+    /// address while those owners stay DEFERRED.
+    pub fn can_drop_out_from_car_unsupported() {}
+    /// GAME 0x5706a0 (RVA 0x1706a0) C_human::SoundsChange EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:1710):
+    /// the body switches six sounds off (step, weapon, reload, pump and
+    /// voice, plus the player's). Every handle belongs to the
+    /// sound/voice/player owners, which do not exist here, so no state is
+    /// touched and no owner is filed; the stub exists only to pin the
+    /// address while those owners stay DEFERRED.
+    pub fn apply_sounds_change_unsupported() {}
+    /// GAME 0x5877a0 (RVA 0x1877a0) C_human::InitFFEffects EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:8037):
+    /// the body creates four joystick force-feedback effects (shot, jump,
+    /// hit, fall) through the global FF manager. The joystick device owner
+    /// does not exist here, so no state is touched and no owner is filed;
+    /// the stub exists only to pin the address while that owner stays
+    /// DEFERRED.
+    pub fn init_ff_effects_unsupported() {}
+    /// GAME 0x587880 (RVA 0x187880) C_human::DoneFFEffects EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:8050):
+    /// the body deletes the four joystick force-feedback effects through
+    /// the global FF manager. Same device boundary as InitFFEffects: no
+    /// state is touched and no owner is filed; the stub exists only to pin
+    /// the address while that owner stays DEFERRED.
+    pub fn done_ff_effects_unsupported() {}
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3907,5 +4520,346 @@ mod human_state_flags_tests {
         assert_eq!(human.next_anim_id(), ANIM_PANIKA_LEKNUTI02L + 3);
         human.apply_do_shock_start(2, 7);
         assert_eq!(human.next_anim_id(), ANIM_PANIKA_LEKNUTI01L + 2);
+    }
+    #[test]
+    // GAME 0x575fc0 (RVA 0x175fc0) C_human::ActivateColls (mafia-re 113b5b6
+    // game/actors/C_human.cpp:3635): seated returns None with no latch
+    // write; otherwise the latch sets and the mode arms select the insert
+    // mask over the staged flag words (unknown modes insert nothing).
+    fn activate_colls_rva_175fc0_gates_car_and_selects_by_mode() {
+        let mut human = HumanState::construct(seed());
+        human.set_alive(true);
+        assert_eq!(
+            human.apply_activate_colls(true, HUMAN_COLLS_ALL, &[DYNCOLLF_LOWER]),
+            None
+        );
+        assert!(!human.colls_active());
+        let flags = [DYNCOLLF_UPPER, DYNCOLLF_LOWER, 0];
+        assert_eq!(
+            human.apply_activate_colls(false, HUMAN_COLLS_ALL, &flags),
+            Some(vec![true, true, true])
+        );
+        assert!(human.colls_active());
+        assert_eq!(
+            human.apply_activate_colls(false, HUMAN_COLLS_UPPER, &flags),
+            Some(vec![true, false, false])
+        );
+        assert_eq!(
+            human.apply_activate_colls(false, HUMAN_COLLS_LOWER, &flags),
+            Some(vec![false, true, false])
+        );
+        assert_eq!(
+            human.apply_activate_colls(false, 99, &flags),
+            Some(vec![false, false, false])
+        );
+        human.set_alive(false);
+        assert_eq!(
+            human.apply_activate_colls(false, HUMAN_COLLS_ALL, &flags),
+            Some(vec![true, false, false])
+        );
+        assert_eq!(
+            human.apply_activate_colls(false, HUMAN_COLLS_UPPER, &flags),
+            Some(vec![false, false, false])
+        );
+    }
+    #[test]
+    // GAME 0x575f60 (RVA 0x175f60) C_human::DeactivateColls (mafia-re 113b5b6
+    // game/actors/C_human.cpp:3619): the latch clears and every staged flag
+    // word selects erasure except an upper-flagged one while kept.
+    fn deactivate_colls_rva_175f60_clears_latch_and_selects_erase() {
+        let mut human = HumanState::construct(seed());
+        let flags = [DYNCOLLF_UPPER, DYNCOLLF_LOWER];
+        assert_eq!(
+            human.apply_activate_colls(false, HUMAN_COLLS_ALL, &flags),
+            Some(vec![true, false])
+        );
+        assert!(human.colls_active());
+        assert_eq!(
+            human.apply_deactivate_colls(false, &flags),
+            vec![true, true]
+        );
+        assert!(!human.colls_active());
+        assert_eq!(
+            human.apply_deactivate_colls(true, &flags),
+            vec![false, true]
+        );
+    }
+    #[test]
+    // GAME 0x587c20 (RVA 0x187c20) C_human::Do_ShockDown (mafia-re 113b5b6
+    // game/actors/C_human.cpp:8121): carrying refuses; otherwise the variant
+    // clamps to 0..2 and the two panic-down steps plus the end fill with the
+    // STEPS action and a zeroed step index.
+    fn shock_down_rva_187c20_clamps_variant_and_fills_steps() {
+        let mut human = HumanState::construct(seed());
+        human.set_carrying_box(true);
+        human.apply_do_shock_down(1);
+        assert_eq!(human.action_state(), HUMAN_ACTION_STAND);
+        human.set_carrying_box(false);
+        human.apply_do_shock_down(-5);
+        assert_eq!(human.action_state(), HUMAN_ACTION_STEPS);
+        assert_eq!(human.anim_step(), 0);
+        assert_eq!(human.anim_steps()[0].anim_id, ANIM_X_PANIKA_DREP_DOLU);
+        assert_eq!(human.anim_steps()[0].step_type, HUMAN_STEP_ANIM);
+        assert!(!human.anim_steps()[0].stance);
+        assert_eq!(human.anim_steps()[1].anim_id, ANIM_X_PANIKA_DREP_STATIV);
+        assert_eq!(human.anim_steps()[1].step_type, HUMAN_STEP_ANIM);
+        assert_eq!(human.anim_steps()[2].step_type, HUMAN_STEP_END);
+        human.apply_do_shock_down(99);
+        assert_eq!(
+            human.anim_steps()[0].anim_id,
+            2 * 3 + ANIM_X_PANIKA_DREP_DOLU
+        );
+        assert_eq!(
+            human.anim_steps()[1].anim_id,
+            2 * 3 + ANIM_X_PANIKA_DREP_STATIV
+        );
+    }
+    #[test]
+    // GAME 0x573ce0 (RVA 0x173ce0) C_human::ChangeDeadAnim (mafia-re 113b5b6
+    // game/actors/C_human.cpp:2688): the carrier's masked next id selects
+    // the dead's animation file plus the simple/unknown pair; set bits
+    // above the mask select the same rows.
+    fn dead_body_anim_rva_173ce0_maps_carrier_anim_to_dead_anim() {
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(ANIM_WALK1),
+            ("NoseniMrtvolyMrtWalk.I3D", false, false)
+        );
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(ANIM_WALKL1),
+            ("NoseniMrtvolyMrtWalk.I3D", false, false)
+        );
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(ANIM_BACKR1),
+            ("NoseniMrtvolyMrtBack.I3D", false, false)
+        );
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(ANIM_LEFT1),
+            ("NoseniMrtvolyMrtLeft.I3D", false, false)
+        );
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(ANIM_RIGHT1),
+            ("NoseniMrtvolyMrtRight.I3D", false, false)
+        );
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(ANIM_STRAFL1),
+            ("NoseniMrtvolyMrtStrafL.I3D", false, false)
+        );
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(ANIM_STRAFR1),
+            ("NoseniMrtvolyMrtStrafR.I3D", false, false)
+        );
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(ANIM_NOSENI_MRTVOLY_TOM_NAHOZENI),
+            ("NoseniMrtvolyMrtNahozeni.I3D", true, true)
+        );
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(ANIM_NOSENI_MRTVOLY_TOM_SHOZENI),
+            ("NoseniMrtvolyMrtShozeni.I3D", true, false)
+        );
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(0x42),
+            ("NoseniMrtvolyMrtStat.I3D", false, false)
+        );
+        assert_eq!(
+            HumanState::dead_body_anim_for_carrier(0x800 | ANIM_BACK1),
+            ("NoseniMrtvolyMrtBack.I3D", false, false)
+        );
+    }
+    #[test]
+    // GAME 0x58df60 (RVA 0x18df60) C_human::ResetWeaponEffects (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:9998): the ready table selects and
+    // the step and its time clear.
+    fn reset_weapon_effects_rva_18df60_selects_ready_and_clears_words() {
+        let mut human = HumanState::construct(seed());
+        human.fire_step = 7;
+        human.fire_time = 9;
+        human.apply_reset_weapon_effects();
+        assert_eq!(human.fire_action(), FireActionTable::Ready);
+        assert_eq!(human.fire_step(), 0);
+        assert_eq!(human.fire_time(), 0);
+    }
+    #[test]
+    // GAME 0x584010 (RVA 0x184010) C_human::Can_SpecialStroke (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:7190): the tail-first scan admits a
+    // close turned-away ready stranger of sufficient energy and refuses
+    // wrong kinds, idle states, crouch, unreadiness, weak energy, distance
+    // and facing misses.
+    fn special_stroke_rva_184010_scans_tail_first_with_gates() {
+        let mut searcher = HumanState::construct(seed());
+        searcher.set_dir([0.0, 0.0, 1.0]);
+        searcher
+            .properties
+            .set_component_bits(HUMAN_PROPERTY_STRENGTH, 1.0f32.to_bits());
+        let candidate = SpecialStrokeCandidate {
+            actor_type: ACTOR_ENTITY,
+            active_state: true,
+            crouching: false,
+            alive: true,
+            action_state: HUMAN_ACTION_STAND,
+            anim_blocking: false,
+            energy: 50.0,
+            position: [0.0, 0.0, 0.5],
+            facing: [0.0, 0.0, -1.0],
+        };
+        assert_eq!(
+            searcher.find_special_stroke_target([0.0, 0.0, 0.0], &[candidate]),
+            Some(0)
+        );
+        assert_eq!(
+            searcher.find_special_stroke_target([0.0, 0.0, 0.0], &[candidate, candidate]),
+            Some(1)
+        );
+        let mut bad = candidate;
+        bad.actor_type = 7;
+        assert_eq!(
+            searcher.find_special_stroke_target([0.0, 0.0, 0.0], &[bad]),
+            None
+        );
+        bad = candidate;
+        bad.active_state = false;
+        assert_eq!(
+            searcher.find_special_stroke_target([0.0, 0.0, 0.0], &[bad]),
+            None
+        );
+        bad = candidate;
+        bad.crouching = true;
+        assert_eq!(
+            searcher.find_special_stroke_target([0.0, 0.0, 0.0], &[bad]),
+            None
+        );
+        bad = candidate;
+        bad.action_state = HUMAN_ACTION_JUMP;
+        assert_eq!(
+            searcher.find_special_stroke_target([0.0, 0.0, 0.0], &[bad]),
+            None
+        );
+        bad = candidate;
+        bad.anim_blocking = true;
+        assert_eq!(
+            searcher.find_special_stroke_target([0.0, 0.0, 0.0], &[bad]),
+            None
+        );
+        bad = candidate;
+        bad.energy = 5.0;
+        assert_eq!(
+            searcher.find_special_stroke_target([0.0, 0.0, 0.0], &[bad]),
+            None
+        );
+        bad = candidate;
+        bad.position = [0.0, 0.0, 2.0];
+        assert_eq!(
+            searcher.find_special_stroke_target([0.0, 0.0, 0.0], &[bad]),
+            None
+        );
+        bad = candidate;
+        bad.facing = [0.0, 0.0, 1.0];
+        assert_eq!(
+            searcher.find_special_stroke_target([0.0, 0.0, 0.0], &[bad]),
+            None
+        );
+    }
+    #[test]
+    // GAME 0x58b470 (RVA 0x18b470) C_human::NewScream (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9208): the gate admits and stores the
+    // candidate priority; shut-up, voiceless, area, table, talk-over,
+    // over-500 and soundless misses refuse without touching the word.
+    fn scream_gate_rva_18b470_gates_and_stores_priority() {
+        let mut human = HumanState::construct(seed());
+        assert!(human.apply_new_scream_gate(true, 1, 1, 2, 7, false, 100, true));
+        assert_eq!(human.voice_priority(), 100);
+        assert!(!human.apply_new_scream_gate(true, 1, 1, 3, 7, true, 50, true));
+        assert!(!human.apply_new_scream_gate(true, 1, 1, 3, 7, true, 100, true));
+        human.voice_priority = 600;
+        assert!(!human.apply_new_scream_gate(true, 1, 1, 3, 7, false, 100, true));
+        human.voice_priority = -1;
+        assert!(!human.apply_new_scream_gate(true, 1, 1, 1, 7, false, 100, true));
+        assert!(!human.apply_new_scream_gate(true, 1, 1, 9, 7, false, 100, true));
+        assert!(!human.apply_new_scream_gate(true, 1, 1, 2, 7, false, 100, false));
+        assert!(!human.apply_new_scream_gate(true, 0, 1, 2, 7, false, 100, true));
+        assert!(!human.apply_new_scream_gate(false, 1, 1, 2, 7, false, 100, true));
+        human.set_shut_up(true);
+        assert!(!human.apply_new_scream_gate(true, 1, 1, 2, 7, false, 100, true));
+        assert_eq!(human.voice_priority(), -1);
+    }
+    #[test]
+    // GAME 0x578e20 (RVA 0x178e20) C_human::SetCutsceneLink (mafia-re 113b5b6
+    // game/actors/C_human.cpp:4539): unrecorded stages nothing; recorded
+    // allocates once, then marks new with the kind, placement and name,
+    // truncating overlong names to the link word.
+    fn cutscene_link_rva_178e20_gates_recorded_and_fills_link() {
+        let mut human = HumanState::construct(seed());
+        human.apply_set_cutscene_link(3, Some("Tommy"), [1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(human.cutscene_link(), None);
+        human.set_cutscene_recorded(true);
+        human.apply_set_cutscene_link(3, Some("Tommy"), [1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0]);
+        let link = human.cutscene_link().expect("link staged while recorded");
+        assert!(link.is_new);
+        assert_eq!(link.kind, 3);
+        assert_eq!(link.pos, [1.0, 2.0, 3.0]);
+        assert_eq!(link.rot, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(&link.name[..6], b"Tommy\0");
+        human.apply_set_cutscene_link(4, None, [0.0; 3], [0.0; 4]);
+        let link = human.cutscene_link().expect("link allocation reused");
+        assert_eq!(link.kind, 4);
+        assert_eq!(link.name, [0u8; CUTSCENE_LINK_NAME_LEN]);
+        let long = "x".repeat(100);
+        human.apply_set_cutscene_link(1, Some(long.as_str()), [0.0; 3], [0.0; 4]);
+        let link = human.cutscene_link().expect("link allocation reused");
+        assert_eq!(link.name[CUTSCENE_LINK_NAME_LEN - 1], 0);
+        assert_eq!(link.name[0], b'x');
+    }
+    #[test]
+    // GAME 0x51af20 (RVA 0x11af20) C_human::GetActorSpeed (mafia-re 113b5b6
+    // game/actors/C_human.h:678, inline): the staged walk velocity
+    // publishes into the caller's speed word.
+    fn actor_speed_rva_11af20_publishes_velocity() {
+        let mut human = HumanState::construct(seed());
+        human.velocity = [1.0, 2.0, 3.0];
+        let mut speed = [9.0; 3];
+        human.actor_speed_into(&mut speed);
+        assert_eq!(speed, [1.0, 2.0, 3.0]);
+    }
+    #[test]
+    // GAME 0x57a5f0 (RVA 0x17a5f0) C_human::PoseValidate (mafia-re 113b5b6
+    // game/actors/C_human.cpp:4714): explicit unsupported stub, frame-only
+    // body; invoking it touches no staged words.
+    fn pose_validate_rva_17a5f0_stub_runs_without_state() {
+        HumanState::pose_validate_unsupported(true);
+        HumanState::pose_validate_unsupported(false);
+    }
+    #[test]
+    // GAME 0x5802f0 (RVA 0x1802f0) C_human::Can_DropOutFromCar_Free (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6284): explicit unsupported stub,
+    // collision-probe program; invoking it produces no verdict.
+    fn drop_out_free_rva_1802f0_stub_runs_without_verdict() {
+        HumanState::can_drop_out_from_car_free_unsupported();
+    }
+    #[test]
+    // GAME 0x5805c0 (RVA 0x1805c0) C_human::Can_DropOutFromCar (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6326): explicit unsupported stub,
+    // same collision boundary as the _Free probe; no verdict produced.
+    fn drop_out_rva_1805c0_stub_runs_without_verdict() {
+        HumanState::can_drop_out_from_car_unsupported();
+    }
+    #[test]
+    // GAME 0x5706a0 (RVA 0x1706a0) C_human::SoundsChange (mafia-re 113b5b6
+    // game/actors/C_human.cpp:1710): explicit unsupported stub, sound
+    // owners; invoking it touches no staged words.
+    fn sounds_change_rva_1706a0_stub_runs_without_state() {
+        HumanState::apply_sounds_change_unsupported();
+    }
+    #[test]
+    // GAME 0x5877a0 (RVA 0x1877a0) C_human::InitFFEffects (mafia-re 113b5b6
+    // game/actors/C_human.cpp:8037): explicit unsupported stub, joystick
+    // device owner; invoking it touches no staged words.
+    fn init_ff_effects_rva_1877a0_stub_runs_without_state() {
+        HumanState::init_ff_effects_unsupported();
+    }
+    #[test]
+    // GAME 0x587880 (RVA 0x187880) C_human::DoneFFEffects (mafia-re 113b5b6
+    // game/actors/C_human.cpp:8050): explicit unsupported stub, joystick
+    // device owner; invoking it touches no staged words.
+    fn done_ff_effects_rva_187880_stub_runs_without_state() {
+        HumanState::done_ff_effects_unsupported();
     }
 }

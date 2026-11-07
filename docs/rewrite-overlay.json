@@ -12721,6 +12721,141 @@
       "symbol": "lhr_engine::game_housekeeping::load_telephones_reset",
       "tier": "differential",
       "evidence": "REA ev_fcb0c47b53 + Ghidra body 315 insns/41 bbs; pin tests menu 55 / housekeeping 49 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x175fc0",
+      "va": "0x575fc0",
+      "name": "C_human::ActivateColls",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_activate_colls",
+      "tier": "differential",
+      "evidence": "REA ev_0ef9f89f42 + Ghidra body 47 insns/17 bbs; pin tests human_actor 59 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x175f60",
+      "va": "0x575f60",
+      "name": "C_human::DeactivateColls",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_deactivate_colls",
+      "tier": "differential",
+      "evidence": "REA ev_b4cb6f0a33 + Ghidra body 33 insns/9 bbs; pin tests human_actor 59 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x187c20",
+      "va": "0x587c20",
+      "name": "C_human::Do_ShockDown",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_do_shock_down",
+      "tier": "differential",
+      "evidence": "REA ev_07b8907344 + Ghidra body 31 insns/8 bbs; pin tests human_actor 59 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x173ce0",
+      "va": "0x573ce0",
+      "name": "C_human::ChangeDeadAnim",
+      "symbol": "lhr_engine::human_actor::dead_body_anim_for_carrier",
+      "tier": "differential",
+      "evidence": "REA ev_f2d191bfd7 + Ghidra body 49 insns/16 bbs; pin tests human_actor 59 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18df60",
+      "va": "0x58df60",
+      "name": "C_human::ResetWeaponEffects",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_reset_weapon_effects",
+      "tier": "differential",
+      "evidence": "REA ev_9c1853b6a5 + Ghidra body 166 insns/19 bbs; pin tests human_actor 59 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x184010",
+      "va": "0x584010",
+      "name": "C_human::Can_SpecialStroke",
+      "symbol": "lhr_engine::human_actor::HumanState::find_special_stroke_target",
+      "tier": "differential",
+      "evidence": "REA ev_f42c135918 + Ghidra body 311 insns/57 bbs; pin tests human_actor 59 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18b470",
+      "va": "0x58b470",
+      "name": "C_human::NewScream",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_new_scream_gate",
+      "tier": "differential",
+      "evidence": "REA ev_7ea2807c16 + Ghidra body 143 insns/13 bbs; pin tests human_actor 59 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x178e20",
+      "va": "0x578e20",
+      "name": "C_human::SetCutsceneLink",
+      "symbol": "lhr_engine::human_actor::HumanState::apply_set_cutscene_link",
+      "tier": "differential",
+      "evidence": "REA ev_2d9f8f49fe + Ghidra body 66 insns/12 bbs; pin tests human_actor 59 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x11af20",
+      "va": "0x51af20",
+      "name": "C_human::GetActorSpeed",
+      "symbol": "lhr_engine::human_actor::HumanState::actor_speed_into",
+      "tier": "contract",
+      "evidence": "Actor speed read (GAME 0x51af20). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17a5f0",
+      "va": "0x57a5f0",
+      "name": "C_human::PoseValidate",
+      "symbol": "lhr_engine::human_actor::pose_validate_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: frame owner deferred (GAME 0x57a5f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1802f0",
+      "va": "0x5802f0",
+      "name": "C_human::Can_DropOutFromCar_Free",
+      "symbol": "lhr_engine::human_actor::can_drop_out_from_car_free_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: collision owner deferred (GAME 0x5802f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1805c0",
+      "va": "0x5805c0",
+      "name": "C_human::Can_DropOutFromCar",
+      "symbol": "lhr_engine::human_actor::can_drop_out_from_car_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: collision owner deferred (GAME 0x5805c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1706a0",
+      "va": "0x5706a0",
+      "name": "C_human::SoundsChange",
+      "symbol": "lhr_engine::human_actor::apply_sounds_change_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: sound owner deferred (GAME 0x5706a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1877a0",
+      "va": "0x5877a0",
+      "name": "C_human::InitFFEffects",
+      "symbol": "lhr_engine::human_actor::init_ff_effects_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: joystick owner deferred (GAME 0x5877a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x187880",
+      "va": "0x587880",
+      "name": "C_human::DoneFFEffects",
+      "symbol": "lhr_engine::human_actor::done_ff_effects_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: joystick owner deferred (GAME 0x587880). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
