@@ -3483,6 +3483,21 @@ impl ActorWorld {
             .apply_game_init();
         Ok(())
     }
+    /// Owned slice of C_detector::Init (mafia-re game/actors/C_detector.cpp:24-30,
+    /// GAME 0x432990): zero the human_types mask (+0xd8). The C_actor::Init
+    /// gate and the actor=self assignment stay with the base owner.
+    pub fn init_detector(
+        &mut self,
+        actor: ActorReferenceId,
+    ) -> Result<(), ActorWorldError> {
+        let i = self.ready(actor)?;
+        let detector = self.actors[i]
+            .detector
+            .as_mut()
+            .ok_or(ActorWorldError::NotDetector)?;
+        detector.bytes_d8_ef[..4].copy_from_slice(&[0; 4]);
+        Ok(())
+    }
     /// Original C_actor::SetActState: store the ACTSTATE_* word. The +0x1c
     /// identity follows C_actor.h (act_state at 0x1c, 0 from Init, matching
     /// the zeroed real seeds); only this writer treats the word as act state.
@@ -6107,6 +6122,20 @@ mod tests {
         w.game_init_detector(a).unwrap();
         let latched = w.detector(a).unwrap();
         assert!(!latched.signal && !latched.wait_for_hit && !latched.dyn_colls);
+    }
+    #[test]
+    fn detector_init_zeroes_human_types_mask() {
+        // GAME 0x432990 C_detector::Init (C_detector.cpp:24-30): the
+        // human_types mask (+0xd8) to zero. The C_actor::Init gate and
+        // the actor=self assignment stay with the base owner.
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = w
+            .construct_detector(9, seed(), detector_seed(), &mut e)
+            .unwrap();
+        assert_eq!(w.detector_human_types(a), Ok(0xa5a5a5a5));
+        w.init_detector(a).unwrap();
+        assert_eq!(w.detector_human_types(a), Ok(0));
     }
     #[test]
     fn detector_signal_rejects_non_detector_owner() {

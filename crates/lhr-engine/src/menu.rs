@@ -493,6 +493,22 @@ impl MenuComponent {
         self.flags & main_menu::COMPONENT_ENABLED != 0
     }
 
+    /// GM_Menu::SetHidden bit application (GAME 0x5eaf20; sibling
+    /// game/ui/g_menu.cpp:915-924, cited only): true sets COMPF_VISIBLE,
+    /// false clears it.
+    pub fn set_hidden(&mut self, visible: bool) {
+        if visible {
+            self.flags |= main_menu::COMPONENT_VISIBLE;
+        } else {
+            self.flags &= !main_menu::COMPONENT_VISIBLE;
+        }
+    }
+
+    /// Live VISIBLE-bit read.
+    pub fn is_visible(&self) -> bool {
+        self.flags & main_menu::COMPONENT_VISIBLE != 0
+    }
+
     /// Activation gate (sibling game/ui/g_menu.cpp:1055,1070,1097-1098,
     /// cited only): ENABLED, VISIBLE and ACTIVATABLE together.
     pub fn can_activate(&self) -> bool {
@@ -592,6 +608,14 @@ impl MenuStack {
     pub fn set_disabled(&mut self, id: u32, enabled: bool) {
         if let Some(component) = self.find_component_by_id_mut(id) {
             component.set_disabled(enabled);
+        }
+    }
+
+    /// GM_Menu::SetHidden (GAME 0x5eaf20; sibling game/ui/g_menu.cpp:915-924,
+    /// cited only): no-op where the menu has no such component.
+    pub fn set_hidden(&mut self, id: u32, visible: bool) {
+        if let Some(component) = self.find_component_by_id_mut(id) {
+            component.set_hidden(visible);
         }
     }
 
@@ -1450,6 +1474,31 @@ mod tests {
         stack.set_disabled(main_menu::MAINMENU_ITEM_INTRO, true);
         stack.activate_by_id(main_menu::MAINMENU_ITEM_INTRO);
         assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_INTRO));
+    }
+
+    #[test]
+    fn set_hidden_toggles_visible_bit_and_keeps_activation() {
+        // GAME 0x5eaf20 GM_Menu::SetHidden: missing ids are a no-op; hiding
+        // clears only VISIBLE (ENABLED stays, so re-showing restores).
+        let mut stack = MenuStack::create(&stack_definition());
+        stack.set_hidden(424242, false);
+        let intro = stack
+            .find_component_by_id(main_menu::MAINMENU_ITEM_INTRO)
+            .unwrap();
+        assert!(intro.is_visible());
+        stack.set_hidden(main_menu::MAINMENU_ITEM_INTRO, false);
+        let intro = stack
+            .find_component_by_id(main_menu::MAINMENU_ITEM_INTRO)
+            .unwrap();
+        assert!(!intro.is_visible());
+        assert!(intro.is_enabled());
+        stack.set_hidden(main_menu::MAINMENU_ITEM_INTRO, true);
+        assert!(
+            stack
+                .find_component_by_id(main_menu::MAINMENU_ITEM_INTRO)
+                .unwrap()
+                .is_visible()
+        );
     }
 
     #[test]
