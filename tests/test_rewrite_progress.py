@@ -285,7 +285,10 @@ class RewriteProgressTests(unittest.TestCase):
         # marker-only, tests green; differential after Ghidra bodies).
         # +14 actor/human/player differential (latches/stores 2-5 insns +
         # Release walk; SetFromMission 426-insn partial held as contract).
-        self.assertEqual(game["ported"], 149 + 378)
+        # +15 vehicle small-accessor contracts (lights/projectors/wheels +
+        # tank/must-steal/destroy/show/unbreakable/record 0x7b1f0-0x7b4a0;
+        # subagent VA-form fixed before filing; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 393)
         self.assertEqual(game["verified"], 149 + 313)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

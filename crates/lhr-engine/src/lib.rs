@@ -252,6 +252,7 @@ pub mod vehicle_engine_state;
 pub mod vehicle_frame_backend;
 pub mod vehicle_init;
 pub mod vehicle_owner;
+pub mod vehicle_small_accessors;
 pub mod vehicle_sound;
 pub mod vehicle_wheel_pose;
 

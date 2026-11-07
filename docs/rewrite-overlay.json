@@ -11362,6 +11362,141 @@
       "symbol": "lhr_engine::player_actor::PlayerState::set_can_car_damage",
       "tier": "differential",
       "evidence": "REA ev_ffe6cef182 + Ghidra body 2 insns/1 bb, set_can_car_damage; pin tests player 22 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b1f0",
+      "va": "0x47b1f0",
+      "name": "C_Vehicle::GetNumSeats",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_num_seats",
+      "tier": "contract",
+      "evidence": "Seat count (GAME 0x47b1f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b220",
+      "va": "0x47b220",
+      "name": "C_Vehicle::SetIndicatorAuto",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_indicator_auto",
+      "tier": "contract",
+      "evidence": "Indicator-auto flag (GAME 0x47b220). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b250",
+      "va": "0x47b250",
+      "name": "C_Vehicle::SetLight",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_light",
+      "tier": "contract",
+      "evidence": "Light store (GAME 0x47b250). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b280",
+      "va": "0x47b280",
+      "name": "C_Vehicle::SetIndicatorL",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_indicator_l",
+      "tier": "contract",
+      "evidence": "Left indicator (GAME 0x47b280). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b2c0",
+      "va": "0x47b2c0",
+      "name": "C_Vehicle::SetIndicatorR",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_indicator_r",
+      "tier": "contract",
+      "evidence": "Right indicator (GAME 0x47b2c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b300",
+      "va": "0x47b300",
+      "name": "C_Vehicle::SetMainLights",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_main_lights",
+      "tier": "contract",
+      "evidence": "Main lights (GAME 0x47b300). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b340",
+      "va": "0x47b340",
+      "name": "C_Vehicle::SetProjectors",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_projectors",
+      "tier": "contract",
+      "evidence": "Projectors store (GAME 0x47b340). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b380",
+      "va": "0x47b380",
+      "name": "C_Vehicle::GetProjectors",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_projectors",
+      "tier": "contract",
+      "evidence": "Projectors read (GAME 0x47b380). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b390",
+      "va": "0x47b390",
+      "name": "C_Vehicle::GetNumWheels",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_num_wheels",
+      "tier": "contract",
+      "evidence": "Wheel count (GAME 0x47b390). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b3a0",
+      "va": "0x47b3a0",
+      "name": "C_car::SetTankHitCount",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_tank_hit_count",
+      "tier": "contract",
+      "evidence": "Tank-hit store (GAME 0x47b3a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b3c0",
+      "va": "0x47b3c0",
+      "name": "C_car::SetMustSteal",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_must_steal",
+      "tier": "contract",
+      "evidence": "Must-steal flag (GAME 0x47b3c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b3d0",
+      "va": "0x47b3d0",
+      "name": "C_car::SetDestroyMotor",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_destroy_motor",
+      "tier": "contract",
+      "evidence": "Destroy-motor flag (GAME 0x47b3d0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b400",
+      "va": "0x47b400",
+      "name": "C_car::SetShowDamage",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_show_damage",
+      "tier": "contract",
+      "evidence": "Show-damage flag (GAME 0x47b400). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b490",
+      "va": "0x47b490",
+      "name": "C_car::SetUnbreakable",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_unbreakable",
+      "tier": "contract",
+      "evidence": "Unbreakable flag (GAME 0x47b490). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b4a0",
+      "va": "0x47b4a0",
+      "name": "C_car::SetRecordPlaying",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_record_playing",
+      "tier": "contract",
+      "evidence": "Record-playing flag (GAME 0x47b4a0). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
