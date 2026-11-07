@@ -208,8 +208,10 @@ class RewriteProgressTests(unittest.TestCase):
         # clock-shot-rail-carex-racecam ctors / inventory item; 8-680 insns).
         # +20 traffic/rail contracts (traffic_car 6 / car_ex 4 / rail_generator
         # 4 / railway 3 / turnout 1 / wagon 2; marker-only, tests green).
+        # +12 traffic/rail differential (5 dossiers + 7 walks; 8 STUBs
+        # corovacka/car_ex/rail-gameinit-done-ai stay contract).
         self.assertEqual(game["ported"], 149 + 363)
-        self.assertEqual(game["verified"], 149 + 92)
+        self.assertEqual(game["verified"], 149 + 104)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

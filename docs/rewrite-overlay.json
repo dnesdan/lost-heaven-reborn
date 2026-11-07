@@ -11054,8 +11054,8 @@
       "va": "0x4b8540",
       "name": "C_traffic_car::GetParkingCars",
       "symbol": "lhr_engine::traffic_car_actor::get_parking_cars",
-      "tier": "contract",
-      "evidence": "Parking cars accessor (GAME 0x4b8540). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_afda7cab32 + Ghidra body 2 insns, parking cars accessor; pin tests traffic_car 18 pass"
     },
     {
       "binary": "Game.exe",
@@ -11063,8 +11063,8 @@
       "va": "0x4a9ca0",
       "name": "C_traffic_car::GetElems",
       "symbol": "lhr_engine::traffic_car_actor::get_elems",
-      "tier": "contract",
-      "evidence": "Elems accessor (GAME 0x4a9ca0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_97a4066b68 + Ghidra body 2 insns, elems accessor; pin tests traffic_car"
     },
     {
       "binary": "Game.exe",
@@ -11072,8 +11072,8 @@
       "va": "0x4ab120",
       "name": "C_traffic_car::vfunc_38",
       "symbol": "lhr_engine::traffic_car_actor::traffic_car_vfunc_38",
-      "tier": "contract",
-      "evidence": "vfunc_38 false (GAME 0x4ab120). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_caa2d813b7 + complete walk 2 insns (XOR AL,AL; RET 0x30), returns false; pin test vfunc_38"
     },
     {
       "binary": "Game.exe",
@@ -11081,8 +11081,8 @@
       "va": "0x4bc150",
       "name": "C_traffic_car::SaveGameGetSize",
       "symbol": "lhr_engine::traffic_car_actor::traffic_car_save_game_size",
-      "tier": "contract",
-      "evidence": "SaveGame size base+2 (GAME 0x4bc150). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_a759447bf7 + complete walk (CALL 0x406770 + ADD EAX,2), base+2; pin test save_game_size"
     },
     {
       "binary": "Game.exe",
@@ -11090,8 +11090,8 @@
       "va": "0x4aab20",
       "name": "C_traffic_car::LoadVersion decode",
       "symbol": "lhr_engine::traffic_car_actor::TrafficLoadVersion::decode",
-      "tier": "contract",
-      "evidence": "Load version decode V4/V5 (GAME 0x4aab20). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ef06806d11 + Ghidra body 54 insns/9 bbs, load version decode V4/V5; pin tests decode"
     },
     {
       "binary": "Game.exe",
@@ -11144,8 +11144,8 @@
       "va": "0x596690",
       "name": "C_rail_generator::Init",
       "symbol": "lhr_engine::rail_generator::rail_generator_init",
-      "tier": "contract",
-      "evidence": "Rail generator init (GAME 0x596690). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_6751573ef8 + complete walk (MOV [ECX+0x68],EAX + MOV AL,1), frame+true; pin test rail init"
     },
     {
       "binary": "Game.exe",
@@ -11180,8 +11180,8 @@
       "va": "0x4868f0",
       "name": "C_railway::DuplicateFrom",
       "symbol": "lhr_engine::railway_actor::duplicate_from",
-      "tier": "contract",
-      "evidence": "Duplicate two words (GAME 0x4868f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_969fb058a2 + complete walk (CALL 0x4ab130 base + copy +0x1a8/+0x1b4); pin test duplicate_from"
     },
     {
       "binary": "Game.exe",
@@ -11189,8 +11189,8 @@
       "va": "0x496e40",
       "name": "C_railway::SaveGameGetSize",
       "symbol": "lhr_engine::railway_actor::railway_save_game_size",
-      "tier": "contract",
-      "evidence": "SaveGame size base+80 (GAME 0x496e40). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_371e409670 + complete walk (CALL 0x406770 + ADD 0x50), base+80; pin test save_game_size"
     },
     {
       "binary": "Game.exe",
@@ -11198,8 +11198,8 @@
       "va": "0x498a70",
       "name": "C_railway::GetMaterialID",
       "symbol": "lhr_engine::railway_actor::railway_material_id",
-      "tier": "contract",
-      "evidence": "Material word +0x2ac (GAME 0x498a70). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_ee8e4c862f + complete walk (MOV EAX,[ECX+0x2ac]), material word; pin test material_id"
     },
     {
       "binary": "Game.exe",
@@ -11207,8 +11207,8 @@
       "va": "0x4bd420",
       "name": "C_turnout::SaveGameGetSize",
       "symbol": "lhr_engine::turnout_actor::turnout_save_game_size",
-      "tier": "contract",
-      "evidence": "SaveGame size base+16 (GAME 0x4bd420). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_33fe21161e + complete walk (CALL 0x406770 + ADD 0x10), base+16; pin test turnout size"
     },
     {
       "binary": "Game.exe",
@@ -11216,8 +11216,8 @@
       "va": "0x4f1ca0",
       "name": "C_wagon::SaveGameGetSize",
       "symbol": "lhr_engine::wagon_actor::WagonState::save_game_size",
-      "tier": "contract",
-      "evidence": "SaveGame size (GAME 0x4f1ca0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_5cac79ccc9 + Ghidra body 25 insns/6 bbs, wagon save size; pin tests save_game_size"
     },
     {
       "binary": "Game.exe",
@@ -11225,8 +11225,8 @@
       "va": "0x47b6f0",
       "name": "C_wagon::SetEvent",
       "symbol": "lhr_engine::wagon_actor::WagonState::set_event",
-      "tier": "contract",
-      "evidence": "Set event program+id (GAME 0x47b6f0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_8270b295ae + Ghidra body 5 insns/1 bb, set event stores; pin test set_event"
     }
   ],
   "vm": {
