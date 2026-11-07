@@ -6851,8 +6851,8 @@
       "va": "0x1007ca70",
       "name": "ISND_sound::Play with source (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_play_with_source",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:218; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_play_with_source_chains)"
+      "tier": "differential",
+      "evidence": "REA ev_bafca9f40e + complete walk (source vcall [EDX+0x4] + play vcall [EDX+0xc] on success + epilogue RET 0xc); pin test play_with_source 1 pass"
     },
     {
       "binary": "LS3DF.dll",
