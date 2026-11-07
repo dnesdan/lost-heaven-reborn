@@ -313,8 +313,13 @@ class RewriteProgressTests(unittest.TestCase):
         # game_loadsave 24 pass).
         # +3 cutscene flag differential (complete both-branch walks: record
         # 0x8/0x2 + play 0x4/0x1 rotates; pin tests cutscene 19 pass).
-        self.assertEqual(game["ported"], 149 + 453)
-        self.assertEqual(game["verified"], 149 + 386)
+        # +15 police/traffic contracts (GetActive + 8 sledovacka + SetGlobal/
+        # PlayerHoMa/TryGoTo/GenPassenger/AddFree/Vyfun; VA-form fixed;
+        # marker-only, tests green).
+        # +3 police/traffic differential (GetActive/SetGlobal/ActionStatus
+        # no-chase; Ghidra bodies 2-38 insns; 12 STUBs held as contract).
+        self.assertEqual(game["ported"], 149 + 468)
+        self.assertEqual(game["verified"], 149 + 389)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

@@ -12037,6 +12037,141 @@
       "symbol": "lhr_engine::game_loadsave_lifecycle::garage_remove_car",
       "tier": "differential",
       "evidence": "REA ev_6fc67cd925 + Ghidra body 25 insns/5 bbs; pin tests game_loadsave 24 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b4e0",
+      "va": "0x47b4e0",
+      "name": "C_shvestky::GetActive",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::active",
+      "tier": "differential",
+      "evidence": "REA ev_bb0269ee18 + Ghidra body 2 insns/1 bbs, active flag read; pin test rva_7b4e0 1 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa8670",
+      "va": "0x4a8670",
+      "name": "C_sledovacka::ActionStatus",
+      "symbol": "lhr_engine::police_state::sledovacka_action_status_no_chase",
+      "tier": "differential",
+      "evidence": "REA ev_d18428928c + Ghidra body 38 insns/7 bbs, no-chase Done answer (car-to-chase lookup deferred, disclosed); pin test rva_a8670 1 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0760",
+      "va": "0x4a0760",
+      "name": "C_sledovacka::AddCarHunt",
+      "symbol": "lhr_engine::police_state::sledovacka_add_car_hunt",
+      "tier": "contract",
+      "evidence": "STUB: chase owner deferred (GAME 0x4a0760). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa1220",
+      "va": "0x4a1220",
+      "name": "C_sledovacka::AddCarMoveTo",
+      "symbol": "lhr_engine::police_state::sledovacka_add_car_move_to",
+      "tier": "contract",
+      "evidence": "STUB: chase owner deferred (GAME 0x4a1220). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa1c30",
+      "va": "0x4a1c30",
+      "name": "C_sledovacka::RemoveCar",
+      "symbol": "lhr_engine::police_state::sledovacka_remove_car",
+      "tier": "contract",
+      "evidence": "STUB: chase owner deferred (GAME 0x4a1c30). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa1da0",
+      "va": "0x4a1da0",
+      "name": "C_sledovacka::RecompilePath",
+      "symbol": "lhr_engine::police_state::sledovacka_recompile_path",
+      "tier": "contract",
+      "evidence": "STUB: path owner deferred (GAME 0x4a1da0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa28c0",
+      "va": "0x4a28c0",
+      "name": "C_sledovacka::PreparePath",
+      "symbol": "lhr_engine::police_state::sledovacka_prepare_path",
+      "tier": "contract",
+      "evidence": "STUB: path owner deferred (GAME 0x4a28c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa2a80",
+      "va": "0x4a2a80",
+      "name": "C_sledovacka::TickDriver",
+      "symbol": "lhr_engine::police_state::sledovacka_tick_driver",
+      "tier": "contract",
+      "evidence": "STUB: driver owner deferred (GAME 0x4a2a80). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa86d0",
+      "va": "0x4a86d0",
+      "name": "C_sledovacka::SetActionStatus",
+      "symbol": "lhr_engine::police_state::sledovacka_set_action_status",
+      "tier": "contract",
+      "evidence": "STUB: chase owner deferred (GAME 0x4a86d0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b780",
+      "va": "0x47b780",
+      "name": "C_traffic_generator::SetGlobalValidScream",
+      "symbol": "lhr_engine::traffic_generator::TrafficGameFlags::set_global_valid_scream",
+      "tier": "differential",
+      "evidence": "REA ev_b4b733cd0f + Ghidra body 2 insns/1 bbs, scream-flag store; pin test 1 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4e890",
+      "va": "0x44e890",
+      "name": "C_traffic_generator::PlayerHoMaVytaseneho",
+      "symbol": "lhr_engine::traffic_generator::player_ho_ma_vytaseneho",
+      "tier": "contract",
+      "evidence": "STUB: weapon/ped owners deferred (GAME 0x44e890). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4f0e0",
+      "va": "0x44f0e0",
+      "name": "C_traffic_generator::TryGoToAssHole",
+      "symbol": "lhr_engine::traffic_generator::try_go_to_ass_hole",
+      "tier": "contract",
+      "evidence": "STUB: parking/navi/collision owners deferred (GAME 0x44f0e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4f7d0",
+      "va": "0x44f7d0",
+      "name": "C_traffic_generator::GeneratePassengerForTaxi",
+      "symbol": "lhr_engine::traffic_generator::generate_passenger_for_taxi",
+      "tier": "contract",
+      "evidence": "STUB: spawn owner deferred (GAME 0x44f7d0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x50f00",
+      "va": "0x450f00",
+      "name": "C_traffic_generator::AddFreePerson",
+      "symbol": "lhr_engine::traffic_generator::add_free_person",
+      "tier": "contract",
+      "evidence": "STUB: model/ped owners deferred (GAME 0x450f00). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x512a0",
+      "va": "0x4512a0",
+      "name": "C_traffic_generator::VyfunOdTeMasiny",
+      "symbol": "lhr_engine::traffic_generator::vyfun_od_te_masiny",
+      "tier": "contract",
+      "evidence": "STUB: pedestrian owner deferred (GAME 0x4512a0). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

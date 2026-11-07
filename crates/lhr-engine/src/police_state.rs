@@ -344,6 +344,10 @@ pub struct PoliceGameInitState {
 }
 
 impl PoliceGameInitState {
+    /// Original `C_shvestky::GetActive` (mafia-re game/ai/C_shvestky.h:237-241
+    /// at pin 113b5b6; `FUNCTION: GAME` VA 0x47b4e0, RVA 0x7b4e0): reads the
+    /// manager's `active` flag. `PM_SHOWSYMBOL` and its group do nothing while
+    /// it is set.
     pub fn active(&self) -> bool {
         self.active
     }
@@ -790,6 +794,158 @@ pub fn send_police_to_human(
 ) -> Result<(), PoliceDispatchError> {
     Err(PoliceDispatchError::Unsupported {
         entry: SEND_POLICE_TO_HUMAN_ENTRY,
+    })
+}
+
+/// Chase-status word of `C_sledovacka::S_ELEMENT` (`E_STATUS`, mafia-re
+/// game/ai/C_sledovacka.h:23-28 at pin 113b5b6): `STATUS_DONE` for a car
+/// without a chase, `STATUS_FAILED` for a lost chase, `STATUS_DRIVER_DEAD`
+/// for a dead driver, `STATUS_NO_ENERGY` for a car without energy. The
+/// follower's `Update` compares the word unsigned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum PursuitChaseStatus {
+    /// `STATUS_DONE` (1): the chase is done; also the original's answer for
+    /// a car without a chase.
+    Done = 1,
+    /// `STATUS_FAILED` (2): the chase lost its target.
+    Failed = 2,
+    /// `STATUS_DRIVER_DEAD` (3): the chase's driver is dead.
+    DriverDead = 3,
+    /// `STATUS_NO_ENERGY` (4): the chase's car is out of energy.
+    NoEnergy = 4,
+}
+
+impl PursuitChaseStatus {
+    pub const fn word(self) -> u32 {
+        self as u32
+    }
+}
+
+/// Still-unimplemented chase-manager (`C_sledovacka`, the pursuit owner)
+/// calls. Entries name the original PC addresses; the chase-list,
+/// driver, road and collision owners stay outside this contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SledovackaError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_sledovacka::AddCarHunt` 0x4a0760 (GAME VA 0x4a0760, RVA 0xa0760).
+pub const SLEDOVACKA_ADD_CAR_HUNT_ENTRY: u32 = 0x4a0760;
+/// `C_sledovacka::AddCarMoveTo` 0x4a1220 (GAME VA 0x4a1220, RVA 0xa1220).
+pub const SLEDOVACKA_ADD_CAR_MOVE_TO_ENTRY: u32 = 0x4a1220;
+/// `C_sledovacka::RemoveCar` 0x4a1c30 (GAME VA 0x4a1c30, RVA 0xa1c30).
+pub const SLEDOVACKA_REMOVE_CAR_ENTRY: u32 = 0x4a1c30;
+/// `C_sledovacka::RecompilePath` 0x4a1da0 (GAME VA 0x4a1da0, RVA 0xa1da0).
+pub const SLEDOVACKA_RECOMPILE_PATH_ENTRY: u32 = 0x4a1da0;
+/// `C_sledovacka::PreparePath` 0x4a28c0 (GAME VA 0x4a28c0, RVA 0xa28c0).
+pub const SLEDOVACKA_PREPARE_PATH_ENTRY: u32 = 0x4a28c0;
+/// `C_sledovacka::TickDriver` 0x4a2a80 (GAME VA 0x4a2a80, RVA 0xa2a80).
+pub const SLEDOVACKA_TICK_DRIVER_ENTRY: u32 = 0x4a2a80;
+/// `C_sledovacka::ActionStatus` 0x4a8670 (GAME VA 0x4a8670, RVA 0xa8670).
+pub const SLEDOVACKA_ACTION_STATUS_ENTRY: u32 = 0x4a8670;
+/// `C_sledovacka::SetActionStatus` 0x4a86d0 (GAME VA 0x4a86d0, RVA 0xa86d0).
+pub const SLEDOVACKA_SET_ACTION_STATUS_ENTRY: u32 = 0x4a86d0;
+
+/// Original `C_sledovacka::ActionStatus` (mafia-re
+/// game/ai/C_sledovacka.cpp:1193-1199 at pin 113b5b6; `STUB: GAME` VA
+/// 0x4a8670, RVA 0xa8670): the original body is an unwritten stub whose only
+/// evidenced effect is returning `STATUS_DONE`, documented there as the
+/// answer for a car without a chase. This marker-only contract reports that
+/// answer; the car-to-chase lookup needs the chase owner and stays deferred.
+pub fn sledovacka_action_status_no_chase() -> PursuitChaseStatus {
+    PursuitChaseStatus::Done
+}
+
+/// Original `C_sledovacka::AddCarHunt` (mafia-re
+/// game/ai/C_sledovacka.cpp:76-82 at pin 113b5b6; `STUB: GAME` VA
+/// 0x4a0760, RVA 0xa0760): the original only logs and returns false. The
+/// chase-list, driver and road owners stay outside this contract, so the
+/// boundary is explicit.
+pub fn sledovacka_add_car_hunt(
+    _car: PoliceActorId,
+    _target: PoliceActorId,
+    _unknown: u32,
+    _unknown2: u32,
+    _pos: [f32; 3],
+    _unknown3: f32,
+) -> Result<bool, SledovackaError> {
+    Err(SledovackaError::Unsupported {
+        entry: SLEDOVACKA_ADD_CAR_HUNT_ENTRY,
+    })
+}
+
+/// Original `C_sledovacka::AddCarMoveTo` (mafia-re
+/// game/ai/C_sledovacka.cpp:84-89 at pin 113b5b6; `STUB: GAME` VA
+/// 0x4a1220, RVA 0xa1220): the original only logs and returns false. The
+/// chase-list, driver and road owners stay outside this contract, so the
+/// boundary is explicit.
+pub fn sledovacka_add_car_move_to(
+    _car: PoliceActorId,
+    _pos: [f32; 3],
+    _unknown: bool,
+    _unknown2: bool,
+    _unknown3: u32,
+) -> Result<bool, SledovackaError> {
+    Err(SledovackaError::Unsupported {
+        entry: SLEDOVACKA_ADD_CAR_MOVE_TO_ENTRY,
+    })
+}
+
+/// Original `C_sledovacka::RemoveCar` (mafia-re
+/// game/ai/C_sledovacka.cpp:91-95 at pin 113b5b6; `STUB: GAME` VA
+/// 0x4a1c30, RVA 0xa1c30; `CAR_REMOVE_DRIVER`'s): the original only logs. The
+/// chase-list and driver owners stay outside this contract, so the boundary
+/// is explicit.
+pub fn sledovacka_remove_car(_car: PoliceActorId) -> Result<(), SledovackaError> {
+    Err(SledovackaError::Unsupported {
+        entry: SLEDOVACKA_REMOVE_CAR_ENTRY,
+    })
+}
+
+/// Original `C_sledovacka::RecompilePath` (mafia-re
+/// game/ai/C_sledovacka.cpp:1173-1178 at pin 113b5b6; `STUB: GAME` VA
+/// 0x4a1da0, RVA 0xa1da0; `Tick` calls it for a car whose path ran out): the
+/// original only logs and returns false. The chase-list and road owners stay
+/// outside this contract, so the boundary is explicit.
+pub fn sledovacka_recompile_path(_index: u32) -> Result<bool, SledovackaError> {
+    Err(SledovackaError::Unsupported {
+        entry: SLEDOVACKA_RECOMPILE_PATH_ENTRY,
+    })
+}
+
+/// Original `C_sledovacka::PreparePath` (mafia-re
+/// game/ai/C_sledovacka.cpp:1180-1185 at pin 113b5b6; `STUB: GAME` VA
+/// 0x4a28c0, RVA 0xa28c0; `Tick` calls it for a car whose path ran out): the
+/// original only logs and returns false. The chase-list and road owners stay
+/// outside this contract, so the boundary is explicit.
+pub fn sledovacka_prepare_path(_index: u32) -> Result<bool, SledovackaError> {
+    Err(SledovackaError::Unsupported {
+        entry: SLEDOVACKA_PREPARE_PATH_ENTRY,
+    })
+}
+
+/// Original `C_sledovacka::TickDriver` (mafia-re
+/// game/ai/C_sledovacka.cpp:1187-1191 at pin 113b5b6; `STUB: GAME` VA
+/// 0x4a2a80, RVA 0xa2a80; a chase's driving by its element index): the
+/// original only logs. The chase-list and driver owners stay outside this
+/// contract, so the boundary is explicit.
+pub fn sledovacka_tick_driver(_index: u32, _time_ms: u32) -> Result<(), SledovackaError> {
+    Err(SledovackaError::Unsupported {
+        entry: SLEDOVACKA_TICK_DRIVER_ENTRY,
+    })
+}
+
+/// Original `C_sledovacka::SetActionStatus` (mafia-re
+/// game/ai/C_sledovacka.cpp:1201-1205 at pin 113b5b6; `STUB: GAME` VA
+/// 0x4a86d0, RVA 0xa86d0): the original only logs. The chase-list owner stays
+/// outside this contract, so the boundary is explicit.
+pub fn sledovacka_set_action_status(
+    _car: PoliceActorId,
+    _status: PursuitChaseStatus,
+) -> Result<(), SledovackaError> {
+    Err(SledovackaError::Unsupported {
+        entry: SLEDOVACKA_SET_ACTION_STATUS_ENTRY,
     })
 }
 
@@ -1822,5 +1978,97 @@ mod tests {
         assert_eq!(state.road_block_enemy_count(), 1);
         assert_eq!(state.temp_car_count(), 1);
         assert_eq!(state.do_rici_actor_count(), 0);
+    }
+
+    #[test]
+    fn rva_7b4e0_get_active_reads_registry_flag() {
+        // C_shvestky::GetActive GAME VA 0x47b4e0 (RVA 0x7b4e0).
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.active());
+        assert!(state.apply_set_active(true, 980000, false));
+        assert!(state.active());
+        assert!(state.apply_set_active(false, 0, true));
+        assert!(!state.active());
+    }
+
+    #[test]
+    fn rva_a8670_action_status_no_chase_is_done() {
+        // C_sledovacka::ActionStatus GAME VA 0x4a8670 (RVA 0xa8670).
+        assert_eq!(SLEDOVACKA_ACTION_STATUS_ENTRY, 0x4a8670);
+        assert_eq!(sledovacka_action_status_no_chase(), PursuitChaseStatus::Done);
+        assert_eq!(PursuitChaseStatus::Done.word(), 1);
+        assert_eq!(PursuitChaseStatus::Failed.word(), 2);
+        assert_eq!(PursuitChaseStatus::DriverDead.word(), 3);
+        assert_eq!(PursuitChaseStatus::NoEnergy.word(), 4);
+    }
+
+    #[test]
+    fn rva_a0760_add_car_hunt_reports_unsupported() {
+        // C_sledovacka::AddCarHunt GAME VA 0x4a0760 (RVA 0xa0760).
+        assert_eq!(SLEDOVACKA_ADD_CAR_HUNT_ENTRY, 0x4a0760);
+        assert_eq!(
+            sledovacka_add_car_hunt(3, 7, 0, 0, [0.0; 3], 0.0),
+            Err(SledovackaError::Unsupported { entry: 0x4a0760 })
+        );
+    }
+
+    #[test]
+    fn rva_a1220_add_car_move_to_reports_unsupported() {
+        // C_sledovacka::AddCarMoveTo GAME VA 0x4a1220 (RVA 0xa1220).
+        assert_eq!(SLEDOVACKA_ADD_CAR_MOVE_TO_ENTRY, 0x4a1220);
+        assert_eq!(
+            sledovacka_add_car_move_to(3, [1.0, 2.0, 3.0], false, true, 0),
+            Err(SledovackaError::Unsupported { entry: 0x4a1220 })
+        );
+    }
+
+    #[test]
+    fn rva_a1c30_remove_car_reports_unsupported() {
+        // C_sledovacka::RemoveCar GAME VA 0x4a1c30 (RVA 0xa1c30).
+        assert_eq!(SLEDOVACKA_REMOVE_CAR_ENTRY, 0x4a1c30);
+        assert_eq!(
+            sledovacka_remove_car(3),
+            Err(SledovackaError::Unsupported { entry: 0x4a1c30 })
+        );
+    }
+
+    #[test]
+    fn rva_a1da0_recompile_path_reports_unsupported() {
+        // C_sledovacka::RecompilePath GAME VA 0x4a1da0 (RVA 0xa1da0).
+        assert_eq!(SLEDOVACKA_RECOMPILE_PATH_ENTRY, 0x4a1da0);
+        assert_eq!(
+            sledovacka_recompile_path(2),
+            Err(SledovackaError::Unsupported { entry: 0x4a1da0 })
+        );
+    }
+
+    #[test]
+    fn rva_a28c0_prepare_path_reports_unsupported() {
+        // C_sledovacka::PreparePath GAME VA 0x4a28c0 (RVA 0xa28c0).
+        assert_eq!(SLEDOVACKA_PREPARE_PATH_ENTRY, 0x4a28c0);
+        assert_eq!(
+            sledovacka_prepare_path(2),
+            Err(SledovackaError::Unsupported { entry: 0x4a28c0 })
+        );
+    }
+
+    #[test]
+    fn rva_a2a80_tick_driver_reports_unsupported() {
+        // C_sledovacka::TickDriver GAME VA 0x4a2a80 (RVA 0xa2a80).
+        assert_eq!(SLEDOVACKA_TICK_DRIVER_ENTRY, 0x4a2a80);
+        assert_eq!(
+            sledovacka_tick_driver(2, 16),
+            Err(SledovackaError::Unsupported { entry: 0x4a2a80 })
+        );
+    }
+
+    #[test]
+    fn rva_a86d0_set_action_status_reports_unsupported() {
+        // C_sledovacka::SetActionStatus GAME VA 0x4a86d0 (RVA 0xa86d0).
+        assert_eq!(SLEDOVACKA_SET_ACTION_STATUS_ENTRY, 0x4a86d0);
+        assert_eq!(
+            sledovacka_set_action_status(3, PursuitChaseStatus::Failed),
+            Err(SledovackaError::Unsupported { entry: 0x4a86d0 })
+        );
     }
 }

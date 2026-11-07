@@ -651,6 +651,14 @@ impl TrafficGameFlags {
         }
     }
 
+    /// `C_traffic_generator::SetGlobalValidScream`, GAME VA 0x47b780 (RVA
+    /// 0x7b780; mafia-re game/ai/C_person_traffic.h:116-121 at pin 113b5b6):
+    /// unconditional store of the pedestrians-may-scream flag. The
+    /// `NPC_SHUTUP` nonzero-parameter edge is caller-owned.
+    pub fn set_global_valid_scream(&mut self, valid: bool) {
+        self.valid_scream = valid;
+    }
+
     /// `C_traffic_generator::EnableTaxiDriver`, GAME RVA 0x44fcf0
     /// (mafia-re game/ai/C_person_traffic.cpp:282-288).
     /// Disabling an enabled driver first ends every waver through the backend
@@ -724,6 +732,90 @@ pub fn free_dyn_coll_elements(
         }
     }
     Ok(())
+}
+
+/// Still-unimplemented traffic-generator calls. Entries name the original PC
+/// addresses; the parking, navigation, ground-collision, node, passenger and
+/// pedestrian-spawn owners stay outside this contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrafficGeneratorError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_traffic_generator::PlayerHoMaVytaseneho` (GAME VA 0x44e890, RVA
+/// 0x4e890).
+pub const PLAYER_HO_MA_VYTASENEHO_ENTRY: u32 = 0x44e890;
+/// `C_traffic_generator::TryGoToAssHole` (GAME VA 0x44f0e0, RVA 0x4f0e0).
+pub const TRY_GO_TO_ASS_HOLE_ENTRY: u32 = 0x44f0e0;
+/// `C_traffic_generator::GeneratePassengerForTaxi` (GAME VA 0x44f7d0, RVA
+/// 0x4f7d0).
+pub const GENERATE_PASSENGER_FOR_TAXI_ENTRY: u32 = 0x44f7d0;
+/// `C_traffic_generator::AddFreePerson` (GAME VA 0x450f00, RVA 0x50f00).
+pub const ADD_FREE_PERSON_ENTRY: u32 = 0x450f00;
+/// `C_traffic_generator::VyfunOdTeMasiny` (GAME VA 0x4512a0, RVA 0x512a0).
+pub const VYFUN_OD_TE_MASINY_ENTRY: u32 = 0x4512a0;
+
+/// Original `C_traffic_generator::PlayerHoMaVytaseneho` (mafia-re
+/// game/ai/C_person_traffic.cpp:68-72 at pin 113b5b6; `STUB: GAME` VA
+/// 0x44e890, RVA 0x4e890; "the player has it drawn", which `C_shvestky::Tick`
+/// calls for a human on foot with a weapon in the hand): the original only
+/// logs. The weapon/pedestrian owners stay outside this contract, so the
+/// boundary is explicit.
+pub fn player_ho_ma_vytaseneho() -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: PLAYER_HO_MA_VYTASENEHO_ENTRY,
+    })
+}
+
+/// Original `C_traffic_generator::TryGoToAssHole` (mafia-re
+/// game/ai/C_person_traffic.cpp:163-236 at pin 113b5b6; `FUNCTION: GAME` VA
+/// 0x44f0e0, RVA 0x4f0e0): sends one free pedestrian to the nearest parked
+/// car. The parking, navigation, ground-collision and node owners stay
+/// outside this contract, so the boundary is explicit; the reached call is
+/// reported through [`TrafficTickOutcome::needs_try_go_to_ass_hole`].
+pub fn try_go_to_ass_hole() -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: TRY_GO_TO_ASS_HOLE_ENTRY,
+    })
+}
+
+/// Original `C_traffic_generator::GeneratePassengerForTaxi` (mafia-re
+/// game/ai/C_person_traffic.cpp:238-242 at pin 113b5b6; `STUB: GAME` VA
+/// 0x44f7d0, RVA 0x4f7d0): the original only logs. The taxi-passenger-spawn
+/// owner stays outside this contract, so the boundary is explicit; the
+/// reached call is reported through
+/// [`TrafficTickOutcome::needs_taxi_passenger`].
+pub fn generate_passenger_for_taxi() -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: GENERATE_PASSENGER_FOR_TAXI_ENTRY,
+    })
+}
+
+/// Original `C_traffic_generator::AddFreePerson` (mafia-re
+/// game/ai/C_person_traffic.cpp:322-326 at pin 113b5b6; `STUB: GAME` VA
+/// 0x450f00, RVA 0x50f00; a script command's): gives a pedestrian of that
+/// model, or the actor, to the generators. The original only logs; the model
+/// and pedestrian owners stay outside this contract, so the boundary is
+/// explicit. Identities are opaque and never dereferenced.
+pub fn add_free_person(
+    _model: u32,
+    _actor: u32,
+    _unknown: bool,
+) -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: ADD_FREE_PERSON_ENTRY,
+    })
+}
+
+/// Original `C_traffic_generator::VyfunOdTeMasiny` (mafia-re
+/// game/ai/C_person_traffic.cpp:482-485 at pin 113b5b6; `STUB: GAME` VA
+/// 0x4512a0, RVA 0x512a0; "blow off from that machine": the pedestrians
+/// walking to the car sent away): the original only logs. The pedestrian
+/// owner stays outside this contract, so the boundary is explicit.
+pub fn vyfun_od_te_masiny(_car: TrafficCarId) -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: VYFUN_OD_TE_MASINY_ENTRY,
+    })
 }
 
 /// `C_don_ocas` actor-kind marker, GAME RVA 0x44c640
@@ -1049,5 +1141,72 @@ mod tests {
         assert_eq!(DonOcasKind::new().actor_type, DonOcasKind::ACTOR_TYPE);
         assert_eq!(DonOcasKind::ACTOR_TYPE, 0x13);
         assert_eq!(DonOcasKind::default().actor_type, 0x13);
+    }
+
+    #[test]
+    fn rva_7b780_set_global_valid_scream_stores_flag() {
+        // C_traffic_generator::SetGlobalValidScream GAME VA 0x47b780 (RVA
+        // 0x7b780).
+        let mut flags = TrafficGameFlags::default();
+        assert!(!flags.valid_scream());
+        flags.set_global_valid_scream(true);
+        assert!(flags.valid_scream());
+        flags.set_global_valid_scream(false);
+        assert!(!flags.valid_scream());
+        // Repeating the store is idempotent.
+        flags.set_global_valid_scream(false);
+        assert!(!flags.valid_scream());
+    }
+
+    #[test]
+    fn rva_4e890_player_ho_ma_vytaseneho_reports_unsupported() {
+        // C_traffic_generator::PlayerHoMaVytaseneho GAME VA 0x44e890 (RVA
+        // 0x4e890).
+        assert_eq!(PLAYER_HO_MA_VYTASENEHO_ENTRY, 0x44e890);
+        assert_eq!(
+            player_ho_ma_vytaseneho(),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x44e890 })
+        );
+    }
+
+    #[test]
+    fn rva_4f0e0_try_go_to_ass_hole_reports_unsupported() {
+        // C_traffic_generator::TryGoToAssHole GAME VA 0x44f0e0 (RVA 0x4f0e0).
+        assert_eq!(TRY_GO_TO_ASS_HOLE_ENTRY, 0x44f0e0);
+        assert_eq!(
+            try_go_to_ass_hole(),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x44f0e0 })
+        );
+    }
+
+    #[test]
+    fn rva_4f7d0_generate_passenger_for_taxi_reports_unsupported() {
+        // C_traffic_generator::GeneratePassengerForTaxi GAME VA 0x44f7d0
+        // (RVA 0x4f7d0).
+        assert_eq!(GENERATE_PASSENGER_FOR_TAXI_ENTRY, 0x44f7d0);
+        assert_eq!(
+            generate_passenger_for_taxi(),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x44f7d0 })
+        );
+    }
+
+    #[test]
+    fn rva_50f00_add_free_person_reports_unsupported() {
+        // C_traffic_generator::AddFreePerson GAME VA 0x450f00 (RVA 0x50f00).
+        assert_eq!(ADD_FREE_PERSON_ENTRY, 0x450f00);
+        assert_eq!(
+            add_free_person(1, 2, false),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x450f00 })
+        );
+    }
+
+    #[test]
+    fn rva_512a0_vyfun_od_te_masiny_reports_unsupported() {
+        // C_traffic_generator::VyfunOdTeMasiny GAME VA 0x4512a0 (RVA 0x512a0).
+        assert_eq!(VYFUN_OD_TE_MASINY_ENTRY, 0x4512a0);
+        assert_eq!(
+            vyfun_od_te_masiny(7),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x4512a0 })
+        );
     }
 }
