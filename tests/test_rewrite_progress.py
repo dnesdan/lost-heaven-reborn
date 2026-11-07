@@ -171,7 +171,10 @@ class RewriteProgressTests(unittest.TestCase):
         # SendPoliceToHuman 0x49f980 / RemoveAllCars 0x4bad80 / RemoveCar
         # 0x4bbe90; explicit-Unsupported stubs with tests; Do_Crouched
         # 0x17f8a0 + GetAnimIndex 0x8760 already ledger-credited).
-        self.assertEqual(game["ported"], 149 + 314)
+        # +6 IShow STUB slice (DestroyIShow 0x5b62c0 / IShowFade 0x5b6710 /
+        # FadeDownAll 0x5b6660 / SetFilmMusic 0x5ae1d0 / GetFilmMusic
+        # 0x5ae390 / StreamDestroyAll 0x5ae3d0; all explicit-Unsupported).
+        self.assertEqual(game["ported"], 149 + 320)
         self.assertEqual(game["verified"], 149 + 7)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

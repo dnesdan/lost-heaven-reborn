@@ -10786,6 +10786,60 @@
       "symbol": "lhr_engine::traffic_car_actor::remove_car",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported removal (GAME 0x4bbe90). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5b62c0",
+      "va": "0x9b62c0",
+      "name": "C_game::DestroyIShow",
+      "symbol": "lhr_engine::ishow_renderer::cgame_destroy_ishow",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported single-row destroy (GAME 0x5b62c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5b6710",
+      "va": "0x9b6710",
+      "name": "C_game::IShowFade",
+      "symbol": "lhr_engine::ishow_renderer::cgame_ishow_fade",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported fade record (GAME 0x5b6710). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5b6660",
+      "va": "0x9b6660",
+      "name": "C_game::IShowFadeDownAll",
+      "symbol": "lhr_engine::ishow_renderer::cgame_ishow_fade_down_all",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported fade sweep (GAME 0x5b6660). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5ae1d0",
+      "va": "0x9ae1d0",
+      "name": "C_game::SetFilmMusic",
+      "symbol": "lhr_engine::ishow_renderer::cgame_set_film_music",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported film-music register (GAME 0x5ae1d0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5ae390",
+      "va": "0x9ae390",
+      "name": "C_game::GetFilmMusic",
+      "symbol": "lhr_engine::ishow_renderer::cgame_get_film_music",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported film-music read (GAME 0x5ae390). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5ae3d0",
+      "va": "0x9ae3d0",
+      "name": "C_game::StreamDestroyAll",
+      "symbol": "lhr_engine::ishow_renderer::cgame_stream_destroy_all",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported stream teardown (GAME 0x5ae3d0). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
