@@ -283,8 +283,10 @@ class RewriteProgressTests(unittest.TestCase):
         # Unknown65/Release/SetFromMission/GlobalActors + SetLookFrame/Wingman/
         # FireTarget/NoAnimHit/IdleAnims/ShutUp + SetCanCarDamage;
         # marker-only, tests green; differential after Ghidra bodies).
+        # +14 actor/human/player differential (latches/stores 2-5 insns +
+        # Release walk; SetFromMission 426-insn partial held as contract).
         self.assertEqual(game["ported"], 149 + 378)
-        self.assertEqual(game["verified"], 149 + 299)
+        self.assertEqual(game["verified"], 149 + 313)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
