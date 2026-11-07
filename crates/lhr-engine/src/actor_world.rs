@@ -8777,6 +8777,36 @@ mod racecam_tests {
         );
     }
     #[test]
+    fn racecam_dtor_runs_vtable_store_then_base_tail_to_dead() {
+        // GAME 0x596240 C_racecam dtor (Ghidra: MOV [ECX],0x625950 then JMP
+        // base-dtor tail). The base tail completes to terminal disposal, so
+        // the observable end state is phase Dead with vtable Base; delete
+        // with arg&1 frees, with arg&1 == 0 does not.
+        let mut world = racecam_world(8);
+        let mut heap = Heap::default();
+        let mut arena = ModelArena::default();
+        let doomed = actor(&mut world, &mut heap);
+        world
+            .destroy_racecam(doomed, &mut ModelActorFrames::borrow(&mut arena, true))
+            .unwrap();
+        let (phase, state) = world.inspect(doomed).unwrap();
+        assert_eq!(phase, ActorPhase::Dead);
+        assert_eq!(state.vtable, ActorVtable::Base);
+        let mut world = racecam_world(8);
+        let mut heap = Heap::default();
+        let mut arena = ModelArena::default();
+        let victim_keep = actor(&mut world, &mut heap);
+        world
+            .delete_racecam(victim_keep, 0, &mut ModelActorFrames::borrow(&mut arena, true), &mut heap)
+            .unwrap();
+        assert!(!heap.actor_freed);
+        let victim_free = actor(&mut world, &mut heap);
+        world
+            .delete_racecam(victim_free, 1, &mut ModelActorFrames::borrow(&mut arena, true), &mut heap)
+            .unwrap();
+        assert!(heap.actor_freed);
+    }
+    #[test]
     fn racecam_release_decrements_and_deletes_at_zero() {
         let mut world = racecam_world(8);
         let mut heap = Heap {

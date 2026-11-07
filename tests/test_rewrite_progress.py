@@ -183,8 +183,10 @@ class RewriteProgressTests(unittest.TestCase):
         # RotateDir dup). Net honest count now.
         # +8 verified-upgrade tranche B (indicators flag lanes 0x7a070-0x7a340:
         # Ghidra bodies 3-177 insns + per-function pinning tests).
+        # +1 racecam dtor 0x196240 (2-insn vtable-store + base tail) + VA-form
+        # remediation of 33 Game + 13 LS3DF entries (no count change).
         self.assertEqual(game["ported"], 149 + 310)
-        self.assertEqual(game["verified"], 149 + 15)
+        self.assertEqual(game["verified"], 149 + 16)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

@@ -2195,7 +2195,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb0c0",
-      "va": "0x100b0c0",
+      "va": "0x1000b0c0",
       "name": "I3D_camera::I3D_camera (upstream working name)",
       "symbol": "lhr_engine::frame_camera::ModelArena::create_camera",
       "tier": "differential",
@@ -2204,7 +2204,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb270",
-      "va": "0x100b270",
+      "va": "0x1000b270",
       "name": "I3D_camera::~I3D_camera (upstream working name)",
       "symbol": "lhr_engine::frame_camera::ModelArena::destroy_camera_derived",
       "tier": "differential",
@@ -2213,7 +2213,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb290",
-      "va": "0x100b290",
+      "va": "0x1000b290",
       "name": "I3D_camera::Duplicate (upstream working name)",
       "symbol": "lhr_engine::frame_camera::ModelArena::duplicate_camera",
       "tier": "differential",
@@ -2222,7 +2222,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb400",
-      "va": "0x100b400",
+      "va": "0x1000b400",
       "name": "I3D_camera::UpdateProjMatrix (upstream working name)",
       "symbol": "lhr_engine::frame_camera::CameraFrame::update_projection",
       "tier": "differential",
@@ -2231,7 +2231,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb9d0",
-      "va": "0x100b9d0",
+      "va": "0x1000b9d0",
       "name": "I3D_camera::UpdateSector (upstream working name)",
       "symbol": "lhr_engine::frame_camera::update_camera_v",
       "tier": "differential",
@@ -2240,7 +2240,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xba30",
-      "va": "0x100ba30",
+      "va": "0x1000ba30",
       "name": "I3D_camera::UpdateV (upstream working name)",
       "symbol": "lhr_engine::frame_camera::update_camera_v",
       "tier": "contract",
@@ -2249,7 +2249,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb690",
-      "va": "0x100b690",
+      "va": "0x1000b690",
       "name": "I3D_camera::SetFOV (upstream working name)",
       "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_fov",
       "tier": "differential",
@@ -2258,7 +2258,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb720",
-      "va": "0x100b720",
+      "va": "0x1000b720",
       "name": "I3D_camera::SetNearFOV (upstream working name)",
       "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_near_fov",
       "tier": "differential",
@@ -2267,7 +2267,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb7b0",
-      "va": "0x100b7b0",
+      "va": "0x1000b7b0",
       "name": "I3D_camera::SetRange (upstream working name)",
       "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_range",
       "tier": "differential",
@@ -2276,7 +2276,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb840",
-      "va": "0x100b840",
+      "va": "0x1000b840",
       "name": "I3D_camera::SetNearRange (upstream working name)",
       "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_near_range",
       "tier": "differential",
@@ -2285,7 +2285,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb8d0",
-      "va": "0x100b8d0",
+      "va": "0x1000b8d0",
       "name": "I3D_camera::SetOrthoScale (upstream working name)",
       "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_ortho_scale",
       "tier": "differential",
@@ -2294,7 +2294,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb930",
-      "va": "0x100b930",
+      "va": "0x1000b930",
       "name": "I3D_camera::SetOrthogonal (upstream working name)",
       "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_orthographic_byte",
       "tier": "differential",
@@ -2303,7 +2303,7 @@
     {
       "binary": "LS3DF.dll",
       "rva": "0xb950",
-      "va": "0x100b950",
+      "va": "0x1000b950",
       "name": "I3D_camera::SetAspectRatio (upstream working name)",
       "symbol": "lhr_engine::frame_camera::ModelArena::camera_set_aspect_ratio",
       "tier": "differential",
@@ -8495,7 +8495,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1c7f0",
-      "va": "0x401c7f0",
+      "va": "0x41c7f0",
       "name": "C_car::LoadMaterials",
       "symbol": "lhr_engine::driving_vehicle_tables::materials",
       "tier": "contract",
@@ -8504,7 +8504,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1d480",
-      "va": "0x401d480",
+      "va": "0x41d480",
       "name": "C_car::LoadTyres",
       "symbol": "lhr_engine::driving_vehicle_tables::DrivingVehicleTables::from_source_bytes",
       "tier": "contract",
@@ -8513,7 +8513,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x7fe0",
-      "va": "0x4007fe0",
+      "va": "0x407fe0",
       "name": "C_actor::GetPos",
       "symbol": "lhr_engine::ph_thing_update::ph_thing_contact_position",
       "tier": "contract",
@@ -8522,7 +8522,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x6da0",
-      "va": "0x4006da0",
+      "va": "0x406da0",
       "name": "C_actor::SetActState",
       "symbol": "lhr_engine::actor_world::ActorWorld::set_actor_act_state",
       "tier": "contract",
@@ -8531,7 +8531,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x16ae20",
-      "va": "0x416ae20",
+      "va": "0x56ae20",
       "name": "C_clock::Init",
       "symbol": "lhr_engine::actor_world::ActorWorld::init_clock_linked",
       "tier": "contract",
@@ -8540,7 +8540,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x16ae90",
-      "va": "0x416ae90",
+      "va": "0x56ae90",
       "name": "C_clock::GameInit",
       "symbol": "lhr_engine::actor_world::ActorWorld::game_init_clock",
       "tier": "contract",
@@ -8549,7 +8549,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x16afe0",
-      "va": "0x416afe0",
+      "va": "0x56afe0",
       "name": "C_clock::AI",
       "symbol": "lhr_engine::actor_world::ActorWorld::tick_clock",
       "tier": "contract",
@@ -8558,11 +8558,11 @@
     {
       "binary": "Game.exe",
       "rva": "0x196240",
-      "va": "0x4196240",
+      "va": "0x596240",
       "name": "C_racecam::dtor",
       "symbol": "lhr_engine::actor_world::ActorWorld::destroy_racecam",
-      "tier": "contract",
-      "evidence": "Empty dtor path: phase gate, vtable restore, shared destroy_base_inner; delete_racecam adds free_actor on arg&1 (actor_world.rs:3128-3182, exercised via release tests). Marker-only contract."
+      "tier": "differential",
+      "evidence": "REA ev_034d58b8 + Ghidra body 2 insns (MOV [ECX],0x625950; JMP 0x405d90 base-dtor tail), vtable-store then tail to Dead/Base; pin test racecam_dtor_runs_vtable_store_then_base_tail_to_dead"
     },
     {
       "binary": "Game.exe",
@@ -8891,7 +8891,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x11b470",
-      "va": "0x411b470",
+      "va": "0x51b470",
       "name": "C_entity::DecodeParams (admission)",
       "symbol": "lhr_engine::program_entity_parameters::supports_entity_opcode",
       "tier": "contract",
@@ -8900,7 +8900,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x11cdd0",
-      "va": "0x411cdd0",
+      "va": "0x51cdd0",
       "name": "C_entity::DecodeInstruction (entity)",
       "symbol": "lhr_engine::program_instructions::decode_entity_instruction",
       "tier": "contract",
@@ -8909,7 +8909,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x13f010",
-      "va": "0x413f010",
+      "va": "0x53f010",
       "name": "C_mission ctor",
       "symbol": "lhr_engine::mission_lifecycle::MissionLifecycle::construct",
       "tier": "contract",
@@ -8918,7 +8918,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x14120a",
-      "va": "0x414120a",
+      "va": "0x54120a",
       "name": "scene2 load-map init",
       "symbol": "lhr_engine::mission_scene_loading::initialize_scene_load_map",
       "tier": "contract",
@@ -8927,7 +8927,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x165060",
-      "va": "0x4165060",
+      "va": "0x565060",
       "name": "C_Debris::GenerateDebris",
       "symbol": "lhr_engine::debris::generate_debris",
       "tier": "contract",
@@ -8936,7 +8936,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x196710",
-      "va": "0x4196710",
+      "va": "0x596710",
       "name": "C_rail_generator::LoadData (STUB)",
       "symbol": "lhr_engine::actor_world::ActorWorld::load_rail_generator_data",
       "tier": "contract",
@@ -8945,7 +8945,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x19c6a0",
-      "va": "0x419c6a0",
+      "va": "0x59c6a0",
       "name": "C_recorder::Close (HUD subset)",
       "symbol": "lhr_engine::indicators::IndicatorsState::apply_recorder_close",
       "tier": "contract",
@@ -8954,7 +8954,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1a5a64",
-      "va": "0x41a5a64",
+      "va": "0x5a5a64",
       "name": "Tick sound phase",
       "symbol": "lhr_engine::game_spatial_sound::tick_sounds",
       "tier": "contract",
@@ -8963,7 +8963,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1a8470",
-      "va": "0x41a8470",
+      "va": "0x5a8470",
       "name": "C_game::SetTrafficVisible (STUB state)",
       "symbol": "lhr_engine::traffic_generator::CityTrafficVisibleState",
       "tier": "contract",
@@ -8972,7 +8972,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1aca70",
-      "va": "0x41aca70",
+      "va": "0x5aca70",
       "name": "C_game spatial sound publication",
       "symbol": "lhr_engine::game_spatial_sound::play_spatial_sound",
       "tier": "contract",
@@ -8981,7 +8981,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1acf00",
-      "va": "0x41acf00",
+      "va": "0x5acf00",
       "name": "StopAllSounds",
       "symbol": "lhr_engine::game_spatial_sound::stop_all_sounds",
       "tier": "contract",
@@ -8990,7 +8990,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1ae1b0",
-      "va": "0x41ae1b0",
+      "va": "0x5ae1b0",
       "name": "C_game::CityMusicPaused",
       "symbol": "lhr_engine::ishow_renderer::cgame_city_music_paused",
       "tier": "contract",
@@ -8999,7 +8999,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1b64c0",
-      "va": "0x41b64c0",
+      "va": "0x5b64c0",
       "name": "C_game::GetIShow",
       "symbol": "lhr_engine::ishow_renderer::cgame_get_ishow",
       "tier": "contract",
@@ -9008,7 +9008,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1b6520",
-      "va": "0x41b6520",
+      "va": "0x5b6520",
       "name": "C_game::IShowStoreVolume",
       "symbol": "lhr_engine::ishow_renderer::cgame_ishow_store_volume",
       "tier": "contract",
@@ -9017,7 +9017,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1b6580",
-      "va": "0x41b6580",
+      "va": "0x5b6580",
       "name": "C_game::IShowLoop",
       "symbol": "lhr_engine::ishow_renderer::cgame_ishow_loop",
       "tier": "contract",
@@ -9026,7 +9026,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1b6600",
-      "va": "0x41b6600",
+      "va": "0x5b6600",
       "name": "C_game::IShowSetVolume",
       "symbol": "lhr_engine::ishow_renderer::cgame_ishow_set_volume",
       "tier": "contract",
@@ -9035,7 +9035,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1b6d50",
-      "va": "0x41b6d50",
+      "va": "0x5b6d50",
       "name": "C_game::DelSemaphore",
       "symbol": "lhr_engine::game_crash_registry::del_semaphore",
       "tier": "contract",
@@ -9044,7 +9044,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1b7440",
-      "va": "0x41b7440",
+      "va": "0x5b7440",
       "name": "C_game::DelTelephones",
       "symbol": "lhr_engine::game_crash_registry::del_telephones",
       "tier": "contract",
@@ -9053,7 +9053,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x1d6430",
-      "va": "0x41d6430",
+      "va": "0x5d6430",
       "name": "TestPanak2InVehicle (single pass)",
       "symbol": "lhr_engine::collision_swept_capsule::panak2_in_vehicle_once",
       "tier": "contract",
@@ -9305,7 +9305,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x201520",
-      "va": "0x602520",
+      "va": "0x601520",
       "name": "ResolutionChanged",
       "symbol": "lhr_engine::indicators::IndicatorsState::resolution_changed",
       "tier": "contract",
@@ -9368,7 +9368,7 @@
     {
       "binary": "Game.exe",
       "rva": "0xcb5b0",
-      "va": "0x40cb5b0",
+      "va": "0x4cb5b0",
       "name": "C_Vehicle::SetEngineOn",
       "symbol": "lhr_engine::vehicle_engine_state::vehicle_set_engine_on",
       "tier": "contract",
@@ -9377,7 +9377,7 @@
     {
       "binary": "Game.exe",
       "rva": "0xd6670",
-      "va": "0x40d6670",
+      "va": "0x4d6670",
       "name": "C_Vehicle glass-damage worker",
       "symbol": "lhr_engine::vehicle_damage_glass::vehicle_damage_glass",
       "tier": "contract",
@@ -9539,7 +9539,7 @@
     {
       "binary": "Game.exe",
       "rva": "0xc1420",
-      "va": "0x40c1420",
+      "va": "0x4c1420",
       "name": "Game light discovery+pairing",
       "symbol": "lhr_engine::vehicle_init::vehicle_light_init",
       "tier": "contract",
@@ -10421,7 +10421,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x5b6e0",
-      "va": "0x9b6e0",
+      "va": "0x45b6e0",
       "name": "S_hlp::cbFindTaxiPoints",
       "symbol": "lhr_engine::game_housekeeping::cb_find_taxi_points",
       "tier": "contract",
@@ -10448,7 +10448,7 @@
     {
       "binary": "Game.exe",
       "rva": "0x5f9a0",
-      "va": "0x9f9a0",
+      "va": "0x45f9a0",
       "name": "C_game::ScoreSetOn",
       "symbol": "lhr_engine::game_housekeeping::score_set_on",
       "tier": "contract",
