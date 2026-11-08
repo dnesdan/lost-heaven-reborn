@@ -146,6 +146,28 @@ fn weather_setup_resets_live_fields_then_disables_without_recreating_resources()
 }
 
 #[test]
+fn game_init_weather_reads_current_scene_fields_and_refuses_released_owner() {
+    let mut fixture = Fixture::new();
+    fixture.prepare().unwrap();
+    for (flags, count) in [(0, 13), (1, 77), (0x40, -3), (0x41, i32::MIN)] {
+        fixture.entry().words[0x298 / 4] = flags;
+        fixture.entry().words[0x2c0 / 4] = count as u32;
+        assert_eq!(
+            fixture
+                .resources
+                .game_init_weather_switches(&fixture.arena, fixture.scene)
+                .unwrap(),
+            (flags & 1 != 0, count)
+        );
+    }
+    fixture.dispose();
+    assert!(fixture
+        .resources
+        .game_init_weather_switches(&fixture.arena, fixture.scene)
+        .is_err());
+}
+
+#[test]
 fn preparing_one_scene_keeps_another_scene_and_the_shared_snow_reference() {
     let mut fixture = Fixture::new();
     let second = fixture.arena.construct_scene_owner_prefix().unwrap();

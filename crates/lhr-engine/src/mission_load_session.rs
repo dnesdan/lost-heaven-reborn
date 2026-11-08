@@ -386,6 +386,12 @@ pub struct MissionLoadSession {
     /// The existing C_mission counter owner also supplies the skip_frames
     /// gate read by the first effect in C_mission::Tick (GAME 0x5407e0).
     mission_counters: crate::mission_actor_lists::MissionCounterState,
+    /// Authoritative represented C_game scalar fields used by source-grounded
+    /// inlines. C_game itself and the rest of Init still require live owners.
+    game_inline: crate::game_housekeeping::GameInlineState,
+    game_init_car_sounds: i32,
+    game_init_weather: Option<(bool, i32)>,
+    game_init_reset_entered: bool,
     /// Native `C_mission::Open` progress mode (`_can_show_progress_` at
     /// 0x646db0): 0 cleared, 1 when `cache.bin` probes present, 2 after
     /// `OpenBin`. Read live by `ShowProgress`; only 1 advances to 2.
@@ -456,6 +462,10 @@ impl MissionLoadSession {
             police_init: PoliceGameInitState::default(),
             traffic_flags: TrafficGameFlags::default(),
             mission_counters: crate::mission_actor_lists::MissionCounterState::default(),
+            game_inline: crate::game_housekeeping::GameInlineState::default(),
+            game_init_car_sounds: 0,
+            game_init_weather: None,
+            game_init_reset_entered: false,
             open_cache_progress: 0,
             open_restore_volume: false,
             open_mission_opened: false,
@@ -1185,6 +1195,49 @@ impl MissionLoadSession {
             return Err("game already initialized".into());
         }
         self.game_init_admission()
+    }
+
+    /// Reached C_game::Init stores in native order (GAME RVA 0x1a0810):
+    /// mission_passed=false, car_sounds=0, then live Scene weather ON/COUNT,
+    /// weather_buffer=-1. The subsequent sound SetVolume/Render pair is only
+    /// partially available in the host. Return the first unsupported effect
+    /// without claiming completion or mutating later Init state. Re-entry is
+    /// forbidden because the original Init has one ordered attempt.
+    pub fn reset_game_mission_state_for_init(&mut self) -> Result<(), String> {
+        self.guard_game_init_for_init()?;
+        if self.game_init_reset_entered {
+            return Err("mission state reset already entered".into());
+        }
+        self.game_init_reset_entered = true;
+        self.game_inline.set_mission_passed(false);
+        self.game_init_car_sounds = 0;
+        let scene = self
+            .scene()
+            .map_err(|error| format!("live scene: {error:?}"))?
+            .ok_or("scene unavailable")?;
+        let weather = self
+            .resources
+            .game_init_weather_switches(&self.arena, scene)
+            .map_err(|error| format!("weather read: {error:?}"))?;
+        self.game_init_weather = Some(weather);
+        crate::game_housekeeping::game_init_weather_buffer_reset(&mut self.game_inline);
+        if self.audio_present_for_open() {
+            self.audio
+                .set_master_gain(0.0)
+                .map_err(|error| format!("Init sound volume: {error}"))?;
+            return Err("Init Scene::Render after sound mute unavailable".into());
+        }
+        Err("Init stop_sounds owner unavailable".into())
+    }
+
+    /// Exact reached-prefix observations, not a completed GameInit snapshot.
+    pub fn game_init_reset_observation(&self) -> (bool, i32, Option<(bool, i32)>, i32) {
+        (
+            self.game_inline.mission_passed(),
+            self.game_init_car_sounds,
+            self.game_init_weather,
+            self.game_inline.weather_buffer(),
+        )
     }
     /// `MarkInitialized` owner: records the initialized flag the guard
     /// consults. Called by the `Init` driver at its step, never implicitly.

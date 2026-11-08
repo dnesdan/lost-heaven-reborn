@@ -215,9 +215,9 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::GuardNotInitialized => self
                 .guard_game_init_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::ResetMissionState => {
-                Err(SessionInitError::unavailable(step, "mission-state reset"))
-            }
+            InitStep::ResetMissionState => self
+                .reset_game_mission_state_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
             InitStep::PoliceBeginShift => {
                 Err(SessionInitError::unavailable(step, "police shift begin"))
             }

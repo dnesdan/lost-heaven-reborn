@@ -11,6 +11,50 @@ use crate::scene_ownership::SceneKey;
 use crate::scene_weather::{self, WeatherResetUnavailable, SCENE_WORDS};
 
 impl SceneResources {
+    /// Read the current native weather switches from the exact retained Scene
+    /// constructor. C_game::Init reads WS_PARAM_ON and WS_PARAM_COUNT at this
+    /// point, after MissionOpen has installed the scene's weather reset.
+    /// This is a borrowing adapter for the already ported LS3DF GetParam;
+    /// it contributes no new original-function credit.
+    pub(crate) fn game_init_weather_switches(
+        &self,
+        arena: &ModelArena,
+        scene: SceneKey,
+    ) -> Result<(bool, i32), SceneResourceError> {
+        let entry = self
+            .construction(scene)
+            .ok_or(SceneResourceError::UnknownConstruction(scene))?;
+        if entry.arena_identity != arena.lookup_reference(scene.root()) {
+            return Err(SceneResourceError::UnsupportedDomain("foreign arena"));
+        }
+        arena.scene(scene)?;
+        if entry.destroyed || entry.close_complete {
+            return Err(SceneResourceError::AlreadyDestroyed(scene));
+        }
+        if entry.phase != SceneConstructionPhase::Complete {
+            return Err(SceneResourceError::IncompleteConstruction(scene));
+        }
+        if entry.weather_setup_interrupted {
+            return Err(SceneResourceError::UnsupportedDomain(
+                "mission weather reset interrupted",
+            ));
+        }
+        if entry.sector_cursor != 0
+            || entry.listener_released
+            || entry.count_released
+            || entry.driver_registry_removed
+        {
+            return Err(SceneResourceError::UnsupportedDomain(
+                "scene destruction already entered",
+            ));
+        }
+        arena.check_owner_available(scene.into())?;
+        Ok((
+            scene_weather::get_weather_system_param(&entry.words, 0) != 0,
+            scene_weather::get_weather_system_param(&entry.words, 10) as i32,
+        ))
+    }
+
     /// Reset the existing weather record, then execute SetWeatherSystemParam(ON, 0).
     /// No constructor, shared texture creation, reference change or particle
     /// allocation is repeated. The caller supplies the normal PC24 scope.

@@ -686,6 +686,38 @@ fn initialized_host_audio_creates_and_releases_actual_listener() {
 }
 
 #[test]
+fn game_init_reset_reads_actual_scene_weather_and_stops_at_unowned_render() {
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let scene = session.scene().unwrap().unwrap();
+    let source = &session.resources().construction(scene).unwrap().words;
+    let expected = (
+        crate::scene_weather::get_weather_system_param(source, 0) != 0,
+        crate::scene_weather::get_weather_system_param(source, 10) as i32,
+    );
+    let before = *source;
+    // Use non-default previous values: the native stores must truly replace
+    // live game scalars, not pass solely because the host starts at zero.
+    session.game_inline.set_mission_passed(true);
+    session.game_inline.set_weather_buffer(71);
+    session.game_init_car_sounds = 42;
+    assert_eq!(session.audio().master_gain().unwrap(), 1.0);
+    assert_eq!(
+        session.reset_game_mission_state_for_init(),
+        Err("Init Scene::Render after sound mute unavailable".into()),
+    );
+    assert_eq!(session.game_init_reset_observation(), (false, 0, Some(expected), -1));
+    assert_eq!(session.audio().master_gain().unwrap(), 0.0);
+    assert_eq!(session.resources().construction(scene).unwrap().words, before);
+    assert_eq!(
+        session.reset_game_mission_state_for_init(),
+        Err("mission state reset already entered".into()),
+    );
+    discard(&mut session);
+}
+
+#[test]
 fn mission_tick_head_restores_real_pcm_master_gain_once_after_skipped_frames() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();

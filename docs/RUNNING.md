@@ -61,6 +61,13 @@ and the first `Tick` restore-volume gate to the shared Rust PCM master gain.
 retains the already-consumed flag. This is bounded host audio behavior, not a
 complete mission Tick, native DirectSound volume curve or playable GameInit.
 
+The `C_game::Init` ResetMissionState prefix now executes the first scalar
+stores, reads weather ON/COUNT from the current retained Scene, and stages
+the weather-buffer reset before the host sound mute. It stops explicitly at
+the unimplemented scene Render effect; an Open-only input probe lacks a
+constructed Scene and stops earlier at that missing owner. Later Init and
+script scheduling remain unavailable, with no additional function credit.
+
 Historically at engine `041eed8`, INTRO's CPU probe completed source loading and
 exited 0, while MISE01's CPU probe intentionally exited 1 at unsupported car
 actor kind 4, cursor 3,805,059; both disposed all tracked owners, without

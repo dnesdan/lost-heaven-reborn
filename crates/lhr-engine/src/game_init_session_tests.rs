@@ -90,6 +90,10 @@ fn init_stops_at_first_unowned_step_with_live_prefix_preserved() {
     fixture.write("missions/mise01/cache.bin", &cache_bytes());
     let mut session = fixture.session();
     open_mise01(&mut session);
+    // The ordered Open probe is not yet a native Scene constructor. Init must
+    // stop on the missing live owner after the first two scalar stores.
+    assert_eq!(session.scene().unwrap(), None);
+    assert_eq!(session.audio().master_gain().unwrap(), 1.0);
     let mut attempt = InitAttempt::default();
     let error = attempt.run(&mut session).unwrap_err();
     match &error {
@@ -104,6 +108,18 @@ fn init_stops_at_first_unowned_step_with_live_prefix_preserved() {
         other => panic!("unexpected error: {other:?}"),
     }
     assert_eq!(attempt.last(), Some(InitStep::ResetMissionState));
+    // Native stores before the first unowned Scene read are retained. Weather
+    // and later sound/AI/UI work must not be silently fabricated.
+    assert_eq!(
+        session.game_init_reset_observation(),
+        (false, 0, None, 0),
+    );
+    assert_eq!(session.audio().master_gain().unwrap(), 1.0);
+    assert_eq!(
+        session.reset_game_mission_state_for_init(),
+        Err("mission state reset already entered".into())
+    );
+    assert_eq!(session.game_init_reset_observation().2, None);
     // Unowned steps never ran: police/traffic stay at cleared-statics
     // defaults (17.0/28.0/valid-scream arrive only with their owners).
     assert!(!session.police_init().active());
@@ -177,4 +193,8 @@ fn mark_initialized_arms_the_guard_against_rerun() {
     // The guard now reports the already-initialized boundary.
     let err = session.guard_game_init_for_init().unwrap_err();
     assert_eq!(err, "game already initialized");
+    assert_eq!(
+        session.reset_game_mission_state_for_init(),
+        Err("game already initialized".into())
+    );
 }
