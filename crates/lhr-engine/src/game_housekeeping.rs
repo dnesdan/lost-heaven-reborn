@@ -1523,6 +1523,267 @@ pub fn load_diff_data(_name: &str) -> Result<(), UnwrittenGameEntry> {
     })
 }
 
+/// Intern-load handshake flags (`game.h:520-521`, `intern_load` /
+/// `intern_loaded`).
+///
+/// Working name; no outline GAME entry is claimed. Reason: `ResetIntern`
+/// (`game.h:829-833` at pin 113b5b6) is inline-only, so there is no
+/// out-of-line RVA to pin. The mission opener and the `Init`/`DoneIntern`
+/// swap stay with their owners; only the two stored flags are owned here.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InternLoadFlags {
+    pub intern_load: bool,
+    pub intern_loaded: bool,
+}
+
+/// Working-name fragment of `C_game::ResetIntern` (`game.h:829-833`):
+/// `intern_load = true`, `intern_loaded = false`. No function credit is
+/// taken; the inline has no outline GAME entry.
+pub fn reset_intern_flags(flags: &mut InternLoadFlags) {
+    flags.intern_load = true;
+    flags.intern_loaded = false;
+}
+
+/// Working-name fragment of `C_game::Init` (`game.cpp:269-271` at pin
+/// 113b5b6): `score_on = false`, the `ScoreSetOn(false)` HUD effect, then
+/// `score = 0` with no further HUD write because the switch is off. No
+/// outline GAME entry is claimed for this fragment; no function credit is
+/// taken. The occupied `Init` entry (GAME 0x5a0810, RVA 0x1a0810) keeps its
+/// existing port.
+pub fn game_init_score_reset(state: &mut ScoreState, hud: &mut impl HudBonusBackend) {
+    score_set_on(state, false, hud);
+    state.score = 0;
+}
+
+/// Tick counters cleared by `C_game::Init` (`game.h:411-415`,
+/// `game_time` / `game_frames` / `init_frames`).
+///
+/// Working name; no outline GAME entry is claimed. Reason: pure fragment of
+/// the occupied `Init` body (`game.cpp:297-299`), which keeps its existing
+/// port. No function credit is taken.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GameTimeCounters {
+    pub game_time: i32,
+    pub game_frames: i32,
+    pub init_frames: u32,
+}
+
+/// Working-name fragment of `C_game::Init` (`game.cpp:297-299`):
+/// `game_time = 0`, `game_frames = 0`, `init_frames = 0`. No function credit
+/// is taken.
+pub fn game_init_time_clear(counters: &mut GameTimeCounters) {
+    counters.game_time = 0;
+    counters.game_frames = 0;
+    counters.init_frames = 0;
+}
+
+/// End-of-mission flags cleared by `C_game::Init` (`game.h:304`,
+/// `mission_end`; `game.h:455`, `game_done`; `game.h:390`,
+/// `growing_projectors`).
+///
+/// Working name; no outline GAME entry is claimed. Reason: pure fragment of
+/// the occupied `Init` body (`game.cpp:294-296`). No function credit is
+/// taken.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MissionEndFlags {
+    pub game_done: bool,
+    pub mission_end: i32,
+    pub growing_projectors: i32,
+}
+
+/// Working-name fragment of `C_game::Init` (`game.cpp:294-296`):
+/// `game_done = false`, `mission_end = 0`, `growing_projectors = 0`. No
+/// function credit is taken.
+pub fn game_init_mission_end_clear(flags: &mut MissionEndFlags) {
+    flags.game_done = false;
+    flags.mission_end = 0;
+    flags.growing_projectors = 0;
+}
+
+/// Working-name fragment of `C_game::Init` (`game.cpp:273`):
+/// `heal_cheat = true`. No outline GAME entry is claimed for this single
+/// scalar store; no function credit is taken.
+pub fn game_init_heal_cheat() -> bool {
+    true
+}
+
+/// `C_game::Init` death-fade timeout (`game.cpp:275` at pin 113b5b6,
+/// `death_fade_time = 7000`, `game.h:501`). Working-name constant; the
+/// store itself has no outline GAME entry, so no RVA is claimed.
+pub const GAME_INIT_DEATH_FADE_TIME: i32 = 7000;
+
+/// Working-name fragment of `C_game::Init` (`game.cpp:275`): returns the
+/// `death_fade_time` value `Init` stores. No function credit is taken.
+pub fn game_init_death_fade_time() -> i32 {
+    GAME_INIT_DEATH_FADE_TIME
+}
+
+/// Cheat input state cleared by `C_game::Init` (`game.h:467-468`:
+/// `cheat_keys[0x20]` / `cheats`).
+///
+/// Working name; no outline GAME entry is claimed. Reason: pure fragment of
+/// the occupied `Init` body (`game.cpp:292-293`). No function credit is
+/// taken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CheatKeysState {
+    pub keys: [u8; 32],
+    pub cheats: u32,
+}
+
+impl Default for CheatKeysState {
+    fn default() -> Self {
+        Self {
+            keys: [0; 32],
+            cheats: 0,
+        }
+    }
+}
+
+/// Working-name fragment of `C_game::Init` (`game.cpp:292-293`):
+/// `strcpy(cheat_keys, "")` then `cheats = 0`. `strcpy` only guarantees
+/// `keys[0] == 0`, so the reset stores `0` at index 0 and leaves the
+/// remaining bytes untouched, exactly like the original. No function credit
+/// is taken.
+pub fn game_init_cheats_reset(state: &mut CheatKeysState) {
+    state.keys[0] = 0;
+    state.cheats = 0;
+}
+
+/// Working-name fragment of `C_game::Init` (`game.cpp:300-305`):
+/// `race6_state = RACE6_STATE_NONE` and the four timeout/player script
+/// programs back to NULL, leaving the paired event words untouched (the
+/// original stores only the program pointers here). No outline GAME entry
+/// is claimed for this fragment; no function credit is taken.
+pub fn reset_race6_and_timeout_events(state: &mut GameInlineState) {
+    let (_, timeout_event) = state.timeout_event();
+    state.set_timeout_event(0, timeout_event);
+    let (_, fire_event) = state.player_fire_event();
+    state.set_player_fire_event(0, fire_event);
+    let (_, horn_event) = state.player_horn_event();
+    state.set_player_horn_event(0, horn_event);
+    let (_, wfall_event) = state.player_wfall_event();
+    state.set_player_wfall_event(0, wfall_event);
+    state.set_race6_state(false);
+}
+
+/// Working-name fragment of `C_game::Init` (`game.cpp:259`):
+/// `weather_buffer = -1`. The scene-driven `weather_on` / `weather_count`
+/// reads stay with the scene owner; only the buffer staging through the
+/// existing [`GameInlineState::set_weather_buffer`] is owned here. No
+/// outline GAME entry is claimed; no function credit is taken.
+pub fn game_init_weather_buffer_reset(state: &mut GameInlineState) {
+    state.set_weather_buffer(-1);
+}
+
+/// Working-name fragment of `C_game::Init` (`game.cpp:306`):
+/// `death_actors.clear()`. The actor owner stays with the caller, which
+/// passes the staged `uint` list. No outline GAME entry is claimed for this
+/// fragment; no function credit is taken.
+pub fn clear_death_actors(actors: &mut Vec<u32>) {
+    actors.clear();
+}
+
+/// Working-name fragment of `C_game::Init` (`game.cpp:307-308`):
+/// `light_cache.clear()` with `light_cache_time = -1`. Frames stay opaque
+/// handles for the scene owner. No outline GAME entry is claimed for this
+/// fragment; no function credit is taken.
+pub fn clear_light_cache(cache: &mut Vec<FrameId>, cache_time: &mut i32) {
+    cache.clear();
+    *cache_time = -1;
+}
+
+/// FUNCTION: GAME RVA 0x178c60, VA 0x578c60 (`game/actors/C_human.cpp:4492-4533`
+/// at pin 113b5b6, `C_human::IsPossibleColl`): whether the actor at `pos`
+/// moving by `dir` runs into this human.
+///
+/// The human is a sphere of `radius + 0.7` around the chest
+/// (`human_pos.y + 1.0`) swept by a tenth of `human_dir`; the function
+/// reports the first-meet fraction in `dist` (`0` where they already meet)
+/// and the human as the collider. The unused `C_actor *act` parameter of the
+/// original has no effect and is not modeled. The `car` early-out (non-NULL
+/// car refuses the collision without touching `dist`) arrives as `in_car`;
+/// with `in_car` the function returns `None` meaning "return false, leave
+/// `dist` unwritten". Otherwise it returns `Some((dist, hit))` where `hit`
+/// is the original `t >= 0.0f` return.
+///
+/// Verified in reference: `game/actors/C_human.cpp` belongs to Game.exe and
+/// the marker is `// FUNCTION: GAME 0x578c60` (code, not a data offset and
+/// not another binary). RVA `0x178c60` = `0x578c60 - 0x400000`; VA
+/// `0x400000 + 0x178c60` = `0x578c60`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn is_possible_coll(
+    in_car: bool,
+    human_dir: [f32; 3],
+    human_pos: [f32; 3],
+    pos: [f32; 3],
+    dir: [f32; 3],
+    radius: f32,
+) -> Option<(f32, bool)> {
+    if in_car {
+        return None;
+    }
+    let step = [
+        human_dir[0] * 0.1,
+        human_dir[1] * 0.1,
+        human_dir[2] * 0.1,
+    ];
+    let center = [human_pos[0], human_pos[1] + 1.0, human_pos[2]];
+    let a = [center[0] - pos[0], center[1] - pos[1], center[2] - pos[2]];
+    let b = [step[0] - dir[0], step[1] - dir[1], step[2] - dir[2]];
+    let r = radius + 0.7;
+    let c = a[0] * a[0] + a[1] * a[1] + a[2] * a[2];
+    let r2 = r * r;
+    let t = if c <= r2 {
+        0.0
+    } else {
+        let aa = b[0] * b[0] + b[1] * b[1] + b[2] * b[2];
+        if aa <= 0.0 {
+            -1.0
+        } else {
+            let bb = (b[0] * a[0] + b[1] * a[1] + b[2] * a[2]) * 2.0;
+            let disc = bb * bb - (c - r2) * aa * 4.0;
+            if disc < 0.0 {
+                disc
+            } else {
+                // The original calls the double-precision CRT sqrt before
+                // narrowing to the `float s` local; avoid changing that
+                // conversion boundary into a host single-precision intrinsic.
+                let s = f64::from(disc).sqrt() as f32;
+                let inv = 1.0 / (aa * 2.0);
+                let t1 = (s - bb) * inv;
+                let mut t = (-bb - s) * inv;
+                if t1 < t {
+                    t = t1;
+                }
+                t
+            }
+        }
+    };
+    Some((t, t >= 0.0))
+}
+
+/// STUB: GAME RVA 0x16b180, VA 0x56b180 (`game/actors/C_human.cpp:42-48` at
+/// pin 113b5b6, `C_human::AddToCutscene`): records the human in the cutscene
+/// with record sizes `0x28, 0x2c, 0x38` and returns `true`. The cutscene
+/// owner is DEFERRED, so the host reports the boundary instead of inventing
+/// cutscene ownership. Explicit unsupported boundary.
+///
+/// Verified in reference: `game/actors/C_human.cpp` belongs to Game.exe and
+/// the marker is `// FUNCTION: GAME 0x56b180` (code, not a data offset and
+/// not another binary). RVA `0x16b180` = `0x56b180 - 0x400000`; VA
+/// `0x400000 + 0x16b180` = `0x56b180`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const ADD_TO_CUTSCENE_ENTRY: u32 = 0x56b180;
+
+/// Original `C_human::AddToCutscene` stub: always reports the boundary
+/// instead of inventing the cutscene owner.
+pub fn add_to_cutscene() -> Result<bool, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_TO_CUTSCENE_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2804,6 +3065,237 @@ mod tests {
         assert_eq!(
             load_diff_data("diff"),
             Err(UnwrittenGameEntry::Unsupported { entry: 0x5ae480 })
+        );
+    }
+
+    #[test]
+    fn reset_intern_flags_sets_load_and_clears_loaded() {
+        // Working-name fragment of the inline-only C_game::ResetIntern
+        // (game.h:829-833); no outline GAME entry exists, so no RVA is
+        // claimed here.
+        let mut flags = InternLoadFlags {
+            intern_load: false,
+            intern_loaded: true,
+        };
+        reset_intern_flags(&mut flags);
+        assert_eq!(
+            flags,
+            InternLoadFlags {
+                intern_load: true,
+                intern_loaded: false,
+            }
+        );
+    }
+
+    #[test]
+    fn game_init_score_reset_switches_off_and_zeroes() {
+        // Working-name fragment of C_game::Init (game.cpp:269-271); the
+        // occupied Init entry keeps its port, so no RVA is claimed here.
+        struct Log {
+            counts: Vec<i32>,
+        }
+        impl HudBonusBackend for Log {
+            fn bonus_set_count(&mut self, count: i32) {
+                self.counts.push(count);
+            }
+        }
+        let mut hud = Log { counts: vec![] };
+        let mut state = ScoreState {
+            score: 41,
+            score_on: true,
+        };
+        game_init_score_reset(&mut state, &mut hud);
+        assert!(!state.score_on);
+        assert_eq!(state.score, 0);
+        assert_eq!(hud.counts, vec![0x7fffffff]);
+    }
+
+    #[test]
+    fn game_init_time_clear_zeroes_all_counters() {
+        // Working-name fragment of C_game::Init (game.cpp:297-299); no RVA
+        // claimed.
+        let mut counters = GameTimeCounters {
+            game_time: 7,
+            game_frames: 9,
+            init_frames: 11,
+        };
+        game_init_time_clear(&mut counters);
+        assert_eq!(
+            counters,
+            GameTimeCounters {
+                game_time: 0,
+                game_frames: 0,
+                init_frames: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn game_init_mission_end_clear_resets_end_flags() {
+        // Working-name fragment of C_game::Init (game.cpp:294-296); no RVA
+        // claimed.
+        let mut flags = MissionEndFlags {
+            game_done: true,
+            mission_end: 2,
+            growing_projectors: 5,
+        };
+        game_init_mission_end_clear(&mut flags);
+        assert_eq!(
+            flags,
+            MissionEndFlags {
+                game_done: false,
+                mission_end: 0,
+                growing_projectors: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn game_init_heal_cheat_is_enabled() {
+        // Working-name fragment of C_game::Init (game.cpp:273); no RVA
+        // claimed.
+        assert!(game_init_heal_cheat());
+    }
+
+    #[test]
+    fn game_init_death_fade_time_matches_init_store() {
+        // Working-name fragment of C_game::Init (game.cpp:275); no RVA
+        // claimed.
+        assert_eq!(GAME_INIT_DEATH_FADE_TIME, 7000);
+        assert_eq!(game_init_death_fade_time(), 7000);
+    }
+
+    #[test]
+    fn game_init_cheats_reset_clears_first_key_and_word() {
+        // Working-name fragment of C_game::Init (game.cpp:292-293); no RVA
+        // claimed. Only keys[0] is guaranteed by strcpy("", ...).
+        let mut state = CheatKeysState {
+            keys: [b'X'; 32],
+            cheats: 0x1234,
+        };
+        game_init_cheats_reset(&mut state);
+        assert_eq!(state.keys[0], 0);
+        assert_eq!(state.keys[1], b'X');
+        assert_eq!(state.cheats, 0);
+    }
+
+    #[test]
+    fn reset_race6_and_timeout_events_nulls_programs_keeps_events() {
+        // Working-name fragment of C_game::Init (game.cpp:300-305); no RVA
+        // claimed.
+        let mut state = GameInlineState::default();
+        state.set_timeout_event(11, 21);
+        state.set_player_fire_event(12, 22);
+        state.set_player_horn_event(13, 23);
+        state.set_player_wfall_event(14, 24);
+        state.set_race6_state(true);
+        reset_race6_and_timeout_events(&mut state);
+        assert_eq!(state.timeout_event(), (0, 21));
+        assert_eq!(state.player_fire_event(), (0, 22));
+        assert_eq!(state.player_horn_event(), (0, 23));
+        assert_eq!(state.player_wfall_event(), (0, 24));
+        assert_eq!(state.get_race6_state(), RACE6_STATE_NONE);
+    }
+
+    #[test]
+    fn game_init_weather_buffer_reset_stages_minus_one() {
+        // Working-name fragment of C_game::Init (game.cpp:259); no RVA
+        // claimed.
+        let mut state = GameInlineState::default();
+        state.set_weather_buffer(8);
+        game_init_weather_buffer_reset(&mut state);
+        assert_eq!(state.weather_buffer(), -1);
+    }
+
+    #[test]
+    fn clear_death_actors_drains_the_list() {
+        // Working-name fragment of C_game::Init (game.cpp:306); no RVA
+        // claimed.
+        let mut actors = vec![3u32, 7u32];
+        clear_death_actors(&mut actors);
+        assert!(actors.is_empty());
+    }
+
+    #[test]
+    fn clear_light_cache_drains_and_parks_time() {
+        // Working-name fragment of C_game::Init (game.cpp:307-308); no RVA
+        // claimed.
+        let mut cache = vec![1u32, 2u32];
+        let mut time = 41;
+        clear_light_cache(&mut cache, &mut time);
+        assert!(cache.is_empty());
+        assert_eq!(time, -1);
+    }
+
+    #[test]
+    fn rva_178c60_is_possible_coll_reports_hit_and_miss() {
+        // C_human::IsPossibleColl GAME RVA 0x178c60 (VA 0x578c60).
+        assert_eq!(is_possible_coll(true, [0.0; 3], [0.0; 3], [0.0; 3], [0.0; 3], 0.0), None);
+        let overlap = is_possible_coll(false, [0.0; 3], [0.0; 3], [0.0, 1.0, 0.0], [0.0; 3], 0.0)
+            .expect("overlap must report");
+        assert_eq!(overlap, (0.0, true));
+        let (dist, hit) = is_possible_coll(
+            false,
+            [0.0; 3],
+            [0.0; 3],
+            [10.0, 1.0, 0.0],
+            [0.0; 3],
+            0.0,
+        )
+        .expect("separated still writes dist");
+        assert!(!hit);
+        assert_eq!(dist, -1.0);
+        let (dist, hit) = is_possible_coll(
+            false,
+            [1.0, 0.0, 0.0],
+            [0.0; 3],
+            [5.0, 1.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            0.0,
+        )
+        .expect("approach must report");
+        assert!(hit);
+        assert!(dist > 0.0 && dist < 5.0);
+    }
+
+    #[test]
+    fn rva_178c60_is_possible_coll_retains_negative_discriminant_and_unbounded_hit() {
+        // GAME 0x578c60: the negative discriminant is stored as `dist`
+        // rather than the `-1.0` used for zero relative motion.
+        let (miss_dist, hit) = is_possible_coll(
+            false,
+            [0.; 3],
+            [0.; 3],
+            [4., 1., 0.],
+            [0., 0., 1.],
+            0.3,
+        )
+        .unwrap();
+        assert!(!hit);
+        assert!(miss_dist < -1., "negative discriminant: {miss_dist}");
+
+        // The native method does not clamp its intersection time to a
+        // single simulation step. A tangent at t=2 is still a positive hit.
+        let (dist, hit) = is_possible_coll(
+            false,
+            [0.; 3],
+            [0.; 3],
+            [2., 1., 1.],
+            [-1., 0., 0.],
+            0.3,
+        )
+        .unwrap();
+        assert!(hit);
+        assert_eq!(dist, 2.);
+    }
+
+    #[test]
+    fn rva_16b180_add_to_cutscene_reports_boundary() {
+        // C_human::AddToCutscene GAME RVA 0x16b180 (VA 0x56b180).
+        assert_eq!(ADD_TO_CUTSCENE_ENTRY, 0x56b180);
+        assert_eq!(
+            add_to_cutscene(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x56b180 })
         );
     }
 }

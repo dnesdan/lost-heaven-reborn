@@ -13279,6 +13279,15 @@
       "symbol": "lhr_engine::model_loading::link_area_scene_ring",
       "tier": "differential",
       "evidence": "REA ev_7a6bbf2e93 + complete walk 6 insns; pin test link_area 1 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x178c60",
+      "va": "0x578c60",
+      "name": "C_human::IsPossibleColl",
+      "symbol": "lhr_engine::game_housekeeping::is_possible_coll",
+      "tier": "contract",
+      "evidence": "mafia-re 113b5b6 game/actors/C_human.cpp:4489-4533 source + Rust overlap/miss/zero-relative/tangent tests. REA/Ghidra 12.1.4 on Game.exe SHA 08398317c8dc... could not identify a procedure at 0x578c60; no original-body or runtime differential asserted. The collider-pointer output remains a caller responsibility."
     }
   ],
   "vm": {
