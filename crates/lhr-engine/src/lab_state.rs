@@ -57,6 +57,90 @@ pub enum LabTab {
     Vehicle,
     Diagnostics,
 }
+
+/// Redraw cadence observed by the host UI. This is not GPU time or simulation time.
+pub const FRAME_PACING_WINDOW: usize = 120;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(not(feature = "engine-lab"), allow(dead_code))] // Optional diagnostics UI.
+pub struct FramePacingStats {
+    pub samples: usize,
+    pub p50_ms: f32,
+    pub p95_ms: f32,
+    pub max_ms: f32,
+    pub over_60hz: usize,
+    pub over_30hz: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct FramePacing {
+    values: [f32; FRAME_PACING_WINDOW],
+    next: usize,
+    len: usize,
+}
+
+impl Default for FramePacing {
+    fn default() -> Self {
+        Self {
+            values: [0.; FRAME_PACING_WINDOW],
+            next: 0,
+            len: 0,
+        }
+    }
+}
+
+impl FramePacing {
+    pub fn reset(&mut self) {
+        self.next = 0;
+        self.len = 0;
+    }
+
+    pub fn record(&mut self, elapsed_ms: f32) {
+        if !elapsed_ms.is_finite() || elapsed_ms <= 0. {
+            return;
+        }
+        self.values[self.next] = elapsed_ms;
+        self.next = (self.next + 1) % FRAME_PACING_WINDOW;
+        self.len = (self.len + 1).min(FRAME_PACING_WINDOW);
+    }
+
+    /// Oldest first, including after the ring wraps.
+    #[cfg_attr(not(feature = "engine-lab"), allow(dead_code))]
+    pub fn intervals(&self) -> impl Iterator<Item = f32> + '_ {
+        let start = if self.len == FRAME_PACING_WINDOW {
+            self.next
+        } else {
+            0
+        };
+        (0..self.len).map(move |i| self.values[(start + i) % FRAME_PACING_WINDOW])
+    }
+
+    #[cfg_attr(not(feature = "engine-lab"), allow(dead_code))]
+    pub fn stats(&self) -> Option<FramePacingStats> {
+        if self.len == 0 {
+            return None;
+        }
+        // A stack snapshot avoids per-redraw allocations in long Lab runs.
+        let mut sorted = [0.; FRAME_PACING_WINDOW];
+        for (index, elapsed_ms) in self.intervals().enumerate() {
+            sorted[index] = elapsed_ms;
+        }
+        let values = &mut sorted[..self.len];
+        let over_60hz = values.iter().filter(|v| **v > 1000. / 60.).count();
+        let over_30hz = values.iter().filter(|v| **v > 1000. / 30.).count();
+        values.sort_unstable_by(f32::total_cmp);
+        let percentile = |percentage: usize| values[(self.len * percentage).div_ceil(100) - 1];
+        Some(FramePacingStats {
+            samples: self.len,
+            p50_ms: percentile(50),
+            p95_ms: percentile(95),
+            max_ms: values[self.len - 1],
+            over_60hz,
+            over_30hz,
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UiDrafts {
     pub tab: LabTab,
@@ -160,6 +244,7 @@ pub struct State {
     pub playback: lab_playback::Playback,
     pub settings: Settings,
     pub completed_frames: u64,
+    pub frame_pacing: FramePacing,
     pub drafts: UiDrafts,
     pub catalog: crate::lab_catalog::LabCatalog,
     pub status: String,
@@ -172,6 +257,7 @@ impl Default for State {
             playback: lab_playback::Playback::default(),
             settings: Settings::default(),
             completed_frames: 0,
+            frame_pacing: FramePacing::default(),
             drafts: UiDrafts::default(),
             catalog: crate::lab_catalog::LabCatalog::default(),
             status: "Ready".into(),
@@ -183,11 +269,13 @@ impl State {
     pub fn focus_lost(&mut self) {
         self.playback.focus_lost();
         self.settings.manual = driving_view::Controls::default();
+        self.frame_pacing.reset();
     }
 
     pub fn scene_reloaded(&mut self) {
         self.playback.reset();
         self.completed_frames = 0;
+        self.frame_pacing.reset();
         self.settings.selected_draw = None;
         self.settings.isolate_draw = false;
         self.settings.hide_selected = false;
@@ -307,6 +395,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn frame_pacing_keeps_latest_valid_intervals_and_nearest_rank_percentiles() {
+        let mut pacing = FramePacing::default();
+        assert_eq!(pacing.stats(), None);
+        for value in [f32::NAN, -1., 0., f32::INFINITY] {
+            pacing.record(value);
+        }
+        assert_eq!(pacing.stats(), None);
+        for i in 1..=130 {
+            pacing.record(i as f32);
+        }
+        assert_eq!(
+            pacing.intervals().collect::<Vec<_>>(),
+            (11..=130).map(|v| v as f32).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            pacing.stats(),
+            Some(FramePacingStats {
+                samples: 120,
+                p50_ms: 70.,
+                p95_ms: 124.,
+                max_ms: 130.,
+                over_60hz: 114,
+                over_30hz: 97,
+            })
+        );
+        pacing.reset();
+        assert_eq!(pacing.stats(), None);
+        pacing.record(16.0);
+        assert_eq!(pacing.intervals().collect::<Vec<_>>(), vec![16.]);
+        assert_eq!(pacing.stats().unwrap().p95_ms, 16.);
+        pacing.record(35.);
+        let mut state = State::default();
+        state.frame_pacing = pacing;
+        state.focus_lost();
+        assert_eq!(state.frame_pacing.stats(), None);
+    }
+
+    #[test]
     fn reload_clears_scene_local_edits_but_retains_environment_and_pause_choice() {
         let mut state = State::default();
         state.settings.environment.enabled = true;
@@ -318,6 +444,7 @@ mod tests {
         state.settings.manual.throttle = 1.;
         state.playback.request_step();
         state.completed_frames = 12;
+        state.frame_pacing.record(42.);
         state.scene_reloaded();
         assert_eq!(state.settings.transform, ModelTransform::default());
         assert_eq!(state.settings.selected_draw, None);
@@ -327,6 +454,7 @@ mod tests {
         assert!(state.settings.environment.enabled);
         assert_eq!(state.settings.fov_degrees, 65.);
         assert_eq!(state.completed_frames, 0);
+        assert_eq!(state.frame_pacing.stats(), None);
         assert!(state.playback.paused());
         assert_eq!(
             state.playback.take_frame_plan().advance,

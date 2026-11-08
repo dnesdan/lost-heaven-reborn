@@ -774,6 +774,7 @@ fn diagnostics_ui(ui: &mut egui::Ui, state: &State, d: &Diagnostics) {
             1000. / d.frame_ms
         ));
     }
+    frame_pacing_ui(ui, &state.frame_pacing);
     for line in [
         format!("Scene draws {} ({} source)", d.scene_draws, d.source_draws),
         format!("Vertices {}", d.vertices),
@@ -797,9 +798,93 @@ fn diagnostics_ui(ui: &mut egui::Ui, state: &State, d: &Diagnostics) {
     crate::lab_owner_ui::mission(ui, &d.owners);
 }
 
+fn frame_pacing_ui(ui: &mut egui::Ui, pacing: &crate::lab_state::FramePacing) {
+    let Some(stats) = pacing.stats() else {
+        ui.small("Frame pacing: collecting redraw samples");
+        return;
+    };
+    ui.monospace(format!(
+        "Last {} redraws  p50 {:.1} ms  p95 {:.1} ms  max {:.1} ms",
+        stats.samples, stats.p50_ms, stats.p95_ms, stats.max_ms
+    ));
+    ui.small(format!(
+        "Over 16.7 ms: {}  ·  Over 33.3 ms: {}  (redraw gaps, not GPU time)",
+        stats.over_60hz, stats.over_30hz
+    ));
+    let (response, painter) = ui.allocate_painter(
+        egui::vec2(ui.available_width().max(140.), 72.),
+        egui::Sense::hover(),
+    );
+    let bounds = response.rect;
+    painter.rect_filled(bounds, 3., Color32::from_rgb(23, 30, 37));
+    // One long OS stall must not flatten the remaining cadence history.
+    // Values above the chart scale are clipped, but stay exact in statistics.
+    let range_ms = (stats.p95_ms * 1.2).clamp(50., 250.);
+    for (target, color) in [
+        (1000. / 60., Color32::from_rgb(74, 113, 115)),
+        (1000. / 30., Color32::from_rgb(134, 103, 72)),
+    ] {
+        let y = bounds.bottom() - target / range_ms * bounds.height();
+        painter.line_segment(
+            [egui::pos2(bounds.left(), y), egui::pos2(bounds.right(), y)],
+            egui::Stroke::new(1_f32, color),
+        );
+    }
+    let width = bounds.width() / stats.samples as f32;
+    for (index, elapsed_ms) in pacing.intervals().enumerate() {
+        let x = bounds.left() + index as f32 * width;
+        let top = bounds.bottom() - (elapsed_ms / range_ms).min(1.) * bounds.height();
+        let color = if elapsed_ms > 1000. / 30. {
+            Color32::from_rgb(225, 103, 95)
+        } else if elapsed_ms > 1000. / 60. {
+            Color32::from_rgb(225, 185, 94)
+        } else {
+            Color32::from_rgb(92, 184, 157)
+        };
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(x, top),
+                egui::pos2((x + width * 0.85).min(bounds.right()), bounds.bottom()),
+            ),
+            0.,
+            color,
+        );
+    }
+    ui.small(format!(
+        "Guides: 60 / 30 Hz redraws; bars above {:.0} ms are clipped.",
+        range_ms
+    ));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostics_pacing_graph_renders_without_gpu_and_keeps_observed_samples() {
+        let context = egui::Context::default();
+        let mut state = State::default();
+        for ms in [9., 18., 35., 90.] {
+            state.frame_pacing.record(ms);
+        }
+        let before = state.frame_pacing.stats();
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(960., 640.),
+                )),
+                ..Default::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    diagnostics_ui(ui, &state, &Diagnostics::default());
+                });
+            },
+        );
+        assert!(!output.shapes.is_empty());
+        assert_eq!(state.frame_pacing.stats(), before);
+    }
 
     #[test]
     fn pointer_move_and_click_before_redraw_use_real_lab_areas_and_retain_drag() {

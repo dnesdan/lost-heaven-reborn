@@ -179,6 +179,11 @@ cargo run --locked -p lhr-engine --features engine-lab -- --root /path/to/Mafia 
 | Vehicle | Keyboard or manual throttle/brake/steering/handbrake, neutral inputs and actual control feedback. Requires driving mode. |
 | Diagnostics | Active source, camera pose, draw/triangle/vertex counts, frame interval, actual runtime counters, startup replacement rows, canonical mission intake counts and retained Scene/Car cleanup failures. |
 
+Diagnostics also shows a bounded 120-redraw history with p50, p95, maximum
+intervals and counts above the 60/30 Hz frame budgets. The bars report actual
+host redraw spacing (including stalls), not GPU timestamps or simulation time;
+focus changes and scene reloads reset the history.
+
 F1 toggles the panel, F2 pauses simulation, F3 dispatches one 16 ms step and F4
 reloads. Original scene/model owners retain a driver timeline for animated
 materials even when gameplay callbacks are unavailable. Procedural scenes have

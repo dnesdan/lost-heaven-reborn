@@ -112,6 +112,11 @@ impl App {
         if self.lab.is_none() {
             return Ok(());
         }
+        if matches!(event, WindowEvent::Focused(_)) {
+            // Focus gaps are not frame pacing data. The next redraw starts a
+            // fresh interval instead of inheriting time spent in the background.
+            self.last_lab_redraw = std::time::Instant::now();
+        }
         if matches!(event, WindowEvent::Focused(false)) {
             self.lab.as_mut().unwrap().focus_lost();
             self.keys.clear();
@@ -248,6 +253,11 @@ impl App {
         let frame_ms = now.duration_since(self.last_lab_redraw).as_secs_f32() * 1000.;
         self.last_lab_redraw = now;
         self.lab_delta_seconds = (frame_ms * 0.001).clamp(0., 0.1);
+        if self.window.as_ref().is_none_or(|window| window.has_focus()) {
+            if let Some(lab) = self.lab.as_mut() {
+                lab.frame_pacing.record(frame_ms);
+            }
+        }
         let (car, feedback) = if self.options.car_driving {
             let owner = self.car.as_mut().ok_or("Engine Lab has no driving owner")?;
             (
