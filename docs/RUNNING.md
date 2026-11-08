@@ -55,6 +55,12 @@ execute gameplay. Pass `--probe-model-dir Models` explicitly for model intake;
 its intentional default is an empty directory list, so a run without that
 argument proves no model geometry.
 
+The live mission owner now binds the `C_mission::Open` mute/restore effects
+and the first `Tick` restore-volume gate to the shared Rust PCM master gain.
+`skip_frames` delays that one-shot Tick effect; an interrupted audio write
+retains the already-consumed flag. This is bounded host audio behavior, not a
+complete mission Tick, native DirectSound volume curve or playable GameInit.
+
 Historically at engine `041eed8`, INTRO's CPU probe completed source loading and
 exited 0, while MISE01's CPU probe intentionally exited 1 at unsupported car
 actor kind 4, cursor 3,805,059; both disposed all tracked owners, without

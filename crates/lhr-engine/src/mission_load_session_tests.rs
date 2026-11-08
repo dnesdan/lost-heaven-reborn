@@ -686,6 +686,66 @@ fn initialized_host_audio_creates_and_releases_actual_listener() {
 }
 
 #[test]
+fn mission_tick_head_restores_real_pcm_master_gain_once_after_skipped_frames() {
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    assert_eq!(session.tick_restore_volume_head(), Err("mission tick requires completed Open".into()));
+    load(&mut session, &[]).unwrap();
+    // Stage the already loaded owner at the native post-Open boundary.
+    session.mark_open_mission_opened().unwrap();
+    session.set_open_configured_volume(0.6).unwrap();
+    assert_eq!(session.audio().master_gain().unwrap(), 1.0);
+    session.mute_audio_and_render_for_open().unwrap();
+    assert_eq!(session.audio().master_gain().unwrap(), 0.0);
+    session.mark_open_restore_volume().unwrap();
+    session.set_skip_frames_for_tick(2).unwrap();
+    assert_eq!(session.tick_restore_volume_head(), Ok(false));
+    assert!(session.open_restore_volume());
+    assert_eq!(session.audio().master_gain().unwrap(), 0.0);
+    session.set_skip_frames_for_tick(0).unwrap();
+    assert_eq!(session.tick_restore_volume_head(), Ok(true));
+    assert!(!session.open_restore_volume());
+    assert_eq!(session.open_restored(), Some(0.6));
+    assert_eq!(session.audio().master_gain().unwrap(), 0.6);
+    session.set_open_configured_volume(0.3).unwrap();
+    assert_eq!(session.tick_restore_volume_head(), Ok(false));
+    assert_eq!(session.audio().master_gain().unwrap(), 0.6);
+    discard(&mut session);
+    assert_eq!(session.set_skip_frames_for_tick(1), Err("terminal discard entered".into()));
+}
+
+#[test]
+fn mission_tick_head_consumes_restore_before_a_refused_audio_write() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    session.mark_open_mission_opened().unwrap();
+    session.mute_audio_and_render_for_open().unwrap();
+    session.set_open_configured_volume(1.5).unwrap();
+    session.mark_open_restore_volume().unwrap();
+    assert!(session.tick_restore_volume_head().unwrap_err().contains("master volume outside host mixer domain"));
+    assert!(!session.open_restore_volume());
+    assert_eq!(session.open_restored(), None);
+    assert_eq!(session.audio().master_gain().unwrap(), 0.0);
+    assert_eq!(session.tick_restore_volume_head(), Ok(false));
+    discard(&mut session);
+}
+
+#[test]
+fn mission_tick_head_consumes_flag_even_when_sound_owner_is_absent() {
+    let fixture = Fixture::new(None, None, None);
+    let mut session = fixture.session();
+    session.mark_open_mission_opened().unwrap();
+    session.mark_open_restore_volume().unwrap();
+    session.set_skip_frames_for_tick(-1).unwrap();
+    assert!(!session.audio_present_for_open());
+    assert_eq!(session.tick_restore_volume_head(), Ok(true));
+    assert!(!session.open_restore_volume());
+    assert_eq!(session.open_restored(), None);
+    assert_eq!(session.tick_restore_volume_head(), Ok(false));
+}
+
+#[test]
 fn scene2_sound_open_uses_real_cache_pcm_owners_and_terminal_release() {
     let bytes = scene2(&chunk(0x4000, &sound_object(b"a.wav\0")));
     let fixture = Fixture::new(Some(&world(&[])), Some(&bytes), None);

@@ -413,6 +413,9 @@ struct Mixer {
     listener_right: [f32; 3],
     listener_sector: Option<u32>,
     camera_present: bool,
+    /// Host PCM master gain. This is the audible backend for the mission's
+    /// ISND driver volume effect, not a claim of DirectSound logarithmic parity.
+    master_gain: f32,
     clock_ms: f64,
     mixed_frames: u64,
     source_projections: BTreeMap<String, SourceProjection>,
@@ -454,6 +457,7 @@ impl Default for RuntimeAudio {
             listener_right: [1.0, 0.0, 0.0],
             listener_sector: None,
             camera_present: false,
+            master_gain: 1.0,
             clock_ms: 0.0,
             mixed_frames: 0,
             source_projections: BTreeMap::new(),
@@ -463,6 +467,22 @@ impl Default for RuntimeAudio {
 }
 
 impl RuntimeAudio {
+    /// Set the host PCM master volume shared with the device playback thread.
+    /// Only finite gains in [0, 1] have a defined host-mixer admission; the
+    /// original ISND driver's wider numeric contract is a separate boundary.
+    /// Silencing the mix must still advance active voices and the audio clock.
+    pub fn set_master_gain(&self, gain: f32) -> Result<()> {
+        if !gain.is_finite() || !(0.0..=1.0).contains(&gain) {
+            return Err(AudioError("master volume outside host mixer domain".into()));
+        }
+        self.lock()?.master_gain = gain;
+        Ok(())
+    }
+
+    pub fn master_gain(&self) -> Result<f32> {
+        Ok(self.lock()?.master_gain)
+    }
+
     pub fn record_load_failure(&self, sound: u32, name: &str, reason: &AudioError) -> Result<()> {
         self.lock()?.load_failures.push(AudioLoadFailure {
             sound,
@@ -1040,8 +1060,9 @@ impl RuntimeAudio {
             sound.clock_ms = next_clock as u64 as u32;
         }
         mixer.clock_ms = next_clock;
+        let master_gain = mixer.master_gain;
         for sample in output.iter_mut() {
-            *sample = sample.clamp(-1.0, 1.0);
+            *sample = (*sample * master_gain).clamp(-1.0, 1.0);
         }
         mixer.mixed_frames = mixer.mixed_frames.saturating_add((output.len() / 2) as u64);
         Ok(())
@@ -1606,6 +1627,29 @@ mod tests {
         assert!(!audio.owns(0x1000));
         audio.create_sound_at(0x1000).unwrap();
         assert!(!audio.sound(0x1000).unwrap().is_playing());
+    }
+
+    #[test]
+    fn host_master_gain_mutes_pcm_without_stopping_the_live_voice() {
+        let audio = loaded();
+        let device = audio.clone();
+        audio.sound_virtual(0x1000, 0x6c, &[1]).unwrap(); // loop the four-frame fixture
+        audio.sound_virtual(0x1000, 0x24, &[1]).unwrap();
+        assert_eq!(device.master_gain().unwrap(), 1.0);
+        audio.set_master_gain(0.0).unwrap();
+        let mut out = [1.0; 8];
+        device.mix_stereo(4, &mut out).unwrap();
+        assert_eq!(out, [0.0; 8]);
+        assert!(audio.sound(0x1000).unwrap().voice_playing);
+        assert_eq!(audio.mixed_frames().unwrap(), 4);
+        audio.set_master_gain(0.5).unwrap();
+        device.mix_stereo(4, &mut out).unwrap();
+        assert_eq!(out, [0., 0., 0.125, 0.125, 0.25, 0.25, -0.125, -0.125]);
+        assert_eq!(audio.mixed_frames().unwrap(), 8);
+        for invalid in [f32::NAN, f32::INFINITY, -0.5, 1.5] {
+            assert!(audio.set_master_gain(invalid).is_err());
+            assert_eq!(device.master_gain().unwrap(), 0.5);
+        }
     }
 
     #[test]

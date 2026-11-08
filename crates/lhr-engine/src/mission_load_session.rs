@@ -383,6 +383,9 @@ pub struct MissionLoadSession {
     base_cache: CityBaseCache,
     police_init: PoliceGameInitState,
     traffic_flags: TrafficGameFlags,
+    /// The existing C_mission counter owner also supplies the skip_frames
+    /// gate read by the first effect in C_mission::Tick (GAME 0x5407e0).
+    mission_counters: crate::mission_actor_lists::MissionCounterState,
     /// Native `C_mission::Open` progress mode (`_can_show_progress_` at
     /// 0x646db0): 0 cleared, 1 when `cache.bin` probes present, 2 after
     /// `OpenBin`. Read live by `ShowProgress`; only 1 advances to 2.
@@ -452,6 +455,7 @@ impl MissionLoadSession {
             // into them after `Open`. No teardown: pure scalar state.
             police_init: PoliceGameInitState::default(),
             traffic_flags: TrafficGameFlags::default(),
+            mission_counters: crate::mission_actor_lists::MissionCounterState::default(),
             open_cache_progress: 0,
             open_restore_volume: false,
             open_mission_opened: false,
@@ -733,6 +737,44 @@ impl MissionLoadSession {
         self.open_restore_volume
     }
 
+    /// Native `C_mission::SetSkipFrames` counter, read live by the Tick head.
+    pub fn set_skip_frames_for_tick(&mut self, frames: i32) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        self.mission_counters.set_skip_frames(frames);
+        Ok(())
+    }
+
+    pub fn skip_frames_for_tick(&self) -> i32 {
+        self.mission_counters.get_skip_frames()
+    }
+
+    /// The first C_mission::Tick effect (GAME RVA 0x1407e0, VA 0x5407e0):
+    /// when skip_frames < 1, clear restore_volume BEFORE calling the audio
+    /// owner. If the gain cannot be applied, this flag stays consumed, exactly
+    /// preserving the reached original state; a retry must never replay it.
+    /// Further Tick calls (tshift, Scene, driver, Game and fading objects)
+    /// have distinct owners and remain outside this bounded head operation.
+    /// This is host PCM behavior, not original DirectSound numeric parity.
+    pub fn tick_restore_volume_head(&mut self) -> Result<bool, String> {
+        self.open_terminal_guard()?;
+        if !self.open_mission_opened {
+            return Err("mission tick requires completed Open".into());
+        }
+        if !crate::mission_actor_lists::tick_consume_restore_volume(
+            &mut self.open_restore_volume,
+            self.mission_counters.get_skip_frames(),
+        ) {
+            return Ok(false);
+        }
+        if self.audio_present_for_open() {
+            self.audio
+                .set_master_gain(self.open_configured_volume)
+                .map_err(|error| format!("Tick restore audio: {error}"))?;
+            self.open_restored = Some(self.open_configured_volume);
+        }
+        Ok(true)
+    }
+
     /// Native `opened` flag (mission +0xc).
     pub fn open_mission_opened(&self) -> bool {
         self.open_mission_opened
@@ -991,6 +1033,11 @@ impl MissionLoadSession {
         if !self.audio_present_for_open() {
             return Err("audio owner absent".into());
         }
+        // Original mute precedes Render and the restore flag store. The host
+        // mixer owns the audible effect, while scene Render is still pending.
+        self.audio
+            .set_master_gain(0.0)
+            .map_err(|error| format!("Open mute audio: {error}"))?;
         self.open_muted = true;
         Ok(())
     }
@@ -1036,6 +1083,9 @@ impl MissionLoadSession {
         if !self.open_configured_volume.is_finite() {
             return Err("configured volume unavailable".into());
         }
+        self.audio
+            .set_master_gain(self.open_configured_volume)
+            .map_err(|error| format!("Open restore audio: {error}"))?;
         self.open_restored = Some(self.open_configured_volume);
         Ok(())
     }
