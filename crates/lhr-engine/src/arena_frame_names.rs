@@ -40,6 +40,20 @@ impl ModelArena {
     pub fn original_name_pointer(&self, key: FrameKey) -> Result<OriginalFrameName, ModelError> {
         Ok(self.frame(key)?.name_pointer)
     }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetOrigName` read
+    /// (mafia-re ls3df/I3D/I3D.h:589-593). The reference records no LS3DF
+    /// FUNCTION address for it and no Game.exe out-of-line copy either:
+    /// both binaries inline it. Reports the frame's own name (the model
+    /// prefix is stripped by the model propagation, not here); an unset
+    /// name reads as empty, like the native `m_pOrigName ? m_pOrigName
+    /// : ""`. No cache moves.
+    pub fn frame_orig_name(&self, key: FrameKey) -> Result<&[u8], ModelError> {
+        Ok(self
+            .frame(key)?
+            .original_name_bytes
+            .as_deref()
+            .unwrap_or(b""))
+    }
     fn insertion_name(&self, key: FrameKey) -> Result<&[u8], ModelError> {
         let frame = self.frame(key)?;
         if frame.name_is_null {
@@ -315,5 +329,19 @@ mod tests {
         assert!(arena.original_name_pointer(FrameKey(u32::MAX)).is_err());
         arena.release(key).unwrap();
         assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn frame_orig_name_reads_unset_as_empty() {
+        // Working name for inlined I3D_frame::GetOrigName (I3D.h:589-593):
+        // no LS3DF FUNCTION address and no Game.exe copy exist.
+        let mut arena = ModelArena::default();
+        let key = arena.create_dummy_frame().unwrap();
+        assert_eq!(arena.frame_orig_name(key).unwrap(), b"");
+        arena.set_frame_name(key, Some(b"frame")).unwrap();
+        assert_eq!(arena.frame_orig_name(key).unwrap(), b"frame");
+        arena.set_frame_name(key, None).unwrap();
+        assert_eq!(arena.frame_orig_name(key).unwrap(), b"");
+        assert!(arena.frame_orig_name(FrameKey(u32::MAX)).is_err());
+        arena.release(key).unwrap();
     }
 }

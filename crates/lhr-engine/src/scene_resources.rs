@@ -274,6 +274,46 @@ impl SceneResources {
         }
         Ok(SMatrix { elements })
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the stored viewport center words at +0x180 the occupied
+    /// `SetViewport` setter (PC RVA 0x4a9a0; mafia-re ls3df/I3D/I3D.h:1559
+    /// `viewport_center`) stores. The original exposes no
+    /// `I3D_scene::GetViewportCenter`. A construction without a prior
+    /// `SetViewport` is an explicit domain error (no invented center).
+    pub fn scene_viewport_center_of(
+        &self,
+        scene: SceneKey,
+    ) -> Result<[f32; 2], SceneResourceError> {
+        Ok(self
+            .construction(scene)
+            .ok_or(SceneResourceError::UnknownConstruction(scene))?
+            .viewport_projection
+            .as_ref()
+            .ok_or(SceneResourceError::UnsupportedDomain(
+                "scene viewport projection unavailable",
+            ))?
+            .center)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the stored viewport half-extent words at +0x208 the occupied
+    /// `SetViewport` setter (PC RVA 0x4a9a0; mafia-re ls3df/I3D/I3D.h:1562
+    /// `viewport_size_half`) stores. The original exposes no
+    /// `I3D_scene::GetViewportHalfExtent`. A construction without a prior
+    /// `SetViewport` is an explicit domain error (no invented halves).
+    pub fn scene_viewport_half_extent_of(
+        &self,
+        scene: SceneKey,
+    ) -> Result<[f32; 2], SceneResourceError> {
+        Ok(self
+            .construction(scene)
+            .ok_or(SceneResourceError::UnknownConstruction(scene))?
+            .viewport_projection
+            .as_ref()
+            .ok_or(SceneResourceError::UnsupportedDomain(
+                "scene viewport projection unavailable",
+            ))?
+            .half_extent)
+    }
     /// I3D_scene::TransformPoints, PC RVA 0x49e60 (differential: Ghidra body
     /// 94 insns/~7 BBs, 2 RETs). Camera first (absent -> NoActiveCamera, the
     /// 0x80000009 word via NOT_INITIALIZED), then screen halves in native
@@ -1541,6 +1581,48 @@ mod tests {
             )),
             Err(SceneResourceError::UnknownConstruction(_))
         ));
+    }
+    #[test]
+    fn viewport_center_and_half_extent_read_setter_written_words() {
+        let mut arena = ModelArena::default();
+        let mut shared = SceneResources::default();
+        let mut textures = TextureResources::new().unwrap();
+        let mut storage = CpuTextureStorage::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        shared
+            .continue_constructor(
+                &arena,
+                scene,
+                &mut Screen(Vec::new()),
+                &mut textures,
+                &mut Images {
+                    reads: 0,
+                    missing: true,
+                },
+                &mut storage,
+            )
+            .unwrap();
+        // Halves require a prior SetViewport (no invented projection).
+        assert!(matches!(
+            shared.scene_viewport_center_of(scene),
+            Err(SceneResourceError::UnsupportedDomain(_))
+        ));
+        assert!(matches!(
+            shared.scene_viewport_half_extent_of(scene),
+            Err(SceneResourceError::UnsupportedDomain(_))
+        ));
+        shared.set_viewport(&arena, scene, [1, 2, 800, 600]).unwrap();
+        // Viewport [1, 2, 800, 600]: halves [(800-1)*0.5, (2-600)*0.5],
+        // center [1 + 399.5, 2 - (-299)].
+        assert_eq!(
+            shared.scene_viewport_half_extent_of(scene).unwrap(),
+            [399.5, -299.]
+        );
+        assert_eq!(
+            shared.scene_viewport_center_of(scene).unwrap(),
+            [400.5, 301.]
+        );
+        assert_eq!(shared.scene_viewport_rect(scene).unwrap(), [1, 2, 800, 600]);
     }
 
     #[test]

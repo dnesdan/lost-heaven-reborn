@@ -345,6 +345,16 @@ pub fn frame_flags_after_set_local_matrix(flags: u32) -> u32 {
 pub fn frame_flags_after_set_dir1(flags: u32) -> u32 {
     (flags & !(0x100 | 0x20 | 0x08 | 0x04)) | 0x4000_0000 | 0x10
 }
+/// Working name for the flag word written by the LS3DF-inlined
+/// `I3D_frame::SetScale` (mafia-re ls3df/I3D/I3D.h:483-493). The reference
+/// records no LS3DF FUNCTION address for it (header inline; the only
+/// out-of-line copy is Game.exe 0x47a750, which is not claimed here).
+/// Clears HR_BOUND_W_VALID, WMAT_VALID, MAT_VALID and ROT_VALID, then sets
+/// UPDATE and QUAT_VALID. The scale store and the conditional Make call
+/// stay caller-owned (covered by `assign_scale`).
+pub fn frame_flags_after_set_scale(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20 | 0x10 | 0x04)) | 0x4000_0000 | 0x08
+}
 /// Working name for the flag effects of the LS3DF-inlined
 /// `I3D_frame::UpdateMatrix` (mafia-re ls3df/I3D/I3D.h:382-405). The
 /// reference records LS3DF 0x1001a6e0 for the out-of-line copy, but that
@@ -1069,6 +1079,30 @@ impl I3dFrameGraph {
         let state = &mut self.node_mut(key)?.state;
         state.rotation = rotation;
         state.flags = (state.flags & 0xfffffecb) | 0x40000008;
+        Ok(())
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::SetLocalMatrix`
+    /// (mafia-re ls3df/I3D/I3D.h:495-503). The reference records no LS3DF
+    /// FUNCTION address for it (header inline compiled into LS3DF callers;
+    /// the file notes inline sites but no out-of-line copy in either
+    /// binary). Makes the input the local matrix, remakes the scale from
+    /// its basis rows through the `GetScale` projection, then clears
+    /// WMAT_VALID and QUAT_VALID and sets UPDATE, MAT_VALID and ROT_VALID.
+    /// The scale is remade from the input before any store, so a
+    /// host-unavailable scale leaves the prior matrix, scale and flags
+    /// untouched (native has no failure; disclosed reorder).
+    pub fn store_frame_local_matrix(
+        &mut self,
+        key: FrameKey,
+        matrix: SMatrix,
+    ) -> Result<(), FrameError> {
+        let scale = matrix
+            .try_get_scale()
+            .map_err(|_| FrameError::NumericDomain("SetLocalMatrix GetScale"))?;
+        let state = &mut self.node_mut(key)?.state;
+        state.local = matrix;
+        state.scale = scale;
+        state.flags = (state.flags & 0xffffffd7) | 0x40000014;
         Ok(())
     }
     /// Working name for the LS3DF-inlined `I3D_frame::SetDir1`
@@ -5233,6 +5267,51 @@ mod tests {
             frame_flags_after_set_dir1(0x100 | 0x20 | 0x08 | 0x04 | 0x3333),
             (0x3333 & !(0x100 | 0x20 | 0x08 | 0x04)) | 0x4000_0000 | 0x10
         );
+    }
+    #[test]
+    fn frame_flags_after_set_scale_clears_matrix_caches() {
+        // Working name for inlined I3D_frame::SetScale (I3D.h:483-493):
+        // no LS3DF FUNCTION address exists (only Game.exe 0x47a750).
+        assert_eq!(frame_flags_after_set_scale(0), 0x4000_0000 | 0x08);
+        assert_eq!(
+            frame_flags_after_set_scale(0x100 | 0x20 | 0x10 | 0x04 | 0x3333),
+            (0x3333 & !(0x100 | 0x20 | 0x10 | 0x04)) | 0x4000_0000 | 0x08
+        );
+    }
+    #[test]
+    fn store_frame_local_matrix_remakes_scale_and_matched_caches() {
+        // Working name for inlined I3D_frame::SetLocalMatrix (I3D.h:495-503):
+        // no LS3DF FUNCTION address exists in either binary.
+        use crate::native_transform::SMatrix;
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        let matrix = SMatrix {
+            elements: [
+                2., 0., 0., 0., //
+                0., 3., 0., 0., //
+                0., 0., 4., 0., //
+                5., 6., 7., 1.,
+            ],
+        };
+        graph.store_frame_local_matrix(key, matrix).unwrap();
+        assert_eq!(graph.state(key).unwrap().scale, [2., 3., 4.]);
+        assert_eq!(
+            graph.state(key).unwrap().local.elements[12..15],
+            [5., 6., 7.]
+        );
+        assert_eq!(graph.state(key).unwrap().flags, 0x4000_0015);
+        assert!(graph.store_frame_local_matrix(FrameKey(u32::MAX), matrix).is_err());
+        let bad = SMatrix {
+            elements: [
+                f32::NAN, 0., 0., 0., //
+                0., 1., 0., 0., //
+                0., 0., 1., 0., //
+                0., 0., 0., 1.,
+            ],
+        };
+        assert!(graph.store_frame_local_matrix(key, bad).is_err());
+        assert_eq!(graph.state(key).unwrap().scale, [2., 3., 4.]);
+        assert_eq!(graph.state(key).unwrap().flags, 0x4000_0015);
     }
     #[test]
     fn frame_flags_after_update_matrix_picks_the_stale_branch() {

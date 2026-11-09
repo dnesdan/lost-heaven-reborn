@@ -190,6 +190,39 @@ pub fn sector_occluder_hides(sector_flags: u32) -> bool {
 pub fn sector_culls_frames_only(sector_flags: u32) -> bool {
     sector_flags & SCTF_CULLED != 0 && sector_flags & SCTF_FAR_NO_CHILDREN != 0
 }
+impl ModelArena {
+    /// Working name for the whole `sct_flags` word read at +0x1d0
+    /// (mafia-re ls3df/I3D/I3D.h:966, SCTF_*). The reference records no
+    /// LS3DF FUNCTION address for a whole-word getter: only single-bit
+    /// tests are inlined, and the word itself is stored by the constructor
+    /// (`sct_flags = SCTF_VISIBLE | SCTF_SOUND_CHANGED`, mafia-re
+    /// ls3df/I3D/frames/I3d_sector.cpp:109), `MakeReady`, `Duplicate` and
+    /// the loader. Reports the live word; no state moves.
+    pub fn sector_flags_word(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.sector_flags)
+    }
+    /// Working name for the sector light-list count at +0x144
+    /// (mafia-re ls3df/I3D/I3D.h:962). The reference records no LS3DF
+    /// FUNCTION address for a count getter: only `AddLight`/`DeleteLight`
+    /// mutate the list. Reports the live count; no state moves.
+    pub fn sector_light_count(&self, key: SectorKey) -> Result<usize, ModelError> {
+        Ok(self.sector(key)?.lights.len())
+    }
+    /// Working name for the sector sound-list count at +0x158
+    /// (mafia-re ls3df/I3D/I3D.h:964). The reference records no LS3DF
+    /// FUNCTION address for a count getter: only `AddSound`/`DeleteSound`
+    /// mutate the list. Reports the live count; no state moves.
+    pub fn sector_sound_count(&self, key: SectorKey) -> Result<usize, ModelError> {
+        Ok(self.sector(key)?.sounds.len())
+    }
+    /// Working name for the `num_fog_lights` fog-selection count at +0x154
+    /// (mafia-re ls3df/I3D/I3D.h:963). The reference records no LS3DF
+    /// FUNCTION address for a count getter: the word is maintained by the
+    /// `AddLight`/fog-select paths. Reports the live word; no state moves.
+    pub fn sector_num_fog_lights(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.num_fog_lights)
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SectorBufferKey {
     domain: u64,
@@ -1255,6 +1288,23 @@ mod tests {
         assert!(!sector_is_visible(0));
         assert!(!sector_is_visible(SCTF_PREPARED));
         assert!(!sector_is_visible(u32::MAX & !SCTF_VISIBLE));
+    }
+    #[test]
+    fn sector_word_and_list_counts_read_ctor_state() {
+        // Working names for the sct_flags word (+0x1d0), the light/sound
+        // list counts (+0x144/+0x158) and num_fog_lights (+0x154): no LS3DF
+        // FUNCTION addresses exist for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        assert_eq!(arena.sector_flags_word(key), Ok(0x801));
+        assert_eq!(arena.sector_light_count(key), Ok(0));
+        assert_eq!(arena.sector_sound_count(key), Ok(0));
+        assert_eq!(arena.sector_num_fog_lights(key), Ok(0));
+        let unknown = SectorKey(crate::frame_transform::FrameKey(u32::MAX));
+        assert!(arena.sector_flags_word(unknown).is_err());
+        assert!(arena.sector_light_count(unknown).is_err());
+        assert!(arena.sector_sound_count(unknown).is_err());
+        assert!(arena.sector_num_fog_lights(unknown).is_err());
     }
     #[test]
     fn sector_prepared_reports_only_bit_two() {

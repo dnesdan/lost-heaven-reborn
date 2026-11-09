@@ -1317,6 +1317,25 @@ impl ModelArena {
         self.scene(scene)?;
         Ok(0)
     }
+    /// Working name for the in-class empty `I3D_scene::vfunc_66`
+    /// (mafia-re ls3df/I3D/I3D.h:1529-1530; PC only, the name is a guess).
+    /// No LS3DF FUNCTION address exists for it and the reference marks no
+    /// Game.exe out-of-line copy either; the body is empty, so both words
+    /// are accepted and ignored with no state change beyond handle
+    /// validation.
+    pub fn scene_vfunc_66_noop(&self, scene: SceneKey, _a: u32, _b: u32) -> Result<(), ModelError> {
+        self.scene(scene)?;
+        Ok(())
+    }
+    /// Working name for the sector ring head read at scene +0x264
+    /// (mafia-re `ls3df/I3D/I3D.h:1575-1577`). No LS3DF FUNCTION address
+    /// exists for a head getter: the ring is walked directly by the portal
+    /// connection and `MakeReadySectors` passes. Borrows the live head
+    /// link; the ring linkage itself stays with the sector join/leave
+    /// paths. Unknown scenes are an explicit host error.
+    pub fn scene_sector_head(&self, scene: SceneKey) -> Result<Option<SectorKey>, ModelError> {
+        Ok(self.scene(scene)?.sector_head)
+    }
     /// Working name for the LS3DF-inlined `I3D_scene::SetFrameSector`
     /// (mafia-re ls3df/I3D/I3D.h:5096-5100). No LS3DF FUNCTION address
     /// exists for it; the only out-of-line copy is Game.exe 0x47adf0, which
@@ -1865,6 +1884,23 @@ mod tests {
         assert_eq!(arena.scene_near_sector(scene), Ok(sectors[3]));
         assert_eq!(arena.scene_occluders_changed(scene), Ok(false));
         assert_eq!(arena.scene_areas_changed(scene), Ok(false));
+    }
+    #[test]
+    fn scene_empty_vfunc_66_and_sector_head_read_ctor_state() {
+        // Working names for the in-class empty vfunc_66 (I3D.h:1529-1530)
+        // and the sector ring head at +0x264: no LS3DF FUNCTION entries.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        arena.scene_vfunc_66_noop(scene, 1, 2).unwrap();
+        arena.scene_vfunc_66_noop(scene, u32::MAX, u32::MAX).unwrap();
+        assert_eq!(arena.scene_sector_head(scene), Ok(None));
+        let sector = arena.create_sector_frame().unwrap();
+        arena.sector_add_to_scene_ring(sector, Some(scene)).unwrap();
+        assert_eq!(arena.scene_sector_head(scene), Ok(Some(sector)));
+        assert!(arena
+            .scene_sector_head(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
+        assert!(arena.scene_vfunc_66_noop(SceneKey(FrameKey(u32::MAX)), 0, 0).is_err());
     }
     #[test]
     fn fog_sector_membership_selects_latest_on_light_and_releases_reciprocals() {

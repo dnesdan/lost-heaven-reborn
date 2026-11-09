@@ -161,6 +161,7 @@ const W_RANGE_X: usize = 0x2b8 / 4;
 const W_RANGE_Y: usize = 0x2bc / 4;
 const W_COUNT: usize = 0x2c0 / 4;
 const W_WIND: usize = 0x2c8 / 4;
+const W_WIND_RESET: usize = 0x2d4 / 4;
 const W_COLOR: usize = 0x320 / 4;
 const W_COLOR_2: usize = 0x324 / 4;
 const W_RANGE: usize = 0x328 / 4;
@@ -388,6 +389,19 @@ pub fn weather_mode(flags: u32) -> u32 {
     } else {
         0
     }
+}
+/// Working name for the reset-wind snapshot read at +0x2d4 (mafia-re
+/// ls3df/I3D/I3D.h:1599 `ws_dir`, the wind when it was reset). The
+/// reference records no LS3DF FUNCTION address for a standalone reader:
+/// the words are written by `WeatherSystemReset` alongside the live wind
+/// (PC RVA 0x4b3b0, already occupied) and never through a getter. Reports
+/// the stored words bit-exactly; no state moves.
+pub fn weather_reset_wind(scene: &[u32; SCENE_WORDS]) -> [f32; 3] {
+    [
+        f32::from_bits(scene[W_WIND_RESET]),
+        f32::from_bits(scene[W_WIND_RESET + 1]),
+        f32::from_bits(scene[W_WIND_RESET + 2]),
+    ]
 }
 
 /// WE_STRUCT corner reshaping shared by SetParam(update=2) and Update alloc,
@@ -640,6 +654,22 @@ mod tests {
         assert!(weather_tests_dummy_boxes(WSF_DUMMY_TEST));
         assert!(!weather_tests_dummy_boxes(WSF_ON));
         assert!(!weather_tests_dummy_boxes(0));
+    }
+    #[test]
+    fn weather_reset_wind_reads_the_reset_snapshot_words() {
+        // Working name for ws_dir at +0x2d4 (I3D.h:1599): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        let scene = [0u32; SCENE_WORDS];
+        assert_eq!(weather_reset_wind(&scene), [0., 0., 0.]);
+        let mut state = crate::native_precision::Pc24PrecisionState::default();
+        let mut reset = [0u32; SCENE_WORDS];
+        state.run(|| weather_system_reset(&mut reset)).unwrap();
+        let wind = weather_reset_wind(&reset);
+        assert!(wind.iter().all(|v| v.is_finite()));
+        assert_eq!(
+            wind.map(f32::to_bits),
+            [reset[W_WIND], reset[W_WIND + 1], reset[W_WIND + 2]]
+        );
     }
     #[test]
     fn weather_mode_reports_mode_1_then_mode_2_then_none() {
