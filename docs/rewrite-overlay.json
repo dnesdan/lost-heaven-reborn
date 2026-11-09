@@ -15294,7 +15294,7 @@
       "name": "C_human::ShiftAnimation",
       "symbol": "lhr_engine::human_actor::HumanState::shift_animation_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_ab1f5d8648 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15303,7 +15303,7 @@
       "name": "C_human::ChangeState",
       "symbol": "lhr_engine::human_actor::HumanState::change_state_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_c3670db038 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15312,7 +15312,7 @@
       "name": "C_human::CreateDynColls",
       "symbol": "lhr_engine::human_actor::HumanState::create_dyn_colls_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_055f91c523 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15321,7 +15321,7 @@
       "name": "C_human::EraseDynColls",
       "symbol": "lhr_engine::human_actor::HumanState::erase_dyn_colls_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_13c83a4719 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15330,7 +15330,7 @@
       "name": "C_human::UpdateDynColl",
       "symbol": "lhr_engine::human_actor::HumanState::update_dyn_coll_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_124430532c (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15339,7 +15339,7 @@
       "name": "C_human::PoseSetPoseNormal",
       "symbol": "lhr_engine::human_actor::HumanState::pose_set_pose_normal_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_79f0757796 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15348,7 +15348,7 @@
       "name": "C_human::PoseSetPoseAimed",
       "symbol": "lhr_engine::human_actor::HumanState::pose_set_pose_aimed_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_7ac60c53bf (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15357,7 +15357,7 @@
       "name": "C_human::ChangeWeaponModel",
       "symbol": "lhr_engine::human_actor::HumanState::change_weapon_model_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_7ae08a9c7a (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15366,7 +15366,7 @@
       "name": "C_human::DropOutItems",
       "symbol": "lhr_engine::human_actor::HumanState::drop_out_items_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_9633696bce (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15375,7 +15375,7 @@
       "name": "C_human::ZasrateLezeniZAuta_ve2rano",
       "symbol": "lhr_engine::human_actor::HumanState::zasrate_lezeni_ve2rano_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_100dc122a6 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15384,7 +15384,7 @@
       "name": "C_human::ZasrateVybliknutiZAuta_ve3rano",
       "symbol": "lhr_engine::human_actor::HumanState::zasrate_vybliknuti_ve3rano_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_7adbd6935d (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15393,7 +15393,7 @@
       "name": "C_human::_intern_ForceDeath",
       "symbol": "lhr_engine::human_actor::HumanState::intern_force_death_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_00221770ac (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15402,7 +15402,7 @@
       "name": "C_human::_intern_ThrowMeFromCar",
       "symbol": "lhr_engine::human_actor::HumanState::intern_throw_me_from_car_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_731f1ffcee (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15411,7 +15411,7 @@
       "name": "C_human::Activate",
       "symbol": "lhr_engine::human_actor::HumanState::activate_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_b4520c2de6 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -15420,7 +15420,7 @@
       "name": "C_human::Deactivate",
       "symbol": "lhr_engine::human_actor::HumanState::deactivate_unsupported",
       "tier": "contract",
-      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+      "evidence": "REA ev_51eda226e6 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
