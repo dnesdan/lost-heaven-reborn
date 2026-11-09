@@ -19,6 +19,43 @@ pub const ENUM_OK: u32 = 0;
 pub const ENUM_SKIPCHILDREN: u32 = 1;
 pub const ENUM_CANCEL: u32 = 2;
 pub const ENUM_CANCELED: u32 = 0x8000_000d;
+/// Working name for the `ENUMF_BACKDROP` scope gate (mafia-re ls3df/I3D/I3D.h:1329
+/// at pin 113b5b6). The reference records no LS3DF FUNCTION address for a
+/// standalone reader; the bit is consumed inline by `EnumFrames`/`FindFrame`
+/// (PC RVAs 0x49180/0x49210, already occupied, not claimed here). Exact bit
+/// test on the caller-supplied flags word; no owner is consulted.
+pub fn enum_scope_includes_backdrop(flags: u32) -> bool {
+    flags & 0x40000 != 0
+}
+/// Working name for the `ENUMF_OMNI` scope gate (mafia-re ls3df/I3D/I3D.h:1330
+/// at pin 113b5b6). Same inline-only status as `enum_scope_includes_backdrop`:
+/// no standalone LS3DF FUNCTION entry exists, so no RVA is claimed here.
+/// Exact bit test; no state moves.
+pub fn enum_scope_includes_omni(flags: u32) -> bool {
+    flags & 0x80000 != 0
+}
+/// Working name for the `ENUMF_NEAR` scope gate (mafia-re ls3df/I3D/I3D.h:1331
+/// at pin 113b5b6). Same inline-only status as `enum_scope_includes_backdrop`:
+/// no standalone LS3DF FUNCTION entry exists, so no RVA is claimed here.
+/// Exact bit test; no state moves.
+pub fn enum_scope_includes_near(flags: u32) -> bool {
+    flags & 0x100000 != 0
+}
+/// Working name for the `ENUMF_WILDMASK` gate (mafia-re ls3df/I3D/I3D.h:226 at
+/// pin 113b5b6: `'*'` ends the name, `'?'` stands for any character). Same
+/// inline-only status as `enum_scope_includes_backdrop`: no standalone LS3DF
+/// FUNCTION entry exists, so no RVA is claimed here. Exact bit test on the
+/// caller-supplied flags word; the mask text itself stays caller-owned.
+pub fn enum_scope_wildmask(flags: u32) -> bool {
+    flags & 0x10000 != 0
+}
+/// Working name for the `ENUMF_CASESENS` gate (mafia-re ls3df/I3D/I3D.h:227 at
+/// pin 113b5b6: case-sensitive name match). Same inline-only status as
+/// `enum_scope_includes_backdrop`: no standalone LS3DF FUNCTION entry exists,
+/// so no RVA is claimed here. Exact bit test; no locale or owner moves.
+pub fn enum_scope_case_sensitive(flags: u32) -> bool {
+    flags & 0x20000 != 0
+}
 /// 0x1c310 projection (LS3DF.dll e211c850…). Upstream working name
 /// FindChildCallBack (mafia-re I3d_frame.cpp:717-721), not an evidenced
 /// original symbol. No Ghidra body in session -> tier contract per the
@@ -910,5 +947,30 @@ mod tests {
                 FrameReferenceId::from_existing(u32::MAX)
             ))
         );
+    }
+    #[test]
+    fn enum_scope_bits_report_only_their_bits() {
+        // Working names for the inlined ENUMF_* scope gates (I3D.h:226-227,
+        // 1329-1331): no LS3DF FUNCTION addresses exist for standalone readers.
+        assert!(enum_scope_includes_backdrop(0x40000));
+        assert!(enum_scope_includes_omni(0x80000));
+        assert!(enum_scope_includes_near(0x100000));
+        assert!(enum_scope_wildmask(0x10000));
+        assert!(enum_scope_case_sensitive(0x20000));
+        assert!(!enum_scope_includes_backdrop(0));
+        assert!(!enum_scope_includes_omni(0x40000));
+        assert!(!enum_scope_includes_near(0x80000));
+        assert!(!enum_scope_wildmask(0x20000));
+        assert!(!enum_scope_case_sensitive(0x10000));
+        assert!(!enum_scope_includes_backdrop(u32::MAX & !0x40000));
+        assert!(!enum_scope_includes_omni(u32::MAX & !0x80000));
+        assert!(!enum_scope_includes_near(u32::MAX & !0x100000));
+        assert!(!enum_scope_wildmask(u32::MAX & !0x10000));
+        assert!(!enum_scope_case_sensitive(u32::MAX & !0x20000));
+        assert!(enum_scope_includes_backdrop(u32::MAX));
+        assert!(enum_scope_includes_omni(u32::MAX));
+        assert!(enum_scope_includes_near(u32::MAX));
+        assert!(enum_scope_wildmask(u32::MAX));
+        assert!(enum_scope_case_sensitive(u32::MAX));
     }
 }

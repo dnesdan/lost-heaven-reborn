@@ -100,6 +100,32 @@ pub const SCENE_OBJECT_NOT_FOUND: u32 = 0x8000_0006;
 /// I3D.h visual discriminants used by the sceneSS SetSpace predicate.
 pub const SCENE_VISUAL_OBJECT: u32 = 0x5f4a_424f;
 pub const SCENE_VISUAL_LIT_OBJECT: u32 = 0x5041_4d4c;
+/// Working name for the `SCN_CALLBACK_PRE_RENDER` gate (mafia-re
+/// ls3df/I3D/I3D.h:1315-1318 at pin 113b5b6: the scene began, before anything
+/// is drawn; `cb_flags` carries bit n for message n). The reference records
+/// no LS3DF FUNCTION address for a standalone reader; the bit is produced by
+/// `SetCallback` (PC RVA 0x49120, already occupied, not claimed here) and
+/// consumed inline by the render pass. Exact bit test on the caller-supplied
+/// flags word; no owner or device is consulted.
+pub fn scene_callback_wants_pre_render(cb_flags: u32) -> bool {
+    cb_flags & 0x1 != 0
+}
+/// Working name for the `SCN_CALLBACK_POST_SCENE` gate (mafia-re
+/// ls3df/I3D/I3D.h:1319 at pin 113b5b6: the scene is drawn, before the near
+/// sector and the lens flares). Same inline-only status as
+/// `scene_callback_wants_pre_render`: no standalone LS3DF FUNCTION entry
+/// exists, so no RVA is claimed here. Exact bit test; no state moves.
+pub fn scene_callback_wants_post_scene(cb_flags: u32) -> bool {
+    cb_flags & 0x2 != 0
+}
+/// Working name for the `SCN_CALLBACK_POST_RENDER` gate (mafia-re
+/// ls3df/I3D/I3D.h:1320 at pin 113b5b6: everything is drawn, before the scene
+/// ends). Same inline-only status as `scene_callback_wants_pre_render`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn scene_callback_wants_post_render(cb_flags: u32) -> bool {
+    cb_flags & 0x4 != 0
+}
 
 #[derive(Debug)]
 pub struct SceneFrameOwner {
@@ -3177,6 +3203,26 @@ mod tests {
         arena.driver_delete_from_scene_tick_list(shared);
         assert!(arena.scene(older).unwrap().tick_frames.is_empty());
         assert_eq!(arena.state(shared).unwrap().flags & SCENE_TICK_FLAG, 0);
+    }
+    #[test]
+    fn scene_callback_stage_bits_report_only_their_bits() {
+        // Working names for the inlined SCN_CALLBACK_* gates (I3D.h:1315-1321):
+        // no LS3DF FUNCTION addresses exist for standalone readers.
+        assert!(scene_callback_wants_pre_render(0x1));
+        assert!(scene_callback_wants_post_scene(0x2));
+        assert!(scene_callback_wants_post_render(0x4));
+        assert!(scene_callback_wants_pre_render(0x7));
+        assert!(scene_callback_wants_post_scene(0x7));
+        assert!(scene_callback_wants_post_render(0x7));
+        assert!(!scene_callback_wants_pre_render(0));
+        assert!(!scene_callback_wants_post_scene(0x1));
+        assert!(!scene_callback_wants_post_render(0x3));
+        assert!(!scene_callback_wants_pre_render(0x6));
+        assert!(!scene_callback_wants_post_scene(u32::MAX & !0x2));
+        assert!(!scene_callback_wants_post_render(u32::MAX & !0x4));
+        assert!(scene_callback_wants_pre_render(u32::MAX));
+        assert!(scene_callback_wants_post_scene(u32::MAX));
+        assert!(scene_callback_wants_post_render(u32::MAX));
     }
 }
 

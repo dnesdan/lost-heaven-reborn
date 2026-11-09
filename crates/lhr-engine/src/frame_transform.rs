@@ -551,6 +551,48 @@ pub fn frm_has_interpolator(flags: u32) -> bool {
 pub fn frm_callback_bits(flags: u32) -> u32 {
     flags & 0x1e00
 }
+/// Working name for the `LS3D_CALLBACK_NOTE` gate (mafia-re ls3df/I3D/I3D.h:299
+/// at pin 113b5b6: an animation passed a note key). The reference records no
+/// LS3DF FUNCTION address for a standalone reader; the bit travels inside the
+/// `FRMFLAGS_CALLBACK_MASK` word and is consumed inline by the interpolator
+/// tick, so no RVA is claimed here. Exact bit test on the caller-supplied
+/// flags word; no owner or cache is consulted.
+pub fn frame_callback_wants_note(flags: u32) -> bool {
+    flags & 0x200 != 0
+}
+/// Working name for the `LS3D_CALLBACK_LOD` gate (mafia-re ls3df/I3D/I3D.h:301
+/// at pin 113b5b6: a visual's level of detail changed). Same inline-only
+/// status as `frame_callback_wants_note`: no standalone LS3DF FUNCTION entry
+/// exists, so no RVA is claimed here. Exact bit test; no state moves.
+pub fn frame_callback_wants_lod(flags: u32) -> bool {
+    flags & 0x400 != 0
+}
+/// Working name for the `LS3D_CALLBACK_ANIM_END` gate (mafia-re
+/// ls3df/I3D/I3D.h:302 at pin 113b5b6: an animation reached an end). Same
+/// inline-only status as `frame_callback_wants_note`: no standalone LS3DF
+/// FUNCTION entry exists, so no RVA is claimed here. Exact bit test; no
+/// state moves.
+pub fn frame_callback_wants_anim_end(flags: u32) -> bool {
+    flags & 0x800 != 0
+}
+/// Working name for the `LS3D_CALLBACK_NOTE_STRING` gate (mafia-re
+/// ls3df/I3D/I3D.h:303 at pin 113b5b6: an animation passed a string note key).
+/// Same inline-only status as `frame_callback_wants_note`: no standalone LS3DF
+/// FUNCTION entry exists, so no RVA is claimed here. Exact bit test; no state
+/// moves.
+pub fn frame_callback_wants_note_string(flags: u32) -> bool {
+    flags & 0x1000 != 0
+}
+/// Working name for the generic frame-callback message gate over the four
+/// documented `LS3D_CALLBACK_*` bits (mafia-re ls3df/I3D/I3D.h:299-303 at pin
+/// 113b5b6, inside `FRMFLAGS_CALLBACK_MASK` 0x1e00). The reference records no
+/// LS3DF FUNCTION address for a standalone dispatcher, so no RVA is claimed
+/// here. Reports whether the caller-supplied message bit is set in the flags
+/// word; undocumented bits never report true. Pure helper, no state moves.
+pub fn frame_callback_enables(flags: u32, message_bit: u32) -> bool {
+    const KNOWN: u32 = 0x200 | 0x400 | 0x800 | 0x1000;
+    message_bit & KNOWN != 0 && flags & message_bit != 0
+}
 /// Native `I3DLINK_UPDMATRIX` (mafia-re ls3df/I3D/I3D.h:307 at pin 113b5b6;
 /// Insanity3D's name, same value and role). Keep the world matrix across
 /// `LinkTo`: the local matrix is made again against the new parent. The
@@ -5430,5 +5472,47 @@ mod tests {
             graph.update_w_matrix(FrameKey(u32::MAX)),
             Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
         );
+    }
+    #[test]
+    fn frame_callback_message_bits_report_only_their_bits() {
+        // Working names for the inlined LS3D_CALLBACK_* gates (I3D.h:299-303):
+        // no LS3DF FUNCTION addresses exist for standalone readers.
+        assert!(frame_callback_wants_note(0x200));
+        assert!(frame_callback_wants_lod(0x400));
+        assert!(frame_callback_wants_anim_end(0x800));
+        assert!(frame_callback_wants_note_string(0x1000));
+        assert!(frame_callback_wants_note(0x1e00));
+        assert!(frame_callback_wants_lod(0x1e00));
+        assert!(frame_callback_wants_anim_end(0x1e00));
+        assert!(frame_callback_wants_note_string(0x1e00));
+        assert!(!frame_callback_wants_note(0));
+        assert!(!frame_callback_wants_lod(0x200));
+        assert!(!frame_callback_wants_anim_end(0x400));
+        assert!(!frame_callback_wants_note_string(0x800));
+        assert!(!frame_callback_wants_note(u32::MAX & !0x200));
+        assert!(!frame_callback_wants_lod(u32::MAX & !0x400));
+        assert!(!frame_callback_wants_anim_end(u32::MAX & !0x800));
+        assert!(!frame_callback_wants_note_string(u32::MAX & !0x1000));
+        assert!(frame_callback_wants_note(u32::MAX));
+        assert!(frame_callback_wants_lod(u32::MAX));
+        assert!(frame_callback_wants_anim_end(u32::MAX));
+        assert!(frame_callback_wants_note_string(u32::MAX));
+    }
+    #[test]
+    fn frame_callback_enables_only_documented_message_bits() {
+        // Working name for the generic LS3D_CALLBACK_* dispatcher (I3D.h:299-303):
+        // no LS3DF FUNCTION address exists for a standalone dispatcher.
+        for bit in [0x200u32, 0x400, 0x800, 0x1000] {
+            assert!(frame_callback_enables(bit, bit));
+            assert!(frame_callback_enables(0x1e00, bit));
+            assert!(frame_callback_enables(u32::MAX, bit));
+            assert!(!frame_callback_enables(0, bit));
+            assert!(!frame_callback_enables(u32::MAX & !bit, bit));
+        }
+        // Loader message words and undocumented bits never dispatch.
+        for bit in [0x8u32, 0x10, 0x20, 0x100, 0x2000, 0] {
+            assert!(!frame_callback_enables(0x1e00, bit));
+            assert!(!frame_callback_enables(u32::MAX, bit));
+        }
     }
 }
