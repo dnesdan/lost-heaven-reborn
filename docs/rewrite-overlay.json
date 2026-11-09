@@ -13900,6 +13900,132 @@
       "symbol": "lhr_engine::vehicle_small_accessors::car_set_force_feedback",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. Force-feedback store (GAME 0x42bb90)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18d270",
+      "va": "0x58d270",
+      "name": "C_human::BezZasobnikuWeaponEffect",
+      "symbol": "lhr_engine::human_actor::clip_hidden_without_mag",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Clip-hidden gate (GAME 0x58d270)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18e210",
+      "va": "0x58e210",
+      "name": "C_human::FakeWeaponEffect",
+      "symbol": "lhr_engine::human_actor::colt_slide_recoil_shift",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Colt slide recoil shift (GAME 0x58e210)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x187d70",
+      "va": "0x587d70",
+      "name": "C_human::Do_ThrowCocotFromCar",
+      "symbol": "lhr_engine::human_actor::throw_cocot_door_placement",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Cocot door placement (GAME 0x587d70)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1801f0",
+      "va": "0x5801f0",
+      "name": "C_human high-bridge scan (working name)",
+      "symbol": "lhr_engine::human_actor::find_nearby_high_bridge",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Nearby high-bridge scan (GAME 0x5801f0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17dd00",
+      "va": "0x57dd00",
+      "name": "C_human::ChangeAnim",
+      "symbol": "lhr_engine::human_actor::replace_move_anim",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Move-anim replace (GAME 0x57dd00)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17e980",
+      "va": "0x57e980",
+      "name": "C_human::RepairWeaponPosition",
+      "symbol": "lhr_engine::human_actor::repair_weapon_position_gate",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Weapon-position gate (GAME 0x57e980)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x178ee0",
+      "va": "0x578ee0",
+      "name": "C_human::PoseInterpolate",
+      "symbol": "lhr_engine::human_actor::HumanState::pose_interpolate_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: pose/frame owners deferred (GAME 0x578ee0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x185c60",
+      "va": "0x585c60",
+      "name": "C_human::Do_Holster",
+      "symbol": "lhr_engine::human_actor::HumanState::holster_requires_carry_drop",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Holster carry guard (GAME 0x585c60)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x185d90",
+      "va": "0x585d90",
+      "name": "C_human::Do_WeaponDrop",
+      "symbol": "lhr_engine::human_actor::HumanState::weapon_drop_carry_action",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. WeaponDrop carry gate (GAME 0x585d90)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18b690",
+      "va": "0x58b690",
+      "name": "C_human::Do_FuckingBoxDrop",
+      "symbol": "lhr_engine::human_actor::HumanState::box_drop_after_cancel",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. BoxDrop cancel gate (GAME 0x58b690)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x195440",
+      "va": "0x595440",
+      "name": "C_player sniper-mode (STUB)",
+      "symbol": "lhr_engine::player_actor::PlayerState::set_sniper_mode_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x595440)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x195e10",
+      "va": "0x595e10",
+      "name": "C_player set-alpha (STUB)",
+      "symbol": "lhr_engine::player_actor::PlayerState::set_alpha_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x595e10)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1952f0",
+      "va": "0x5952f0",
+      "name": "C_player indicator-aimed (STUB)",
+      "symbol": "lhr_engine::player_actor::PlayerState::indicator_set_aimed_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x5952f0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x195c30",
+      "va": "0x595c30",
+      "name": "C_player car-damage (STUB)",
+      "symbol": "lhr_engine::player_actor::PlayerState::set_car_damage_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x595c30)."
     }
   ],
   "vm": {
