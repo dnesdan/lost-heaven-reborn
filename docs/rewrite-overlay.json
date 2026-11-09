@@ -13639,6 +13639,15 @@
       "symbol": "lhr_engine::game_housekeeping::traffic_car_game_done",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Traffic-car GameDone (GAME 0x4b8010). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5250",
+      "va": "0x10005250",
+      "name": "I3D_area::SetSwitchFadeTime",
+      "symbol": "lhr_engine::frame_area::AreaFrame::set_switch_fade_time",
+      "tier": "contract",
+      "evidence": "Switch fade time store with min-1 clamp (LS3DF 0x10005250). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

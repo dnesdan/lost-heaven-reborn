@@ -988,6 +988,31 @@ impl ModelArena {
         };
         Ok(&original[..original.iter().position(|&b| b == 0).unwrap_or(original.len())])
     }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetProperty` read
+    /// (mafia-re ls3df/I3D/I3D.h:625-630, game-build branch). No LS3DF
+    /// FUNCTION address exists for it and the reference marks no Game.exe
+    /// out-of-line copy either; the setter alone has one (RVA 0x1c700).
+    /// An empty store reads as empty, like the native null-to-"" ternary;
+    /// stored bytes keep first-NUL C-string semantics.
+    pub fn frame_property_or_empty(&self, key: FrameKey) -> Result<&[u8], ModelError> {
+        let bytes = &self.frame(key)?.properties;
+        Ok(&bytes[..bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len())])
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetData` read
+    /// (mafia-re ls3df/I3D/I3D.h:595-600). No LS3DF FUNCTION address exists
+    /// for it and the reference marks no Game.exe out-of-line copy either.
+    /// Null reads as word 0 and caller-owned external records read back
+    /// verbatim. Actor-backed and opaque records need their native pointer
+    /// owner, which this bounded arena does not retain, so they report an
+    /// explicit unsupported None instead of an invented word.
+    pub fn frame_user_data_word(&self, key: FrameKey) -> Result<Option<u32>, ModelError> {
+        Ok(match self.frame(key)?.user_data {
+            crate::actor_frames::FrameUserData::Null => Some(0),
+            crate::actor_frames::FrameUserData::ExternalRecord(word) => Some(word),
+            crate::actor_frames::FrameUserData::ActorRecord(_)
+            | crate::actor_frames::FrameUserData::Opaque => None,
+        })
+    }
     /// Working name for the LS3DF-inlined `I3D_model::GetFileName` read
     /// (mafia-re ls3df/I3D/I3D.h:5078-5082). No LS3DF FUNCTION address
     /// exists for it: the only out-of-line copy is Game.exe 0x47adc0, which
@@ -4131,6 +4156,39 @@ pub(crate) mod tests {
         assert_eq!(arena.frame_orig_name_or_empty(root).unwrap(), b"");
         arena.set_frame_name(root, Some(b"m")).unwrap();
         assert_eq!(arena.frame_orig_name_or_empty(root).unwrap(), b"m");
+    }
+    #[test]
+    fn frame_property_reads_first_nul_terminated_prefix() {
+        // Working name for inlined I3D_frame::GetProperty (I3D.h:625-630,
+        // game-build branch): no LS3DF FUNCTION address and no Game.exe copy
+        // exist; only the setter has one (RVA 0x1c700).
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let root = model.root();
+        assert_eq!(arena.frame_property_or_empty(root).unwrap(), b"");
+        arena.set_frame_property(root, Some(b"prop\0tail")).unwrap();
+        assert_eq!(arena.frame_property_or_empty(root).unwrap(), b"prop");
+        arena.set_frame_property(root, Some(b"")).unwrap();
+        assert_eq!(arena.frame_property_or_empty(root).unwrap(), b"");
+        assert!(arena.frame_property_or_empty(FrameKey(u32::MAX)).is_err());
+    }
+    #[test]
+    fn frame_user_data_word_reports_raw_word_or_unsupported() {
+        // Working name for inlined I3D_frame::GetData (I3D.h:595-600): no
+        // LS3DF FUNCTION address and no Game.exe copy exist.
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let root = model.root();
+        assert_eq!(arena.frame_user_data_word(root).unwrap(), Some(0));
+        arena
+            .set_user_data(root, crate::actor_frames::FrameUserData::ExternalRecord(0x1234))
+            .unwrap();
+        assert_eq!(arena.frame_user_data_word(root).unwrap(), Some(0x1234));
+        arena
+            .set_user_data(root, crate::actor_frames::FrameUserData::Opaque)
+            .unwrap();
+        assert_eq!(arena.frame_user_data_word(root).unwrap(), None);
+        assert!(arena.frame_user_data_word(FrameKey(u32::MAX)).is_err());
     }
     #[test]
     fn model_file_name_collapses_absent_to_empty() {

@@ -448,6 +448,38 @@ impl ObjectResources {
     pub fn object_cur_lod(&self, object: ObjectResourceKey) -> Result<u32, ObjectError> {
         Ok(self.object(object)?.cur_lod)
     }
+    /// Working name for the LS3DF-inlined `I3D_visual::GetVisualType`
+    /// (mafia-re ls3df/I3D/I3D.h:2748-2760, LS3DF_EXPORTS by-value branch).
+    /// No LS3DF FUNCTION address exists for it; the only out-of-line copy is
+    /// the game build by-reference one (Game.exe 0x47ad70), which is not
+    /// claimed here. Reports the stored four-character visual type word.
+    pub fn visual_type_word(&self, object: ObjectResourceKey) -> Result<u32, ObjectError> {
+        Ok(self.object(object)?.visual_type().source_fourcc())
+    }
+    /// Working name for the LS3DF-inlined `I3D_object::GetMesh`
+    /// (mafia-re ls3df/I3D/I3D.h:2896-2908, LS3DF_EXPORTS by-value branch).
+    /// No LS3DF FUNCTION address exists for it; the only out-of-line copy is
+    /// the game build by-reference one (Game.exe 0x47ad80), which is not
+    /// claimed here. A missing mesh reads as None (native NULL).
+    pub fn object_mesh_handle(
+        &self,
+        object: ObjectResourceKey,
+    ) -> Result<Option<MeshObjectKey>, ObjectError> {
+        Ok(self.object(object)?.mesh)
+    }
+    /// Working name for the LS3DF-inlined `I3D_object::GetMeshLOD`
+    /// (mafia-re ls3df/I3D/I3D.h:2910-2916). No LS3DF FUNCTION address
+    /// exists for it and the reference marks no Game.exe out-of-line copy
+    /// either. Texture-LOD visuals (VISF_TEXTURE_LOD, 0x10) always render
+    /// level 0; the others render the stored `cur_lod`.
+    pub fn object_mesh_lod_index(&self, object: ObjectResourceKey) -> Result<u32, ObjectError> {
+        let record = self.object(object)?;
+        Ok(if record.visual_flags & 0x10 != 0 {
+            0
+        } else {
+            record.cur_lod
+        })
+    }
     /// Working name for the direct `fade` member read on `I3D_object`
     /// (mafia-re ls3df/I3D/I3D.h carries `fade` as ordinary render state
     /// beside `cur_lod`). The original reads the public member with no
@@ -1826,6 +1858,39 @@ mod tests {
             .unwrap();
         assert_eq!(r.object_cur_lod(foreign), Err(ObjectError::ForeignArena));
         assert_eq!(r.object_fade(foreign), Err(ObjectError::ForeignArena));
+    }
+    #[test]
+    fn visual_getters_report_type_mesh_and_lod_gate() {
+        // Working names for inlined I3D_visual::GetVisualType (I3D.h:2748-2760,
+        // LS3DF_EXPORTS branch), I3D_object::GetMesh (I3D.h:2896-2908,
+        // LS3DF_EXPORTS branch) and I3D_object::GetMeshLOD (I3D.h:2910-2916):
+        // no LS3DF FUNCTION addresses exist (only Game.exe 0x47ad70/0x47ad80
+        // for the first two, unclaimed here; none at all for the third).
+        let mut r = ObjectResources::new().unwrap();
+        let bare = r.create_object_resources(None).unwrap();
+        assert_eq!(r.visual_type_word(bare).unwrap(), 0x5f4a424f);
+        assert_eq!(r.object_mesh_handle(bare).unwrap(), None);
+        assert_eq!(r.object_mesh_lod_index(bare).unwrap(), 0);
+        let mesh = r.create_mesh_object().unwrap();
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        assert_eq!(r.object_mesh_handle(object).unwrap(), Some(mesh));
+        r.objects[(object.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .cur_lod = 3;
+        assert_eq!(r.object_mesh_lod_index(object).unwrap(), 3);
+        r.objects[(object.slot - 1) as usize]
+            .as_mut()
+            .unwrap()
+            .visual_flags |= 0x10;
+        assert_eq!(r.object_mesh_lod_index(object).unwrap(), 0);
+        let foreign = ObjectResources::new()
+            .unwrap()
+            .create_object_resources(None)
+            .unwrap();
+        assert_eq!(r.visual_type_word(foreign), Err(ObjectError::ForeignArena));
+        assert_eq!(r.object_mesh_handle(foreign), Err(ObjectError::ForeignArena));
+        assert_eq!(r.object_mesh_lod_index(foreign), Err(ObjectError::ForeignArena));
     }
     #[test]
     fn texbl_struct_teardown_releases_offsets_and_keeps_scalars() {

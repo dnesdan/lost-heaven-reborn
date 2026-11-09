@@ -1573,6 +1573,78 @@ impl I3dFrameGraph {
         }
         Ok(())
     }
+    /// Working name for the LS3DF-inlined `I3D_frame::SetLocalMatrix`
+    /// (mafia-re ls3df/I3D/I3D.h:495-503). No LS3DF FUNCTION address exists
+    /// for it and the reference marks no Game.exe out-of-line copy either;
+    /// it is a header inline compiled into LS3DF. The local matrix is stored
+    /// verbatim, the scale is remade from its basis-row lengths, and the flag
+    /// store clears WMAT_VALID/QUAT_VALID while setting UPDATE/MAT_VALID/
+    /// ROT_VALID. A non-finite basis row leaves both caches unavailable
+    /// instead of storing a partial scale.
+    pub fn set_frame_local_matrix(
+        &mut self,
+        key: FrameKey,
+        matrix: SMatrix,
+    ) -> Result<(), FrameError> {
+        let scale = matrix
+            .try_get_scale()
+            .map_err(|_| FrameError::NumericDomain("SetLocalMatrix GetScale"))?;
+        let node = self.node_mut(key)?;
+        node.state.local = matrix;
+        node.state.scale = scale;
+        node.state.flags = (node.state.flags & 0xffffffd7) | 0x40000014;
+        Ok(())
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::SetPos` three-float
+    /// overload (mafia-re ls3df/I3D/I3D.h:5024-5032). No LS3DF FUNCTION
+    /// address exists for it; the only out-of-line copy is Game.exe 0x47a6d0,
+    /// which is not claimed here. Element stores preserve signed zero exactly
+    /// like the vector `assign_position` copy. Flag 0x80 (FRMFLAGS_LOCKED)
+    /// skips the stores; otherwise HR_BOUND_W/WMAT are cleared and UPDATE is
+    /// set.
+    pub fn set_frame_position_xyz(
+        &mut self,
+        key: FrameKey,
+        x: f32,
+        y: f32,
+        z: f32,
+    ) -> Result<(), FrameError> {
+        let s = &mut self.node_mut(key)?.state;
+        if s.flags & 0x80 == 0 {
+            s.local.elements[12] = x;
+            s.local.elements[13] = y;
+            s.local.elements[14] = z;
+            s.flags = (s.flags & 0xfffffedf) | 0x40000000;
+        }
+        Ok(())
+    }
+    /// Working name for the LS3DF-inlined `I3D_visual::GetInvMatrix`
+    /// (mafia-re ls3df/I3D/I3D.h:2780-2790). No LS3DF FUNCTION address exists
+    /// for it and the reference marks no Game.exe out-of-line copy either.
+    /// World-space visuals (VISF_WORLD_SPACE, 0x40) report the identity; the
+    /// others report the affine inverse of the refreshed world matrix. The
+    /// native INV_MAT_VALID cache is not modeled: recomputing returns the same
+    /// matrix and the flag has no other reader, so the omission is
+    /// unobservable. A singular world matrix yields the identity (the native
+    /// Inverse fallback); a non-finite one poisons the world cache.
+    pub fn visual_inv_matrix(&mut self, key: FrameKey) -> Result<SMatrix, FrameError> {
+        if self.state(key)?.visual_flags & 0x40 != 0 {
+            return Ok(SMatrix::identity());
+        }
+        let result = (|| {
+            let world = self.world_matrix(key)?;
+            match world.inverse() {
+                Ok((inverse, _)) => Ok(inverse),
+                Err(_) => Err(FrameError::NumericDomain("GetInvMatrix inverse")),
+            }
+        })();
+        if let Err(error) = result.as_ref() {
+            if let Ok(node) = self.node_mut(key) {
+                node.world_error = Some(*error);
+            }
+        }
+        result
+    }
     pub(crate) fn assign_lensflare_parameter(
         &mut self,
         key: FrameKey,
@@ -2671,6 +2743,76 @@ mod tests {
         assert!(graph.frame_is_on(key).unwrap());
         assert_eq!(
             graph.frame_is_on(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn set_frame_local_matrix_stores_matrix_and_scale() {
+        // Working name for inlined I3D_frame::SetLocalMatrix (I3D.h:495-503):
+        // no LS3DF FUNCTION address and no Game.exe copy exist.
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        let mut matrix = SMatrix::identity();
+        matrix.elements[0] = 2.0;
+        matrix.elements[5] = 3.0;
+        matrix.elements[10] = 4.0;
+        matrix.elements[12] = 5.0;
+        matrix.elements[13] = 6.0;
+        matrix.elements[14] = 7.0;
+        graph.set_frame_local_matrix(key, matrix).unwrap();
+        assert_eq!(graph.local_matrix(key).unwrap(), matrix);
+        assert_eq!(graph.frame_scale(key).unwrap(), [2.0, 3.0, 4.0]);
+        assert_eq!(graph.frame_local_position(key).unwrap(), [5.0, 6.0, 7.0]);
+        let flags = graph.state(key).unwrap().flags;
+        assert_eq!(flags & 0x40000014, 0x40000014);
+        assert_eq!(flags & 0x28, 0);
+        assert_eq!(
+            graph.set_frame_local_matrix(FrameKey(u32::MAX), matrix),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn set_frame_position_xyz_matches_vector_store_and_lock() {
+        // Working name for inlined I3D_frame::SetPos xyz overload
+        // (I3D.h:5024-5032): no LS3DF FUNCTION address exists (only Game.exe
+        // 0x47a6d0, unclaimed here).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        graph.set_frame_position_xyz(key, 1.0, -2.0, 3.5).unwrap();
+        assert_eq!(graph.frame_local_position(key).unwrap(), [1.0, -2.0, 3.5]);
+        graph.node_mut(key).unwrap().state.flags |= 0x80;
+        graph.set_frame_position_xyz(key, 9.0, 9.0, 9.0).unwrap();
+        assert_eq!(graph.frame_local_position(key).unwrap(), [1.0, -2.0, 3.5]);
+        graph.node_mut(key).unwrap().state.flags &= !0x80;
+        graph
+            .set_frame_position_xyz(key, f32::from_bits(0x80000000), 0.0, 0.0)
+            .unwrap();
+        let pos = graph.frame_local_position(key).unwrap();
+        assert_eq!(pos[0].to_bits(), 0x80000000);
+        assert_eq!(pos[1].to_bits(), 0.0f32.to_bits());
+        assert_eq!(pos[2].to_bits(), 0.0f32.to_bits());
+    }
+    #[test]
+    fn visual_inv_matrix_returns_identity_in_world_space() {
+        // Working name for inlined I3D_visual::GetInvMatrix (I3D.h:2780-2790):
+        // no LS3DF FUNCTION address and no Game.exe copy exist.
+        let mut graph = I3dFrameGraph::default();
+        let world_space = graph.insert(I3dFrameState::model()).unwrap();
+        graph.node_mut(world_space).unwrap().state.visual_flags |= 0x40;
+        assert_eq!(
+            graph.visual_inv_matrix(world_space).unwrap(),
+            SMatrix::identity()
+        );
+        let local = graph.insert(I3dFrameState::model()).unwrap();
+        graph.assign_position(local, [1.0, 2.0, 3.0]).unwrap();
+        let inv = graph.visual_inv_matrix(local).unwrap();
+        let world = graph.world_matrix(local).unwrap();
+        let round_trip = inv.try_mul_affine(&world).unwrap();
+        for (got, want) in round_trip.elements.iter().zip(SMatrix::identity().elements.iter()) {
+            assert!((got - want).abs() < 1e-5, "{got:?} vs {want:?}");
+        }
+        assert_eq!(
+            graph.visual_inv_matrix(FrameKey(u32::MAX)),
             Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
         );
     }

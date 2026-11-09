@@ -1237,6 +1237,62 @@ impl ModelArena {
     pub fn scene_primary_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
         Ok(self.scene(scene)?.sectors[0])
     }
+    /// Working name for the in-class empty `I3D_scene::SetOn`
+    /// (mafia-re ls3df/I3D/I3D.h:1454). No LS3DF FUNCTION address exists
+    /// for it and the reference marks no Game.exe out-of-line copy either;
+    /// the body is empty, so the flag byte is accepted and ignored with no
+    /// state change beyond handle validation.
+    pub fn scene_set_on_noop(&self, scene: SceneKey, _on: bool) -> Result<(), ModelError> {
+        self.scene(scene)?;
+        Ok(())
+    }
+    /// Working name for the in-class empty `I3D_scene::SetCallback`
+    /// `I3D_CALLBACK` overload (mafia-re ls3df/I3D/I3D.h:1453). No LS3DF
+    /// FUNCTION address exists for it and the reference marks no Game.exe
+    /// out-of-line copy either. This overload is distinct from the stored
+    /// `SCN_CALLBACK` one (RVA 0x49120): the callback and mask are accepted
+    /// and ignored with no store and no result word.
+    pub fn scene_frame_callback_noop(
+        &self,
+        scene: SceneKey,
+        _callback: Option<u32>,
+        _flags: u32,
+    ) -> Result<(), ModelError> {
+        self.scene(scene)?;
+        Ok(())
+    }
+    /// Working name for the in-class `I3D_scene::Duplicate` returning
+    /// `I3D_OK` (mafia-re ls3df/I3D/I3D.h:1458). No LS3DF FUNCTION address
+    /// exists for it and the reference marks no Game.exe out-of-line copy
+    /// either. The source frame is validated and otherwise unread; the
+    /// result word is always `I3D_OK` (0).
+    pub fn scene_duplicate_ok(
+        &self,
+        scene: SceneKey,
+        _frame: Option<FrameKey>,
+    ) -> Result<u32, ModelError> {
+        self.scene(scene)?;
+        Ok(0)
+    }
+    /// Working name for the LS3DF-inlined `I3D_scene::SetFrameSector`
+    /// (mafia-re ls3df/I3D/I3D.h:5096-5100). No LS3DF FUNCTION address
+    /// exists for it; the only out-of-line copy is Game.exe 0x47adf0, which
+    /// is not claimed here. Composes the live world position with the owned
+    /// `SetFrameSectorPos` (RVA 0x4a280) backend in native order; no device
+    /// or render state moves.
+    pub fn scene_set_frame_sector(
+        &mut self,
+        scene: SceneKey,
+        frame: FrameKey,
+    ) -> Result<u32, ModelError> {
+        let world = self.world_matrix(frame)?;
+        let position: [f32; 3] = world.elements[12..15].try_into().map_err(|_| {
+            ModelError::Frame(crate::frame_transform::FrameError::NumericDomain(
+                "SetFrameSector position",
+            ))
+        })?;
+        self.set_frame_sector_pos(scene, frame, position)
+    }
     /// AddLight (PC RVA0x4f3d0), including the native fog-light selection.
     /// These arrays contain borrowed pointers; registration acquires no refs.
     pub fn sector_add_light(
@@ -2324,6 +2380,45 @@ mod tests {
             );
             assert!(arena
                 .scene_primary_sector(SceneKey(FrameKey(u32::MAX)))
+                .is_err());
+        });
+    }
+    #[test]
+    fn scene_empty_setters_and_duplicate_are_noop_ok() {
+        // Working names for in-class empty I3D_scene::SetOn (I3D.h:1454) and
+        // I3D_scene::SetCallback I3D_CALLBACK overload (I3D.h:1453), plus
+        // I3D_scene::Duplicate returning I3D_OK (I3D.h:1458): no LS3DF
+        // FUNCTION addresses and no Game.exe copies exist for any of them.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        arena.scene_set_on_noop(scene, true).unwrap();
+        arena.scene_set_on_noop(scene, false).unwrap();
+        arena.scene_frame_callback_noop(scene, None, 0).unwrap();
+        arena
+            .scene_frame_callback_noop(scene, Some(0x1234), 0x1e00)
+            .unwrap();
+        assert_eq!(arena.scene_duplicate_ok(scene, None).unwrap(), 0);
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_set_on_noop(bad, true).is_err());
+        assert!(arena.scene_frame_callback_noop(bad, None, 0).is_err());
+        assert!(arena.scene_duplicate_ok(bad, None).is_err());
+    }
+    #[test]
+    fn scene_set_frame_sector_uses_live_world_position() {
+        // Working name for inlined I3D_scene::SetFrameSector (I3D.h:5096-5100):
+        // no LS3DF FUNCTION address exists (only Game.exe 0x47adf0,
+        // unclaimed here). Composes GetWorldPos with SetFrameSectorPos.
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            let member = dummy(&mut arena, b"member");
+            arena.scene_add_frame(scene, member).unwrap();
+            assert_eq!(arena.scene_set_frame_sector(scene, member).unwrap(), 0);
+            assert!(arena
+                .scene_set_frame_sector(SceneKey(FrameKey(u32::MAX)), member)
+                .is_err());
+            assert!(arena
+                .scene_set_frame_sector(scene, FrameKey(u32::MAX))
                 .is_err());
         });
     }
