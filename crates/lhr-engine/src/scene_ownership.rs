@@ -1443,6 +1443,27 @@ impl ModelArena {
     pub fn scene_tick_growth(&self, scene: SceneKey) -> Result<usize, ModelError> {
         Ok(self.scene(scene)?.tick_growth)
     }
+    /// Working name for the `num_sectors` ring count at scene +0x260
+    /// (mafia-re `ls3df/I3D/I3D.h:1575-1577`). No LS3DF FUNCTION address
+    /// exists for a count getter: the ring is maintained by sector
+    /// join/leave paths. Reports the live word.
+    pub fn scene_sector_count_of(&self, scene: SceneKey) -> Result<u32, ModelError> {
+        Ok(self.scene(scene)?.sector_count)
+    }
+    /// Working name for the `num_portals` ring count at scene +0x254
+    /// (mafia-re `ls3df/I3D/I3D.h:1571-1572`). No LS3DF FUNCTION address
+    /// exists for a count getter: the ring is maintained by portal
+    /// join/leave paths. Reports the live word.
+    pub fn scene_portal_count_of(&self, scene: SceneKey) -> Result<u32, ModelError> {
+        Ok(self.scene(scene)?.portal_count)
+    }
+    /// Working name for the backdrop range pair at scene +0x24c
+    /// (mafia-re `ls3df/I3D/I3D.h:1571`; written by `SetBackdropRange`).
+    /// No LS3DF FUNCTION address exists for a range getter: only the setter
+    /// has one. Reports the stored pair bit-exactly; no render moves.
+    pub fn scene_backdrop_range_of(&self, scene: SceneKey) -> Result<[f32; 2], ModelError> {
+        Ok(self.scene(scene)?.backdrop_range)
+    }
     /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
     /// RVA 0x4a8c0, VA 0x1004a8c0. Upstream static
     /// `MakeReadySectors::EnumHelp::I3D_EnumProc` used by
@@ -2736,6 +2757,24 @@ mod tests {
         assert!(arena
             .scene_has_animation_set(SceneKey(FrameKey(u32::MAX)))
             .is_err());
+    }
+    #[test]
+    fn working_name_ring_counts_and_backdrop_range_report_live_words() {
+        // Working names for inlined I3D.h reads (+0x260/+0x254/+0x24c): no
+        // LS3DF FUNCTION addresses exist for standalone getters.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_sector_count_of(scene).unwrap(), 0);
+        assert_eq!(arena.scene_portal_count_of(scene).unwrap(), 0);
+        // Constructor stores the native [1, 10000] backdrop pair.
+        assert_eq!(
+            arena.scene_backdrop_range_of(scene).unwrap().map(f32::to_bits),
+            [1f32.to_bits(), 10000f32.to_bits()]
+        );
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_sector_count_of(bad).is_err());
+        assert!(arena.scene_portal_count_of(bad).is_err());
+        assert!(arena.scene_backdrop_range_of(bad).is_err());
     }
     #[test]
     fn lifecycle_construct_tick_close_forget_transitions() {

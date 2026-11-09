@@ -204,6 +204,19 @@ impl AreaFrame {
     pub fn get_switch_fade_time(&self) -> u32 {
         self.switch_fade_time
     }
+    /// Working name for the vertex-count word read (mafia-re
+    /// ls3df/I3D/frames/I3d_area.cpp:158-181 Build/num_verts; I3D.h area
+    /// member). The reference records no LS3DF FUNCTION address for a
+    /// standalone reader; the word is written by Build and read in place by
+    /// UpdateV/CheckPoint. Reports the owned local vertex count.
+    pub fn vertex_count_of(&self) -> u32 {
+        self.vertex_count
+    }
+    /// Working name for the face-count word read (same provenance as
+    /// `vertex_count_of`). Reports the owned face count.
+    pub fn face_count_of(&self) -> u32 {
+        self.face_count
+    }
     /// Exact four-array allocation/copy order of Build5880. Typed input slices
     /// are the caller's bounds-checked copy spans; face indices remain raw.
     pub(crate) fn build(
@@ -1121,5 +1134,24 @@ mod area_switch_fade_time_rva_0x5280_tests {
         assert_eq!(arena.area(key).unwrap().get_switch_fade_time(), 750);
         arena.area_mut(key).unwrap().set_switch_fade_time(u32::MAX);
         assert_eq!(arena.area(key).unwrap().get_switch_fade_time(), u32::MAX);
+    }
+
+    #[test]
+    fn area_count_readers_report_build_words() {
+        // Working names for inlined count reads (I3d_area.cpp:158-181): no
+        // LS3DF FUNCTION addresses exist for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        assert_eq!(arena.area(key).unwrap().vertex_count_of(), 0);
+        assert_eq!(arena.area(key).unwrap().face_count_of(), 0);
+        arena
+            .area_build(
+                key,
+                &[[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]],
+                &[[0, 1, 2]],
+            )
+            .unwrap();
+        assert_eq!(arena.area(key).unwrap().vertex_count_of(), 3);
+        assert_eq!(arena.area(key).unwrap().face_count_of(), 1);
     }
 }

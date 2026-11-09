@@ -440,6 +440,43 @@ pub fn frame_is_weather_dummy(flags: u32) -> bool {
 pub fn frame_has_changed(flags: u32) -> bool {
     flags & 0x2000 != 0
 }
+/// Working name for the FRMFLAGS_HR_AREAS bit test (mafia-re ls3df/I3D/I3D.h:275).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is maintained by area LinkTo/AddToRemoveFromSceneRing (mafia-re
+/// ls3df/I3D/frames/I3d_area.cpp:90-112). Reports whether the hierarchy owns
+/// areas; no cache moves.
+pub fn frame_hr_areas_set(flags: u32) -> bool {
+    flags & 0x40000 != 0
+}
+/// Working name for the FRMFLAGS_HR_SECTORS bit test (mafia-re ls3df/I3D/I3D.h:277).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is folded into LinkTo hierarchy propagation (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:503-528). Reports whether the hierarchy owns
+/// sectors; no cache moves.
+pub fn frame_hr_sectors_set(flags: u32) -> bool {
+    flags & 0x80000 != 0
+}
+/// Working name for the FRMFLAGS_HR_OCCLUDERS bit test (mafia-re ls3df/I3D/I3D.h:279).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is folded into the same LinkTo propagation. Reports whether the
+/// hierarchy owns occluders; no cache moves.
+pub fn frame_hr_occluders_set(flags: u32) -> bool {
+    flags & 0x100000 != 0
+}
+/// Working name for the FRMFLAGS_CLIP bit test (mafia-re ls3df/I3D/I3D.h:281).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit marks frames that have to be clipped. Reports the clip request;
+/// no cache moves.
+pub fn frame_is_clipped(flags: u32) -> bool {
+    flags & 0x200000 != 0
+}
+/// Working name for the FRMFLAGS_IN_VIEW bit test (mafia-re ls3df/I3D/I3D.h:271-274).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the portal walk sets it for frames inside the view depth range. Reports
+/// the in-view mark; no cache moves.
+pub fn frame_in_view(flags: u32) -> bool {
+    flags & 0x10000 != 0
+}
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
         let id = u32::try_from(self.nodes.len())
@@ -2936,6 +2973,23 @@ mod tests {
             graph.frame_is_on(FrameKey(u32::MAX)),
             Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
         );
+    }
+    #[test]
+    fn frame_hierarchy_and_clip_flag_readers_report_only_their_bits() {
+        // Working names for inlined FRMFLAGS reads (I3D.h:271-281): no LS3DF
+        // FUNCTION addresses exist for standalone readers.
+        assert!(frame_hr_areas_set(0x40000));
+        assert!(frame_hr_sectors_set(0x80000));
+        assert!(frame_hr_occluders_set(0x100000));
+        assert!(frame_is_clipped(0x200000));
+        assert!(frame_in_view(0x10000));
+        assert!(!frame_hr_areas_set(0));
+        assert!(!frame_hr_sectors_set(0x40000));
+        assert!(!frame_hr_occluders_set(0x80000));
+        assert!(!frame_is_clipped(0));
+        assert!(!frame_in_view(0x200000));
+        assert!(frame_in_view(u32::MAX));
+        assert!(!frame_hr_areas_set(u32::MAX & !0x40000));
     }
     #[test]
     fn set_frame_local_matrix_stores_matrix_and_scale() {

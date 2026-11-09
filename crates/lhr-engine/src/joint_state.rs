@@ -26,6 +26,15 @@ pub fn joint_matrix_valid(flags: u32) -> bool {
     flags & JOINTF_JMAT_VALID != 0
 }
 
+/// Working name for the JOINTF_LOADED bit test (mafia-re ls3df/I3D/I3D.h:2051;
+/// set by LoadImage at ls3df/I3D/frames/I3d_joint.cpp:71-79 at pin 113b5b6).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is tested in place by Duplicate (I3d_joint.cpp:62-69). Reports
+/// whether the bone matrix and index came from the file.
+pub fn joint_is_loaded(flags: u32) -> bool {
+    flags & JOINTF_LOADED != 0
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct I3dJointState {
     /// PC +0x140: the matrix read verbatim from the joint image.
@@ -161,6 +170,17 @@ mod tests {
         assert!(!joint_matrix_valid(0));
         assert!(!joint_matrix_valid(JOINTF_LOADED));
         assert!(!joint_matrix_valid(0x0f));
+    }
+
+    #[test]
+    fn joint_loaded_reader_reports_only_the_loaded_bit() {
+        // Working name for the I3D.h:2051 bit: no LS3DF FUNCTION address.
+        assert!(joint_is_loaded(JOINTF_LOADED));
+        assert!(joint_is_loaded(JOINTF_LOADED | JOINTF_JMAT_VALID));
+        assert!(joint_is_loaded(u32::MAX));
+        assert!(!joint_is_loaded(0));
+        assert!(!joint_is_loaded(JOINTF_JMAT_VALID));
+        assert!(!joint_is_loaded(0xfffffffe));
     }
     #[test]
     fn changed_only_invalidates_joint_while_update_requests_singlemesh_work() {

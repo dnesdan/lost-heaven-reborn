@@ -88,4 +88,49 @@ impl FrameCallbacks {
     pub(crate) fn has_slot(&self, key: FrameKey) -> bool {
         self.slots.contains_key(&key.0)
     }
+
+    /// Working-name presence probe for a stored callback token (mafia-re
+    /// ls3df/I3D/I3D.h:313-314 callback slot; no LS3DF FUNCTION address for a
+    /// standalone reader). Reports whether a token is registered; no flag
+    /// moves.
+    pub fn has_callback(&self, key: FrameKey) -> bool {
+        self.slots.contains_key(&key.0)
+    }
+}
+
+/// Working name for the FRMFLAGS_CALLBACK_MASK word op (mafia-re
+/// ls3df/I3D/I3D.h:267; applied by I3D_frame::SetCallback at
+/// ls3df/I3D/frames/I3d_frame.cpp:223-234). The reference records no LS3DF
+/// FUNCTION address for the mask itself. Applies the evidenced 0x1e00 mask
+/// with u32 width and no byte narrowing; pure helper, no function credit
+/// beyond the SetCallback contract.
+pub fn callback_masked_flags(flags: u32) -> u32 {
+    flags & CALLBACK_MASK
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_mask_keeps_only_the_message_bits() {
+        // Working name for the I3D.h:267 mask word: no LS3DF FUNCTION address.
+        assert_eq!(callback_masked_flags(0xffff_ffff), CALLBACK_MASK);
+        assert_eq!(callback_masked_flags(0x1e00), 0x1e00);
+        assert_eq!(callback_masked_flags(0x01ff), 0);
+        assert_eq!(callback_masked_flags(0), 0);
+    }
+
+    #[test]
+    fn callback_presence_probe_tracks_slot_without_flag_moves() {
+        // Uses only this module's registry; the graph flag mock is local.
+        let mut callbacks = FrameCallbacks::new();
+        let key = FrameKey(7);
+        assert!(!callbacks.has_callback(key));
+        callbacks.slots.insert(key.0, FrameCallbackToken(3));
+        assert!(callbacks.has_callback(key));
+        assert_eq!(callbacks.get(key), Some(FrameCallbackToken(3)));
+        callbacks.slots.remove(&key.0);
+        assert!(!callbacks.has_callback(key));
+    }
 }

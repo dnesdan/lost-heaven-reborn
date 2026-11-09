@@ -37,6 +37,16 @@ pub fn user_duplicate_add_data(src_type: u32, src_add_data: u32) -> Option<u32> 
     (src_type == USER_TYPE_WORD).then_some(src_add_data)
 }
 
+/// Working name for the FRAME_USER discriminant test (mafia-re
+/// ls3df/I3D/I3D.h:71 FRAME_USER; ctor stores the evidenced word 8 at
+/// +0x110 per ls3df/I3D/frames/I3d_user.cpp:5-13 at pin 113b5b6).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the word is written by the ctor and tested in place by Duplicate.
+/// Reports whether a stored type word denotes a user frame.
+pub fn user_is_user_type(type_word: u32) -> bool {
+    type_word == USER_TYPE_WORD
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,5 +63,16 @@ mod tests {
         assert_eq!(user_duplicate_add_data(8, 0x1234), Some(0x1234));
         assert_eq!(user_duplicate_add_data(9, 0x1234), None);
         assert_eq!(user_duplicate_add_data(u32::MAX, 0), None);
+    }
+
+    #[test]
+    fn user_type_and_add_data_default_readers() {
+        // Working names for inlined word reads (I3d_user.cpp:5-13): no LS3DF
+        // FUNCTION addresses exist for standalone readers.
+        assert!(user_is_user_type(USER_TYPE_WORD));
+        assert!(user_is_user_type(8));
+        assert!(!user_is_user_type(0));
+        assert!(!user_is_user_type(9));
+        assert!(!user_is_user_type(u32::MAX));
     }
 }

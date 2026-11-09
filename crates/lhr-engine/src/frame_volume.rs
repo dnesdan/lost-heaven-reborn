@@ -43,6 +43,16 @@ pub fn volume_type_of(words: &[u32; 6]) -> u32 {
     words[0]
 }
 
+/// Working name for the UpdateV type gate (mafia-re
+/// ls3df/I3D/frames/I3d_volume.cpp:43-61; I3D.h FRAME_VOLUME=11).
+/// The reference records no LS3DF FUNCTION address for a standalone gate
+/// reader; the switch runs inside UpdateV (PC RVA 0x5a860). Reports whether
+/// UpdateV applies a scale limb for the type (1, 5, 6, 4); pure helper, no
+/// matrix moves.
+pub fn volume_update_applies(volume_type: u32) -> bool {
+    matches!(volume_type, 1 | 4 | 5 | 6)
+}
+
 /// UpdateV scale limb (contract 0x5a860: UPDATE-gated type switch per
 /// mafia-re I3d_volume.cpp:39-65; UpdateMatrix/world-copy/WMAT_VALID stay
 /// caller boundaries). Pure scale selection for tests and callers.
@@ -73,5 +83,12 @@ mod tests {
         assert_eq!(volume_update_scale_limb(4, 2., 3., 4.), Some([2., 1., 4.]));
         assert_eq!(volume_update_scale_limb(1, 2., 3., 4.), Some([1., 1., 1.]));
         assert_eq!(volume_update_scale_limb(7, 2., 3., 4.), None);
+        assert!(volume_update_applies(1));
+        assert!(volume_update_applies(4));
+        assert!(volume_update_applies(5));
+        assert!(volume_update_applies(6));
+        assert!(!volume_update_applies(0));
+        assert!(!volume_update_applies(2));
+        assert!(!volume_update_applies(u32::MAX));
     }
 }
