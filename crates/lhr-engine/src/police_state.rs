@@ -453,6 +453,37 @@ impl PoliceGameInitState {
         self.unknown_30
     }
 
+    /// Working name (no separate native entry): reports whether any record
+    /// is filed for the human, scanning back to front like every native
+    /// record lookup (mafia-re game/ai/C_shvestky.cpp:805-954 at pin 113b5b6,
+    /// `PocetNasranych`/`TickDoRiciActors` order). No dedicated native
+    /// getter exists, so no RVA is claimed.
+    pub fn has_record_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Working name (no separate native entry): reports whether the actor is
+    /// listed in `do_rici_actors`, scanning back to front like the native
+    /// registry removals (mafia-re game/ai/C_shvestky.h:159-160,
+    /// `AddDoRiciActor` duplicate guard shape). No dedicated native getter
+    /// exists, so no RVA is claimed.
+    pub fn is_do_rici_listed(&self, actor: PoliceActorId) -> bool {
+        self.do_rici_actors.iter().rev().any(|&listed| listed == actor)
+    }
+
+    /// Working name (no separate native entry): reports whether the car is
+    /// tracked in the police `temp_cars`, in stored order (mafia-re
+    /// game/ai/C_shvestky.h:159-160, `FreeMyTempActor` linear search shape).
+    /// No dedicated native getter exists, so no RVA is claimed.
+    pub fn is_temp_car_tracked(&self, car: PoliceActorId) -> bool {
+        self.temp_cars.iter().any(|&tracked| tracked == car)
+    }
+
     /// Working name (no separate native entry): counts the `free` marks of
     /// `road_block_cars` (`S_road_block_car`, actor plus `free` at +0x4,
     /// mafia-re game/ai/C_shvestky.h:120-124). No PC outline is evidenced
@@ -2198,6 +2229,56 @@ impl PolicePursuitRecord {
     /// so no RVA is claimed.
     pub fn run_over(&self) -> u32 {
         self.run_over
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_FIRE` bit (mafia-re game/ai/C_shvestky.h:17, `Firing`'s bit,
+    /// cleared once `fire_time` runs out). The native flag is maintained
+    /// inline in `Tick` 0x49a300 with no dedicated getter, so no RVA is
+    /// claimed.
+    pub fn has_fire(&self) -> bool {
+        self.flags & SHVF_FIRE != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_BOXING` bit (mafia-re game/ai/C_shvestky.h:22, `HumanBoxing`'s
+    /// bit, cleared once `boxing_time` runs out). Inline native use only,
+    /// so no RVA is claimed.
+    pub fn has_boxing(&self) -> bool {
+        self.flags & SHVF_BOXING != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_ILLEGAL_PATH` bit (mafia-re game/ai/C_shvestky.h:21,
+    /// `CarIllegalPath`'s bit, counted up while the car is faster than 11).
+    /// Inline native use only, so no RVA is claimed.
+    pub fn has_illegal_path(&self) -> bool {
+        self.flags & SHVF_ILLEGAL_PATH != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_SIGNAL_MARK` bit (mafia-re game/ai/C_shvestky.h:25, a destroyed
+    /// traffic sign, cleared with `SHVF_RED_LIGHT`). Inline native use only,
+    /// so no RVA is claimed.
+    pub fn has_signal_mark(&self) -> bool {
+        self.flags & SHVF_SIGNAL_MARK != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_HIT_POLICEMAN` bit (mafia-re game/ai/C_shvestky.h:26-27,
+    /// `DalJsemPochuzkariDoDrzky`'s bit, `SHVSTATE_KILL`). Inline native use
+    /// only, so no RVA is claimed.
+    pub fn has_hit_policeman(&self) -> bool {
+        self.flags & SHVF_HIT_POLICEMAN != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF2_CRASH` bits (mafia-re game/ai/C_shvestky.h:30-32, `flags2`
+    /// crash bits, cleared once `crash_time` runs out). The native word is
+    /// maintained inline in `Tick` 0x49a300 with no dedicated getter, so no
+    /// RVA is claimed.
+    pub fn has_flags2_crash(&self) -> bool {
+        self.flags2 & SHVF2_CRASH != 0
     }
 }
 
@@ -4055,5 +4136,110 @@ mod tests {
         state.records.push(record);
         assert_eq!(state.support_level_for_human(7), 2);
         assert_eq!(state.support_level_for_human(8), 0);
+    }
+
+    #[test]
+    fn fire_flag_working_name_reads_bit() {
+        // Working name: SHVF_FIRE 0x2; paired with record_firing.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.has_fire());
+        record.record_firing(4000);
+        assert!(record.has_fire());
+        assert_eq!(record.fire_time(), 4000);
+        record.flags &= !SHVF_FIRE;
+        assert!(!record.has_fire());
+    }
+
+    #[test]
+    fn boxing_flag_working_name_reads_bit() {
+        // Working name: SHVF_BOXING 0x200; paired with record_boxing.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.has_boxing());
+        record.record_boxing();
+        assert!(record.has_boxing());
+        assert_eq!(record.boxing_time(), 5000);
+    }
+
+    #[test]
+    fn illegal_path_flag_working_name_reads_bit() {
+        // Working name: SHVF_ILLEGAL_PATH 0x40; inline native use only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.has_illegal_path());
+        record.flags |= SHVF_ILLEGAL_PATH;
+        assert!(record.has_illegal_path());
+        record.flags &= !SHVF_ILLEGAL_PATH;
+        assert!(!record.has_illegal_path());
+    }
+
+    #[test]
+    fn signal_mark_flag_working_name_reads_bit() {
+        // Working name: SHVF_SIGNAL_MARK 0x1000; set by the signal-mark arm.
+        let mut state = PoliceGameInitState::default();
+        state.active = true;
+        state.records.push(PolicePursuitRecord::new(7));
+        assert!(!state.records[0].has_signal_mark());
+        state.apply_destroy_signal_mark(7);
+        assert!(state.records[0].has_signal_mark());
+    }
+
+    #[test]
+    fn hit_policeman_flag_working_name_reads_bit() {
+        // Working name: SHVF_HIT_POLICEMAN 0x2000; set by the hit arm.
+        let mut state = PoliceGameInitState::default();
+        state.records.push(PolicePursuitRecord::new(7));
+        assert!(!state.records[0].has_hit_policeman());
+        state.apply_hit_policeman(7);
+        assert!(state.records[0].has_hit_policeman());
+    }
+
+    #[test]
+    fn flags2_crash_working_name_reads_any_bit() {
+        // Working name: SHVF2_CRASH 0x38 on the second flag word.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.has_flags2_crash());
+        record.flags2 |= 0x10;
+        assert!(record.has_flags2_crash());
+        record.flags2 &= !SHVF2_CRASH;
+        assert!(!record.has_flags2_crash());
+        assert_eq!(SHVF2_CRASH, 0x38);
+    }
+
+    #[test]
+    fn has_record_for_human_scans_back_to_front() {
+        // Working name: existence half of the record lookups.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_record_for_human(7));
+        state.records.push(PolicePursuitRecord::new(9));
+        assert!(!state.has_record_for_human(7));
+        assert!(state.has_record_for_human(9));
+        state.records.push(PolicePursuitRecord::new(7));
+        assert!(state.has_record_for_human(7));
+    }
+
+    #[test]
+    fn is_do_rici_listed_tracks_admit_and_evict() {
+        // Working name: membership half of the do_rici duplicate guard.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.is_do_rici_listed(11));
+        assert!(state.admit_do_rici(11));
+        assert!(state.is_do_rici_listed(11));
+        assert!(!state.is_do_rici_listed(13));
+        assert!(state.evict_do_rici(11));
+        assert!(!state.is_do_rici_listed(11));
+    }
+
+    #[test]
+    fn is_temp_car_tracked_tracks_staged_cars() {
+        // Working name: membership half of the temp_cars search.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.is_temp_car_tracked(40));
+        state.temp_cars.push(40);
+        state.temp_cars.push(41);
+        assert!(state.is_temp_car_tracked(40));
+        assert!(state.is_temp_car_tracked(41));
+        assert!(!state.is_temp_car_tracked(42));
+        assert!(state.free_my_temp_actor(40));
+        assert!(!state.is_temp_car_tracked(40));
+        assert!(state.is_temp_car_tracked(41));
     }
 }

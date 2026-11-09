@@ -245,6 +245,57 @@ impl MissionLifecycle {
     pub fn mission_name_word(&self) -> u32 {
         self.word(0x68)
     }
+
+    /// Working name (no outline Game.exe entry is claimed; inline only,
+    /// mafia-re `game/mission/Mission.h:117-120`, `C_mission::last_actor_number`
+    /// at +0x8): reads the last number `C_actor::Init` gave an actor. `Open`
+    /// clears it. The native word is read inline with no dedicated getter,
+    /// so no RVA is claimed.
+    pub fn last_actor_number(&self) -> i32 {
+        self.word(0x08) as i32
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; inline only,
+    /// mafia-re `game/mission/Mission.h:120-122`, `C_mission::opened` at
+    /// +0xc): reports whether a mission is open. `Close` does nothing
+    /// without it and clears it. No dedicated getter exists natively, so no
+    /// RVA is claimed.
+    pub fn is_opened(&self) -> bool {
+        self.bytes[0x0c] != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; inline only,
+    /// mafia-re `game/mission/Mission.h:135-136`, `C_mission::render_number`
+    /// at +0x64): reads the scene render number `C_game::Tick` copies each
+    /// frame. No dedicated getter exists natively, so no RVA is claimed.
+    pub fn render_number(&self) -> i32 {
+        self.word(0x64) as i32
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; inline only,
+    /// mafia-re `game/mission/Mission.h:79-82`, `C_mission::restore_volume`
+    /// at +0x7c): reports the pending volume-restore latch `Open` sets while
+    /// it mutes the sound. The first `Tick` with `skip_frames` below 1
+    /// clears it. No dedicated getter exists natively, so no RVA is claimed.
+    pub fn is_restore_volume(&self) -> bool {
+        self.bytes[0x7c] != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:117`, `C_mission::unknown_0` at
+    /// +0x0): reads the staged word without attaching gameplay meaning. No
+    /// dedicated native getter exists, so no RVA is claimed.
+    pub fn unknown_0(&self) -> u32 {
+        self.word(0x00)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:118`, `C_mission::unknown_4` at
+    /// +0x4): reads the staged word without attaching gameplay meaning. No
+    /// dedicated native getter exists, so no RVA is claimed.
+    pub fn unknown_4(&self) -> u32 {
+        self.word(0x04)
+    }
     pub fn pending_scene(&self) -> Option<SceneKey> {
         self.pending_scene
     }
@@ -2249,5 +2300,59 @@ mod tests {
         assert_eq!(mission.mission_name_word(), 0);
         mission.put_word(0x68, 0x1234_5678);
         assert_eq!(mission.mission_name_word(), 0x1234_5678);
+    }
+    #[test]
+    fn last_actor_number_working_name_reads_staged_word() {
+        // Inline C_mission::last_actor_number read (Mission.h:117-120,
+        // +0x8); no outline RVA is claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.last_actor_number(), 0);
+        mission.put_word(0x08, 41);
+        assert_eq!(mission.last_actor_number(), 41);
+        mission.put_word(0x08, (-7i32) as u32);
+        assert_eq!(mission.last_actor_number(), -7);
+    }
+    #[test]
+    fn is_opened_working_name_reads_flag_byte() {
+        // Inline C_mission::opened read (Mission.h:120-122, +0xc); no
+        // outline RVA is claimed. The constructor leaves it cleared.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert!(!mission.is_opened());
+        mission.bytes[0x0c] = 1;
+        assert!(mission.is_opened());
+        mission.bytes[0x0c] = 0;
+        assert!(!mission.is_opened());
+    }
+    #[test]
+    fn render_number_working_name_reads_staged_word() {
+        // Inline C_mission::render_number read (Mission.h:135-136, +0x64);
+        // no outline RVA is claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.render_number(), 0);
+        mission.put_word(0x64, 1234);
+        assert_eq!(mission.render_number(), 1234);
+    }
+    #[test]
+    fn is_restore_volume_working_name_reads_flag_byte() {
+        // Inline C_mission::restore_volume read (Mission.h:79-82, +0x7c);
+        // no outline RVA is claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert!(!mission.is_restore_volume());
+        mission.bytes[0x7c] = 1;
+        assert!(mission.is_restore_volume());
+        mission.bytes[0x7c] = 0;
+        assert!(!mission.is_restore_volume());
+    }
+    #[test]
+    fn unknown_words_working_name_read_staged_words() {
+        // Raw C_mission::unknown_0 (+0x0) and unknown_4 (+0x4) reads
+        // (Mission.h:117-118); no meaning attached and no RVA is claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.unknown_0(), 0);
+        assert_eq!(mission.unknown_4(), 0);
+        mission.put_word(0x00, 0x1111_2222);
+        mission.put_word(0x04, 0x3333_4444);
+        assert_eq!(mission.unknown_0(), 0x1111_2222);
+        assert_eq!(mission.unknown_4(), 0x3333_4444);
     }
 }
