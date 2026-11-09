@@ -500,6 +500,55 @@ impl ModelArena {
     pub fn light_on_of(&self, key: FrameKey) -> Result<bool, ModelError> {
         Ok(self.state(key)?.flags & 1 != 0)
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the world-space position cache (I3D.h:1937 `S_vector w_pos` at
+    /// +0x178; mafia-re ls3df/I3D/I3D.h at pin 113b5b6). The original exposes
+    /// no `I3D_light::GetWorldPos` beyond the frame inline (GAME 0x47a730);
+    /// `UpdateV` (PC RVA 0x20d10, already occupied, not claimed here) stores
+    /// this word for point and spot kinds. Same availability guard as `light`.
+    pub fn light_world_position_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.light(key)?.position)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the world-space direction cache (I3D.h:1938 `S_vector w_dir` at
+    /// +0x184; mafia-re ls3df/I3D/I3D.h at pin 113b5b6). No named original
+    /// getter; `UpdateV` (PC RVA 0x20d10, occupied) stores it for spot and
+    /// directional kinds. Same availability guard as `light`.
+    pub fn light_world_direction_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.light(key)?.direction)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the power-applied color cache (I3D.h:1939 `S_vector color` at +0x190;
+    /// mafia-re ls3df/I3D/I3D.h at pin 113b5b6). No named original getter;
+    /// the occupied `SetDiffuse`/`SetDiffusePower` setters (PC RVAs
+    /// 0x20930/0x209e0/0x20a90) maintain it. Same availability guard as
+    /// `light`.
+    pub fn light_scaled_color_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.light(key)?.scaled_color)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the world-scaled range pair (I3D.h:1940 `float range_n` at +0x19c
+    /// and I3D.h:1947 `float range_f` at +0x1d0; mafia-re ls3df/I3D/I3D.h at
+    /// pin 113b5b6). No named original getter; `UpdateV` and the occupied
+    /// `SetRange` setter (PC RVA 0x20b20) maintain both words. Same
+    /// availability guard as `light`.
+    pub fn light_scaled_range_of(&self, key: FrameKey) -> Result<[f32; 2], ModelError> {
+        let state = self.light(key)?;
+        Ok([state.near_scaled, state.far_scaled])
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the spot bound-sphere cache (I3D.h:1951 `I3D_bsphere bsphere` at
+    /// +0x1e0; mafia-re ls3df/I3D/I3D.h at pin 113b5b6). No named original
+    /// getter; only the spot arm of `UpdateV` (PC RVA 0x20d10, occupied)
+    /// refreshes it, so other kinds report their stale store verbatim, as
+    /// natively. Same availability guard as `light`.
+    pub fn light_spot_sphere_of(
+        &self,
+        key: FrameKey,
+    ) -> Result<([f32; 3], f32), ModelError> {
+        let state = self.light(key)?;
+        Ok((state.sphere_center, state.sphere_radius))
+    }
     pub fn light_random_state(&mut self) -> &mut LightCrtRandom {
         &mut self.light_random
     }
@@ -655,6 +704,43 @@ mod tests {
         assert!(!arena.light_on_of(key).unwrap());
         arena.set_light_on(key, true).unwrap();
         assert!(arena.light_on_of(key).unwrap());
+    }
+    #[test]
+    fn light_update_cache_readers_report_ctor_stores_then_update_tracks() {
+        // Working-name readers for the UpdateV-maintained words (I3D.h:
+        // 1937-1951, I3d_light.cpp:31-49 ctor + 176-215 UpdateV): no LS3DF
+        // FUNCTION address exists for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_world_position_of(key).unwrap(), [0., 0., 0.]);
+        assert_eq!(arena.light_scaled_color_of(key).unwrap(), [1., 1., 1.]);
+        assert_eq!(arena.light_scaled_range_of(key).unwrap(), [1., 100.]);
+        assert!(arena.light_world_direction_of(key).unwrap() != [0., 0., 0.]);
+        let bad = FrameKey(u32::MAX);
+        assert!(arena.light_world_position_of(bad).is_err());
+        assert!(arena.light_world_direction_of(bad).is_err());
+        assert!(arena.light_scaled_color_of(bad).is_err());
+        assert!(arena.light_scaled_range_of(bad).is_err());
+        assert!(arena.light_spot_sphere_of(bad).is_err());
+        // The spot arm refreshes the caches from the world matrix: the
+        // position stays at the origin while the direction tracks the
+        // already-ported frame world-direction word.
+        arena.graph.set_light_type(key, 2).unwrap();
+        arena.graph.update_light_v(key).unwrap();
+        assert_eq!(arena.light_world_position_of(key).unwrap(), [0., 0., 0.]);
+        let dir = arena.graph.frame_world_direction(key).unwrap();
+        assert_eq!(arena.light_world_direction_of(key).unwrap(), dir);
+        let (center, radius) = arena.light_spot_sphere_of(key).unwrap();
+        assert!(radius > 0.);
+        assert_eq!(center, [dir[0] * radius, dir[1] * radius, dir[2] * radius]);
+        // The diffuse/range setters retrack their own words.
+        arena.graph.set_light_diffuse(key, [0.5, 0.25, 1.]).unwrap();
+        assert_eq!(
+            arena.light_scaled_color_of(key).unwrap(),
+            [0.5, 0.25, 1.]
+        );
+        arena.graph.set_light_range(key, 2., 50.).unwrap();
+        assert_eq!(arena.light_scaled_range_of(key).unwrap(), [2., 50.]);
     }
     #[test]
     fn light_type_reader_reports_constructor_default_then_setter_store() {

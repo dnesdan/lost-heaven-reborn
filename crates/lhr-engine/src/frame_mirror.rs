@@ -1122,6 +1122,53 @@ impl ModelArena {
             Ok(None)
         }
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the reflection range (mafia-re ls3df/I3D/I3D.h:3830 `float range`
+    /// at +0x2d8, constructor default 100; I3d_mirror.cpp:28 at pin 113b5b6).
+    /// The original exposes no `I3D_mirror::GetRange` (that file defines only
+    /// `SetColor`/`SetViewBox` plus the rendering verbs); the occupied
+    /// `Duplicate`/`LoadImage` bodies (PC RVAs 0x31ab0/0x332e0) copy it
+    /// verbatim. Same guard as `mirror_state`.
+    pub fn mirror_range_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.mirror_state(key)?.range)
+    }
+    /// Upstream working name, not an evidenced original symbol: `MIRF_VISIBLE`
+    /// bit test (mafia-re ls3df/I3D/I3D.h:3784: the camera sees its front,
+    /// set by `UpdateVisibility`, PC RVA 0x321b0, occupied). The reference
+    /// records no LS3DF FUNCTION address for a standalone reader; the render
+    /// pass reads the flag in place (render.cpp:536). Exact bit test; same
+    /// guard as `mirror_state`.
+    pub fn mirror_is_visible_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.mirror_state(key)?.mirror_flags & MIRF_VISIBLE != 0)
+    }
+    /// Upstream working name, not an evidenced original symbol: `MIRF_REFLECT`
+    /// bit test (mafia-re ls3df/I3D/I3D.h:3785: near enough to render what it
+    /// reflects, set by `UpdateVisibility`, PC RVA 0x321b0, occupied). Same
+    /// inline-only status as `mirror_is_visible_of`: no standalone LS3DF
+    /// FUNCTION entry exists, so no RVA is claimed here. Exact bit test;
+    /// same guard as `mirror_state`.
+    pub fn mirror_reflects_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.mirror_state(key)?.mirror_flags & MIRF_REFLECT != 0)
+    }
+    /// Upstream working name, not an evidenced original symbol: count of the
+    /// reflected-visual copies (mafia-re ls3df/I3D/I3D.h:3822
+    /// `C_list<I3D_visual *> copies` at +0x1e4). The reference records no
+    /// LS3DF FUNCTION address for a count reader; the occupied
+    /// `CollectVisuals`/`PrepareReflection` bodies (PC RVAs 0x32500/0x32730)
+    /// fill and consume the list. Reports the owned copy count; same guard
+    /// as `mirror_state`.
+    pub fn mirror_copy_count_of(&self, key: FrameKey) -> Result<usize, ModelError> {
+        Ok(self.mirror_state(key)?.copies.len())
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the scene link (mafia-re ls3df/I3D/I3D.h:3821 `I3D_scene *scene` at
+    /// +0x1e0, the scene's `AddMirror`). The reference records no LS3DF
+    /// FUNCTION address for a link reader; the occupied `AddMirror` setter
+    /// (PC RVA 0x4a6f0) stores it. Missing link reads as None (native NULL).
+    /// Same guard as `mirror_state`.
+    pub fn mirror_scene_of(&self, key: FrameKey) -> Result<Option<SceneKey>, ModelError> {
+        Ok(self.mirror_state(key)?.scene)
+    }
 }
 
 #[cfg(test)]
@@ -1221,6 +1268,35 @@ mod tests {
             arena.mirror_view_box_of(key).unwrap(),
             Some(SMatrix::identity())
         );
+    }
+
+    #[test]
+    fn mirror_state_readers_report_ctor_defaults_then_word_stores() {
+        // Working-name readers for the range/flag/copy/scene words
+        // (I3D.h:3781-3785,3820-3830): no LS3DF FUNCTION address exists for
+        // standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_mirror_frame().unwrap();
+        assert_eq!(arena.mirror_range_of(key).unwrap(), 100.);
+        assert!(!arena.mirror_is_visible_of(key).unwrap());
+        assert!(!arena.mirror_reflects_of(key).unwrap());
+        assert_eq!(arena.mirror_copy_count_of(key).unwrap(), 0);
+        assert_eq!(arena.mirror_scene_of(key).unwrap(), None);
+        let bad = FrameKey(u32::MAX);
+        assert!(arena.mirror_range_of(bad).is_err());
+        assert!(arena.mirror_is_visible_of(bad).is_err());
+        assert!(arena.mirror_reflects_of(bad).is_err());
+        assert!(arena.mirror_copy_count_of(bad).is_err());
+        assert!(arena.mirror_scene_of(bad).is_err());
+        arena.mirror_state_mut(key).unwrap().mirror_flags = MIRF_VISIBLE | MIRF_REFLECT;
+        assert!(arena.mirror_is_visible_of(key).unwrap());
+        assert!(arena.mirror_reflects_of(key).unwrap());
+        let copy = arena.create_mirror_frame().unwrap();
+        arena.mirror_state_mut(key).unwrap().copies.push(copy);
+        assert_eq!(arena.mirror_copy_count_of(key).unwrap(), 1);
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        arena.mirror_state_mut(key).unwrap().scene = Some(scene);
+        assert_eq!(arena.mirror_scene_of(key).unwrap(), Some(scene));
     }
 
     #[test]

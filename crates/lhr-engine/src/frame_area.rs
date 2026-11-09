@@ -467,6 +467,18 @@ impl crate::model_loading::ModelArena {
             .find(|a| a.key == key)
             .ok_or_else(|| AreaError::UnknownArea(key.frame()).into())
     }
+    /// Working name for the direct `scene` link read on `I3D_area`
+    /// (mafia-re ls3df/I3D/I3D.h:2476 `I3D_scene *scene` at +0x160; the
+    /// scene's area-ring member, set by `AddToRemoveFromSceneRing`, PC RVA
+    /// 0x5440, already occupied, not claimed here). The reference records no LS3DF FUNCTION address for a
+    /// standalone reader; the ring setter is the only writer. A detached
+    /// area reads as None (native NULL). Same availability guard as `area`.
+    pub fn area_scene_of(
+        &self,
+        key: AreaKey,
+    ) -> Result<Option<crate::scene_ownership::SceneKey>, crate::model_loading::ModelError> {
+        Ok(self.area(key)?.scene)
+    }
     pub(crate) fn area_mut(
         &mut self,
         key: AreaKey,
@@ -846,6 +858,24 @@ mod tests {
         arena.release(key.frame()).unwrap();
         assert_eq!(arena.area_storage().live_allocations(), 0);
         assert_eq!(arena.area_storage().live_bytes(), 0);
+    }
+    #[test]
+    fn area_scene_reader_reports_ring_membership() {
+        // Working name for the direct `scene` link read (I3D.h:2476,
+        // +0x160): no LS3DF FUNCTION address exists for a standalone
+        // reader; the ring setter (PC RVA 0x5440) is the only writer.
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        assert_eq!(arena.area_scene_of(key).unwrap(), None);
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0].frame();
+        arena.link_frame(key.frame(), Some(sector), 0).unwrap();
+        assert_eq!(arena.area_scene_of(key).unwrap(), Some(scene));
+        arena.release(key.frame()).unwrap();
+        assert!(arena.area_scene_of(key).is_err());
+        let mut foreign = ModelArena::default();
+        let other = foreign.create_area().unwrap();
+        assert!(arena.area_scene_of(other).is_err());
     }
     #[test]
     fn destructor_unlinks_both_sides_before_freeing_geometry_and_ring() {
