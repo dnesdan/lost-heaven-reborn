@@ -336,6 +336,19 @@ fn traverse<B: FrameLookupBackend + ?Sized>(
 /// Self-first depth-first child/next search. The root and its descendants are
 /// visited. The native NULL-query shortcut is outside this nonnull byte-slice
 /// query API; a stored null name remains distinct from an allocated empty name.
+/// Original I3D_frame::GetChildFrame, PC RVA 0x1c360 (VA 0x1001c360; REA
+/// formed Ghidra body FUN_1001c360 in LS3DF.dll
+/// e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+/// ev_fc2ff1e5fcc990b1b951997b24b0ff30a04f3f177283f76296945c4adf3073;
+/// mafia-re ls3df/I3D/frames/I3d_frame.cpp:732-795 at pin 113b5b6).
+/// Confirm-only on this pre-existing port: self-first preorder with the
+/// first hit winning matches the native self-check-then-recurse order.
+/// Covered subset only: case-insensitive exact matching under
+/// SCRIPT_FIND_FLAGS with original-name (not full-name) comparison.
+/// The native type gate, case-sensitive and wildcard arms, and full-name
+/// matching stay unported (disclosed); embedded NUL and non-ASCII inputs
+/// are explicit host errors, and ancestor cycles, visit exhaustion and
+/// deleted-mid-enumeration keys keep the existing host guards.
 pub fn get_child_frame<B: FrameLookupBackend + ?Sized>(
     backend: &B,
     root: FrameReferenceId,
@@ -375,6 +388,53 @@ pub fn find_frame<B: FrameLookupBackend + ?Sized>(
         return Ok(Some(found));
     }
     Ok(None)
+}
+/// Original I3D_frame::FindChildFrame, PC RVA 0x1c330 (VA 0x1001c330; REA
+/// formed Ghidra body FUN_1001c330 in LS3DF.dll
+/// e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+/// ev_4eafe6bf1ad468f54c7f73d52ac8c50cc4a19fed6626a1738341378c2b0be7e8;
+/// mafia-re ls3df/I3D/frames/I3d_frame.cpp:723-730 at pin 113b5b6).
+/// Order-exact composition of the two already-ported pieces:
+/// `EnumFrames` over the root's children (each child subtree through
+/// `enum_subtree`, PC RVA 0x1c020) with `find_child_callback_slot`
+/// (PC RVA 0x1c310) storing the first hit and returning CANCEL.
+/// The root itself is never matched, matching the native children-only
+/// walk; the first hit in child-list order wins and later subtrees are
+/// never entered. Name matching, type gates, cycle guards, visit budget
+/// and the last-destroyed-frame skip are inherited from `enum_subtree`
+/// unchanged. A stale root maps to `StaleFrame`, like `enum_subtree`.
+pub fn find_child_frame(
+    arena: &ModelArena,
+    root: FrameKey,
+    name: Option<&[u8]>,
+    flags: u32,
+    visits: usize,
+) -> Result<Option<FrameKey>, FrameLookupError> {
+    let mut at = arena
+        .links(root)
+        .map_err(|_| FrameLookupError::StaleFrame(FrameReferenceId::from_existing(root.0)))?
+        .child;
+    let mut hit = None;
+    while let Some(child) = at {
+        let outcome = enum_subtree(
+            arena,
+            child,
+            &mut |key| find_child_callback_slot(&mut hit, key),
+            flags,
+            name,
+            visits,
+        )?;
+        if outcome == ENUM_CANCELED || hit.is_some() {
+            break;
+        }
+        at = arena
+            .links(child)
+            .map_err(|_| {
+                FrameLookupError::StaleFrame(FrameReferenceId::from_existing(child.0))
+            })?
+            .next;
+    }
+    Ok(hit)
 }
 
 fn subtree_c_str(bytes: &[u8]) -> &[u8] {
@@ -686,6 +746,124 @@ mod tests {
             get_child_frame(&tree, r(0), b"alpha", SCRIPT_FIND_FLAGS, 3),
             Ok(Some(r(2)))
         );
+    }
+    #[test]
+    fn get_child_frame_rva_0x1c360_self_first_first_hit_wins() {
+        // PC RVA 0x1c360 (VA 0x1001c360; REA formed Ghidra body FUN_1001c360,
+        // ev_fc2ff1e5...; mafia-re I3d_frame.cpp:732-795): the native checks
+        // self first, then recurses children in list order with the same
+        // match. The first hit wins; a miss returns NULL (None here).
+        // Covered subset only (see the function docs): case-insensitive
+        // exact matching under SCRIPT_FIND_FLAGS.
+        let ids: Vec<_> = (0..4).map(FrameLifetime::for_existing).collect();
+        let r = |i: usize| ids[i].reference();
+        let frames = [
+            LiveFrame {
+                lifetime: &ids[0],
+                name: Some(b"root"),
+                child: Some(r(1)),
+                next: None,
+            },
+            LiveFrame {
+                lifetime: &ids[1],
+                name: Some(b"alpha"),
+                child: Some(r(2)),
+                next: Some(r(3)),
+            },
+            LiveFrame {
+                lifetime: &ids[2],
+                name: Some(b"alpha"),
+                child: None,
+                next: None,
+            },
+            LiveFrame {
+                lifetime: &ids[3],
+                name: Some(b"alpha"),
+                child: None,
+                next: None,
+            },
+        ];
+        let tree = LiveFrameTree::borrow(&frames, true).unwrap();
+        // A self match beats every descendant.
+        assert_eq!(
+            get_child_frame(&tree, r(1), b"ALPHA", SCRIPT_FIND_FLAGS, 3),
+            Ok(Some(r(1)))
+        );
+        // The first descendant in order wins over later duplicates.
+        assert_eq!(
+            get_child_frame(&tree, r(0), b"alpha", SCRIPT_FIND_FLAGS, 4),
+            Ok(Some(r(1)))
+        );
+        // Misses stay misses.
+        assert_eq!(
+            get_child_frame(&tree, r(0), b"absent", SCRIPT_FIND_FLAGS, 4),
+            Ok(None)
+        );
+    }
+    #[test]
+    fn find_child_frame_rva_0x1c330_children_only_cancel_first_hit() {
+        // PC RVA 0x1c330 (VA 0x1001c330; REA formed Ghidra body FUN_1001c330,
+        // ev_4eafe6bf...; mafia-re I3d_frame.cpp:723-730): EnumFrames over
+        // the root's children with FindChildCallBack (store + CANCEL).
+        // Children-only: the root itself never matches. The first hit in
+        // child-list order wins and later subtrees are never entered.
+        use crate::frame_transform::FrameKey;
+        use crate::model_loading::ModelArena;
+        let mut arena = ModelArena::default();
+        arena.set_fast_find_enabled(true);
+        let root = arena.create_model().unwrap().root();
+        arena.set_frame_name(root, Some(b"hit")).unwrap();
+        let second = arena.create_dummy_frame().unwrap();
+        arena.set_frame_name(second, Some(b"hit")).unwrap();
+        let first = arena.create_dummy_frame().unwrap();
+        arena.set_frame_name(first, Some(b"miss")).unwrap();
+        let deep = arena.create_dummy_frame().unwrap();
+        arena.set_frame_name(deep, Some(b"hit")).unwrap();
+        // Prepend order: linking second first leaves [first, second].
+        arena.link_frame(second, Some(root), 0).unwrap();
+        arena.link_frame(first, Some(root), 0).unwrap();
+        arena.link_frame(deep, Some(first), 0).unwrap();
+        assert_eq!(arena.links(root).unwrap().child, Some(first));
+        // The root's own name never matches (children-only walk); the deep
+        // match in the first subtree wins over the second subtree's match.
+        assert_eq!(
+            find_child_frame(&arena, root, Some(b"hit"), 0xffff, 64),
+            Ok(Some(deep))
+        );
+        // A direct child match short-circuits before deeper subtrees.
+        assert_eq!(
+            find_child_frame(&arena, root, Some(b"miss"), 0xffff, 64),
+            Ok(Some(first))
+        );
+        // Misses stay misses.
+        assert_eq!(
+            find_child_frame(&arena, root, Some(b"absent"), 0xffff, 64),
+            Ok(None)
+        );
+        // A null mask matches the first child unconditionally.
+        assert_eq!(
+            find_child_frame(&arena, root, None, 0xffff, 64),
+            Ok(Some(first))
+        );
+        // Childless frames match nothing.
+        let leaf = arena.create_dummy_frame().unwrap();
+        assert_eq!(
+            find_child_frame(&arena, leaf, Some(b"hit"), 0xffff, 64),
+            Ok(None)
+        );
+        // Stale roots are explicit errors, like enum_subtree.
+        assert_eq!(
+            find_child_frame(&arena, FrameKey(u32::MAX), Some(b"hit"), 0xffff, 64),
+            Err(FrameLookupError::StaleFrame(
+                FrameReferenceId::from_existing(u32::MAX)
+            ))
+        );
+        // Re-setting an identical name is a content-equal no-op: no new
+        // registration lands in the enabled fast tree (native pointer-then-
+        // strcmp arms folded into one content compare, disclosed).
+        let adds = arena.fast_tree_add_counter();
+        arena.set_frame_name(first, Some(b"miss")).unwrap();
+        assert_eq!(arena.fast_tree_add_counter(), adds);
     }
     #[test]
     fn cycles_stale_refs_and_limits_are_errors_not_misses() {

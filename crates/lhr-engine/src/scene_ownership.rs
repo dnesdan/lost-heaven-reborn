@@ -7,6 +7,9 @@
 //! Close (0x4a390) exposes unimplemented external effects as ordered boundaries.
 
 use crate::frame_camera::CameraKey;
+use crate::frame_lookup::{
+    ENUM_CANCELED, FrameLookupError, enum_subtree, find_child_callback_slot,
+};
 use crate::frame_transform::{FrameKey, FrameKind, I3dFrameState};
 use crate::model_loading::{ModelArena, ModelError, ModelKey};
 
@@ -1289,6 +1292,57 @@ impl ModelArena {
     /// for it. Slot 3 of the retained primary/backdrop/omni/near order.
     pub fn scene_near_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
         Ok(self.scene(scene)?.sectors[3])
+    }
+    /// Original I3D_scene::FindFrame, PC RVA 0x49210 (VA 0x10049210; REA
+    /// formed Ghidra body FUN_10049210 in LS3DF.dll e211c850...,
+    /// ev_f460b45f7931c1a6a849b30b4de3fb024f64b368264dc1a5fdf4c2ffc9ab;
+    /// mafia-re ls3df/I3D/I3d_scene.cpp:226-249 at pin 113b5b6). Order-exact dispatch over the retained
+    /// primary/backdrop/omni/near order: the primary sector first, then the
+    /// ENUMF-gated backdrop (0x40000), omni (0x80000) and near (0x100000)
+    /// sectors; the first hit across the chain wins and later sectors stay
+    /// unvisited. Each step runs the shared `enum_subtree` (PC RVA 0x1c020)
+    /// store-first-hit composition with the `FindChildCallBack` word (PC RVA
+    /// 0x1c310) instead of a direct `GetChildFrame` vcall: the two walk the
+    /// same self-first preorder for a first-hit search, but full-name
+    /// (model-prefixed) matching stays with the unported full `GetChildFrame`
+    /// matcher (original-name matching only, disclosed). A null mask matches
+    /// the first visited frame, like the native NULL-name path. An unknown
+    /// scene maps to `MissingPrimaryRoot`, matching a missing primary root.
+    pub fn scene_find_frame(
+        &self,
+        scene: SceneKey,
+        name: Option<&[u8]>,
+        flags: u32,
+        visits: usize,
+    ) -> Result<Option<FrameKey>, FrameLookupError> {
+        let sectors = self
+            .scene(scene)
+            .map(|owner| owner.sectors)
+            .map_err(|_| FrameLookupError::MissingPrimaryRoot)?;
+        let chain = [
+            (sectors[0], 0),
+            (sectors[1], 0x40000),
+            (sectors[2], 0x80000),
+            (sectors[3], 0x100000),
+        ];
+        for (sector, gate) in chain {
+            if gate != 0 && flags & gate == 0 {
+                continue;
+            }
+            let mut hit = None;
+            let outcome = enum_subtree(
+                self,
+                sector.frame(),
+                &mut |key| find_child_callback_slot(&mut hit, key),
+                flags,
+                name,
+                visits,
+            )?;
+            if outcome == ENUM_CANCELED {
+                return Ok(hit);
+            }
+        }
+        Ok(None)
     }
     /// Working name for the `occluders_changed` state-flag read at +0x275
     /// (mafia-re ls3df/I3D/I3D.h:1581). No LS3DF FUNCTION address exists
@@ -2833,6 +2887,87 @@ mod tests {
         assert_eq!(arena.scene_make_ready_enum_proc(sector.frame(), 999).unwrap(), 0);
         let member = dummy(&mut arena, b"not-a-sector");
         assert!(arena.scene_make_ready_enum_proc(member, 0).is_err());
+    }
+    #[test]
+    fn scene_find_frame_rva_0x49210_primary_then_gated_sectors() {
+        // PC RVA 0x49210 (VA 0x10049210; REA formed Ghidra body FUN_10049210,
+        // ev_f460b45f...; mafia-re I3d_scene.cpp:226-249): the primary
+        // sector first, then the ENUMF-gated backdrop/omni/near sectors;
+        // the first hit across the chain wins and ungated sectors stay
+        // unvisited. A null mask matches the primary sector itself, like
+        // the native NULL-name path through GetChildFrame.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sectors = arena.scene(scene).unwrap().sectors;
+        let primary_hit = dummy(&mut arena, b"alpha");
+        arena
+            .link_frame(primary_hit, Some(sectors[0].frame()), 0)
+            .unwrap();
+        let backdrop_hit = dummy(&mut arena, b"beta");
+        arena
+            .link_frame(backdrop_hit, Some(sectors[1].frame()), 0)
+            .unwrap();
+        let backdrop_alpha = dummy(&mut arena, b"alpha");
+        arena
+            .link_frame(backdrop_alpha, Some(sectors[1].frame()), 0)
+            .unwrap();
+        let omni_hit = dummy(&mut arena, b"gamma");
+        arena
+            .link_frame(omni_hit, Some(sectors[2].frame()), 0)
+            .unwrap();
+        let near_hit = dummy(&mut arena, b"delta");
+        arena
+            .link_frame(near_hit, Some(sectors[3].frame()), 0)
+            .unwrap();
+        // Primary first: beats the backdrop's duplicate name.
+        assert_eq!(
+            arena.scene_find_frame(scene, Some(b"alpha"), 0xffff, 64),
+            Ok(Some(primary_hit))
+        );
+        // Ungated sectors stay unvisited.
+        assert_eq!(
+            arena.scene_find_frame(scene, Some(b"beta"), 0xffff, 64),
+            Ok(None)
+        );
+        assert_eq!(
+            arena.scene_find_frame(scene, Some(b"beta"), 0xffff | 0x40000, 64),
+            Ok(Some(backdrop_hit))
+        );
+        assert_eq!(
+            arena.scene_find_frame(scene, Some(b"gamma"), 0xffff, 64),
+            Ok(None)
+        );
+        assert_eq!(
+            arena.scene_find_frame(scene, Some(b"gamma"), 0xffff | 0x80000, 64),
+            Ok(Some(omni_hit))
+        );
+        assert_eq!(
+            arena.scene_find_frame(scene, Some(b"delta"), 0xffff, 64),
+            Ok(None)
+        );
+        assert_eq!(
+            arena.scene_find_frame(scene, Some(b"delta"), 0xffff | 0x100000, 64),
+            Ok(Some(near_hit))
+        );
+        // Misses stay misses; the null mask matches the primary sector.
+        assert_eq!(
+            arena.scene_find_frame(scene, Some(b"absent"), 0xffff | 0x1c0000, 64),
+            Ok(None)
+        );
+        assert_eq!(
+            arena.scene_find_frame(scene, None, 0xffff, 64),
+            Ok(Some(sectors[0].frame()))
+        );
+        // Unknown scenes are explicit errors.
+        assert_eq!(
+            arena.scene_find_frame(
+                SceneKey(FrameKey(u32::MAX)),
+                Some(b"alpha"),
+                0xffff,
+                64
+            ),
+            Err(crate::frame_lookup::FrameLookupError::MissingPrimaryRoot)
+        );
     }
     #[test]
     fn working_name_world_space_defaults_false_and_rejects_unknown() {

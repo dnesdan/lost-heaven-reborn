@@ -1104,6 +1104,13 @@ impl I3dFrameGraph {
     pub fn frame_next_key(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
         Ok(self.links(key)?.next)
     }
+    /// Working name for the `m_pChild` first-child read at +0x124 (mafia-re
+    /// ls3df/I3D/I3D.h:678). No LS3DF FUNCTION address exists for a
+    /// standalone reader: first children are only walked by hierarchy
+    /// traversals. Borrows the live link; no ownership claim.
+    pub fn frame_first_child_key(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
+        Ok(self.links(key)?.child)
+    }
     /// Working name for the scalar `m_WorldScale` read at +0x114
     /// (mafia-re ls3df/I3D/I3D.h:674). No LS3DF FUNCTION address exists
     /// for it: the only out-of-line scale reader is the `GetWorldScale`
@@ -2292,6 +2299,18 @@ impl I3dFrameGraph {
     }
 
     /// RemoveChild preserves the detached child's world cache, even if now stale.
+    /// Original I3D_frame::RemoveChild, PC RVA 0x1bf20 (VA 0x1001bf20; REA
+    /// formed Ghidra body FUN_1001bf20 in LS3DF.dll
+    /// e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// ev_57935d4fccfcf7b53b09675a5bb59b537b6c348c286cb10304b3a113ea9;
+    /// mafia-re ls3df/I3D/frames/I3d_frame.cpp:579-606 at pin 113b5b6).
+    /// Confirm-only on this pre-existing port. Order-exact: a
+    /// non-child returns the frame untouched; otherwise numChildren--, the
+    /// three unlink arms (middle splice, first-child advance, last-child
+    /// clear with count reset to zero), then prev/next/parent nulling and
+    /// the parent HR-bound-validity clear (0xfffffebf). The detached child's
+    /// world cache is preserved even if now stale, matching the native
+    /// no-refresh unlink.
     pub fn remove_child(&mut self, parent: FrameKey, child: FrameKey) -> Result<(), FrameError> {
         self.index(parent)?;
         let l = self.links(child)?;
@@ -3349,6 +3368,70 @@ mod tests {
         assert_eq!(graph.frame_child_count(parent).unwrap(), 1);
         graph.add_child(parent, second).unwrap();
         assert_eq!(graph.frame_child_count(parent).unwrap(), 2);
+    }
+    #[test]
+    fn remove_child_rva_0x1bf20_unlinks_all_arms_and_clears_parent_bits() {
+        // PC RVA 0x1bf20 (VA 0x1001bf20; REA formed Ghidra body FUN_1001bf20,
+        // ev_57935d4f...; mafia-re I3d_frame.cpp:579-606): non-children
+        // return untouched; otherwise numChildren--, the three unlink arms,
+        // child link nulling and the parent 0xfffffebf clear.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let first = graph.insert(I3dFrameState::dummy()).unwrap();
+        let second = graph.insert(I3dFrameState::dummy()).unwrap();
+        let third = graph.insert(I3dFrameState::dummy()).unwrap();
+        // Prepend order: linking first, second, third leaves [third, second,
+        // first].
+        graph.add_child(parent, first).unwrap();
+        graph.add_child(parent, second).unwrap();
+        graph.add_child(parent, third).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(third));
+        // A non-child returns the frame untouched: no count or link moves.
+        graph.remove_child(parent, parent).unwrap();
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 3);
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(third));
+        // Middle splice: second drops out, neighbors relink.
+        graph.remove_child(parent, second).unwrap();
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 2);
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(third));
+        assert_eq!(graph.frame_next_key(third).unwrap(), Some(first));
+        assert_eq!(graph.frame_prev_key(first).unwrap(), Some(third));
+        assert_eq!(graph.frame_parent_key(second).unwrap(), None);
+        assert_eq!(graph.frame_prev_key(second).unwrap(), None);
+        assert_eq!(graph.frame_next_key(second).unwrap(), None);
+        // First-child advance.
+        graph.remove_child(parent, third).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(first));
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 1);
+        // Last-child clear resets the count to zero, not wrapping.
+        graph.remove_child(parent, first).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), None);
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 0);
+        // Parent validity bits clear on every removal path: preset the
+        // 0x140 word, remove again via a fresh link, and check the clear.
+        graph.add_child(parent, first).unwrap();
+        graph.change_flags(parent, 0, 0x140).unwrap();
+        assert_eq!(graph.state(parent).unwrap().flags & 0x140, 0x140);
+        graph.remove_child(parent, first).unwrap();
+        assert_eq!(graph.state(parent).unwrap().flags & 0x140, 0);
+    }
+    #[test]
+    fn frame_first_child_key_reports_prepend_head() {
+        // Working name for the m_pChild read at +0x124 (I3D.h:678): no
+        // LS3DF FUNCTION address exists for a standalone reader.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), None);
+        let first = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.add_child(parent, first).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(first));
+        let second = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.add_child(parent, second).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(second));
+        assert_eq!(
+            graph.frame_first_child_key(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
     }
     #[test]
     fn frame_kind_reports_live_kind() {
