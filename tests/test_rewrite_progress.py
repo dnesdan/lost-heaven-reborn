@@ -408,7 +408,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +13 police pursuit contracts (road-block/alerted/illegal-path/
         # destroy-signal/hit/known-car/sledovacka/state; 2 STUBs; working
         # names, sample-decoded as code; marker-only, tests green).
-        self.assertEqual(game["ported"], 149 + 736)
+        # +13 ai-loc/blob/char-struct contracts (ai_loc x3, blob x3,
+        # ground-delta STUBs x2, ReadOldCharStruct x2, dtor/death/push STUBs;
+        # 2 subagent test bugs fixed; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 749)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

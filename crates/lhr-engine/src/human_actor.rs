@@ -6158,3 +6158,603 @@ mod do_small_actions_rva_tests {
         assert!(!dead_body_entry_gate(true, false, false, false));
     }
 }
+
+/// GAME 0x56e370 (RVA 0x16e370, VA 0x56e370) ai_loc::Init (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:1068-1075): stages the owning actor and
+/// its staged world position, clears flags and time. The frame world-position
+/// owner stays DEFERRED; the caller stages `world_pos`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AiLoc {
+    pub actor: u32,
+    pub pos: [f32; 3],
+    pub flags: u32,
+    pub time: u32,
+}
+
+/// GAME 0x56e370 (RVA 0x16e370, VA 0x56e370) ai_loc::Init leaf.
+pub fn ai_loc_init(actor: u32, world_pos: [f32; 3]) -> AiLoc {
+    AiLoc {
+        actor,
+        pos: world_pos,
+        flags: 0,
+        time: 0,
+    }
+}
+
+/// One staged ai_loc segment record (mafia-re 113b5b6
+/// game/actors/C_human.h:221-229 ai_seg_stat 0x10 bytes): the special type,
+/// the game time it was last found, the find count and the opaque special
+/// identity. The segment owner stays DEFERRED; identity is never dereferenced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AiSegStat {
+    pub seg_type: u32,
+    pub time: u32,
+    pub count: i32,
+    pub special: u32,
+}
+
+/// GAME 0x56e6f0 (RVA 0x16e6f0, VA 0x56e6f0) ai_loc::AddSegment (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:1141-1157): refreshes the matching special
+/// (time update plus count increment) or pushes a new count-1 record. The
+/// mission game-time owner stays DEFERRED; the caller stages `game_time`.
+pub fn ai_loc_add_segment(
+    segs: &mut Vec<AiSegStat>,
+    seg_type: u32,
+    special: u32,
+    game_time: u32,
+) {
+    for seg in segs.iter_mut() {
+        if seg.special == special {
+            seg.time = game_time;
+            seg.count = seg.count.wrapping_add(1);
+            return;
+        }
+    }
+    segs.push(AiSegStat {
+        seg_type,
+        time: game_time,
+        count: 1,
+        special,
+    });
+}
+
+/// GAME 0x56e950 (RVA 0x16e950, VA 0x56e950) ai_loc::SegListUpdate
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:1159-1167): drops specials not
+/// seen for 4 seconds by back-scan erase. The mission game-time owner stays
+/// DEFERRED; the caller stages `game_time`. 32-bit wrapping matches the
+/// native `uint` addition.
+pub fn ai_loc_seg_list_update(segs: &mut Vec<AiSegStat>, game_time: u32) {
+    for index in (0..segs.len()).rev() {
+        if segs[index].time.wrapping_add(4000) < game_time {
+            segs.remove(index);
+        }
+    }
+}
+
+/// Staged AI blob flags (mafia-re 113b5b6 game/actors/C_human.h:271-275).
+pub const AIBLOB_RUNNING: u32 = 0x1;
+/// Staged crouching flag of ai_blob::flags (mafia-re 113b5b6 C_human.h:272).
+pub const AIBLOB_CROUCHING: u32 = 0x2;
+/// Staged firing flag of ai_blob::flags (mafia-re 113b5b6 C_human.h:273).
+pub const AIBLOB_FIRING: u32 = 0x4;
+/// Staged jumping flag of ai_blob::flags (mafia-re 113b5b6 C_human.h:274).
+pub const AIBLOB_JUMPING: u32 = 0x8;
+/// Unnamed jump animation id read by the blob switch (mafia-re 113b5b6
+/// game/actors/C_actor.h: ANIM_UNKNOWN_5E 0x5e).
+pub const ANIM_UNKNOWN_5E: i32 = 0x5e;
+/// Running-jump animation id read by the blob switch (mafia-re 113b5b6
+/// game/actors/C_actor.h: ANIM_JUMPRX1 0x60).
+pub const ANIM_JUMPRX1: i32 = 0x60;
+
+/// One staged ai_blob record (mafia-re 113b5b6 game/actors/C_human.h:258-269
+/// 0x24 bytes): metre-raised position, frame direction delta, game time,
+/// state flags and opaque owner identity. Frame/model owners stay DEFERRED.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AiBlob {
+    pub pos: [f32; 3],
+    pub dir: [f32; 3],
+    pub time: u32,
+    pub flags: u32,
+    pub actor: u32,
+}
+
+impl Default for AiBlob {
+    fn default() -> Self {
+        Self {
+            pos: [0.0; 3],
+            dir: [0.0; 3],
+            time: 0,
+            flags: 0,
+            actor: 0,
+        }
+    }
+}
+
+/// Staged ai_blob_log owner (mafia-re 113b5b6 game/actors/C_human.h:277-292
+/// 0x244 bytes): sixteen slots plus the last index, -1 for none.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AiBlobLog {
+    pub blobs: [AiBlob; 16],
+    pub last: i32,
+}
+
+impl Default for AiBlobLog {
+    fn default() -> Self {
+        Self {
+            blobs: [AiBlob::default(); 16],
+            last: -1,
+        }
+    }
+}
+
+/// GAME 0x56eeb0 (RVA 0x16eeb0, VA 0x56eeb0) ai_blob_log::Clear (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:1218-1223): zeroes the sixteen slots and
+/// resets the last index to -1.
+pub fn blob_log_clear(log: &mut AiBlobLog) {
+    log.blobs = [AiBlob::default(); 16];
+    log.last = -1;
+}
+
+/// GAME 0x56ee60 (RVA 0x16ee60, VA 0x56ee60) ai_blob_log::GetBlob (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:1205-1216): copies the slot `back` before
+/// the last (`(last - back) & 0xf`), or None for an empty log and for
+/// `back > last`. The native heap copy becomes a value copy here; no owner
+/// is allocated.
+pub fn blob_log_get(log: &AiBlobLog, back: u32) -> Option<AiBlob> {
+    if log.last < 0 {
+        return None;
+    }
+    if back > log.last as u32 {
+        return None;
+    }
+    let index = (log.last as u32).wrapping_sub(back) & 0xf;
+    Some(log.blobs[index as usize])
+}
+
+/// GAME 0x56ea00 (RVA 0x16ea00, VA 0x56ea00) ai_blob_log::Blob (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:1169-1203): logs the staged frame position
+/// (raised by one metre) and direction unless the last record is less than
+/// 500 ms old. Direction is the normalized delta from the previous slot when
+/// it has an owner, else the staged frame direction. Flags stage crouching,
+/// firing and the masked walk/jump animation switch. Frame, mission
+/// game-time and animation-table owners stay DEFERRED; every input arrives
+/// staged. Returns whether a slot was written.
+pub fn blob_log_push(
+    log: &mut AiBlobLog,
+    owner: u32,
+    frame_pos: [f32; 3],
+    frame_dir: [f32; 3],
+    game_time: u32,
+    crouching: bool,
+    fire_held: bool,
+    anim_id: i32,
+) -> bool {
+    if log.last != -1 {
+        let cur = log.blobs[(log.last as u32 & 0xf) as usize];
+        if game_time < cur.time.wrapping_add(500) {
+            return false;
+        }
+    }
+    let prev_index = (log.last as u32 & 0xf) as usize;
+    let prev_actor = log.blobs[prev_index].actor;
+    let prev_pos = log.blobs[prev_index].pos;
+    log.last = log.last.wrapping_add(1);
+    let index = (log.last as u32 & 0xf) as usize;
+    let slot = &mut log.blobs[index];
+    slot.actor = owner;
+    slot.time = game_time;
+    slot.pos = [frame_pos[0], frame_pos[1] + 1.0, frame_pos[2]];
+    if prev_actor != 0 {
+        slot.dir = normalize_strafe_vector([
+            slot.pos[0] - prev_pos[0],
+            slot.pos[1] - prev_pos[1],
+            slot.pos[2] - prev_pos[2],
+        ]);
+    } else {
+        slot.dir = frame_dir;
+    }
+    slot.flags = 0;
+    if crouching {
+        slot.flags |= AIBLOB_CROUCHING;
+    }
+    if fire_held {
+        slot.flags |= AIBLOB_FIRING;
+    }
+    match anim_id & ANIM_BASE {
+        id if id == ANIM_RUN1 => slot.flags |= AIBLOB_RUNNING,
+        id if id == ANIM_UNKNOWN_5E || id == ANIM_JUMP1 => slot.flags |= AIBLOB_JUMPING,
+        id if id == ANIM_JUMPRX1 => slot.flags |= AIBLOB_JUMPING | AIBLOB_RUNNING,
+        _ => {}
+    }
+    true
+}
+
+/// Ground-height probe boundary shared by the delta helpers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GroundDeltaError {
+    Unsupported { entry: u32 },
+}
+
+/// GAME 0x56eed0 (RVA 0x16eed0, VA 0x56eed0) _get_delta_y_ (mafia-re 113b5b6
+/// game/actors/C_human.cpp:1225-1234) EXPLICIT UNSUPPORTED STUB: the height
+/// of the ground below the staged position needs the global collision owner
+/// (`gifCollision.TestLineV`), so no height is staged.
+pub const GET_DELTA_Y_ENTRY: u32 = 0x56eed0;
+
+/// GAME 0x56eed0 (RVA 0x16eed0, VA 0x56eed0) probe stub.
+pub fn ground_delta_y(_pos: [f32; 3]) -> Result<f32, GroundDeltaError> {
+    Err(GroundDeltaError::Unsupported {
+        entry: GET_DELTA_Y_ENTRY,
+    })
+}
+
+/// GAME 0x56ef50 (RVA 0x16ef50, VA 0x56ef50) _get_delta_nodyn_y_ (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:1236-1245) EXPLICIT UNSUPPORTED STUB: the
+/// moving-object-excluding variant needs the global collision owner
+/// (`gifCollision.TestLineV` with `COLF_ALL`), so no height is staged.
+pub const GET_DELTA_NODYN_Y_ENTRY: u32 = 0x56ef50;
+
+/// GAME 0x56ef50 (RVA 0x16ef50, VA 0x56ef50) probe stub.
+pub fn ground_delta_nodyn_y(_pos: [f32; 3]) -> Result<f32, GroundDeltaError> {
+    Err(GroundDeltaError::Unsupported {
+        entry: GET_DELTA_NODYN_Y_ENTRY,
+    })
+}
+
+/// GAME 0x56f760 (RVA 0x16f760, VA 0x56f760) _ReadOldCharStruct (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:1323-1349): maps the first save versions'
+/// sixteen floats onto the sixteen max-property slots, scaling the four limb
+/// energies by `1 / (1 - old[1])` while `old[1]` sits in `(0, 1]`. The chunk
+/// owner stays DEFERRED; the sixteen words arrive staged.
+pub fn read_old_char_struct(old: &[f32; 16]) -> [f32; 16] {
+    let mut out = [0.0f32; 16];
+    let mut factor = 1.0f32;
+    if old[1] > 0.0 && old[1] <= 1.0 {
+        factor = 1.0 / (1.0 - old[1]);
+    }
+    out[0] = old[0];
+    out[1] = old[2] * factor;
+    out[2] = old[3] * factor;
+    out[3] = old[4] * factor;
+    out[4] = old[5] * factor;
+    out[5] = old[6] * factor;
+    out[6] = old[7];
+    out[7] = old[8];
+    out[8] = old[9];
+    out[9] = old[10];
+    out[10] = old[11];
+    out[11] = old[12];
+    out[12] = old[13];
+    out[13] = old[14];
+    out[14] = old[15];
+    out[15] = 0.5;
+    out
+}
+
+/// GAME 0x56f8c0 (RVA 0x16f8c0, VA 0x56f8c0) _ReadOldCharStructVer4
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:1351-1373): maps version 4's
+/// fifteen floats onto the first fifteen max-property slots and fixes the
+/// sixteenth to 0.5. The chunk owner stays DEFERRED; words arrive staged.
+pub fn read_old_char_struct_ver4(old: &[f32; 15]) -> [f32; 16] {
+    let mut out = [0.0f32; 16];
+    for (index, word) in old.iter().enumerate() {
+        out[index] = *word;
+    }
+    out[15] = 0.5;
+    out
+}
+
+/// GAME 0x56f210 (RVA 0x16f210, VA 0x56f210) C_human::~C_human gate
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:1274-1280): the destructor stops
+/// the model's first animation only while a frame is present and its type is
+/// a model. The frame/model owner stays DEFERRED; the caller stages the two
+/// verdicts. Returns whether `StopAnimation(0)` runs.
+pub fn human_dtor_stop_anim(frame_present: bool, is_model: bool) -> bool {
+    frame_present && is_model
+}
+
+/// Interpolated death step of C_human::ProcessDeathPos.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeathStep {
+    pub new_time: i32,
+    pub pos: [f32; 3],
+}
+
+/// GAME 0x58cec0 (RVA 0x18cec0, VA 0x58cec0) C_human::ProcessDeathPos
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:9578-9590): advances the death
+/// clock by the staged step, clamps it at the staged length and interpolates
+/// `death_pos + death_move * (new_time / length)`. Returns None while the
+/// length is negative or the clock already reached it. The frame
+/// `SetPos/Update` owner stays DEFERRED; the position is returned staged.
+pub fn process_death_pos(
+    death_time: i32,
+    death_length: i32,
+    step_ms: u32,
+    death_pos: [f32; 3],
+    death_move: [f32; 3],
+) -> Option<DeathStep> {
+    if death_length < 0 || death_time >= death_length {
+        return None;
+    }
+    let mut new_time = death_time.wrapping_add(step_ms as i32);
+    if new_time > death_length {
+        new_time = death_length;
+    }
+    let factor = new_time as f32 / death_length as f32;
+    Some(DeathStep {
+        new_time,
+        pos: [
+            death_pos[0] + death_move[0] * factor,
+            death_pos[1] + death_move[1] * factor,
+            death_pos[2] + death_move[2] * factor,
+        ],
+    })
+}
+
+/// Wall-egress probe boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WallPushError {
+    Unsupported { entry: u32 },
+}
+
+/// GAME 0x58c4f0 (RVA 0x18c4f0, VA 0x58c4f0) PushOutOfWalls (mafia-re 113b5b6
+/// game/actors/C_human.cpp:9467-9507) EXPLICIT UNSUPPORTED STUB: moving the
+/// frame out of steep walls needs the frame and global collision owners
+/// (`GetMatrix/TestLineH/SetPos/Update`), so no displacement is staged.
+pub const PUSH_OUT_OF_WALLS_ENTRY: u32 = 0x58c4f0;
+
+/// GAME 0x58c4f0 (RVA 0x18c4f0, VA 0x58c4f0) egress stub.
+pub fn push_out_of_walls_unsupported() -> Result<bool, WallPushError> {
+    Err(WallPushError::Unsupported {
+        entry: PUSH_OUT_OF_WALLS_ENTRY,
+    })
+}
+
+#[cfg(test)]
+mod ai_loc_blob_rva_tests {
+    use super::*;
+
+    #[test]
+    fn ai_loc_init_rva_16e370_stages_actor_and_zeroes() {
+        // GAME 0x56e370 (RVA 0x16e370).
+        let loc = ai_loc_init(7, [1.0, 2.0, 3.0]);
+        assert_eq!(loc.actor, 7);
+        assert_eq!(loc.pos, [1.0, 2.0, 3.0]);
+        assert_eq!(loc.flags, 0);
+        assert_eq!(loc.time, 0);
+    }
+
+    #[test]
+    fn ai_loc_add_segment_rva_16e6f0_refreshes_or_pushes() {
+        // GAME 0x56e6f0 (RVA 0x16e6f0).
+        let mut segs = Vec::new();
+        ai_loc_add_segment(&mut segs, 3, 11, 1000);
+        assert_eq!(
+            segs,
+            vec![AiSegStat {
+                seg_type: 3,
+                time: 1000,
+                count: 1,
+                special: 11
+            }]
+        );
+        ai_loc_add_segment(&mut segs, 9, 11, 2000);
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].time, 2000);
+        assert_eq!(segs[0].count, 2);
+        assert_eq!(segs[0].seg_type, 3);
+        ai_loc_add_segment(&mut segs, 4, 12, 2500);
+        assert_eq!(segs.len(), 2);
+    }
+
+    #[test]
+    fn ai_loc_seg_list_update_rva_16e950_expires_after_four_seconds() {
+        // GAME 0x56e950 (RVA 0x16e950).
+        let mut segs = vec![
+            AiSegStat {
+                seg_type: 1,
+                time: 1000,
+                count: 2,
+                special: 1
+            },
+            AiSegStat {
+                seg_type: 2,
+                time: 5000,
+                count: 1,
+                special: 2
+            },
+        ];
+        ai_loc_seg_list_update(&mut segs, 4999);
+        assert_eq!(segs.len(), 2);
+        ai_loc_seg_list_update(&mut segs, 5001);
+        assert_eq!(
+            segs,
+            vec![AiSegStat {
+                seg_type: 2,
+                time: 5000,
+                count: 1,
+                special: 2
+            }]
+        );
+    }
+
+    #[test]
+    fn blob_log_clear_rva_16eeb0_zeroes_and_empties() {
+        // GAME 0x56eeb0 (RVA 0x16eeb0).
+        let mut log = AiBlobLog::default();
+        assert!(blob_log_push(
+            &mut log,
+            5,
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            1000,
+            false,
+            false,
+            ANIM_RUN1
+        ));
+        assert_ne!(log.last, -1);
+        blob_log_clear(&mut log);
+        assert_eq!(log.last, -1);
+        assert!(log.blobs.iter().all(|slot| *slot == AiBlob::default()));
+        assert_eq!(blob_log_get(&log, 0), None);
+    }
+
+    #[test]
+    fn blob_log_get_rva_16ee60_copies_indexed_slot() {
+        // GAME 0x56ee60 (RVA 0x16ee60).
+        let mut log = AiBlobLog::default();
+        assert_eq!(blob_log_get(&log, 0), None);
+        assert!(blob_log_push(
+            &mut log,
+            1,
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            0,
+            false,
+            false,
+            0
+        ));
+        assert!(blob_log_push(
+            &mut log,
+            2,
+            [10.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            600,
+            false,
+            false,
+            0
+        ));
+        let fresh = blob_log_get(&log, 0).unwrap();
+        assert_eq!(fresh.actor, 2);
+        let older = blob_log_get(&log, 1).unwrap();
+        assert_eq!(older.actor, 1);
+        assert_eq!(blob_log_get(&log, 2), None);
+    }
+
+    #[test]
+    fn blob_log_push_rva_16ea00_gates_time_and_stages_flags() {
+        // GAME 0x56ea00 (RVA 0x16ea00).
+        let mut log = AiBlobLog::default();
+        assert!(blob_log_push(
+            &mut log,
+            9,
+            [1.0, 2.0, 3.0],
+            [0.0, 0.0, 1.0],
+            1000,
+            true,
+            true,
+            ANIM_RUN1
+        ));
+        let slot = blob_log_get(&log, 0).unwrap();
+        assert_eq!(slot.pos, [1.0, 3.0, 3.0]);
+        assert_eq!(slot.dir, [0.0, 0.0, 1.0]);
+        assert_eq!(slot.flags & AIBLOB_CROUCHING, AIBLOB_CROUCHING);
+        assert_eq!(slot.flags & AIBLOB_FIRING, AIBLOB_FIRING);
+        assert_eq!(slot.flags & AIBLOB_RUNNING, AIBLOB_RUNNING);
+        assert!(!blob_log_push(
+            &mut log,
+            9,
+            [1.0, 2.0, 3.0],
+            [0.0, 0.0, 1.0],
+            1200,
+            false,
+            false,
+            0
+        ));
+        assert!(blob_log_push(
+            &mut log,
+            9,
+            [4.0, 2.0, 3.0],
+            [0.0, 0.0, 1.0],
+            1600,
+            false,
+            false,
+            ANIM_JUMPRX1
+        ));
+        let second = blob_log_get(&log, 0).unwrap();
+        assert_eq!(
+            second.flags & (AIBLOB_JUMPING | AIBLOB_RUNNING),
+            AIBLOB_JUMPING | AIBLOB_RUNNING
+        );
+    }
+
+    #[test]
+    fn ground_delta_rva_16eed0_reports_unsupported() {
+        // GAME 0x56eed0 (RVA 0x16eed0).
+        assert_eq!(GET_DELTA_Y_ENTRY, 0x56eed0);
+        assert_eq!(
+            ground_delta_y([0.0, 0.0, 0.0]),
+            Err(GroundDeltaError::Unsupported { entry: 0x56eed0 })
+        );
+    }
+
+    #[test]
+    fn ground_delta_nodyn_rva_16ef50_reports_unsupported() {
+        // GAME 0x56ef50 (RVA 0x16ef50).
+        assert_eq!(GET_DELTA_NODYN_Y_ENTRY, 0x56ef50);
+        assert_eq!(
+            ground_delta_nodyn_y([1.0, 2.0, 3.0]),
+            Err(GroundDeltaError::Unsupported { entry: 0x56ef50 })
+        );
+    }
+
+    #[test]
+    fn read_old_char_struct_rva_16f760_scales_limb_energies() {
+        // GAME 0x56f760 (RVA 0x16f760).
+        let old = [
+            0.7, 0.5, 100.0, 20.0, 20.0, 20.0, 20.0, 0.7, 1.0, 0.6, 0.8, 0.7, 1.0, 1.0, 0.8,
+            80.0,
+        ];
+        let mapped = read_old_char_struct(&old);
+        assert_eq!(mapped[0], 0.7);
+        assert_eq!(mapped[1], 200.0);
+        assert_eq!(mapped[15], 0.5);
+        let flat = [1.0f32; 16];
+        let unscaled = read_old_char_struct(&flat);
+        // old[1] == 1.0 satisfies the native (0, 1] guard, so k = 1/0 = +inf
+        // and the limb words scale to infinity — exactly like the original.
+        assert_eq!(unscaled[1], f32::INFINITY);
+    }
+
+    #[test]
+    fn read_old_char_struct_ver4_rva_16f8c0_copies_fifteen() {
+        // GAME 0x56f8c0 (RVA 0x16f8c0).
+        let old = [2.0f32; 15];
+        let mapped = read_old_char_struct_ver4(&old);
+        assert!(mapped[..15].iter().all(|word| *word == 2.0));
+        assert_eq!(mapped[15], 0.5);
+    }
+
+    #[test]
+    fn human_dtor_rva_16f210_gates_model_stop() {
+        // GAME 0x56f210 (RVA 0x16f210).
+        assert!(human_dtor_stop_anim(true, true));
+        assert!(!human_dtor_stop_anim(true, false));
+        assert!(!human_dtor_stop_anim(false, true));
+        assert!(!human_dtor_stop_anim(false, false));
+    }
+
+    #[test]
+    fn process_death_pos_rva_18cec0_advances_and_clamps() {
+        // GAME 0x58cec0 (RVA 0x18cec0).
+        assert_eq!(process_death_pos(5, -1, 10, [0.0; 3], [1.0; 3]), None);
+        assert_eq!(process_death_pos(10, 10, 5, [0.0; 3], [1.0; 3]), None);
+        let step = process_death_pos(0, 100, 25, [1.0, 2.0, 3.0], [4.0, 0.0, -2.0]).unwrap();
+        assert_eq!(step.new_time, 25);
+        assert_eq!(step.pos, [2.0, 2.0, 2.5]);
+        let clamped =
+            process_death_pos(90, 100, 50, [0.0, 0.0, 0.0], [10.0, 0.0, 0.0]).unwrap();
+        assert_eq!(clamped.new_time, 100);
+        assert_eq!(clamped.pos, [10.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn push_out_of_walls_rva_18c4f0_reports_unsupported() {
+        // GAME 0x58c4f0 (RVA 0x18c4f0).
+        assert_eq!(PUSH_OUT_OF_WALLS_ENTRY, 0x58c4f0);
+        assert_eq!(
+            push_out_of_walls_unsupported(),
+            Err(WallPushError::Unsupported { entry: 0x58c4f0 })
+        );
+    }
+}

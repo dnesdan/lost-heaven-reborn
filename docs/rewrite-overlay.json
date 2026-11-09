@@ -14962,6 +14962,123 @@
       "symbol": "lhr_engine::police_state::raise_record_state_for_human",
       "tier": "contract",
       "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16e370",
+      "va": "0x56e370",
+      "name": "ai_loc::Init",
+      "symbol": "lhr_engine::human_actor::ai_loc_init",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. AI loc init (GAME 0x56e370)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16e6f0",
+      "va": "0x56e6f0",
+      "name": "ai_loc add segment (working name)",
+      "symbol": "lhr_engine::human_actor::ai_loc_add_segment",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. AI loc segment add (GAME 0x56e6f0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16e950",
+      "va": "0x56e950",
+      "name": "ai_loc seg list update (working name)",
+      "symbol": "lhr_engine::human_actor::ai_loc_seg_list_update",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. AI loc seg update (GAME 0x56e950)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16ea00",
+      "va": "0x56ea00",
+      "name": "blob log push (working name)",
+      "symbol": "lhr_engine::human_actor::blob_log_push",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Blob log push (GAME 0x56ea00)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16ee60",
+      "va": "0x56ee60",
+      "name": "blob log get (working name)",
+      "symbol": "lhr_engine::human_actor::blob_log_get",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Blob log get (GAME 0x56ee60)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16eeb0",
+      "va": "0x56eeb0",
+      "name": "blob log clear (working name)",
+      "symbol": "lhr_engine::human_actor::blob_log_clear",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Blob log clear (GAME 0x56eeb0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16eed0",
+      "va": "0x56eed0",
+      "name": "ground delta Y STUB",
+      "symbol": "lhr_engine::human_actor::ground_delta_y",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: ground owner deferred (GAME 0x56eed0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16ef50",
+      "va": "0x56ef50",
+      "name": "ground delta nodyn Y STUB",
+      "symbol": "lhr_engine::human_actor::ground_delta_nodyn_y",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: ground owner deferred (GAME 0x56ef50)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f760",
+      "va": "0x56f760",
+      "name": "_ReadOldCharStruct",
+      "symbol": "lhr_engine::human_actor::read_old_char_struct",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Old char struct map (GAME 0x56f760)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f8c0",
+      "va": "0x56f8c0",
+      "name": "_ReadOldCharStructVer4",
+      "symbol": "lhr_engine::human_actor::read_old_char_struct_ver4",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Old char struct v4 (GAME 0x56f8c0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f210",
+      "va": "0x56f210",
+      "name": "human dtor stop anim (working name)",
+      "symbol": "lhr_engine::human_actor::human_dtor_stop_anim",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Dtor stop anim (GAME 0x56f210)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18cec0",
+      "va": "0x58cec0",
+      "name": "process death pos (working name)",
+      "symbol": "lhr_engine::human_actor::process_death_pos",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Death pos process (GAME 0x58cec0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18c4f0",
+      "va": "0x58c4f0",
+      "name": "push out of walls STUB",
+      "symbol": "lhr_engine::human_actor::push_out_of_walls_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: wall owner deferred (GAME 0x58c4f0)."
     }
   ],
   "vm": {
