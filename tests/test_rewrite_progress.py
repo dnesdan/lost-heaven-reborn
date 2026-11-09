@@ -502,8 +502,12 @@ class RewriteProgressTests(unittest.TestCase):
         # walks entry to RET; pin tests lit_ 67 / i3d_object 76).
         # +4 IPol/pose-blend batch (GetInterpolators/GetPoseBlend/SetPoseBlend
         # x2 complete delegation walks; pin tests 23/21/2).
-        self.assertEqual(ls3df["ported"], 145 + 837)
-        self.assertEqual(ls3df["verified"], 145 + 419)
+        # +12 mixed small-getter contracts (area/landscape/part/sector/scene/
+        # material; marker-only, tests green; working-name helper unfiled).
+        # +9 mixed small-getter differential (complete 1-7 insn walks; pin
+        # tests green; 2 STUBs + outside-memory held as contract).
+        self.assertEqual(ls3df["ported"], 145 + 849)
+        self.assertEqual(ls3df["verified"], 145 + 428)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

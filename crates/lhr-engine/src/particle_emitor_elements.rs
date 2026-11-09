@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 use crate::native_transform::is_verified_scalar;
+use crate::scene_ownership::SectorKey;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParticleError {
@@ -114,8 +115,27 @@ pub struct PartBaseFields {
     pub rot_axis: u32,
     pub axis_mode: u32,
     pub sector_aliased: bool,
+    pub sector: Option<SectorKey>,
     pub sort_group: u16,
     pub part_flags: u32,
+}
+
+impl PartBaseFields {
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x417d0, VA 0x100417d0.
+    /// I3D_part_base::SetSector (mafia-re ls3df/I3D/I3D.h:3560-3565), evidenced
+    /// original symbol. Stores the sector pointer word verbatim (null clears).
+    /// No reference counting, no validation, no backend effects.
+    pub fn part_base_set_sector(&mut self, sector: Option<SectorKey>) {
+        self.sector = sector;
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x417f0, VA 0x100417f0.
+    /// I3D_part_base::GetSector (mafia-re ls3df/I3D/I3D.h:3566-3571), evidenced
+    /// original symbol. Returns the stored sector pointer word verbatim.
+    pub fn part_base_get_sector(&self) -> Option<SectorKey> {
+        self.sector
+    }
 }
 
 /// Backend for refcount/device-adjacent effects (no live device here).
@@ -181,6 +201,7 @@ pub fn part_base_ctor_defaults() -> Out<PartBaseFields> {
         rot_axis: 0,
         axis_mode: 3,
         sector_aliased: false,
+        sector: None,
         sort_group: 0xffff,
         part_flags: 0x101,
     })
@@ -509,5 +530,34 @@ mod particle_y2_tests {
         queued.clear_queue();
         assert!(queued.visuals.is_empty() && queued.sort.is_empty());
         assert_eq!(queued.visuals_grow, 0x2000);
+    }
+}
+
+#[cfg(test)]
+mod part_base_sector_rva_tests {
+    use super::*;
+    use crate::frame_transform::FrameKey;
+    use crate::scene_ownership::SectorKey;
+
+    #[test]
+    fn part_base_set_sector_rva_0x417d0_stores_pointer_verbatim() {
+        let mut base = part_base_ctor_defaults().unwrap();
+        assert_eq!(base.part_base_get_sector(), None);
+        let sector = SectorKey(FrameKey(7));
+        base.part_base_set_sector(Some(sector));
+        assert_eq!(base.part_base_get_sector(), Some(sector));
+        base.part_base_set_sector(None);
+        assert_eq!(base.part_base_get_sector(), None);
+    }
+
+    #[test]
+    fn part_base_get_sector_rva_0x417f0_returns_stored_word() {
+        let mut base = part_base_ctor_defaults().unwrap();
+        let first = SectorKey(FrameKey(3));
+        let second = SectorKey(FrameKey(9));
+        base.part_base_set_sector(Some(first));
+        assert_eq!(base.part_base_get_sector(), Some(first));
+        base.part_base_set_sector(Some(second));
+        assert_eq!(base.part_base_get_sector(), Some(second));
     }
 }

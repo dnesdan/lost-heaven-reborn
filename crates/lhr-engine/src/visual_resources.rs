@@ -1354,6 +1354,36 @@ impl VisualResources {
         Ok(())
     }
     /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x2cd80, VA 0x1002cd80.
+    /// I3D_material::IsCkey (mafia-re ls3df/I3D/I3D.h:3924-3929), evidenced
+    /// original symbol. Returns `flags & MATF_CKEY_ALPHA` (0x20000000): the
+    /// full mask word when color-key alpha testing is set, else zero. No
+    /// backend effects and no lazy texture evaluation.
+    pub fn material_is_ckey(&self, key: MaterialKey) -> Result<u32, VisualResourceError> {
+        self.available()?;
+        Ok(self.material(key)?.flags & 0x2000_0000)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x2cd90, VA 0x1002cd90.
+    /// I3D_material::IsAnimated (mafia-re ls3df/I3D/I3D.h:3930-3935), evidenced
+    /// original symbol. Returns `flags & MATF_ANIMATED` (0x04000000): the
+    /// full mask word when the animated frame path is set, else zero. No
+    /// backend effects.
+    pub fn material_is_animated(&self, key: MaterialKey) -> Result<u32, VisualResourceError> {
+        self.available()?;
+        Ok(self.material(key)?.flags & 0x0400_0000)
+    }
+    /// Working name material_alpha_value (no LS3DF FUNCTION marker; inline
+    /// I3D.h:3963 `GetAlpha`, no out-of-line body to verify).
+    /// Reason: the upstream header defines it inline (`return alpha`), so
+    /// there is no entry RVA to claim. Returns the stored alpha word
+    /// verbatim without invoking the animated `UpdateTexture` path that the
+    /// separate `GetTexture` accessor uses. No backend effects.
+    pub fn material_alpha_value(&self, key: MaterialKey) -> Result<f32, VisualResourceError> {
+        self.available()?;
+        Ok(self.material(key)?.alpha)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
     /// RVA 0x2b040. Upstream working name I3D_material::SetEnvTextureEx
     /// (mafia-re I3d_material.cpp:138-156; blend/mode/alpha are upstream
     /// working names), not an evidenced original symbol. Order-exact:
@@ -5873,5 +5903,42 @@ mod driver_factory_pinning {
             );
             assert!(m.bound_volume().is_some());
         }
+    }
+}
+
+#[cfg(test)]
+mod material_flag_getters_rva_tests {
+    use super::*;
+
+    #[test]
+    fn material_is_ckey_rva_0x2cd80_masks_full_word() {
+        let mut resources = VisualResources::new().unwrap();
+        let key = resources.create_material().unwrap();
+        assert_eq!(resources.material_is_ckey(key).unwrap(), 0);
+        resources.material_mut(key).unwrap().flags |= 0x2000_0000;
+        assert_eq!(resources.material_is_ckey(key).unwrap(), 0x2000_0000);
+        resources.material_mut(key).unwrap().flags &= !0x2000_0000;
+        assert_eq!(resources.material_is_ckey(key).unwrap(), 0);
+    }
+
+    #[test]
+    fn material_is_animated_rva_0x2cd90_masks_full_word() {
+        let mut resources = VisualResources::new().unwrap();
+        let key = resources.create_material().unwrap();
+        assert_eq!(resources.material_is_animated(key).unwrap(), 0);
+        resources.material_mut(key).unwrap().flags |= 0x0400_0000;
+        assert_eq!(resources.material_is_animated(key).unwrap(), 0x0400_0000);
+    }
+
+    #[test]
+    fn material_alpha_working_name_returns_stored_word() {
+        let mut resources = VisualResources::new().unwrap();
+        let key = resources.create_material().unwrap();
+        assert_eq!(resources.material_alpha_value(key).unwrap().to_bits(), 1f32.to_bits());
+        resources.material_mut(key).unwrap().alpha = 0.25;
+        assert_eq!(
+            resources.material_alpha_value(key).unwrap().to_bits(),
+            0.25f32.to_bits()
+        );
     }
 }

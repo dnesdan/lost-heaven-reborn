@@ -1144,6 +1144,88 @@ impl ModelArena {
             .copied()
             .unwrap_or(0))
     }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x508b0, VA 0x100508b0.
+    /// I3D_sector::SetGroupBits (mafia-re ls3df/I3D/I3D.h:948-954), evidenced
+    /// original symbol. Stores the group bit word then bumps the
+    /// lights-changed counter once (native order: store, then
+    /// `lights_changed++`). Wrapping arithmetic matches the native 32-bit
+    /// increment. No portal, sound, or render effects.
+    pub fn sector_set_group_bits(
+        &mut self,
+        sector: SectorKey,
+        bits: u32,
+    ) -> Result<(), ModelError> {
+        self.sector(sector)?;
+        let si = self
+            .sectors
+            .iter()
+            .position(|entry| entry.key == sector)
+            .expect("validated sector has a registry entry");
+        self.sectors[si].geometry.group_bits = bits;
+        let changed = self
+            .graph
+            .sector_light_changes
+            .entry(sector.frame().0)
+            .or_default();
+        *changed = changed.wrapping_add(1);
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x4e970, VA 0x1004e970.
+    /// I3D_scene::Update (mafia-re ls3df/I3D/I3D.h:1452, in-class empty body;
+    /// linker copies at ls3df/I3D/I3D.h:1764), evidenced original symbol. The
+    /// native body is empty: no state is read or written. The host validates
+    /// the scene handle and performs no other effect.
+    pub fn scene_update_noop(&self, scene: SceneKey) -> Result<(), ModelError> {
+        self.scene(scene)?;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x4e980, VA 0x1004e980.
+    /// I3D_scene::SetDir (mafia-re ls3df/I3D/I3D.h:1450, in-class empty body;
+    /// linker copies at ls3df/I3D/I3D.h:1770), evidenced original symbol. The
+    /// native body is empty: direction and roll are accepted and ignored with
+    /// no float conversion, so nonfinite inputs are preserved (never read).
+    pub fn scene_set_dir_noop(
+        &self,
+        scene: SceneKey,
+        _dir: [f32; 3],
+        _roll: f32,
+    ) -> Result<(), ModelError> {
+        self.scene(scene)?;
+        Ok(())
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x4e990, VA 0x1004e990.
+    /// I3D_scene::SetName (mafia-re ls3df/I3D/I3D.h:1455, in-class
+    /// `return I3D_OK` body; linker copies at ls3df/I3D/I3D.h:1776), evidenced
+    /// original symbol. The name bytes are never read; the result word is
+    /// always I3D_OK (0).
+    pub fn scene_set_name_ok(
+        &self,
+        scene: SceneKey,
+        _name: Option<&[u8]>,
+    ) -> Result<u32, ModelError> {
+        self.scene(scene)?;
+        Ok(0)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x4e9a0, VA 0x1004e9a0.
+    /// I3D_scene::LinkTo (mafia-re ls3df/I3D/I3D.h:1456, in-class
+    /// `return I3DERR_UNSUPPORTED` body; linker copies at
+    /// ls3df/I3D/I3D.h:1782), evidenced original symbol. Parent and flags are
+    /// never inspected and no hierarchy fields move; the result word is
+    /// always I3DERR_UNSUPPORTED (0x8000000e).
+    pub fn scene_link_to_unsupported(
+        &self,
+        scene: SceneKey,
+        _frame: Option<FrameKey>,
+        _flags: u32,
+    ) -> Result<u32, ModelError> {
+        self.scene(scene)?;
+        Ok(0x8000_000e)
+    }
     /// AddLight (PC RVA0x4f3d0), including the native fog-light selection.
     /// These arrays contain borrowed pointers; registration acquires no refs.
     pub fn sector_add_light(
@@ -2516,5 +2598,69 @@ mod tests {
         arena.driver_delete_from_scene_tick_list(shared);
         assert!(arena.scene(older).unwrap().tick_frames.is_empty());
         assert_eq!(arena.state(shared).unwrap().flags & SCENE_TICK_FLAG, 0);
+    }
+}
+
+#[cfg(test)]
+mod scene_group_bits_and_trivial_rva_tests {
+    use super::*;
+
+    #[test]
+    fn sector_set_group_bits_rva_0x508b0_stores_and_bumps_counter() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        assert_eq!(arena.sector(sector).unwrap().geometry.group_bits, 0);
+        assert_eq!(arena.sector_lights_changed(sector).unwrap(), 0);
+        arena.sector_set_group_bits(sector, 0x1122_3344).unwrap();
+        assert_eq!(
+            arena.sector(sector).unwrap().geometry.group_bits,
+            0x1122_3344
+        );
+        assert_eq!(arena.sector_lights_changed(sector).unwrap(), 1);
+        arena.sector_set_group_bits(sector, 0).unwrap();
+        assert_eq!(arena.sector(sector).unwrap().geometry.group_bits, 0);
+        assert_eq!(arena.sector_lights_changed(sector).unwrap(), 2);
+    }
+
+    #[test]
+    fn scene_update_noop_rva_0x4e970_accepts_valid_scene() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert!(arena.scene_update_noop(scene).is_ok());
+    }
+
+    #[test]
+    fn scene_set_dir_noop_rva_0x4e980_ignores_nonfinite_input() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert!(arena
+            .scene_set_dir_noop(scene, [f32::NAN, f32::INFINITY, 0.0], f32::NEG_INFINITY)
+            .is_ok());
+        assert!(arena.scene_set_dir_noop(scene, [0.0, 1.0, 0.0], 0.5).is_ok());
+    }
+
+    #[test]
+    fn scene_set_name_ok_rva_0x4e990_always_returns_zero() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_set_name_ok(scene, None).unwrap(), 0);
+        assert_eq!(arena.scene_set_name_ok(scene, Some(&b"name"[..])).unwrap(), 0);
+    }
+
+    #[test]
+    fn scene_link_to_unsupported_rva_0x4e9a0_always_returns_code() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(
+            arena.scene_link_to_unsupported(scene, None, 0).unwrap(),
+            0x8000_000e
+        );
+        assert_eq!(
+            arena
+                .scene_link_to_unsupported(scene, Some(scene.root()), 7)
+                .unwrap(),
+            0x8000_000e
+        );
     }
 }

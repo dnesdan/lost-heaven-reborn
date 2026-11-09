@@ -1001,3 +1001,50 @@ mod landscape_roam_tests {
         assert_eq!((list, log), (vec![], vec!["unlist"]));
     }
 }
+
+impl Landscape {
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x201d0, VA 0x100201d0.
+    /// I3D_landscape::GetHeight (mafia-re ls3df/I3D/I3D.h:3750-3755),
+    /// evidenced original symbol. Returns `m_HeightMap[y * MAP_SIZE + x]`
+    /// with `MAP_SIZE` 1024. The native body performs no bounds check (the
+    /// caller guarantees the range); the host rejects out-of-range
+    /// coordinates with `BadDimensions` instead of overrunning the buffer.
+    pub fn landscape_get_height(&self, x: usize, y: usize) -> Result<u8, LandError> {
+        let index = y
+            .checked_mul(MAP_SIDE)
+            .and_then(|base| base.checked_add(x))
+            .ok_or(LandError::BadDimensions)?;
+        self.heights.get(index).copied().ok_or(LandError::BadDimensions)
+    }
+}
+
+#[cfg(test)]
+mod landscape_get_height_rva_0x201d0_tests {
+    use super::*;
+
+    #[test]
+    fn landscape_get_height_rva_0x201d0_reads_row_major_and_rejects_oob() {
+        let mut landscape = Landscape::new(&[]);
+        landscape.heights = vec![10, 20, 30];
+        assert_eq!(landscape.landscape_get_height(0, 0).unwrap(), 10);
+        assert_eq!(landscape.landscape_get_height(2, 0).unwrap(), 30);
+        assert_eq!(
+            landscape.landscape_get_height(0, 1),
+            Err(LandError::BadDimensions)
+        );
+        assert_eq!(
+            landscape.landscape_get_height(3, 0),
+            Err(LandError::BadDimensions)
+        );
+        assert_eq!(
+            landscape.landscape_get_height(usize::MAX, usize::MAX),
+            Err(LandError::BadDimensions)
+        );
+        let empty = Landscape::new(&[]);
+        assert_eq!(
+            empty.landscape_get_height(0, 0),
+            Err(LandError::BadDimensions)
+        );
+    }
+}

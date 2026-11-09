@@ -195,6 +195,15 @@ impl AreaFrame {
     pub fn set_switch_fade_time(&mut self, time: u32) {
         self.switch_fade_time = time.max(1)
     }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x5280, VA 0x10005280.
+    /// I3D_area::GetSwitchFadeTime (mafia-re ls3df/I3D/I3D.h:2458-2463),
+    /// evidenced original symbol. Returns the stored switch fade time word
+    /// with no backend effects. The constructor default is 500; the setter
+    /// clamps to a minimum of 1, which this getter observes verbatim.
+    pub fn get_switch_fade_time(&self) -> u32 {
+        self.switch_fade_time
+    }
     /// Exact four-array allocation/copy order of Build5880. Typed input slices
     /// are the caller's bounds-checked copy spans; face indices remain raw.
     pub(crate) fn build(
@@ -1039,5 +1048,26 @@ mod tests {
         assert_eq!(arena.area_storage().allocation_calls(), before_calls);
         assert_eq!(arena.area(key).unwrap().vertex_count, 0);
         arena.release(key.frame()).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod area_switch_fade_time_rva_0x5280_tests {
+    use super::*;
+    use crate::model_loading::ModelArena;
+
+    #[test]
+    fn area_get_switch_fade_time_rva_0x5280_round_trips_clamp() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        assert_eq!(arena.area(key).unwrap().get_switch_fade_time(), 500);
+        arena.area_mut(key).unwrap().set_switch_fade_time(0);
+        assert_eq!(arena.area(key).unwrap().get_switch_fade_time(), 1);
+        arena.area_mut(key).unwrap().set_switch_fade_time(1);
+        assert_eq!(arena.area(key).unwrap().get_switch_fade_time(), 1);
+        arena.area_mut(key).unwrap().set_switch_fade_time(750);
+        assert_eq!(arena.area(key).unwrap().get_switch_fade_time(), 750);
+        arena.area_mut(key).unwrap().set_switch_fade_time(u32::MAX);
+        assert_eq!(arena.area(key).unwrap().get_switch_fade_time(), u32::MAX);
     }
 }

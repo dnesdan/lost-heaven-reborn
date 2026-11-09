@@ -242,6 +242,23 @@ impl ModelArena {
             .find(|sound| sound.key == key)
             .ok_or_else(|| SoundError::UnknownSound(key.frame).into())
     }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x59420, VA 0x10059420.
+    /// I3D_sound::SetOn(bool) one-argument forward (mafia-re ls3df/I3D/I3D.h:779-784),
+    /// evidenced original symbol. The native body only forwards to the
+    /// two-argument `SetOn(on, false)`; that callee owns the voice/ISND state
+    /// and `m_UpdateSound` scheduling, which have no host owner here.
+    /// Explicit Unsupported stub: the handle is validated read-only, no
+    /// state changes, and every known handle reports the missing device
+    /// backend. Tier contract (boundary, not a behavioral port).
+    pub fn sound_set_on_single_arg(
+        &self,
+        key: SoundKey,
+        _on: bool,
+    ) -> Result<(), ModelError> {
+        self.sound(key)?;
+        Err(SoundError::BackendUnavailable.into())
+    }
     /// Reached common I3D_frame::Duplicate 0x1c5b0 after the derived sound
     /// copy. Scene2 sound records have constructor-null properties/callbacks.
     /// Unsupported populated property/callback ownership stops before writes.
@@ -723,3 +740,27 @@ mod tests {
 #[cfg(test)]
 #[path = "frame_sound_identity_tests.rs"]
 mod identity_tests;
+
+#[cfg(test)]
+mod sound_set_on_single_arg_rva_0x59420_tests {
+    use super::*;
+
+    #[test]
+    fn sound_set_on_single_arg_rva_0x59420_validates_then_reports_missing_backend() {
+        let mut arena = ModelArena::default();
+        let audio = RuntimeAudio::default();
+        arena
+            .bind_host_sound_backend(HostSoundBackend::new(1, &audio))
+            .unwrap();
+        let sound = arena.create_owned_sound_frame().unwrap();
+        for on in [false, true] {
+            assert!(matches!(
+                arena.sound_set_on_single_arg(sound, on),
+                Err(ModelError::Sound(SoundError::BackendUnavailable))
+            ));
+        }
+        assert!(arena.sound(sound).is_ok());
+        let foreign = ModelArena::default();
+        assert!(foreign.sound_set_on_single_arg(sound, true).is_err());
+    }
+}

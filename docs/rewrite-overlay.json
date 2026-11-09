@@ -13288,6 +13288,114 @@
       "symbol": "lhr_engine::game_housekeeping::is_possible_coll",
       "tier": "differential",
       "evidence": "REA ev_d671fad4d7 + complete walk entry to RET 0x28 (x87 discriminant + FSQRT path + FCOMP gates + AL 1/0 exits); pin tests possible_coll 4 / is_possible 2 pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5280",
+      "va": "0x10005280",
+      "name": "I3D_area::GetSwitchFadeTime",
+      "symbol": "lhr_engine::frame_area::AreaFrame::get_switch_fade_time",
+      "tier": "contract",
+      "evidence": "Switch fade time read (LS3DF 0x10005280). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x59420",
+      "va": "0x10059420",
+      "name": "I3D_sound::SetOn",
+      "symbol": "lhr_engine::frame_sound::ModelArena::sound_set_on_single_arg",
+      "tier": "contract",
+      "evidence": "STUB: voice backend deferred (LS3DF 0x10059420). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x201d0",
+      "va": "0x100201d0",
+      "name": "I3D_landscape::GetHeight",
+      "symbol": "lhr_engine::landscape_roam::Landscape::landscape_get_height",
+      "tier": "differential",
+      "evidence": "REA ev_01646675d7 + complete walk 7 insns (SHL 0xa stride + byte load + RET 0xc); pin tests green"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x417d0",
+      "va": "0x100417d0",
+      "name": "I3D_part_base::SetSector",
+      "symbol": "lhr_engine::particle_emitor_elements::PartBaseFields::part_base_set_sector",
+      "tier": "differential",
+      "evidence": "REA ev_3d398fe062 + complete walk 4 insns (store +0x280 + RET 8); pin tests green"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x417f0",
+      "va": "0x100417f0",
+      "name": "I3D_part_base::GetSector",
+      "symbol": "lhr_engine::particle_emitor_elements::PartBaseFields::part_base_get_sector",
+      "tier": "differential",
+      "evidence": "REA ev_fe493ec607 + complete walk 3 insns (load +0x280 + RET 4); pin tests green"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x508b0",
+      "va": "0x100508b0",
+      "name": "I3D_sector::SetGroupBits",
+      "symbol": "lhr_engine::scene_ownership::ModelArena::sector_set_group_bits",
+      "tier": "differential",
+      "evidence": "REA ev_3256e303fa + complete walk 5 insns (store +0x1d4 + INC +0x140 + RET 8); pin tests green"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4e970",
+      "va": "0x1004e970",
+      "name": "I3D_scene::Update",
+      "symbol": "lhr_engine::scene_ownership::ModelArena::scene_update_noop",
+      "tier": "differential",
+      "evidence": "REA ev_d8c8785de6 + complete walk 1 insn (RET 4), empty body; pin tests green"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4e980",
+      "va": "0x1004e980",
+      "name": "I3D_scene::SetDir",
+      "symbol": "lhr_engine::scene_ownership::ModelArena::scene_set_dir_noop",
+      "tier": "differential",
+      "evidence": "REA ev_34e2796f61 + complete walk 1 insn (RET 0xc), empty body; pin tests green"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4e990",
+      "va": "0x1004e990",
+      "name": "I3D_scene::SetName",
+      "symbol": "lhr_engine::scene_ownership::ModelArena::scene_set_name_ok",
+      "tier": "differential",
+      "evidence": "REA ev_aaab772dc8 + complete walk 2 insns (XOR + RET 8); pin tests green"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4e9a0",
+      "va": "0x1004e9a0",
+      "name": "I3D_scene::LinkTo",
+      "symbol": "lhr_engine::scene_ownership::ModelArena::scene_link_to_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: link owner deferred (LS3DF 0x1004e9a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2cd80",
+      "va": "0x1002cd80",
+      "name": "I3D_material::IsCkey",
+      "symbol": "lhr_engine::visual_resources::VisualResources::material_is_ckey",
+      "tier": "differential",
+      "evidence": "REA ev_73034e3d6f + complete walk 4 insns (load + AND 0x20000000 + RET 4); pin tests green"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x2cd90",
+      "va": "0x1002cd90",
+      "name": "I3D_material::IsAnimated",
+      "symbol": "lhr_engine::visual_resources::VisualResources::material_is_animated",
+      "tier": "differential",
+      "evidence": "REA ev_99314538ab + complete walk 4 insns (load + AND 0x4000000 + RET 4); pin tests green"
     }
   ],
   "vm": {
