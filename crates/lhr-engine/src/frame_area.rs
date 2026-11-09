@@ -217,6 +217,21 @@ impl AreaFrame {
     pub fn face_count_of(&self) -> u32 {
         self.face_count
     }
+    /// Working name for the scene-ring previous link at +0x154 (mafia-re
+    /// ls3df/I3D/I3D.h:2473: the scene's ring of areas). The reference
+    /// records no LS3DF FUNCTION address for a standalone reader: only
+    /// `AddToRemoveFromSceneRing` links it. Reports the previous area, if
+    /// linked; no state moves.
+    pub fn previous_of(&self) -> Option<AreaKey> {
+        self.previous
+    }
+    /// Working name for the scene-ring next link at +0x158 (mafia-re
+    /// ls3df/I3D/I3D.h:2474). Same inline-only status as `previous_of`: no
+    /// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here.
+    /// Reports the next area, if linked; no state moves.
+    pub fn next_of(&self) -> Option<AreaKey> {
+        self.next
+    }
     /// Exact four-array allocation/copy order of Build5880. Typed input slices
     /// are the caller's bounds-checked copy spans; face indices remain raw.
     pub(crate) fn build(
@@ -884,6 +899,26 @@ mod tests {
         assert_eq!(arena.area_last_update_count(key).unwrap(), 0);
         arena.release(key.frame()).unwrap();
         assert!(arena.area_last_update_count(key).is_err());
+    }
+    #[test]
+    fn area_ring_links_read_ctor_none_then_linked_ring() {
+        // Working names for the scene-ring links at +0x154/+0x158
+        // (I3D.h:2473-2474): no LS3DF FUNCTION addresses exist for standalone
+        // readers; only AddToRemoveFromSceneRing links them.
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        assert_eq!(arena.area(key).unwrap().previous_of(), None);
+        assert_eq!(arena.area(key).unwrap().next_of(), None);
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0].frame();
+        let a = arena.create_area().unwrap();
+        let b = arena.create_area().unwrap();
+        arena.link_frame(a.frame(), Some(sector), 0).unwrap();
+        arena.link_frame(b.frame(), Some(sector), 0).unwrap();
+        assert_eq!(arena.area(a).unwrap().previous_of(), Some(b));
+        assert_eq!(arena.area(a).unwrap().next_of(), Some(b));
+        assert_eq!(arena.area(b).unwrap().previous_of(), Some(a));
+        assert_eq!(arena.area(b).unwrap().next_of(), Some(a));
     }
     #[test]
     fn area_scene_reader_reports_ring_membership() {

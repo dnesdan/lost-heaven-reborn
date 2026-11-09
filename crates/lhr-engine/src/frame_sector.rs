@@ -209,12 +209,44 @@ impl ModelArena {
     pub fn sector_light_count(&self, key: SectorKey) -> Result<usize, ModelError> {
         Ok(self.sector(key)?.lights.len())
     }
+    /// Working name for the sector light-list slice at +0x144
+    /// (mafia-re ls3df/I3D/I3D.h:962: the lights that reach into it). The
+    /// reference records no LS3DF FUNCTION address for a list getter: only
+    /// `AddLight`/`DeleteLight` mutate the list. Reports the live borrowed
+    /// list; no state moves.
+    pub fn sector_lights_of(&self, key: SectorKey) -> Result<&[FrameKey], ModelError> {
+        Ok(&self.sector(key)?.lights)
+    }
     /// Working name for the sector sound-list count at +0x158
     /// (mafia-re ls3df/I3D/I3D.h:964). The reference records no LS3DF
     /// FUNCTION address for a count getter: only `AddSound`/`DeleteSound`
     /// mutate the list. Reports the live count; no state moves.
     pub fn sector_sound_count(&self, key: SectorKey) -> Result<usize, ModelError> {
         Ok(self.sector(key)?.sounds.len())
+    }
+    /// Working name for the sector sound-list slice at +0x158
+    /// (mafia-re ls3df/I3D/I3D.h:964). The reference records no LS3DF
+    /// FUNCTION address for a list getter: only `AddSound`/`DeleteSound`
+    /// mutate the list. Reports the live borrowed list; no state moves.
+    pub fn sector_sounds_of(&self, key: SectorKey) -> Result<&[FrameKey], ModelError> {
+        Ok(&self.sector(key)?.sounds)
+    }
+    /// Working name for the sound-environment blend word at +0x1e8
+    /// (mafia-re ls3df/I3D/I3D.h:972: the renderer's blend into the sound
+    /// environment, 0 to 1). The reference records no LS3DF FUNCTION address
+    /// for a standalone reader: only `m_UpdateSoundProperties` advances it.
+    /// Reports the stored float bits verbatim with no float-domain claim;
+    /// no state moves.
+    pub fn sector_sound_blend_of(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.sound_words_1e8_1ec[0])
+    }
+    /// Working name for the blend-step time word at +0x1ec (mafia-re
+    /// ls3df/I3D/I3D.h:974: the time of the blend's last step, in ms). Same
+    /// inline-only status as `sector_sound_blend_of`: no standalone LS3DF
+    /// FUNCTION entry exists, so no RVA is claimed here. Reports the stored
+    /// milliseconds; no state moves.
+    pub fn sector_sound_blend_time_of(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.sound_words_1e8_1ec[1])
     }
     /// Working name for the `num_fog_lights` fog-selection count at +0x154
     /// (mafia-re ls3df/I3D/I3D.h:963). The reference records no LS3DF
@@ -1422,6 +1454,32 @@ mod tests {
         assert!(arena.sector_light_count(unknown).is_err());
         assert!(arena.sector_sound_count(unknown).is_err());
         assert!(arena.sector_num_fog_lights(unknown).is_err());
+    }
+    #[test]
+    fn sector_list_and_blend_words_read_live_stores() {
+        // Working names for the light/sound lists (+0x144/+0x158) and the
+        // sound blend words (+0x1e8/+0x1ec, I3D.h:972-974): no LS3DF
+        // FUNCTION addresses exist for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        assert!(arena.sector_lights_of(key).unwrap().is_empty());
+        assert!(arena.sector_sounds_of(key).unwrap().is_empty());
+        assert_eq!(arena.sector_sound_blend_of(key), Ok(0));
+        assert_eq!(arena.sector_sound_blend_time_of(key), Ok(0));
+        let light = key.frame();
+        let si = arena.sector_index(key).unwrap();
+        arena.sectors[si].lights.push(light);
+        arena.sectors[si].sounds.push(light);
+        arena.sectors[si].sound_words_1e8_1ec = [0x3f80_0000, 41];
+        assert_eq!(arena.sector_lights_of(key).unwrap(), &[light][..]);
+        assert_eq!(arena.sector_sounds_of(key).unwrap(), &[light][..]);
+        assert_eq!(arena.sector_sound_blend_of(key), Ok(0x3f80_0000));
+        assert_eq!(arena.sector_sound_blend_time_of(key), Ok(41));
+        let unknown = SectorKey(crate::frame_transform::FrameKey(u32::MAX));
+        assert!(arena.sector_lights_of(unknown).is_err());
+        assert!(arena.sector_sounds_of(unknown).is_err());
+        assert!(arena.sector_sound_blend_of(unknown).is_err());
+        assert!(arena.sector_sound_blend_time_of(unknown).is_err());
     }
     #[test]
     fn sector_prepared_reports_only_bit_two() {

@@ -372,6 +372,15 @@ pub fn frame_flags_after_update_matrix(flags: u32) -> u32 {
         flags
     }
 }
+/// Working name for the FRMFLAGS_ON bit test (mafia-re ls3df/I3D/I3D.h:259).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only read in place by the inlined `IsOn` (I3D.h:543-549; the
+/// only out-of-line copy is Game.exe 0x47acf0, unclaimed here). The arena
+/// `frame_is_on` method covers stateful reads; this is the pure word test
+/// completing the free-reader family. Reports visibility; no cache moves.
+pub fn frame_is_on_flag(flags: u32) -> bool {
+    flags & 0x1 != 0
+}
 /// Working name for the FRMFLAGS_LOCKED bit test (mafia-re ls3df/I3D/I3D.h:265).
 /// The reference records no LS3DF FUNCTION address for a standalone reader;
 /// the bit only appears inside inlined stores such as `SetPos`. Reports
@@ -408,6 +417,16 @@ pub fn frame_is_no_cull(flags: u32) -> bool {
 /// bits and UPDATE.
 pub fn frame_duplicate_flags(flags: u32) -> u32 {
     flags & 0x0fa7_3e9f
+}
+/// Working name for the `I3D_frame::GetData` word read (mafia-re
+/// ls3df/I3D/I3D.h:595-600; `m_UserData` at +0x08, I3D.h:660, Insanity3D's
+/// name). The reference records no LS3DF FUNCTION address for a standalone
+/// reader: the inlined body just returns the member, and the single meshes'
+/// proxies reach their visual through it. The arena models no user-data word
+/// on `I3dFrameState`, so this stays a pure word projection with the native
+/// offset documented; no owner or device is consulted.
+pub fn frame_data_word(user_data: u32) -> u32 {
+    user_data
 }
 /// Working name for the FRMFLAGS_FFTREE bit test (mafia-re ls3df/I3D/I3D.h:286).
 /// The reference records no LS3DF FUNCTION address for a standalone reader;
@@ -5879,5 +5898,27 @@ mod tests {
         assert!(frame_visual_in_world_space(u32::MAX));
         assert!(!frame_visual_in_world_space(0));
         assert!(!frame_visual_in_world_space(0xffffffbf));
+    }
+    #[test]
+    fn on_flag_reader_reports_only_bit_zero() {
+        // Working name for the FRMFLAGS_ON bit (I3D.h:259): no LS3DF
+        // FUNCTION address exists for a standalone reader (only Game.exe
+        // 0x47acf0, unclaimed). The arena frame_is_on method covers stateful
+        // reads; this pins the pure word test.
+        assert!(frame_is_on_flag(0x1));
+        assert!(frame_is_on_flag(u32::MAX));
+        assert!(!frame_is_on_flag(0));
+        assert!(!frame_is_on_flag(0x80));
+        assert!(!frame_is_on_flag(u32::MAX & !0x1));
+    }
+    #[test]
+    fn data_word_returns_stored_user_word() {
+        // Working name for the inlined I3D_frame::GetData (I3D.h:595-600,
+        // m_UserData at +0x08): no LS3DF FUNCTION address exists for a
+        // standalone reader.
+        assert_eq!(frame_data_word(0), 0);
+        assert_eq!(frame_data_word(1), 1);
+        assert_eq!(frame_data_word(0x1234_5678), 0x1234_5678);
+        assert_eq!(frame_data_word(u32::MAX), u32::MAX);
     }
 }

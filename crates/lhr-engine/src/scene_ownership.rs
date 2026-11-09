@@ -1552,6 +1552,42 @@ impl ModelArena {
     ) -> Result<Option<crate::frame_occluder::OccluderKey>, ModelError> {
         Ok(self.scene(scene)?.occluder_head)
     }
+    /// Working name for the portals ring head at scene +0x258
+    /// (mafia-re `ls3df/I3D/I3D.h:1572-1573`). The reference records no
+    /// LS3DF FUNCTION address for a head getter: only the portal
+    /// interconnection pass links it. Borrows the live head link; unknown
+    /// scenes are an explicit host error.
+    pub fn scene_portal_head(
+        &self,
+        scene: SceneKey,
+    ) -> Result<Option<crate::frame_portal::PortalKey>, ModelError> {
+        Ok(self.scene(scene)?.portal_head)
+    }
+    /// Working name for the tick-frames list at scene +0x148
+    /// (mafia-re `ls3df/I3D/I3D.h:1554`: the frames the scene ticks,
+    /// FRMFLAGS_TICK). The reference records no LS3DF FUNCTION address for
+    /// a list getter: only `AddTickFrame` (RVA 0x49f90) and
+    /// `DeleteTickFrame` (RVA 0x4a050) have code addresses, both already
+    /// ported. Borrows the live list; no state moves.
+    pub fn scene_tick_frames(&self, scene: SceneKey) -> Result<&[FrameKey], ModelError> {
+        Ok(&self.scene(scene)?.tick_frames)
+    }
+    /// Working name for the shadows list at scene +0x158
+    /// (mafia-re `ls3df/I3D/I3D.h:1555`). The reference records no LS3DF
+    /// FUNCTION address for a list getter: only `AddShadow` (RVA 0x4a5a0)
+    /// and `DeleteShadow` (RVA 0x4a640) have code addresses, both already
+    /// ported. Borrows the live list; no state moves.
+    pub fn scene_shadows(&self, scene: SceneKey) -> Result<&[FrameKey], ModelError> {
+        Ok(&self.scene(scene)?.shadows)
+    }
+    /// Working name for the mirrors list at scene +0x168
+    /// (mafia-re `ls3df/I3D/I3D.h:1556`). The reference records no LS3DF
+    /// FUNCTION address for a list getter: only `AddMirror` (RVA 0x4a6f0)
+    /// and `DeleteMirror` (RVA 0x4a790) have code addresses, both already
+    /// ported. Borrows the live list; no state moves.
+    pub fn scene_mirrors(&self, scene: SceneKey) -> Result<&[FrameKey], ModelError> {
+        Ok(&self.scene(scene)?.mirrors)
+    }
     /// Working name for the tick-list capacity at scene +0x148
     /// (mafia-re `ls3df/I3D/I3D.h:1554`; grown by `AddTickFrame`,
     /// RVA 0x49f90, already ported). No LS3DF FUNCTION address exists
@@ -2831,6 +2867,38 @@ mod tests {
         assert!(arena
             .scene_mirror_count(SceneKey(FrameKey(u32::MAX)))
             .is_err());
+    }
+    #[test]
+    fn working_name_scene_lists_and_portal_head_read_live_links() {
+        // Working names, no LS3DF FUNCTION: portals head at +0x258 and the
+        // tick/shadow/mirror lists at +0x148/+0x158/+0x168 (I3D.h:1554-1556,
+        // 1572-1573). The constructor leaves the head empty and the lists
+        // borrowed empty; add/delete paths move both.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_portal_head(scene).unwrap(), None);
+        assert!(arena.scene_tick_frames(scene).unwrap().is_empty());
+        assert!(arena.scene_shadows(scene).unwrap().is_empty());
+        assert!(arena.scene_mirrors(scene).unwrap().is_empty());
+        let member = dummy(&mut arena, b"scene-lists");
+        arena.scene_add_frame(scene, member).unwrap();
+        arena.scene_add_tick_frame(scene, member).unwrap();
+        arena.scene_add_shadow(scene, member).unwrap();
+        arena.scene_add_mirror(scene, member).unwrap();
+        assert_eq!(arena.scene_tick_frames(scene).unwrap(), &[member][..]);
+        assert_eq!(arena.scene_shadows(scene).unwrap(), &[member][..]);
+        assert_eq!(arena.scene_mirrors(scene).unwrap(), &[member][..]);
+        arena.scene_delete_tick_frame(scene, member).unwrap();
+        arena.scene_delete_shadow(scene, member).unwrap();
+        arena.scene_delete_mirror(scene, member).unwrap();
+        assert!(arena.scene_tick_frames(scene).unwrap().is_empty());
+        assert!(arena.scene_shadows(scene).unwrap().is_empty());
+        assert!(arena.scene_mirrors(scene).unwrap().is_empty());
+        let unknown = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_portal_head(unknown).is_err());
+        assert!(arena.scene_tick_frames(unknown).is_err());
+        assert!(arena.scene_shadows(unknown).is_err());
+        assert!(arena.scene_mirrors(unknown).is_err());
     }
     #[test]
     fn working_name_occluder_count_reads_ctor_zero() {
