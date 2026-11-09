@@ -2586,6 +2586,87 @@ impl HumanState {
     pub fn can_aimed(wall_ahead: bool) -> bool {
         !wall_ahead
     }
+    /// Working-name seat default of C_human::Can_DropOutFromCar (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:6328-6329: `if (s < 0) s = seat`; no
+    /// standalone FUNCTION, the default is inlined, so no RVA claimed).
+    /// Resolves the caller's -1 (own seat) to the staged seat latch.
+    pub fn can_drop_seat_default(requested: i32, seat: i32) -> i32 {
+        if requested < 0 {
+            seat
+        } else {
+            requested
+        }
+    }
+    /// Working-name strength gate of C_human::Can_SpecialStroke (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:7199:
+    /// `properties[STRENGTH] * 10.0 < human->properties[ENERGY]`; no
+    /// standalone FUNCTION, the comparison is inlined, so no RVA claimed).
+    /// True when the victim's energy is above ten times the attacker's
+    /// strength.
+    pub fn special_stroke_strength_gate(strength: f32, energy: f32) -> bool {
+        strength * 10.0 < energy
+    }
+    /// Working-name range gate of C_human::Can_SpecialStroke (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:7203: `d.Square() < 1.0`; no
+    /// standalone FUNCTION, the comparison is inlined, so no RVA claimed).
+    /// True when the squared distance is within one metre.
+    pub fn special_stroke_in_range(squared_distance: f32) -> bool {
+        squared_distance < 1.0
+    }
+    /// Working-name facing gates of C_human::Can_SpecialStroke (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:7203-7204:
+    /// `d.AngleTo(frame_dir) < 0.3 && d.AngleTo(human_dir) > 2.85`; no
+    /// standalone FUNCTION, the comparisons are inlined, so no RVA
+    /// claimed). True when the target is ahead of this human and turned
+    /// away from them.
+    pub fn special_stroke_angles_ok(front_angle: f32, back_angle: f32) -> bool {
+        front_angle < 0.3 && back_angle > 2.85
+    }
+    /// Working-name seat-side sign of the Can_DropOutFromCar_Free,
+    /// Can_DropOutFromCar and Can_EnterToCar offsets (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6292-6293, :6336-6337, :6380-6381:
+    /// `if (!b1) off.x *= -1.0`; no standalone FUNCTION, the sign is
+    /// inlined, so no RVA claimed). Returns +1 for the flag side and -1
+    /// against it; the caller scales the 2.5/1.2/1.3 m base offset.
+    pub fn drop_side_sign(seat_flag: bool) -> f32 {
+        if seat_flag {
+            1.0
+        } else {
+            -1.0
+        }
+    }
+    /// Working-name ground-height staging of the Can_DropOutFromCar_Free,
+    /// Can_DropOutFromCar and Can_EnterToCar probes (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6303-6307, :6350-6354, :6395-6399:
+    /// `pos.y = hit.y + 0.7` with ground, else `pos.y += 1.0`; no
+    /// standalone FUNCTION, the assignment is inlined and the TestLineV
+    /// probe stays with the collision owner, so no RVA claimed). Stages the
+    /// caller's probe verdict into the adjusted height.
+    pub fn drop_ground_adjust(has_ground: bool, hit_y: f32, pos_y: f32) -> f32 {
+        if has_ground {
+            hit_y + 0.7
+        } else {
+            pos_y + 1.0
+        }
+    }
+    /// Working-name line-check arm of C_human::Can_EnterToCar (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:6410-6417: with `test_line` the line
+    /// from the exit point to a metre above the human must not cross the
+    /// car (`TestColHierarchy`); no standalone FUNCTION, the arm is
+    /// inlined and the hierarchy probe stays with the scene owner, so no
+    /// RVA claimed). True when the staged probe reports a crossing while
+    /// the check is requested (the caller refuses).
+    pub fn enter_test_line_blocks(test_line: bool, crosses_car: bool) -> bool {
+        test_line && crosses_car
+    }
+    /// Working-name null-car guard of C_human::Can_DropOutFromCar_Free
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:6286-6287: `if (!c)
+    /// return false`; no standalone FUNCTION, the guard is inlined, so no
+    /// RVA claimed). True only with a staged car (admission); the car and
+    /// seat-property owners stay DEFERRED.
+    pub fn can_drop_free_null_guard(car_present: bool) -> bool {
+        car_present
+    }
     /// GAME 0x58cfb0 (RVA 0x18cfb0) C_human::IsThisCarStealing claimant scan
     /// (mafia-re 113b5b6 game/actors/C_human.cpp:9592-9610): whether any
     /// PLAYER/ENTITY claimant holds the car as stealing_car, car or
@@ -4619,6 +4700,76 @@ mod human_state_flags_tests {
     fn can_aimed_rva_18a790_inverts_wall_probe() {
         assert!(HumanState::can_aimed(false));
         assert!(!HumanState::can_aimed(true));
+    }
+    #[test]
+    // Working-name seat default of C_human::Can_DropOutFromCar (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6328-6329; inlined, no RVA claimed):
+    // a negative request resolves to the staged seat latch.
+    fn can_drop_seat_default_working_name_resolves_negative() {
+        assert_eq!(HumanState::can_drop_seat_default(-1, 2), 2);
+        assert_eq!(HumanState::can_drop_seat_default(0, 2), 0);
+        assert_eq!(HumanState::can_drop_seat_default(3, 2), 3);
+    }
+    #[test]
+    // Working-name strength gate of C_human::Can_SpecialStroke (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:7199; inlined, no RVA claimed):
+    // energy above ten times strength admits.
+    fn special_stroke_strength_gate_working_name_scales_tenfold() {
+        assert!(HumanState::special_stroke_strength_gate(2.0, 21.0));
+        assert!(!HumanState::special_stroke_strength_gate(2.0, 20.0));
+        assert!(!HumanState::special_stroke_strength_gate(0.0, 0.0));
+    }
+    #[test]
+    // Working-name range gate of C_human::Can_SpecialStroke (mafia-re 113b5b6
+    // game/actors/C_human.cpp:7203; inlined, no RVA claimed): squared
+    // distance below one admits.
+    fn special_stroke_in_range_working_name_bounds_one_metre() {
+        assert!(HumanState::special_stroke_in_range(0.99));
+        assert!(!HumanState::special_stroke_in_range(1.0));
+        assert!(!HumanState::special_stroke_in_range(4.0));
+    }
+    #[test]
+    // Working-name facing gates of C_human::Can_SpecialStroke (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:7203-7204; inlined, no RVA claimed):
+    // ahead within 0.3 rad and turned away beyond 2.85 rad admits.
+    fn special_stroke_angles_ok_working_name_checks_facing_pair() {
+        assert!(HumanState::special_stroke_angles_ok(0.29, 2.86));
+        assert!(!HumanState::special_stroke_angles_ok(0.3, 2.86));
+        assert!(!HumanState::special_stroke_angles_ok(0.29, 2.85));
+    }
+    #[test]
+    // Working-name seat-side sign of the drop/enter offsets (mafia-re 113b5b6
+    // game/actors/C_human.cpp:6292-6293, :6336-6337, :6380-6381; inlined, no
+    // RVA claimed): the flag side keeps the sign, otherwise it flips.
+    fn drop_side_sign_working_name_mirrors_flag_side() {
+        assert_eq!(HumanState::drop_side_sign(true), 1.0);
+        assert_eq!(HumanState::drop_side_sign(false), -1.0);
+    }
+    #[test]
+    // Working-name ground-height staging of the drop/enter probes (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6303-6307; inlined, no RVA claimed):
+    // ground stages hit + 0.7, otherwise the position lifts by 1.0.
+    fn drop_ground_adjust_working_name_lifts_or_settles() {
+        assert_eq!(HumanState::drop_ground_adjust(true, 0.0, 10.0), 0.7);
+        assert_eq!(HumanState::drop_ground_adjust(false, 0.0, 10.0), 11.0);
+    }
+    #[test]
+    // Working-name line-check arm of C_human::Can_EnterToCar (mafia-re 113b5b6
+    // game/actors/C_human.cpp:6410-6417; inlined, no RVA claimed): only a
+    // requested check over a crossing car refuses.
+    fn enter_test_line_blocks_working_name_gates_crossing() {
+        assert!(HumanState::enter_test_line_blocks(true, true));
+        assert!(!HumanState::enter_test_line_blocks(true, false));
+        assert!(!HumanState::enter_test_line_blocks(false, true));
+        assert!(!HumanState::enter_test_line_blocks(false, false));
+    }
+    #[test]
+    // Working-name null-car guard of C_human::Can_DropOutFromCar_Free
+    // (mafia-re 113b5b6 game/actors/C_human.cpp:6286-6287; inlined, no RVA
+    // claimed): admission needs a staged car.
+    fn can_drop_free_null_guard_working_name_needs_car() {
+        assert!(HumanState::can_drop_free_null_guard(true));
+        assert!(!HumanState::can_drop_free_null_guard(false));
     }
     #[test]
     // GAME 0x58cfb0 (RVA 0x18cfb0) C_human::IsThisCarStealing (mafia-re

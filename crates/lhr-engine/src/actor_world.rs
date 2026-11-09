@@ -378,6 +378,62 @@ impl BaseActorState {
     pub fn program(&self) -> Option<&CProgram> {
         None
     }
+    /// Working-name read of the C_actor 0x20 net-direct latch (mafia-re
+    /// 113b5b6 game/actors/C_actor.h:344-346: bool net_direct, false from
+    /// the constructor; Tick runs NetDirect instead of AI while set; no
+    /// standalone FUNCTION, the byte is read in place, so no RVA claimed).
+    /// Reports whether the actor takes the network-direct tick path.
+    pub fn is_net_direct(&self) -> bool {
+        self.byte_20 != 0
+    }
+    /// Working-name write of the C_actor 0x20 net-direct latch (mafia-re
+    /// 113b5b6 game/actors/C_actor.h:344-346; no standalone FUNCTION, the
+    /// byte is written in place by construction/GameInit paths, so no RVA
+    /// claimed). Stages the network-direct tick selector for tests; the
+    /// mission tick owner stays DEFERRED.
+    pub fn set_net_direct(&mut self, direct: bool) {
+        self.byte_20 = u8::from(direct);
+    }
+    /// Working-name read of the C_actor 0x64 frame-actor-set latch
+    /// (mafia-re 113b5b6 game/actors/C_actor.h:360-364: bool
+    /// frame_actor_set, GameInit gives the frame its actor pointer while
+    /// set; no standalone FUNCTION, the byte is read in place by GameDone,
+    /// so no RVA claimed). Reports whether the frame currently carries the
+    /// actor pointer.
+    pub fn frame_actor_set(&self) -> bool {
+        self.bytes_64_65[0] != 0
+    }
+    /// Working-name write of the C_actor 0x64 frame-actor-set latch
+    /// (mafia-re 113b5b6 game/actors/C_actor.h:360-364; no standalone
+    /// FUNCTION, the byte is written in place, so no RVA claimed). Stages
+    /// the frame-pointer latch for tests; the frame owner stays DEFERRED.
+    pub fn set_frame_actor_set(&mut self, set: bool) {
+        self.bytes_64_65[0] = u8::from(set);
+    }
+    /// Working-name read of the C_actor 0x65 unknown latch (mafia-re 113b5b6
+    /// game/actors/C_actor.h:365: bool unknown_65, set for plain actors by
+    /// GameInit; no standalone getter, the byte is read in place by
+    /// C_detector::SetSignal and GameDone paths, so no RVA claimed).
+    /// Reports the staged byte written by [`Self::set_unknown65`].
+    pub fn is_unknown65(&self) -> bool {
+        self.bytes_64_65[1] != 0
+    }
+    /// Working-name read of the C_actor 0x0c reference count (mafia-re
+    /// 113b5b6 game/actors/C_actor.h:196-203: ushort ref, 1 at first;
+    /// Release decrements with 16-bit wrap; no standalone getter, the word
+    /// is read in place, so no RVA claimed). Reports the staged count that
+    /// [`Self::release_one`] decrements.
+    pub fn reference_count(&self) -> u16 {
+        self.references
+    }
+    /// Working-name read of the C_actor 0x18 actor number (mafia-re 113b5b6
+    /// game/actors/C_actor.h:342: int number, the mission count when Init
+    /// took the frame; SaveGameLoadGuid reads it back; no standalone
+    /// getter, the word is read in place, so no RVA claimed). Reports the
+    /// staged mission number.
+    pub fn actor_number(&self) -> u32 {
+        self.actor_id
+    }
 }
 /// GAME 0x406590 (RVA 0x6590) C_actor::Actor_SaveGameGetSize (mafia-re
 /// 113b5b6 game/actors/C_actor.cpp:1146-1155): the saved-actor reference
@@ -10365,6 +10421,59 @@ mod human_owner_tests {
     fn base_program_working_name_returns_none() {
         let state = BaseActorState::construct(base());
         assert!(state.program().is_none());
+    }
+    #[test]
+    // Working-name C_actor 0x20 net-direct latch (mafia-re 113b5b6
+    // game/actors/C_actor.h:344-346; no standalone FUNCTION, read in place
+    // by Tick, so no RVA claimed): clear at construction, settable.
+    fn net_direct_working_name_round_trips_tick_selector() {
+        let mut state = BaseActorState::construct(base());
+        assert!(!state.is_net_direct());
+        state.set_net_direct(true);
+        assert!(state.is_net_direct());
+        state.set_net_direct(false);
+        assert!(!state.is_net_direct());
+    }
+    #[test]
+    // Working-name C_actor 0x64 frame-actor-set latch (mafia-re 113b5b6
+    // game/actors/C_actor.h:360-364; no standalone FUNCTION, read in place
+    // by GameDone, so no RVA claimed): clear at construction, settable.
+    fn frame_actor_set_working_name_round_trips_pointer_latch() {
+        let mut state = BaseActorState::construct(base());
+        state.set_frame_actor_set(false);
+        assert!(!state.frame_actor_set());
+        state.set_frame_actor_set(true);
+        assert!(state.frame_actor_set());
+    }
+    #[test]
+    // Working-name C_actor 0x65 unknown latch reader (mafia-re 113b5b6
+    // game/actors/C_actor.h:365; no standalone getter, read in place, so no
+    // RVA claimed): mirrors the set_unknown65 writer.
+    fn unknown65_working_name_reads_writer_byte() {
+        let mut state = BaseActorState::construct(base());
+        state.set_unknown65(false);
+        assert!(!state.is_unknown65());
+        state.set_unknown65(true);
+        assert!(state.is_unknown65());
+    }
+    #[test]
+    // Working-name C_actor 0x0c reference-count reader (mafia-re 113b5b6
+    // game/actors/C_actor.h:196-203; no standalone getter, read in place by
+    // Release, so no RVA claimed): construction stages 1, release_one
+    // decrements with wrap.
+    fn reference_count_working_name_tracks_release_word() {
+        let mut state = BaseActorState::construct(base());
+        assert_eq!(state.reference_count(), 1);
+        assert_eq!(state.release_one(), 0);
+        assert_eq!(state.reference_count(), 0);
+    }
+    #[test]
+    // Working-name C_actor 0x18 actor-number reader (mafia-re 113b5b6
+    // game/actors/C_actor.h:342; no standalone getter, read in place by
+    // SaveGameLoadGuid, so no RVA claimed): stages the seed number.
+    fn actor_number_working_name_reads_mission_word() {
+        let state = BaseActorState::construct(base());
+        assert_eq!(state.actor_number(), 4);
     }
     fn record_key_at(time: i32, pos: [f32; 3], rot: [f32; 4]) -> StagedActorRecord {
         StagedActorRecord {
