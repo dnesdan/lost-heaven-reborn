@@ -957,6 +957,9 @@ pub const SHVF_SIGNAL_MARK: u32 = 0x1000;
 /// `SHVF_HIT_POLICEMAN` 0x2000: `DalJsemPochuzkariDoDrzky`'s bit (the human
 /// punched a patrolman; `SHVSTATE_KILL`, mafia-re game/ai/C_shvestky.h:27).
 pub const SHVF_HIT_POLICEMAN: u32 = 0x2000;
+/// `SHVF2_CRASH` 0x38: `flags2` crash bits, cleared once `crash_time` runs
+/// out (mafia-re game/ai/C_shvestky.h:30-32).
+pub const SHVF2_CRASH: u32 = 0x38;
 
 /// Ground-plane squared eviction distance for `TickDoRiciActors`
 /// (150 m; mafia-re game/ai/C_shvestky.cpp:869, 876, 884, 896).
@@ -1735,6 +1738,78 @@ impl PolicePursuitRecord {
     /// natively, so no RVA is claimed.
     pub fn pending_state(&self) -> u32 {
         self.new_state
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `human` identity (`S_shvestky::human` at +0x0, mafia-re
+    /// game/ai/C_shvestky.h:61). The native lookup by human runs inline in
+    /// each `C_shvestky` effect with no dedicated getter, so no RVA is
+    /// claimed.
+    pub fn human(&self) -> PoliceHumanId {
+        self.human
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `car` latch (`S_shvestky::car` at +0x4, mafia-re
+    /// game/ai/C_shvestky.h:62; `DriveCar`/`AddPerson` owner). The native
+    /// field is written by `DriveCar` 0x49cbb0 and read inline in `Tick`
+    /// 0x49a300 with no dedicated getter, so no RVA is claimed. `None` is
+    /// the native null.
+    pub fn car(&self) -> Option<PoliceActorId> {
+        self.car
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `flags2` word (`S_shvestky::flags2` at +0xa, `SHVF2_*`, mafia-re
+    /// game/ai/C_shvestky.h:30-32, 64). The native word is maintained
+    /// inline in `Tick` 0x49a300 with no dedicated getter, so no RVA is
+    /// claimed.
+    pub fn flags2(&self) -> u32 {
+        self.flags2
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `boxing_time` latch (`S_shvestky::boxing_time` at +0x20, paired with
+    /// `record_boxing`, mafia-re game/ai/C_shvestky.h:70). The native expiry
+    /// runs inline in `Tick` 0x49a300 with no dedicated getter, so no RVA is
+    /// claimed.
+    pub fn boxing_time(&self) -> u32 {
+        self.boxing_time
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `known_car` latch (`S_shvestky::known_car` at +0x54, mafia-re
+    /// game/ai/C_shvestky.h:96-100; filed by `ZalozSpisATahniDoRiti_Haleluja`).
+    /// The native field is compared inline in `CreateShvestkyTest` with no
+    /// dedicated getter, so no RVA is claimed. `None` is the native null.
+    pub fn known_car(&self) -> Option<PoliceActorId> {
+        self.known_car
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `known_on_foot` flag (`S_shvestky::known_on_foot` at +0x58, mafia-re
+    /// game/ai/C_shvestky.h:100). Same inline-only native use as
+    /// `known_car`, so no RVA is claimed.
+    pub fn known_on_foot(&self) -> bool {
+        self.known_on_foot
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `reason` word (`S_shvestky::reason` at +0x64, `SHVREASON_*`, mafia-re
+    /// game/ai/C_shvestky.h:39-45). The native word is written by the flag
+    /// arms in `CreateShvestkyTest` with no dedicated getter, so no RVA is
+    /// claimed.
+    pub fn reason(&self) -> u32 {
+        self.reason
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `run_over` count (`S_shvestky::run_over` at +0x68, mafia-re
+    /// game/ai/C_shvestky.h:106-108; `NextNaSrackySoudruh` owner). The
+    /// native count is maintained by that effect with no dedicated getter,
+    /// so no RVA is claimed.
+    pub fn run_over(&self) -> u32 {
+        self.run_over
     }
 }
 
@@ -3127,5 +3202,71 @@ mod tests {
         assert_eq!(record.support_level(), 2);
         assert_eq!(record.rammed_car(), 0x1234);
         assert_eq!(record.pending_state(), SHVSTATE_ARREST);
+    }
+
+    #[test]
+    fn identity_working_name_reads_human_and_car() {
+        // Working names: S_shvestky human (+0x0) and car (+0x4); no dedicated
+        // native getters, reads are inline in the effects and Tick.
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.human(), 7);
+        assert_eq!(record.car(), None);
+        record.apply_drive_car(Some(21));
+        assert_eq!(record.car(), Some(21));
+        record.apply_drive_car(None);
+        assert_eq!(record.car(), None);
+    }
+
+    #[test]
+    fn flags2_working_name_reads_second_flag_word() {
+        // Working name: S_shvestky flags2 (+0xa, SHVF2_*); inline Tick only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.flags2(), 0);
+        record.flags2 = SHVF2_CRASH;
+        assert_eq!(record.flags2(), SHVF2_CRASH);
+    }
+
+    #[test]
+    fn boxing_time_working_name_pairs_with_boxing_flag() {
+        // Working name: S_shvestky boxing_time (+0x20); inline Tick expiry.
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.boxing_time(), 0);
+        record.record_boxing();
+        assert_eq!(record.boxing_time(), 5000);
+        assert_eq!(record.flags & SHVF_BOXING, SHVF_BOXING);
+    }
+
+    #[test]
+    fn known_car_working_name_reads_filed_car_and_foot_flag() {
+        // Working names: S_shvestky known_car (+0x54) and known_on_foot
+        // (+0x58); compared inline in CreateShvestkyTest only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.known_car(), None);
+        assert!(!record.known_on_foot());
+        record.known_car = Some(33);
+        record.known_on_foot = true;
+        assert_eq!(record.known_car(), Some(33));
+        assert!(record.known_on_foot());
+    }
+
+    #[test]
+    fn reason_working_name_reads_state_reason() {
+        // Working name: S_shvestky reason (+0x64, SHVREASON_*); written by the
+        // CreateShvestkyTest flag arms only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.reason(), 0);
+        record.reason = 8;
+        assert_eq!(record.reason(), 8);
+    }
+
+    #[test]
+    fn run_over_working_name_counts_run_overs() {
+        // Working name: S_shvestky run_over (+0x68); maintained by the
+        // NextNaSrackySoudruh effect only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.run_over(), 0);
+        record.record_run_over();
+        assert_eq!(record.run_over(), 1);
+        assert_eq!(record.status_word(), SHVSTATE_NONE);
     }
 }

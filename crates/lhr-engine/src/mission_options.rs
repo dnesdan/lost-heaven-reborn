@@ -205,6 +205,30 @@ impl MissionOptions {
     }
 
     /// Working name (no outline RVA; inline read-only, mafia-re
+    /// `game/mission/Mission.h:27`, `S_mission_options::far_range` at +0x8):
+    /// reads the camera range `Open` stores. The native body is inlined at
+    /// every use, so no Game.exe function entry is claimed.
+    pub fn get_far_range(&self) -> f32 {
+        self.far_range
+    }
+
+    /// Working name (no outline RVA; inline read-only, mafia-re
+    /// `game/mission/Mission.h:28`, `S_mission_options::game_effects` at
+    /// +0xc): reads the stored effects level. The native body is inlined
+    /// at every use, so no Game.exe function entry is claimed.
+    pub fn get_game_effects(&self) -> i32 {
+        self.game_effects
+    }
+
+    /// Working name (no outline RVA; inline read-only, mafia-re
+    /// `game/mission/Mission.h:29`, `S_mission_options::game_sounds` at
+    /// +0x10): reads the stored sounds level. The native body is inlined
+    /// at every use, so no Game.exe function entry is claimed.
+    pub fn get_game_sounds(&self) -> i32 {
+        self.game_sounds
+    }
+
+    /// Working name (no outline RVA; inline read-only, mafia-re
     /// `game/mission/Mission.h:54`, `S_mission_options::GetLevelOfDetail`):
     /// reads the stored level of detail. The native body is inlined at every
     /// call site, so no Game.exe function entry is claimed.
@@ -553,5 +577,35 @@ mod tests {
         assert_eq!(options.get_draw_distance(), 0.7);
         options.set_draw_distance(-1.0);
         assert_eq!(options.get_draw_distance(), DRAW_DISTANCE_MIN);
+    }
+
+    #[test]
+    fn get_far_range_working_name_reads_stored_range() {
+        // Inline S_mission_options::far_range read (Mission.h:27, +0x8); no
+        // outline RVA is claimed.
+        let mut options = MissionOptions::new();
+        assert_eq!(options.get_far_range(), 0.0);
+        options.far_range = 250.0;
+        assert_eq!(options.get_far_range(), 250.0);
+    }
+
+    #[test]
+    fn get_game_effects_working_name_reads_stored_level() {
+        // Inline S_mission_options::game_effects read (Mission.h:28, +0xc);
+        // no outline RVA is claimed.
+        let mut options = MissionOptions::new();
+        assert_eq!(options.get_game_effects(), OPTION_HIGH);
+        options.set_game_effects(OPTION_LOW);
+        assert_eq!(options.get_game_effects(), OPTION_LOW);
+    }
+
+    #[test]
+    fn get_game_sounds_working_name_reads_stored_level() {
+        // Inline S_mission_options::game_sounds read (Mission.h:29, +0x10);
+        // no outline RVA is claimed.
+        let mut options = MissionOptions::new();
+        assert_eq!(options.get_game_sounds(), OPTION_HIGH);
+        options.set_game_sounds(OPTION_MEDIUM);
+        assert_eq!(options.get_game_sounds(), OPTION_MEDIUM);
     }
 }

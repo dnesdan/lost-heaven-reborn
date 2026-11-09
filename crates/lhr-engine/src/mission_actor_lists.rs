@@ -617,14 +617,17 @@ pub fn prepare_base_blocks() -> Result<(), GameStartupUnsupported> {
 }
 
 /// Scalar mission counters behind the `C_mission` inline accessors
-/// (`Mission.h:239-266` at pin 113b5b6). The scene, actors, scripts and game
-/// objects stay with their owners; only the mission-number pair and the
-/// skip-frames count these inlines read or write are owned here.
+/// (`Mission.h:239-266` at pin 113b5b6) plus the render-number latch
+/// (`Mission.h:123-124`). The scene, actors, scripts and game
+/// objects stay with their owners; only the mission-number pair, the
+/// skip-frames count these inlines read or write, and the render-number
+/// latch `Tick` copies each frame are owned here.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MissionCounterState {
     next_mission_number: i32,
     mission_number: i32,
     skip_frames: i32,
+    render_number: i32,
 }
 
 impl MissionCounterState {
@@ -680,16 +683,35 @@ impl MissionCounterState {
         self.next_mission_number = 0;
         self.mission_number = 0;
     }
+
+    /// Working name (no outline RVA; latch write, mafia-re
+    /// `game/mission/Mission.h:123-124`, `C_mission::render_number` at
+    /// +0x64): stages the scene render number `Tick` copies each frame.
+    /// The native copy is inline in `Tick` with no dedicated function, so
+    /// no Game.exe function entry is claimed.
+    pub fn set_render_number(&mut self, value: i32) {
+        self.render_number = value;
+    }
+
+    /// Working name (no outline RVA; latch read, mafia-re
+    /// `game/mission/Mission.h:123-124`): reads the staged render number.
+    /// No dedicated native function exists, so no RVA is claimed.
+    pub fn get_render_number(&self) -> i32 {
+        self.render_number
+    }
 }
 
 /// Presence flag behind `C_mission::opened` (mafia-re
-/// `game/mission/Mission.h:119-122`). The scene, actors, scripts and game
+/// `game/mission/Mission.h:119-122`) plus the restore-volume latch
+/// (`Mission.h:149-153`). The scene, actors, scripts and game
 /// objects stay with their owners; only the flag `Open` sets and `Close`
-/// checks-then-clears (`Mission.cpp:512-513`) is owned here.
+/// checks-then-clears (`Mission.cpp:512-513`) and the volume latch `Open`
+/// sets and `Tick` consumes are owned here.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MissionPresenceState {
     opened: bool,
     mission_name: Option<String>,
+    restore_volume: bool,
 }
 
 impl MissionPresenceState {
@@ -725,6 +747,23 @@ impl MissionPresenceState {
     /// copy and the `UnInit` delete stay with the mission owner.
     pub fn stage_mission_name(&mut self, name: Option<String>) {
         self.mission_name = name;
+    }
+
+    /// Working name (no outline RVA; latch read, mafia-re
+    /// `game/mission/Mission.h:149-153`, `C_mission::restore_volume` at
+    /// +0x7c): whether `Tick` still owes the post-load volume restore.
+    /// `Open` sets it while muting, `Tick` consumes it once `skip_frames`
+    /// drops below 1 (see `tick_consume_restore_volume`); no dedicated
+    /// native getter exists, so no RVA is claimed.
+    pub fn restore_volume(&self) -> bool {
+        self.restore_volume
+    }
+
+    /// Working name (no outline RVA; latch write, mafia-re
+    /// `game/mission/Mission.h:149-153`): stages the volume-restore latch.
+    /// The mute/apply sequencing stays with the sound owner.
+    pub fn set_restore_volume(&mut self, restore: bool) {
+        self.restore_volume = restore;
     }
 }
 
@@ -1272,5 +1311,35 @@ mod tests {
         assert_eq!(state.last_actor_number(), 0);
         state.reset_last_actor_number();
         assert_eq!(state.last_actor_number(), 0);
+    }
+
+    #[test]
+    fn render_number_working_name_stages_tick_latch() {
+        // C_mission::render_number (Mission.h:123-124, +0x64); Tick copies
+        // the scene number inline, no outline RVA is claimed.
+        let mut state = MissionCounterState::default();
+        assert_eq!(state.get_render_number(), 0);
+        state.set_render_number(44);
+        assert_eq!(state.get_render_number(), 44);
+        state.set_render_number(-1);
+        assert_eq!(state.get_render_number(), -1);
+        // Other counters are untouched.
+        assert_eq!(state.get_mission_number(), 0);
+        assert_eq!(state.get_skip_frames(), 0);
+    }
+
+    #[test]
+    fn restore_volume_working_name_stages_latch() {
+        // C_mission::restore_volume (Mission.h:149-153, +0x7c); Open sets,
+        // Tick consumes, no outline RVA is claimed.
+        let mut presence = MissionPresenceState::default();
+        assert!(!presence.restore_volume());
+        presence.set_restore_volume(true);
+        assert!(presence.restore_volume());
+        presence.set_restore_volume(false);
+        assert!(!presence.restore_volume());
+        // Presence flag and name staging are untouched.
+        assert!(!presence.is_opened());
+        assert_eq!(presence.mission_name(), None);
     }
 }
