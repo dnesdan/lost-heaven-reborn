@@ -359,11 +359,10 @@ class RewriteProgressTests(unittest.TestCase):
         # sledovacka ctor/done + init-bridges STUB; marker-only, tests green).
         # +7 police differential (Ghidra bodies 12-72 insns; pin tests
         # police_state 61 pass; 4 STUBs held as contract).
-        # +1 C_human::IsPossibleColl 0x178c60 source-only collision
-        # contract. REA/Ghidra did not identify its pinned VA as a procedure;
-        # no native differential is credited.
+        # +1 C_human::IsPossibleColl 0x178c60 differential (complete x87
+        # discriminant walk entry to RET 0x28; pin tests 4+2 pass).
         self.assertEqual(game["ported"], 149 + 585)
-        self.assertEqual(game["verified"], 149 + 497)
+        self.assertEqual(game["verified"], 149 + 498)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
