@@ -435,6 +435,10 @@ pub struct MissionLoadSession {
     startup_patches: ProgramPatchStartup,
 }
 
+#[path = "session_program_runtime.rs"]
+mod owned_program_runtime;
+pub use owned_program_runtime::SessionProgramEffects;
+
 impl MissionLoadSession {
     pub fn new(
         installation: lhr_assets::Installation,

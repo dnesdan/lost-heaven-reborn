@@ -4,6 +4,8 @@ use super::*;
 mod program_world;
 #[path = "mission_init_presentation_tests.rs"]
 mod init_presentation;
+#[path = "session_program_runtime_tests.rs"]
+mod owned_runtime;
 use crate::frame_transform::FrameKey;
 use crate::mission_resources::ModelCachePhase;
 use crate::model_loading::{CpuSceneWorldPhase, ModelKey};

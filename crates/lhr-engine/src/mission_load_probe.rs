@@ -14,8 +14,7 @@ use lhr_engine::{
     mission_world_completeness,
     model_loading::ModelArena,
     native_precision::Pc24PrecisionState,
-    original_program::{RuntimeBackend, RuntimeEffect, RuntimeView},
-    program_parameters::ScalarParameter,
+    original_program::{RuntimeBackend, RuntimeView},
     script_lookup::LookupError,
     script_scheduler::{ActorReferenceId, DispatchBudget, FrameReferenceId},
 };
@@ -29,26 +28,6 @@ const PROBE_RENDER_SIZE: [u32; 2] = [PROBE_SIZE[0] as u32, PROBE_SIZE[1] as u32]
 /// always terminates within it or reports budget exhaustion; nothing here
 /// depends on the exact count, only on its finiteness.
 const PROBE_DISPATCH_BUDGET: usize = 100_000;
-
-/// Counting accept-all script backend for the probe. Every reached effect
-/// boundary succeeds and is counted; the runtime owns all allocations.
-/// This instruments scheduling, it does not implement gameplay effects.
-#[derive(Default)]
-struct ProbeEffects {
-    calls: usize,
-}
-
-impl RuntimeBackend for ProbeEffects {
-    fn effect(
-        &mut self,
-        _: RuntimeView<'_>,
-        _: RuntimeEffect,
-        _: Option<&ScalarParameter>,
-    ) -> Result<(), String> {
-        self.calls += 1;
-        Ok(())
-    }
-}
 
 /// Headless diagnostic: counts message beeps without a listener to beep
 /// through. A nonzero count stays visible in the report instead of masking
@@ -94,17 +73,16 @@ impl<B: RuntimeBackend, D: MissionProgramDiagnostic> GameGlobalProgramWorldRunne
 
 struct ScriptRunReport {
     outcome: NamedGlobalProgramOutcome,
-    effect_calls: usize,
     beeps: usize,
     budget_remaining: usize,
 }
 
 /// Owned program init plus the single `GameInitStart` run over the live
-/// session owners, in `C_game::Init` order after the scalar prefix. Runtimes
+/// session owners as a separate dependency diagnostic. This does not bypass
+/// earlier missing Init owners in a playable startup path. Runtimes
 /// are discarded host-side afterwards so terminal disposal sees no retained
 /// program state; this is Init, not Done.
 fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunReport, String> {
-    let mut effects = ProbeEffects::default();
     let mut diagnostic = ProbeDiagnostic::default();
     let mut game = ProbeGame;
     let mut budget =
@@ -113,16 +91,15 @@ fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunRe
     // run below ends; otherwise terminal disposal refuses the retained state
     // and masks the real outcome.
     let init = session
-        .global_program_game_init(&mut effects)
+        .initialize_owned_global_programs()
         .map_err(|error| format!("{error:?}"));
     let outcome = match &init {
         Ok(()) => Some(
             session
-                .global_program_run_in_world(
+                .run_owned_global_program_in_world(
                     b"GameInitStart",
                     &mut game,
                     &mut budget,
-                    &mut effects,
                     &mut diagnostic,
                     ProgramWorldLocales {
                         game_default_c_locale: true,
@@ -146,7 +123,6 @@ fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunRe
     }?;
     Ok(ScriptRunReport {
         outcome,
-        effect_calls: effects.calls,
         beeps: diagnostic.beeps,
         budget_remaining: budget.remaining(),
     })
@@ -273,9 +249,9 @@ pub fn run(
     } else {
         Err("skipped after stopped load".into())
     };
-    // Owned program init plus the single GameInitStart run, in Init order
-    // after the scalar prefix. Runtimes are discarded before reporting so
-    // terminal disposal starts clean.
+    // Explicit dependency diagnostic, separate from the ordered Init attempt.
+    // Game effects use represented live owners and stop on unavailable ones.
+    // Host runtime discard is not original GameDone or mission completion.
     let scripts = if matches!(game_init, Ok(())) {
         run_game_init_scripts(&mut session)
     } else {
@@ -308,8 +284,8 @@ pub fn run(
         Ok(script) => {
             writeln!(
                 report,
-                "GameInitStart: {:?} effect_calls={} beeps={} budget_remaining={}",
-                script.outcome, script.effect_calls, script.beeps, script.budget_remaining
+                "GameInitStart: {:?} beeps={} budget_remaining={}",
+                script.outcome, script.beeps, script.budget_remaining
             )
             .unwrap();
         }
@@ -317,11 +293,13 @@ pub fn run(
             writeln!(report, "GameInitStart stopped: {detail}").unwrap();
         }
     }
+    writeln!(report, "Session script state: night_mission={} anim_preload={}",
+        session.game_state().night_mission(), session.game_state().anim_preload()).unwrap();
     // Independent ordered Init inspection AFTER the GameInitStart script
     // diagnostic above. It starts with the actual retained Scene, but is not
     // a continuation of that diagnostic or a successful full GameInit. In
     // particular the true Init driver stops before GlobalProgramStart while
-    // this command separately exercises that script with counting effects.
+    // this command separately exercises that script with session-owned effects.
     // Keep the first failure and reached owner state visible without changing
     // whether an otherwise complete source-load probe exits successfully.
     let mut init_capture = None;

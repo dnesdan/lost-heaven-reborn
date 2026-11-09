@@ -72,6 +72,11 @@ boundary and the actual retained scalar/weather/PCM observations. This
 ordered inspection deliberately runs after the separate `GameInitStart`
 script diagnostic; the two independent probes do not establish an executable
 native gameplay sequence.
+The script diagnostic uses the session's represented game fields for
+`game_nightmission` and `noanimpreload`. It now refuses unowned light-cache
+and city-traffic effects at their reached instruction instead of counting
+them as successful. A previously successful diagnostic can therefore stop
+earlier; its program counter and executed state remain available for review.
 The retained mission also exposes an explicit `SceneRenderBackend` callback
 for that same first `C_game::Init` render effect. When supplied, it delegates
 through `ModelArena::scene_render_with_backend` with the live Scene identity;
