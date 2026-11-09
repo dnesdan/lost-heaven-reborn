@@ -77,6 +77,12 @@ The script diagnostic uses the session's represented game fields for
 and city-traffic effects at their reached instruction instead of counting
 them as successful. A previously successful diagnostic can therefore stop
 earlier; its program counter and executed state remain available for review.
+Terminal source disposal also checks embedded actor programs before entering
+any destructor. After an explicitly stopped runtime, dispose its Rust VM
+storage through `discard_actor_program_runtimes_host` (and the existing
+global-program counterpart) before terminal source cleanup. A detached
+program must first return to its actor. This is host cleanup for a fresh
+session, not original GameDone or proof of a playable mission restart.
 The retained mission also exposes an explicit `SceneRenderBackend` callback
 for that same first `C_game::Init` render effect. When supplied, it delegates
 through `ModelArena::scene_render_with_backend` with the live Scene identity;

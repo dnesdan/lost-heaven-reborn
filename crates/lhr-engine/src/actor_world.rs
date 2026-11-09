@@ -260,6 +260,10 @@ struct OwnedActor {
     racecam: Option<RacecamState>,
     traffic: Option<TrafficGeneratorState>,
 }
+
+#[path = "actor_program_disposal.rs"]
+mod program_disposal;
+pub use program_disposal::{ActorProgramDiscard, ActorProgramDiscardError, ActorProgramKind};
 /// Untouched native detector storage, including the embedded program seed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DetectorSeed {
@@ -8995,6 +8999,54 @@ mod human_owner_tests {
     use crate::human_actor::{HumanAnimationMachineSeed, HumanAuxiliarySeed, HumanProperties};
     use crate::original_program::{ProgramAllocation, ProgramBuffer, ProgramVtable};
     use std::{cell::RefCell, collections::BTreeSet, rc::Rc};
+    #[test]
+    fn entity_program_host_disposal_preserves_source_until_actual_destructor() {
+        struct Storage;
+        impl crate::original_program::RuntimeBackend for Storage {
+            fn effect(
+                &mut self,
+                _: crate::original_program::RuntimeView<'_>,
+                _: crate::original_program::RuntimeEffect,
+                _: Option<&crate::program_parameters::ScalarParameter>,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+        }
+        let mut world = world();
+        let mut heap = Heap::default();
+        let actor = world.create_actor(27, &mut heap).unwrap().unwrap();
+        let index = world.index(actor).unwrap();
+        let program = world.actors[index]
+            .entity
+            .as_mut()
+            .unwrap()
+            .program
+            .as_mut()
+            .unwrap();
+        program
+            .set_source_code(Some(b"dim_frm 2"), &mut heap)
+            .unwrap();
+        program.init_fresh_runtime(&mut Storage).unwrap();
+        let allocations = heap.allocations.clone();
+        assert!(world.program_disposal_pending());
+        let reports = world.discard_embedded_program_runtimes_host().unwrap();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].actor, actor);
+        assert_eq!(reports[0].kind, ActorProgramKind::Entity);
+        assert_eq!(reports[0].resources.scalar_allocations, 1);
+        assert!(!world.program_disposal_pending());
+        assert_eq!(heap.allocations, allocations);
+        let program = world.entity(actor).unwrap().program().unwrap();
+        assert!(program.runtime().is_none());
+        assert_eq!(
+            program.source().unwrap().c_bytes(),
+            Some(b"dim_frm 2".as_slice())
+        );
+        assert!(world.discard_embedded_program_runtimes_host().unwrap().is_empty());
+        let mut frames = Frames::new(heap.log.clone());
+        world.delete_entity(actor, 1, &mut frames, &mut heap).unwrap();
+        assert!(heap.allocations.is_empty());
+    }
     fn base() -> BaseActorSeed {
         BaseActorSeed {
             word_0e: 3,

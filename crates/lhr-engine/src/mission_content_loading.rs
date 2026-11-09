@@ -112,11 +112,15 @@ impl MissionContentOwner {
     pub fn live_car_track_count(&self) -> usize {
         self.actors.world.live_car_track_count()
     }
+    /// Includes embedded actor runtimes and detached embedded programs whose
+    /// storage cannot be proven released. Source disposal must refuse before
+    /// it enters a destructor or destroys any unrelated source.
     pub fn has_retained_program_runtime(&self) -> bool {
         self.programs
             .iter()
             .chain(self.pending_program.iter())
             .any(|program| program.runtime().is_some())
+            || self.actors.world.program_disposal_pending()
     }
     pub fn live_program_count(&self) -> usize {
         self.programs
@@ -242,7 +246,7 @@ impl MissionContentOwner {
         // it neither calls original Done nor replays uncertain runtime effects.
         if self.has_retained_program_runtime() {
             return Err(
-                "explicit global program runtime host discard required before source disposal"
+                "explicit program runtime host discard/reattachment required before source disposal"
                     .into(),
             );
         }

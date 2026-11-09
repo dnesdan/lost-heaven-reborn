@@ -117,7 +117,10 @@ fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunRe
         (Ok(()), Some(Ok(outcome)), Ok(_)) => Ok(outcome),
         (Err(error), _, Ok(_)) => Err(error),
         (Ok(()), Some(Err(error)), Ok(_)) => Err(error),
-        (Ok(()), _, Err(error)) => Err(format!("runtimes discard: {error}")),
+        (Ok(()), Some(Err(run)), Err(discard)) => {
+            Err(format!("{run}; runtimes discard: {discard}"))
+        }
+        (Ok(()), Some(Ok(_)), Err(error)) => Err(format!("runtimes discard: {error}")),
         (Err(init), _, Err(discard)) => Err(format!("{init}; runtimes discard: {discard}")),
         (Ok(()), None, _) => Err("unreachable GameInitStart admission".into()),
     }?;

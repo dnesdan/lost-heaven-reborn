@@ -6,6 +6,8 @@ mod program_world;
 mod init_presentation;
 #[path = "session_program_runtime_tests.rs"]
 mod owned_runtime;
+#[path = "mission_program_disposal_tests.rs"]
+mod program_disposal;
 use crate::frame_transform::FrameKey;
 use crate::mission_resources::ModelCachePhase;
 use crate::model_loading::{CpuSceneWorldPhase, ModelKey};

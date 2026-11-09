@@ -661,6 +661,23 @@ impl MissionLoadSession {
             .content
             .discard_global_program_runtimes_host()
     }
+
+    /// Explicit host VM retirement for the retained actors before terminal
+    /// source disposal. Global programs have their separate existing method;
+    /// neither call claims original GameDone or a completed mission restart.
+    pub fn discard_actor_program_runtimes_host(
+        &mut self,
+    ) -> Result<Vec<crate::actor_world::ActorProgramDiscard>, String> {
+        self.global_program_source_admission()?;
+        self.loader
+            .as_mut()
+            .unwrap()
+            .content
+            .actors
+            .world
+            .discard_embedded_program_runtimes_host()
+            .map_err(|error| format!("actor program host discard: {error:?}"))
+    }
     pub fn phase(&self) -> MissionLoadPhase {
         self.phase
     }
