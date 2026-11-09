@@ -31,6 +31,41 @@ pub const SCTF_VISIBLE: u32 = 0x01;
 /// SCTF_PREPARED 0x4 (mafia-re ls3df/I3D/I3D.h:905): MakeReady ran, so the
 /// sector owns its hull planes.
 pub const SCTF_PREPARED: u32 = 0x04;
+/// SCTF_IN_WALK 0x2 (mafia-re ls3df/I3D/I3D.h:904): the sector is on the
+/// portal walk stack (ParsePortalsInSector).
+pub const SCTF_IN_WALK: u32 = 0x02;
+/// SCTF_CULLED 0x10 (mafia-re ls3df/I3D/I3D.h:906): the sector frames were
+/// culled this frame (CullThruPortal CTP_EnumProcFirst).
+pub const SCTF_CULLED: u32 = 0x10;
+/// SCTF_OCCLUDER 0x40 (mafia-re ls3df/I3D/I3D.h:907): MakeReady made an
+/// occluder of the sector hull.
+pub const SCTF_OCCLUDER: u32 = 0x40;
+/// SCTF_OCCLUDER_OFF 0x80 (mafia-re ls3df/I3D/I3D.h:908-909): the walk came
+/// back into the sector through a portal without a twin, so the hull
+/// occluder hides nothing (ProcessOccluders).
+pub const SCTF_OCCLUDER_OFF: u32 = 0x80;
+/// SCTF_FAR_NO_CHILDREN 0x100 (mafia-re ls3df/I3D/I3D.h:910-912): kept by
+/// Duplicate; seen through a portal past its range the walk culls the
+/// sector frames but not their children (CTP_PartlyOffPortal/CTP_EnumProc).
+pub const SCTF_FAR_NO_CHILDREN: u32 = 0x100;
+/// SCTF_PRIMARY 0x200 (mafia-re ls3df/I3D/I3D.h:913): the scene primary
+/// sector, assigned by the scene constructor.
+pub const SCTF_PRIMARY: u32 = 0x200;
+/// SCTF_SOUND_FADE_IN 0x400 (mafia-re ls3df/I3D/I3D.h:914): the renderer
+/// blends into the sector sound environment, not out of it.
+pub const SCTF_SOUND_FADE_IN: u32 = 0x400;
+/// SCTF_SOUND_CHANGED 0x800 (mafia-re ls3df/I3D/I3D.h:915): the sector sound
+/// properties are to be given to the listener.
+pub const SCTF_SOUND_CHANGED: u32 = 0x800;
+/// SCTF_BACKDROP 0x1000 (mafia-re ls3df/I3D/I3D.h:916): the scene backdrop
+/// sector, assigned by the scene constructor.
+pub const SCTF_BACKDROP: u32 = 0x1000;
+/// SCTF_OMNI 0x2000 (mafia-re ls3df/I3D/I3D.h:917): the scene omni sector,
+/// assigned by the scene constructor.
+pub const SCTF_OMNI: u32 = 0x2000;
+/// SCTF_NEAR 0x4000 (mafia-re ls3df/I3D/I3D.h:918): the scene near sector,
+/// assigned by the scene constructor.
+pub const SCTF_NEAR: u32 = 0x4000;
 /// Upstream working name, not an evidenced original symbol: direct read of
 /// the SCTF_VISIBLE bit. The reference records no LS3DF FUNCTION address for
 /// a standalone reader (I3D.h:902; set by the portal walk). Reports whether
@@ -45,6 +80,115 @@ pub fn sector_is_visible(sector_flags: u32) -> bool {
 /// is prepared; no state moves.
 pub fn sector_is_prepared(sector_flags: u32) -> bool {
     sector_flags & SCTF_PREPARED != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_IN_WALK bit. The reference records no LS3DF FUNCTION address for
+/// a standalone reader (I3D.h:904; maintained by the portal walk
+/// ParsePortalsInSector). Reports whether the sector is on the walk stack;
+/// no state moves.
+pub fn sector_is_in_walk(sector_flags: u32) -> bool {
+    sector_flags & SCTF_IN_WALK != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_CULLED bit. The reference records no LS3DF FUNCTION address for
+/// a standalone reader (I3D.h:906; set by the CullThruPortal first pass).
+/// Reports whether the sector frames were culled this frame; no state moves.
+pub fn sector_is_culled(sector_flags: u32) -> bool {
+    sector_flags & SCTF_CULLED != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_OCCLUDER bit. The reference records no LS3DF FUNCTION address
+/// for a standalone reader (I3D.h:907; set by `MakeReady`). Reports whether
+/// the sector hull has a generated occluder; no state moves.
+pub fn sector_has_occluder(sector_flags: u32) -> bool {
+    sector_flags & SCTF_OCCLUDER != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_OCCLUDER_OFF bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:908-909; set by ProcessOccluders
+/// when the walk re-enters through a twinless portal). Reports whether the
+/// hull occluder is disabled; no state moves.
+pub fn sector_occluder_off(sector_flags: u32) -> bool {
+    sector_flags & SCTF_OCCLUDER_OFF != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_FAR_NO_CHILDREN bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:910-912; loaded from the file and
+/// kept by Duplicate). Reports the past-range portal mode where the walk
+/// culls frames but not their children; no state moves.
+pub fn sector_far_no_children(sector_flags: u32) -> bool {
+    sector_flags & SCTF_FAR_NO_CHILDREN != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_PRIMARY bit. The reference records no LS3DF FUNCTION address for
+/// a standalone reader (I3D.h:913; assigned by the scene constructor,
+/// mafia-re ls3df/I3D/I3d_scene.cpp:118-123). Reports the primary sector;
+/// no state moves.
+pub fn sector_is_primary(sector_flags: u32) -> bool {
+    sector_flags & SCTF_PRIMARY != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_SOUND_FADE_IN bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:914; consumed by the renderer
+/// sound blend). Reports the fade-in blend direction; no state moves.
+pub fn sector_sound_fade_in(sector_flags: u32) -> bool {
+    sector_flags & SCTF_SOUND_FADE_IN != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_SOUND_CHANGED bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:915; set when sound properties
+/// change, cleared by `m_UpdateSoundProperties`, mafia-re
+/// ls3df/I3D/I3d_scene.cpp:852-854). Reports whether the listener still
+/// needs the sector environment; no state moves.
+pub fn sector_sound_changed(sector_flags: u32) -> bool {
+    sector_flags & SCTF_SOUND_CHANGED != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_BACKDROP bit. The reference records no LS3DF FUNCTION address
+/// for a standalone reader (I3D.h:916; assigned by the scene constructor).
+/// Reports the backdrop sector; no state moves.
+pub fn sector_is_backdrop(sector_flags: u32) -> bool {
+    sector_flags & SCTF_BACKDROP != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_OMNI bit. The reference records no LS3DF FUNCTION address for a
+/// standalone reader (I3D.h:917; assigned by the scene constructor).
+/// Reports the omni sector; no state moves.
+pub fn sector_is_omni(sector_flags: u32) -> bool {
+    sector_flags & SCTF_OMNI != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_NEAR bit. The reference records no LS3DF FUNCTION address for a
+/// standalone reader (I3D.h:918; assigned by the scene constructor).
+/// Reports the near sector; no state moves.
+pub fn sector_is_near(sector_flags: u32) -> bool {
+    sector_flags & SCTF_NEAR != 0
+}
+/// Upstream working name, not an evidenced original symbol: retained-sector
+/// predicate over SCTF_PRIMARY|BACKDROP|OMNI|NEAR. The reference records no
+/// LS3DF FUNCTION address for a standalone reader; the four bits are the
+/// scene constructor retained sectors (I3D.h:913,916-918; mafia-re
+/// ls3df/I3D/I3d_scene.cpp:118-140). Reports whether the flags mark any
+/// retained scene sector; no state moves.
+pub fn sector_is_retained(sector_flags: u32) -> bool {
+    sector_flags & (SCTF_PRIMARY | SCTF_BACKDROP | SCTF_OMNI | SCTF_NEAR) != 0
+}
+/// Upstream working name, not an evidenced original symbol: hull-occluder
+/// gate SCTF_OCCLUDER without SCTF_OCCLUDER_OFF. The reference records no
+/// LS3DF FUNCTION address for a standalone reader; the gate follows
+/// I3D.h:907-909 (ProcessOccluders disables a twinless re-entry hull).
+/// Reports whether the hull occluder currently hides anything; no state
+/// moves.
+pub fn sector_occluder_hides(sector_flags: u32) -> bool {
+    sector_flags & SCTF_OCCLUDER != 0 && sector_flags & SCTF_OCCLUDER_OFF == 0
+}
+/// Upstream working name, not an evidenced original symbol: partial-cull
+/// mode SCTF_CULLED with SCTF_FAR_NO_CHILDREN. The reference records no
+/// LS3DF FUNCTION address for a standalone reader; the combination follows
+/// I3D.h:906 plus I3D.h:910-912 (past-range walk culls frames only).
+/// Reports the frames-only cull mode; no state moves.
+pub fn sector_culls_frames_only(sector_flags: u32) -> bool {
+    sector_flags & SCTF_CULLED != 0 && sector_flags & SCTF_FAR_NO_CHILDREN != 0
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SectorBufferKey {
@@ -1120,6 +1264,155 @@ mod tests {
         assert!(!sector_is_prepared(0));
         assert!(!sector_is_prepared(SCTF_VISIBLE));
         assert!(!sector_is_prepared(u32::MAX & !SCTF_PREPARED));
+    }
+    #[test]
+    fn sector_in_walk_reports_only_bit_one() {
+        // Working name for SCTF_IN_WALK (I3D.h:904): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_IN_WALK, 0x02);
+        assert!(sector_is_in_walk(SCTF_IN_WALK));
+        assert!(sector_is_in_walk(u32::MAX));
+        assert!(!sector_is_in_walk(0));
+        assert!(!sector_is_in_walk(SCTF_VISIBLE));
+        assert!(!sector_is_in_walk(u32::MAX & !SCTF_IN_WALK));
+    }
+    #[test]
+    fn sector_culled_reports_only_bit_four() {
+        // Working name for SCTF_CULLED (I3D.h:906): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_CULLED, 0x10);
+        assert!(sector_is_culled(SCTF_CULLED));
+        assert!(sector_is_culled(u32::MAX));
+        assert!(!sector_is_culled(0));
+        assert!(!sector_is_culled(SCTF_VISIBLE));
+        assert!(!sector_is_culled(u32::MAX & !SCTF_CULLED));
+    }
+    #[test]
+    fn sector_occluder_reports_only_bit_six() {
+        // Working name for SCTF_OCCLUDER (I3D.h:907): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_OCCLUDER, 0x40);
+        assert!(sector_has_occluder(SCTF_OCCLUDER));
+        assert!(sector_has_occluder(u32::MAX));
+        assert!(!sector_has_occluder(0));
+        assert!(!sector_has_occluder(SCTF_VISIBLE));
+        assert!(!sector_has_occluder(u32::MAX & !SCTF_OCCLUDER));
+    }
+    #[test]
+    fn sector_occluder_off_reports_only_bit_seven() {
+        // Working name for SCTF_OCCLUDER_OFF (I3D.h:908-909): no LS3DF entry.
+        assert_eq!(SCTF_OCCLUDER_OFF, 0x80);
+        assert!(sector_occluder_off(SCTF_OCCLUDER_OFF));
+        assert!(sector_occluder_off(u32::MAX));
+        assert!(!sector_occluder_off(0));
+        assert!(!sector_occluder_off(SCTF_VISIBLE));
+        assert!(!sector_occluder_off(u32::MAX & !SCTF_OCCLUDER_OFF));
+    }
+    #[test]
+    fn sector_far_no_children_reports_only_bit_eight() {
+        // Working name for SCTF_FAR_NO_CHILDREN (I3D.h:910-912): no entry.
+        assert_eq!(SCTF_FAR_NO_CHILDREN, 0x100);
+        assert!(sector_far_no_children(SCTF_FAR_NO_CHILDREN));
+        assert!(sector_far_no_children(u32::MAX));
+        assert!(!sector_far_no_children(0));
+        assert!(!sector_far_no_children(SCTF_VISIBLE));
+        assert!(!sector_far_no_children(
+            u32::MAX & !SCTF_FAR_NO_CHILDREN
+        ));
+    }
+    #[test]
+    fn sector_primary_reports_only_bit_nine() {
+        // Working name for SCTF_PRIMARY (I3D.h:913): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_PRIMARY, 0x200);
+        assert!(sector_is_primary(SCTF_PRIMARY));
+        assert!(sector_is_primary(u32::MAX));
+        assert!(!sector_is_primary(0));
+        assert!(!sector_is_primary(SCTF_VISIBLE));
+        assert!(!sector_is_primary(u32::MAX & !SCTF_PRIMARY));
+    }
+    #[test]
+    fn sector_sound_fade_in_reports_only_bit_ten() {
+        // Working name for SCTF_SOUND_FADE_IN (I3D.h:914): no LS3DF entry.
+        assert_eq!(SCTF_SOUND_FADE_IN, 0x400);
+        assert!(sector_sound_fade_in(SCTF_SOUND_FADE_IN));
+        assert!(sector_sound_fade_in(u32::MAX));
+        assert!(!sector_sound_fade_in(0));
+        assert!(!sector_sound_fade_in(SCTF_VISIBLE));
+        assert!(!sector_sound_fade_in(u32::MAX & !SCTF_SOUND_FADE_IN));
+    }
+    #[test]
+    fn sector_sound_changed_reports_only_bit_eleven() {
+        // Working name for SCTF_SOUND_CHANGED (I3D.h:915): no LS3DF entry.
+        assert_eq!(SCTF_SOUND_CHANGED, 0x800);
+        assert!(sector_sound_changed(SCTF_SOUND_CHANGED));
+        assert!(sector_sound_changed(u32::MAX));
+        assert!(!sector_sound_changed(0));
+        assert!(!sector_sound_changed(SCTF_VISIBLE));
+        assert!(!sector_sound_changed(u32::MAX & !SCTF_SOUND_CHANGED));
+    }
+    #[test]
+    fn sector_backdrop_reports_only_bit_twelve() {
+        // Working name for SCTF_BACKDROP (I3D.h:916): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_BACKDROP, 0x1000);
+        assert!(sector_is_backdrop(SCTF_BACKDROP));
+        assert!(sector_is_backdrop(u32::MAX));
+        assert!(!sector_is_backdrop(0));
+        assert!(!sector_is_backdrop(SCTF_VISIBLE));
+        assert!(!sector_is_backdrop(u32::MAX & !SCTF_BACKDROP));
+    }
+    #[test]
+    fn sector_omni_reports_only_bit_thirteen() {
+        // Working name for SCTF_OMNI (I3D.h:917): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_OMNI, 0x2000);
+        assert!(sector_is_omni(SCTF_OMNI));
+        assert!(sector_is_omni(u32::MAX));
+        assert!(!sector_is_omni(0));
+        assert!(!sector_is_omni(SCTF_VISIBLE));
+        assert!(!sector_is_omni(u32::MAX & !SCTF_OMNI));
+    }
+    #[test]
+    fn sector_near_reports_only_bit_fourteen() {
+        // Working name for SCTF_NEAR (I3D.h:918): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_NEAR, 0x4000);
+        assert!(sector_is_near(SCTF_NEAR));
+        assert!(sector_is_near(u32::MAX));
+        assert!(!sector_is_near(0));
+        assert!(!sector_is_near(SCTF_VISIBLE));
+        assert!(!sector_is_near(u32::MAX & !SCTF_NEAR));
+    }
+    #[test]
+    fn sector_retained_reports_any_ctor_sector() {
+        // Working name for the retained-sector predicate: no LS3DF entry.
+        assert!(sector_is_retained(SCTF_PRIMARY));
+        assert!(sector_is_retained(SCTF_BACKDROP));
+        assert!(sector_is_retained(SCTF_OMNI));
+        assert!(sector_is_retained(SCTF_NEAR));
+        assert!(sector_is_retained(u32::MAX));
+        assert!(!sector_is_retained(0));
+        assert!(!sector_is_retained(SCTF_VISIBLE | SCTF_PREPARED));
+        assert!(!sector_is_retained(
+            u32::MAX & !(SCTF_PRIMARY | SCTF_BACKDROP | SCTF_OMNI | SCTF_NEAR)
+        ));
+    }
+    #[test]
+    fn sector_occluder_hides_needs_hull_without_off() {
+        // Working name for the occluder gate: no LS3DF FUNCTION entry.
+        assert!(sector_occluder_hides(SCTF_OCCLUDER));
+        assert!(!sector_occluder_hides(0));
+        assert!(!sector_occluder_hides(SCTF_OCCLUDER_OFF));
+        assert!(!sector_occluder_hides(
+            SCTF_OCCLUDER | SCTF_OCCLUDER_OFF
+        ));
+        assert!(!sector_occluder_hides(SCTF_VISIBLE));
+    }
+    #[test]
+    fn sector_frames_only_cull_needs_both_bits() {
+        // Working name for the partial-cull mode: no LS3DF FUNCTION entry.
+        assert!(sector_culls_frames_only(
+            SCTF_CULLED | SCTF_FAR_NO_CHILDREN
+        ));
+        assert!(sector_culls_frames_only(u32::MAX));
+        assert!(!sector_culls_frames_only(0));
+        assert!(!sector_culls_frames_only(SCTF_CULLED));
+        assert!(!sector_culls_frames_only(SCTF_FAR_NO_CHILDREN));
+        assert!(!sector_culls_frames_only(SCTF_VISIBLE));
     }
     #[test]
     fn get_sector_honors_hint_before_ring_but_does_not_filter_ring_primary_flag() {
