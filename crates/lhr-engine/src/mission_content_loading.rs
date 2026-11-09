@@ -34,8 +34,8 @@ pub use global_program_lifecycle::{
     MissionGlobalProgramError, NamedGlobalProgramError, NamedGlobalProgramOutcome,
 };
 pub use program_world::{
-    GameGlobalProgramWorldRunner, MissionProgramDiagnostic, MissionProgramWorldContext,
-    ProgramWorldLocales,
+    DetectorTickError, EntityTickError, GameGlobalProgramWorldRunner, MissionProgramDiagnostic,
+    MissionProgramWorldContext, ProgramWorldLocales,
 };
 
 /// One actual source owner shared by every reached actor/program root.

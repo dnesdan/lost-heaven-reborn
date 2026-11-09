@@ -1,5 +1,7 @@
 //! Actual scene/AE20/AE50 owners, not a second program or mock lookup world.
 use super::*;
+#[path = "actor_program_dispatch_tests.rs"]
+mod embedded_dispatch;
 use crate::driver_scene::{
     DriverSceneContext, DriverSceneOwner, DriverSceneScreen, NativeSceneSoundDriver,
 };

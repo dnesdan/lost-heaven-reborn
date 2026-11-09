@@ -437,7 +437,7 @@ pub struct MissionLoadSession {
 
 #[path = "session_program_runtime.rs"]
 mod owned_program_runtime;
-pub use owned_program_runtime::SessionProgramEffects;
+pub use owned_program_runtime::{SessionActorProgramError, SessionProgramEffects};
 
 impl MissionLoadSession {
     pub fn new(

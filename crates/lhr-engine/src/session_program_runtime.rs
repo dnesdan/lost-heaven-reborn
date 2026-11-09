@@ -4,8 +4,9 @@
 #![forbid(unsafe_code)]
 
 use super::*;
+use crate::actor_world::ActorWorld;
 use crate::game_housekeeping::GameInlineState;
-use crate::mission_content_loading::GlobalProgramError;
+use crate::mission_content_loading::{DetectorTickError, EntityTickError, GlobalProgramError};
 use crate::original_program::{RuntimeBackend, RuntimeEffect, RuntimeView};
 use crate::program_parameters::ScalarParameter;
 
@@ -14,6 +15,15 @@ use crate::program_parameters::ScalarParameter;
 /// an unavailable owner is never acknowledged as a counting-only effect.
 pub struct SessionProgramEffects<'a> {
     game: &'a mut GameInlineState,
+}
+
+/// Admission or execution failure of an explicit host actor-program pass.
+/// The retained actors and programs keep every reached change on failure.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SessionActorProgramError {
+    SourceUnavailable(String),
+    Entity(EntityTickError),
+    Detector(DetectorTickError),
 }
 
 impl RuntimeBackend for SessionProgramEffects<'_> {
@@ -102,6 +112,108 @@ impl MissionLoadSession {
     /// an inspector copy used as a replacement gameplay owner.
     pub fn game_state(&self) -> &GameInlineState {
         &self.game_inline
+    }
+
+    /// Compile fresh embedded entity programs with this session's actual
+    /// effects owner and precision scope. Ready programs are left alone;
+    /// interrupted or terminal owners refuse. This is an explicit host pass,
+    /// not actor GameInit or admission of a native scheduling order.
+    pub fn initialize_owned_entity_programs<D: MissionProgramDiagnostic>(
+        &mut self,
+        diagnostic: &mut D,
+        locales: ProgramWorldLocales,
+    ) -> Result<usize, SessionActorProgramError> {
+        self.with_owned_actor_programs(diagnostic, locales, |world, context| {
+            context
+                .init_entity_programs(world)
+                .map_err(SessionActorProgramError::Entity)
+        })
+    }
+
+    /// Compile fresh embedded detector programs with the same owner and
+    /// admission contract as [`Self::initialize_owned_entity_programs`].
+    /// Detector GameInit and collision/use-object dependencies remain separate.
+    pub fn initialize_owned_detector_programs<D: MissionProgramDiagnostic>(
+        &mut self,
+        diagnostic: &mut D,
+        locales: ProgramWorldLocales,
+    ) -> Result<usize, SessionActorProgramError> {
+        self.with_owned_actor_programs(diagnostic, locales, |world, context| {
+            context
+                .init_detector_programs(world)
+                .map_err(SessionActorProgramError::Detector)
+        })
+    }
+
+    /// Execute one explicit entity-program pass against this session's live
+    /// actors, scene and represented game fields. The caller retains the same
+    /// budget across passes; this call never replenishes it. Programs return
+    /// to their actor on failure/unwind with interrupted state intact, subject
+    /// to the diagnostic's borrowed-owner contract. This is not a Game tick.
+    pub fn tick_owned_entity_programs<D: MissionProgramDiagnostic>(
+        &mut self,
+        delta: i32,
+        budget: &mut DispatchBudget,
+        diagnostic: &mut D,
+        locales: ProgramWorldLocales,
+    ) -> Result<usize, SessionActorProgramError> {
+        self.with_owned_actor_programs(diagnostic, locales, |world, context| {
+            context
+                .tick_entity_programs(world, delta, budget)
+                .map_err(SessionActorProgramError::Entity)
+        })
+    }
+
+    /// Execute one explicit detector-program pass with the same owner and
+    /// budget contract as [`Self::tick_owned_entity_programs`]. The caller
+    /// selects when each kind runs; no native cross-kind order is inferred.
+    pub fn tick_owned_detector_programs<D: MissionProgramDiagnostic>(
+        &mut self,
+        delta: i32,
+        budget: &mut DispatchBudget,
+        diagnostic: &mut D,
+        locales: ProgramWorldLocales,
+    ) -> Result<usize, SessionActorProgramError> {
+        self.with_owned_actor_programs(diagnostic, locales, |world, context| {
+            context
+                .tick_detector_programs(world, delta, budget)
+                .map_err(SessionActorProgramError::Detector)
+        })
+    }
+
+    fn with_owned_actor_programs<D: MissionProgramDiagnostic, R>(
+        &mut self,
+        diagnostic: &mut D,
+        locales: ProgramWorldLocales,
+        operation: impl FnOnce(
+            &mut ActorWorld,
+            &mut MissionProgramWorldContext<'_, SessionProgramEffects<'_>, D>,
+        ) -> Result<R, SessionActorProgramError>,
+    ) -> Result<R, SessionActorProgramError> {
+        self.global_program_source_admission()
+            .map_err(SessionActorProgramError::SourceUnavailable)?;
+        Pc24PrecisionState::run_owner(
+            self,
+            |session| &mut session.precision,
+            |session| {
+                let scene = session.scene.as_mut().ok_or_else(|| {
+                    SessionActorProgramError::SourceUnavailable("session Scene unavailable".into())
+                })?;
+                let mut effects = SessionProgramEffects {
+                    game: &mut session.game_inline,
+                };
+                operation(
+                    &mut session.loader.as_mut().unwrap().content.actors.world,
+                    &mut MissionProgramWorldContext::new(
+                        &mut session.arena,
+                        scene,
+                        &mut effects,
+                        diagnostic,
+                        locales,
+                    ),
+                )
+            },
+        )
     }
 
     /// Compile the retained mission-global source owners with Rust-owned

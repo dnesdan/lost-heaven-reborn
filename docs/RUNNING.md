@@ -85,6 +85,17 @@ The script diagnostic uses the session's represented game fields for
 and city-traffic effects at their reached instruction instead of counting
 them as successful. A previously successful diagnostic can therefore stop
 earlier; its program counter and executed state remain available for review.
+For explicit host calls, `MissionLoadSession` also exposes
+`initialize_owned_entity_programs`, `initialize_owned_detector_programs`,
+`tick_owned_entity_programs` and `tick_owned_detector_programs`. They use the
+retained actors, Scene and game fields, the session precision scope and the
+caller's shared dispatch budget. A host dispatch lease restores the same
+embedded program on errors and panic; interrupted state stays blocked against
+replay. Diagnostics may mutate state and retire other actors, but current-owner
+lifetime/source changes refuse before effects. Replacing the entire borrowed
+`ActorWorld` violates the callback contract and loses restoration; it cannot
+attach the old program to a new world or mask the original panic. These calls
+do not establish GameInit or a native tick order and are not added to the probe.
 Terminal source disposal also checks embedded actor programs before entering
 any destructor. After an explicitly stopped runtime, dispose its Rust VM
 storage through `discard_actor_program_runtimes_host` (and the existing

@@ -5,14 +5,15 @@ use super::global_program_lifecycle::{
     MissionGlobalProgramError, NamedGlobalProgramError, NamedGlobalProgramOutcome,
 };
 use super::MissionContentOwner;
-use crate::actor_world::{ActorPhase, ActorSource, ActorWorld};
+use crate::actor_world::{ActorPhase, ActorProgramKind, ActorSource, ActorWorld};
 use crate::frame_lookup::{
     FrameLookupBackend, FrameLookupError, FrameView, ModelFrameLookup, SceneRoots,
 };
 use crate::frame_transform::FrameKey;
 use crate::model_loading::ModelArena;
 use crate::original_program::{
-    CProgram, LookupRuntimeBackend, RuntimeBackend, RuntimeError, RuntimeLookupWorld, RuntimeView,
+    CProgram, LookupRuntimeBackend, RuntimeBackend, RuntimeError, RuntimeLookupWorld, RuntimeStage,
+    RuntimeView,
 };
 use crate::scene_ownership::SceneKey;
 use crate::script_lookup::{DetectorCollisionFlags, LookupError, LookupWorldBackend};
@@ -26,6 +27,11 @@ pub struct ProgramWorldLocales {
 }
 /// A required diagnostic can mutate these actual owners before lookup rereads them.
 /// It cannot replace or retire the executing program during its exclusive borrow.
+/// The borrowed ActorWorld itself must remain the same owner. Embedded dispatch
+/// leases reject current-actor lifetime/source mutations, while ordinary state
+/// mutations and operations on other actors remain available. Replacing the
+/// entire world destroys that restoration guarantee; it is detected without
+/// attaching the borrowed program to the replacement or masking a panic.
 pub trait MissionProgramDiagnostic {
     fn message_beep(
         &mut self,
@@ -99,12 +105,13 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
         )
     }
     /// Compile every Ready entity actor's embedded program that has source
-    /// but no runtime yet, in ownership order. Each program is taken out of
-    /// its actor, initialized through this context's effects backend, and
-    /// returned on every path including failed inits. This mirrors the global
-    /// program init; like it, the caller must run under a Pc24PrecisionState
+    /// but no runtime yet, in host ownership order. A host dispatch lease
+    /// restores the actual program on errors and unwind while the borrowed
+    /// world is preserved; runtime stages and one-shot admission stay intact.
+    /// Like global program init, the caller must run under a Pc24PrecisionState
     /// scope so transcendental boundary admissions can record responsibility.
-    /// Already-initialized programs are left untouched and uncounted.
+    /// Ready runtimes are left untouched and uncounted. Interrupted runtimes
+    /// and detached manual borrows refuse, rather than becoming successful skips.
     pub fn init_entity_programs(
         &mut self,
         world: &mut ActorWorld,
@@ -118,43 +125,27 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
             if world.entity(actor).is_err() {
                 continue;
             }
-            let program = world
-                .take_entity_program(actor)
-                .map_err(|_| EntityTickError::Actor(actor))?;
-            let Some(mut program) = program else {
-                continue;
-            };
-            let freshly_initialized = program.runtime().is_none();
-            let result = if freshly_initialized {
-                program
-                    .init_fresh_runtime(&mut *self.effects)
-                    .map(|_| ())
-                    .map_err(EntityTickError::Runtime)
-            } else {
-                Ok(())
-            };
-            world
-                .return_entity_program(actor, Some(program))
-                .map_err(|_| EntityTickError::Actor(actor))?;
-            result?;
-            if freshly_initialized {
-                initialized += 1;
-            }
+            let fresh = world
+                .with_program_dispatch_lease(actor, ActorProgramKind::Entity, |_, program| {
+                    init_program_once(program, self.effects)
+                })
+                .map_err(|_| EntityTickError::Actor(actor))?
+                .map_err(EntityTickError::Runtime)?;
+            initialized += usize::from(fresh);
         }
         Ok(initialized)
     }
     /// Compile every Ready detector actor's embedded program that has source
-    /// but no runtime yet, in ownership order. Each program is taken out of
-    /// its actor, initialized through this context's effects backend, and
-    /// returned on every path including failed inits. This mirrors the entity
-    /// init pass for the C_detector::GameInit (mafia-re 113b5b6
+    /// but no runtime yet, in host ownership order. This uses the same host
+    /// dispatch lease and interrupted-runtime admission as the entity pass.
+    /// It connects the existing init pass for C_detector::GameInit (mafia-re 113b5b6
     /// game/actors/C_detector.cpp:44-58, GAME 0x432a00) C_program::Init prefix
     /// (GAME 0x461580): detector sources decode with the base table because
     /// C_detector::DecodeInstruction/DecodeParams forward to C_program
     /// (C_detector.cpp:433ce0-433d00). Like the entity pass, the caller must
     /// run under a Pc24PrecisionState scope so transcendental boundary
-    /// admissions can record responsibility. Already-initialized programs are
-    /// left untouched and uncounted. The GameInit body beyond the Init prefix,
+    /// admissions can record responsibility. Ready runtimes are left untouched
+    /// and uncounted. The GameInit body beyond the Init prefix,
     /// GameDone and the collision/use-object owners stay DEFERRED; the tick
     /// itself runs through [`Self::tick_detector_programs`].
     pub fn init_detector_programs(
@@ -170,36 +161,21 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
             if world.detector(actor).is_err() {
                 continue;
             }
-            let program = world
-                .take_detector_program(actor)
-                .map_err(|_| DetectorTickError::Actor(actor))?;
-            let Some(mut program) = program else {
-                continue;
-            };
-            let freshly_initialized = program.runtime().is_none();
-            let result = if freshly_initialized {
-                program
-                    .init_fresh_runtime(&mut *self.effects)
-                    .map(|_| ())
-                    .map_err(DetectorTickError::Runtime)
-            } else {
-                Ok(())
-            };
-            world
-                .return_detector_program(actor, Some(program))
-                .map_err(|_| DetectorTickError::Actor(actor))?;
-            result?;
-            if freshly_initialized {
-                initialized += 1;
-            }
+            let fresh = world
+                .with_program_dispatch_lease(actor, ActorProgramKind::Detector, |_, program| {
+                    init_program_once(program, self.effects)
+                })
+                .map_err(|_| DetectorTickError::Actor(actor))?
+                .map_err(DetectorTickError::Runtime)?;
+            initialized += usize::from(fresh);
         }
         Ok(initialized)
     }
     /// Step every Ready entity actor's embedded program once against the live
-    /// world, in ownership order, sharing one budget. Each program is taken
-    /// out of its actor, run through this context, and returned on every path
-    /// including failed ticks. Actors without a program (consumed or never
-    /// loaded) are skipped; non-Ready and non-entity actors do not tick.
+    /// world, in host ownership order, sharing one budget. Its host dispatch
+    /// lease restores the actual program on errors and unwind while the world
+    /// is preserved. A missing embedded program is a detached borrow and
+    /// refuses; non-Ready and non-entity actors do not tick.
     /// Program owners are assigned at actor Init; ownerless programs refuse
     /// inside dispatch like any worldless execution. This is the AI tick
     /// transport, not a Game tick: no game clock, camera, input or objectives
@@ -219,26 +195,20 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
             if world.entity(actor).is_err() {
                 continue;
             }
-            let program = world
-                .take_entity_program(actor)
-                .map_err(|_| EntityTickError::Actor(actor))?;
-            let Some(mut program) = program else {
-                continue;
-            };
-            let result = self.call_process(&mut program, world, delta, budget);
             world
-                .return_entity_program(actor, Some(program))
-                .map_err(|_| EntityTickError::Actor(actor))?;
-            result.map_err(EntityTickError::Runtime)?;
+                .with_program_dispatch_lease(actor, ActorProgramKind::Entity, |world, program| {
+                    self.call_process(program, world, delta, budget)
+                })
+                .map_err(|_| EntityTickError::Actor(actor))?
+                .map_err(EntityTickError::Runtime)?;
             stepped += 1;
         }
         Ok(stepped)
     }
     /// Step every Ready detector actor's embedded program once against the live
-    /// world, in ownership order, sharing one budget. Each program is taken
-    /// out of its actor, run through this context, and returned on every path
-    /// including failed ticks. Actors without a program (consumed or never
-    /// loaded) are skipped; non-Ready and non-detector actors do not tick.
+    /// world, in host ownership order, sharing one budget. The host dispatch
+    /// lease has the same restoration and detached-borrow contract as the
+    /// entity pass; non-Ready and non-detector actors do not tick.
     /// Detector-vtable programs run the C_detector::Process dispatch (GAME
     /// RVA 0x33d10) inside CallProcess: PROGRAM_STORAGE parks, INRANGE scans
     /// the live active actors, and the WAITFORUSE/WAITFORHIT/CREATEDYNCOLL/
@@ -262,17 +232,12 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
             if world.detector(actor).is_err() {
                 continue;
             }
-            let program = world
-                .take_detector_program(actor)
-                .map_err(|_| DetectorTickError::Actor(actor))?;
-            let Some(mut program) = program else {
-                continue;
-            };
-            let result = self.call_process(&mut program, world, delta, budget);
             world
-                .return_detector_program(actor, Some(program))
-                .map_err(|_| DetectorTickError::Actor(actor))?;
-            result.map_err(DetectorTickError::Runtime)?;
+                .with_program_dispatch_lease(actor, ActorProgramKind::Detector, |world, program| {
+                    self.call_process(program, world, delta, budget)
+                })
+                .map_err(|_| DetectorTickError::Actor(actor))?
+                .map_err(DetectorTickError::Runtime)?;
             stepped += 1;
         }
         Ok(stepped)
@@ -293,6 +258,18 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
         )
     }
 }
+
+fn init_program_once<B: RuntimeBackend>(
+    program: &mut CProgram,
+    effects: &mut B,
+) -> Result<bool, RuntimeError> {
+    match program.runtime() {
+        Some(runtime) if runtime.stage == RuntimeStage::Ready => Ok(false),
+        Some(_) => Err(RuntimeError::Domain("runtime not ready")),
+        None => program.init_fresh_runtime(effects).map(|_| true),
+    }
+}
+
 /// Required game-global call, before any mission member or borrowed lookup view
 /// is selected. A missing game owner must return an error, never a default miss.
 pub trait GameGlobalProgramWorldRunner<B: RuntimeBackend, D: MissionProgramDiagnostic> {
@@ -554,16 +531,17 @@ impl<D: MissionProgramDiagnostic> RuntimeLookupWorld for MissionLookupWorld<'_, 
     }
 }
 
-/// One entity-actor tick step failed: which actor, and the dispatch error.
-/// A failed tick still returns the taken program before reporting.
+/// One entity init/tick pass failed at actor admission or runtime dispatch.
+/// The host lease restores the program before reporting while its borrowed
+/// ActorWorld is preserved; it never resets interrupted runtime admission.
 #[derive(Debug, PartialEq, Eq)]
 pub enum EntityTickError {
     Actor(ActorReferenceId),
     Runtime(RuntimeError),
 }
 
-/// One detector-actor init or tick pass failed: which actor, and the error.
-/// A failed pass still returns the taken program before reporting. This
+/// One detector init/tick pass failed at actor admission or runtime dispatch.
+/// The host lease preserves the same owner and interruption contract. This
 /// mirrors [`EntityTickError`] for the detector transport, covering both the
 /// GameInit-prefix compile pass and the C_detector::Process tick.
 #[derive(Debug, PartialEq, Eq)]
