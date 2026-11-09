@@ -14188,6 +14188,69 @@
       "symbol": "lhr_engine::mission_actor_lists::get_effects",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. Effects getter (GAME 0x47ae60)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x145ce0",
+      "va": "0x545ce0",
+      "name": "C_mission::FrmActBuff_StoreActor",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_store_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. StoreActor list (GAME 0x545ce0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1464d0",
+      "va": "0x5464d0",
+      "name": "C_mission::FrmActBuff_StoreActiveActor",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_store_active_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. StoreActiveActor (GAME 0x5464d0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1466e0",
+      "va": "0x5466e0",
+      "name": "C_mission::FrmActBuff_RemoveActiveActor",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_remove_active_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. RemoveActiveActor (GAME 0x5466e0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x146770",
+      "va": "0x546770",
+      "name": "C_mission::FrmActBuff_IsActiveActor",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_is_active_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. IsActiveActor (GAME 0x546770)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x146830",
+      "va": "0x546830",
+      "name": "C_mission::FrmActBuff_StoreActorSound",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_store_actor_sound",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. StoreActorSound (GAME 0x546830)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x146aa0",
+      "va": "0x546aa0",
+      "name": "C_mission::FrmActBuff_GetActorSound",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_get_actor_sound",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. GetActorSound (GAME 0x546aa0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x146b70",
+      "va": "0x546b70",
+      "name": "C_mission::FrmActBuff_ClearAll",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_clear_all",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. ClearAll (GAME 0x546b70)."
     }
   ],
   "vm": {

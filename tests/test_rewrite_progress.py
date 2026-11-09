@@ -387,7 +387,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +3 mission getter contracts (GetParticles/GetActors/GetEffects;
         # ScoreSetOn wrong-address remediated 0x5f9a0->0x1b9fa0; 8 working-name
         # helpers uncredited; marker-only, tests green).
-        self.assertEqual(game["ported"], 149 + 670)
+        # +7 FrmActBuff contracts (StoreActor/StoreActive/RemoveActive/
+        # IsActive/StoreSound/GetSound/ClearAll; 4 working-name helpers
+        # uncredited; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 677)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

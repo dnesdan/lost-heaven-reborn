@@ -129,11 +129,11 @@ fn publish(
 pub const TIME_TRANSPARENT_MIN_FADE: i16 = 83;
 
 /// Deferred `C_mission` owners around this slice (marker-only, no credit):
-/// `FrmActBuff_StoreActor` (GAME 0x545ce0, mafia-re
-/// `game/mission/Mission.cpp:1855-1893`), `FrmActBuff_GetActor` (GAME
-/// 0x546280, mafia-re `game/mission/Mission.cpp:1924-1952`), and the whole
-/// `Open`/`CreateActor`/`Tick` bodies.
-pub const FRM_ACT_BUFF_STORE_ACTOR_DEFERRED: bool = true;
+/// `FrmActBuff_GetActor` (GAME 0x546280, mafia-re
+/// `game/mission/Mission.cpp:1924-1952`), and the whole `Open`/`CreateActor`/
+/// `Tick` bodies. `FrmActBuff_StoreActor` and the rest of the `FrmActBuff`
+/// family are ported below; only actor/car/scene effects stay behind caller
+/// backends.
 /// Deferred actor-takeback side of the frame/actor buffer (GAME 0x546280,
 /// mafia-re `game/mission/Mission.cpp:1924-1952`).
 pub const FRM_ACT_BUFF_GET_ACTOR_DEFERRED: bool = true;
@@ -263,6 +263,308 @@ pub fn frm_act_buff_store_model(
         name: frame_actor_buffer_basename(file_name).to_vec(),
         release_frame: false,
     });
+}
+
+/// Actor-kind dispatch shared by the `FrmActBuff` store/take-back ports
+/// (mafia-re pin 113b5b6, `game/mission/Mission.cpp:1867-1877,1973-1981,
+/// 2010-2031`): `ACTOR_PLAYER`/`ACTOR_ENTITY` share the human arm,
+/// `ACTOR_CAR` the car arm; every other kind skips deactivation but still
+/// resets placement and stages.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BufferedActorKind {
+    Human,
+    Car,
+    Other,
+}
+
+/// Host effects for [`frm_act_buff_store_actor`]: the actor's frame (native
+/// `actor->frame`, `None` is the native NULL), the model-type probe (native
+/// `GetType() != FRAME_MODEL` refuses), the kind switch, the human/car
+/// deactivation, the seat clearing, the placement reset and the model file
+/// name whose tail becomes the entry name. Actor, car and model owners stay
+/// behind the backend (DEFERRED).
+pub trait FrmActBuffStoreBackend {
+    fn buffered_actor_frame(&self, actor: FrameKey) -> Option<FrameKey>;
+    fn buffered_frame_is_model(&self, frame: FrameKey) -> bool;
+    fn buffered_actor_kind(&self, actor: FrameKey) -> BufferedActorKind;
+    fn deactivate_buffered_human(&mut self, actor: FrameKey);
+    fn deactivate_buffered_car(&mut self, car: FrameKey);
+    fn clear_buffered_car_seats(&mut self, car: FrameKey);
+    fn reset_buffered_placement(&mut self, actor: FrameKey);
+    fn buffered_frame_file_name(&self, frame: FrameKey) -> Vec<u8>;
+}
+
+/// FUNCTION: GAME RVA 0x145ce0, VA 0x545ce0 (mafia-re pin 113b5b6,
+/// `game/mission/Mission.cpp:1852-1893`, `C_mission::FrmActBuff_StoreActor`):
+/// takes the actor out of the game first: a null actor, a null or non-model
+/// frame, or one of the next mission's two reserved actors (`keep`) refuses;
+/// an already buffered actor refuses. A human deactivates, a car deactivates
+/// first and then empties its seats, every other kind only resets placement;
+/// the entry keeps the actor, its frame, the file-name tail and the
+/// `release_frame` flag. Returns whether the entry was pushed.
+/// Reference-verified Game.exe code entry (explicit `FUNCTION: GAME` in
+/// mafia-re pin 113b5b6); VA `0x400000 + 0x145ce0`.
+pub fn frm_act_buff_store_actor<B: FrmActBuffStoreBackend>(
+    buffer: &mut Vec<FrameActorBufferEntry>,
+    backend: &mut B,
+    actor: Option<FrameKey>,
+    keep: [Option<FrameKey>; 2],
+    release_frame: bool,
+) -> bool {
+    let Some(actor) = actor else {
+        return false;
+    };
+    let Some(frame) = backend.buffered_actor_frame(actor) else {
+        return false;
+    };
+    if !backend.buffered_frame_is_model(frame) || keep.contains(&Some(actor)) {
+        return false;
+    }
+    for entry in buffer.iter().rev() {
+        if entry.actor == Some(actor) {
+            return false;
+        }
+    }
+    match backend.buffered_actor_kind(actor) {
+        BufferedActorKind::Human => backend.deactivate_buffered_human(actor),
+        BufferedActorKind::Car => {
+            backend.deactivate_buffered_car(actor);
+            backend.clear_buffered_car_seats(actor);
+        }
+        BufferedActorKind::Other => {}
+    }
+    backend.reset_buffered_placement(actor);
+    let file_name = backend.buffered_frame_file_name(frame);
+    buffer.push(FrameActorBufferEntry {
+        actor: Some(actor),
+        frame,
+        name: frame_actor_buffer_basename(&file_name).to_vec(),
+        release_frame,
+    });
+    true
+}
+
+/// Host effects for [`frm_act_buff_store_active_actor`]: the kind switch
+/// (only cars need seat clearing plus deactivation) and the placement reset.
+/// Actor and car owners stay behind the backend (DEFERRED).
+pub trait FrmActBuffStoreActiveBackend {
+    fn buffered_actor_kind(&self, actor: FrameKey) -> BufferedActorKind;
+    fn clear_buffered_car_seats(&mut self, car: FrameKey);
+    fn deactivate_buffered_car(&mut self, car: FrameKey);
+    fn reset_buffered_placement(&mut self, actor: FrameKey);
+}
+
+/// FUNCTION: GAME RVA 0x1464d0, VA 0x5464d0 (mafia-re pin 113b5b6,
+/// `game/mission/Mission.cpp:1972-1991`,
+/// `C_mission::FrmActBuff_StoreActiveActor`): taken out of the game, as
+/// `StoreActor` takes its actor: one of the next mission's two reserved
+/// actors (`keep`) or an already active actor refuses. A car empties its
+/// seats before it is deactivated; every actor resets placement and joins
+/// the active list. Returns whether the actor was stored.
+/// Reference-verified Game.exe code entry (explicit `FUNCTION: GAME` in
+/// mafia-re pin 113b5b6); VA `0x400000 + 0x1464d0`.
+pub fn frm_act_buff_store_active_actor<B: FrmActBuffStoreActiveBackend>(
+    active: &mut Vec<FrameKey>,
+    backend: &mut B,
+    actor: FrameKey,
+    keep: [Option<FrameKey>; 2],
+) -> bool {
+    if keep.contains(&Some(actor)) {
+        return false;
+    }
+    for entry in active.iter().rev() {
+        if *entry == actor {
+            return false;
+        }
+    }
+    if backend.buffered_actor_kind(actor) == BufferedActorKind::Car {
+        backend.clear_buffered_car_seats(actor);
+        backend.deactivate_buffered_car(actor);
+    }
+    backend.reset_buffered_placement(actor);
+    active.push(actor);
+    true
+}
+
+/// Native `C_actor::GameDone` sink for [`frm_act_buff_remove_active_actor`].
+/// The actor's own release stays with the mission owner (DEFERRED).
+pub trait FrmActBuffRemoveActiveBackend {
+    fn finish_buffered_active_actor(&mut self, actor: FrameKey);
+}
+
+/// FUNCTION: GAME RVA 0x1466e0, VA 0x5466e0 (mafia-re pin 113b5b6,
+/// `game/mission/Mission.cpp:1993-2008`,
+/// `C_mission::FrmActBuff_RemoveActiveActor`): the actor's `GameDone` first,
+/// then it leaves the active list with the last one taking its place.
+/// Returns whether the actor was active.
+/// Reference-verified Game.exe code entry (explicit `FUNCTION: GAME` in
+/// mafia-re pin 113b5b6); VA `0x400000 + 0x1466e0`.
+pub fn frm_act_buff_remove_active_actor<B: FrmActBuffRemoveActiveBackend>(
+    active: &mut Vec<FrameKey>,
+    backend: &mut B,
+    actor: FrameKey,
+) -> bool {
+    for index in (0..active.len()).rev() {
+        if active[index] == actor {
+            backend.finish_buffered_active_actor(actor);
+            active.swap_remove(index);
+            return true;
+        }
+    }
+    false
+}
+
+/// Host effects for [`frm_act_buff_is_active_actor`]: the car reset with a
+/// full tank first (`Reset(0.0f, true)` plus `SetFuel(GetTankSize())`) and
+/// the rebirth of every taken-back actor. Actor and car owners stay behind
+/// the backend (DEFERRED).
+pub trait FrmActBuffTakebackBackend {
+    fn buffered_actor_kind(&self, actor: FrameKey) -> BufferedActorKind;
+    fn reset_buffered_car(&mut self, car: FrameKey);
+    fn rebirth_buffered_actor(&mut self, actor: FrameKey);
+}
+
+/// FUNCTION: GAME RVA 0x146770, VA 0x546770 (mafia-re pin 113b5b6,
+/// `game/mission/Mission.cpp:2010-2031`,
+/// `C_mission::FrmActBuff_IsActiveActor`): whether the actor was kept active
+/// between missions: it leaves the list (the last one taking its place) and
+/// is reborn, a car reset with its tank full first. Returns whether the
+/// actor was active.
+/// Reference-verified Game.exe code entry (explicit `FUNCTION: GAME` in
+/// mafia-re pin 113b5b6); VA `0x400000 + 0x146770`.
+pub fn frm_act_buff_is_active_actor<B: FrmActBuffTakebackBackend>(
+    active: &mut Vec<FrameKey>,
+    backend: &mut B,
+    actor: FrameKey,
+) -> bool {
+    for index in (0..active.len()).rev() {
+        if active[index] == actor {
+            if backend.buffered_actor_kind(actor) == BufferedActorKind::Car {
+                backend.reset_buffered_car(actor);
+            }
+            backend.rebirth_buffered_actor(actor);
+            active.swap_remove(index);
+            return true;
+        }
+    }
+    false
+}
+
+/// `S_actor_sound_buffer` entry (mafia-re pin 113b5b6,
+/// `game/mission/Mission.h:108-115`): the kept actor, the sound's number and
+/// the sound handle. Only the compared members participate; the actor's
+/// takeover and the sound's release stay with their owners (DEFERRED).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ActorSoundBufferEntry {
+    pub actor: FrameKey,
+    pub number: i32,
+    pub sound: u32,
+}
+
+/// FUNCTION: GAME RVA 0x146830, VA 0x546830 (mafia-re pin 113b5b6,
+/// `game/mission/Mission.cpp:2033-2047`,
+/// `C_mission::FrmActBuff_StoreActorSound`): unless the actor has a sound of
+/// that number kept already, the triple joins the buffer. Pure list
+/// mechanics; no owner effects.
+/// Reference-verified Game.exe code entry (explicit `FUNCTION: GAME` in
+/// mafia-re pin 113b5b6); VA `0x400000 + 0x146830`.
+pub fn frm_act_buff_store_actor_sound(
+    buffer: &mut Vec<ActorSoundBufferEntry>,
+    actor: FrameKey,
+    number: i32,
+    sound: u32,
+) {
+    for entry in buffer.iter().rev() {
+        if entry.actor == actor && entry.number == number {
+            return;
+        }
+    }
+    buffer.push(ActorSoundBufferEntry {
+        actor,
+        number,
+        sound,
+    });
+}
+
+/// FUNCTION: GAME RVA 0x146aa0, VA 0x546aa0 (mafia-re pin 113b5b6,
+/// `game/mission/Mission.cpp:2049-2064`,
+/// `C_mission::FrmActBuff_GetActorSound`): the entry leaves the buffer, the
+/// last one taking its place. Returns the taken sound, `None` for no entry.
+/// Pure list mechanics; no owner effects.
+/// Reference-verified Game.exe code entry (explicit `FUNCTION: GAME` in
+/// mafia-re pin 113b5b6); VA `0x400000 + 0x146aa0`.
+pub fn frm_act_buff_get_actor_sound(
+    buffer: &mut Vec<ActorSoundBufferEntry>,
+    actor: FrameKey,
+    number: i32,
+) -> Option<u32> {
+    for index in (0..buffer.len()).rev() {
+        if buffer[index].actor == actor && buffer[index].number == number {
+            return Some(buffer.swap_remove(index).sound);
+        }
+    }
+    None
+}
+
+/// Host effects for [`frm_act_buff_clear_all`]: the buffered entry's
+/// teardown (the actor's `GameDone` plus `Release`, and the frame's
+/// `Release` where the entry releases it), the model-only frame's release,
+/// the active actor's `GameDone` and the buffered sound's release, each in
+/// native order from the back of its list. Owners stay with the mission
+/// (DEFERRED).
+pub trait FrmActBuffClearBackend {
+    fn teardown_buffered_entry(&mut self, actor: FrameKey, release_frame: bool, frame: FrameKey);
+    fn release_buffered_frame(&mut self, frame: FrameKey);
+    fn finish_buffered_active_actor(&mut self, actor: FrameKey);
+    fn release_buffered_sound(&mut self, sound: u32);
+}
+
+/// FUNCTION: GAME RVA 0x146b70, VA 0x546b70 (mafia-re pin 113b5b6,
+/// `game/mission/Mission.cpp:2066-2093`, `C_mission::FrmActBuff_ClearAll`):
+/// each buffer from its last entry: the frame/actor buffer's names drop
+/// with their entries (native `delete[]`), the active actors end and the
+/// sounds release; every list ends up clear.
+/// Reference-verified Game.exe code entry (explicit `FUNCTION: GAME` in
+/// mafia-re pin 113b5b6); VA `0x400000 + 0x146b70`.
+pub fn frm_act_buff_clear_all<B: FrmActBuffClearBackend>(
+    buffer: &mut Vec<FrameActorBufferEntry>,
+    active: &mut Vec<FrameKey>,
+    sounds: &mut Vec<ActorSoundBufferEntry>,
+    backend: &mut B,
+) {
+    while let Some(entry) = buffer.pop() {
+        if let Some(actor) = entry.actor {
+            backend.teardown_buffered_entry(actor, entry.release_frame, entry.frame);
+        } else {
+            backend.release_buffered_frame(entry.frame);
+        }
+    }
+    while let Some(actor) = active.pop() {
+        backend.finish_buffered_active_actor(actor);
+    }
+    while let Some(entry) = sounds.pop() {
+        backend.release_buffered_sound(entry.sound);
+    }
+}
+
+/// Native `C_car::SetOwner(NULL, seat, 0.0f)` sink for
+/// [`frm_act_buff_clear_car_seats`]. Seat storage stays with the car owner
+/// (DEFERRED).
+pub trait ClearCarSeatsBackend {
+    fn car_seat_count(&self, car: FrameKey) -> usize;
+    fn clear_car_seat(&mut self, car: FrameKey, seat: usize);
+}
+
+/// Working name (no outline Game.exe entry is claimed; static helper,
+/// mafia-re pin 113b5b6, `game/mission/Mission.cpp:1844-1850`,
+/// `ClearCarSeats`): the car's seats emptied, from the last one. The
+/// original is a static defined before its first caller (VC6 emits it after
+/// `StoreActor`), so no Game.exe function entry is claimed here.
+pub fn frm_act_buff_clear_car_seats<B: ClearCarSeatsBackend>(backend: &mut B, car: FrameKey) {
+    let seats = backend.car_seat_count(car);
+    for seat in (0..seats).rev() {
+        backend.clear_car_seat(car, seat);
+    }
 }
 
 /// `C_mission::__SceneErrFnc` routing contract (GAME 0x540fd0, mafia-re
@@ -4009,11 +4311,340 @@ mod tests {
         frm_act_buff_store_model(&mut buffer, Some(FrameKey(12)), b"plain.i3d");
         assert_eq!(buffer.len(), 2);
         assert_eq!(buffer[1].name, b"plain.i3d".to_vec());
-        assert!(FRM_ACT_BUFF_STORE_ACTOR_DEFERRED);
         assert!(FRM_ACT_BUFF_GET_ACTOR_DEFERRED);
         assert!(MISSION_OPEN_DEFERRED);
         assert!(MISSION_CREATE_ACTOR_DEFERRED);
         assert!(MISSION_TICK_DEFERRED);
+    }
+    struct StoreActorFake {
+        frame: Option<FrameKey>,
+        model: bool,
+        kind: BufferedActorKind,
+        file_name: Vec<u8>,
+        calls: Vec<&'static str>,
+    }
+    impl FrmActBuffStoreBackend for StoreActorFake {
+        fn buffered_actor_frame(&self, _: FrameKey) -> Option<FrameKey> {
+            self.frame
+        }
+        fn buffered_frame_is_model(&self, _: FrameKey) -> bool {
+            self.model
+        }
+        fn buffered_actor_kind(&self, _: FrameKey) -> BufferedActorKind {
+            self.kind
+        }
+        fn deactivate_buffered_human(&mut self, _: FrameKey) {
+            self.calls.push("deactivate_human");
+        }
+        fn deactivate_buffered_car(&mut self, _: FrameKey) {
+            self.calls.push("deactivate_car");
+        }
+        fn clear_buffered_car_seats(&mut self, _: FrameKey) {
+            self.calls.push("clear_seats");
+        }
+        fn reset_buffered_placement(&mut self, _: FrameKey) {
+            self.calls.push("reset");
+        }
+        fn buffered_frame_file_name(&self, _: FrameKey) -> Vec<u8> {
+            self.file_name.clone()
+        }
+    }
+    fn store_actor_fake(kind: BufferedActorKind) -> StoreActorFake {
+        StoreActorFake {
+            frame: Some(FrameKey(3)),
+            model: true,
+            kind,
+            file_name: b"models\\alarm01.i3d".to_vec(),
+            calls: Vec::new(),
+        }
+    }
+    #[test]
+    fn frm_act_buff_store_actor_rva_145ce0_guards_and_pushes() {
+        // GAME 0x545ce0, mafia-re `game/mission/Mission.cpp:1857-1892`:
+        // null actors, null/non-model frames, reserved and duplicate actors
+        // refuse; a car deactivates before it empties its seats.
+        let mut buffer = Vec::new();
+        let mut backend = store_actor_fake(BufferedActorKind::Car);
+        assert!(!frm_act_buff_store_actor(&mut buffer, &mut backend, None, [None, None], true));
+        backend.frame = None;
+        assert!(!frm_act_buff_store_actor(
+            &mut buffer,
+            &mut backend,
+            Some(FrameKey(3)),
+            [None, None],
+            true
+        ));
+        backend.frame = Some(FrameKey(3));
+        backend.model = false;
+        assert!(!frm_act_buff_store_actor(
+            &mut buffer,
+            &mut backend,
+            Some(FrameKey(3)),
+            [None, None],
+            true
+        ));
+        backend.model = true;
+        assert!(!frm_act_buff_store_actor(
+            &mut buffer,
+            &mut backend,
+            Some(FrameKey(3)),
+            [Some(FrameKey(3)), None],
+            true
+        ));
+        assert!(buffer.is_empty());
+        assert!(frm_act_buff_store_actor(
+            &mut buffer,
+            &mut backend,
+            Some(FrameKey(3)),
+            [None, Some(FrameKey(9))],
+            true
+        ));
+        assert_eq!(buffer.len(), 1);
+        assert_eq!(buffer[0].actor, Some(FrameKey(3)));
+        assert_eq!(buffer[0].frame, FrameKey(3));
+        assert_eq!(buffer[0].name, b"alarm01.i3d".to_vec());
+        assert!(buffer[0].release_frame);
+        assert_eq!(backend.calls, vec!["deactivate_car", "clear_seats", "reset"]);
+        assert!(!frm_act_buff_store_actor(
+            &mut buffer,
+            &mut backend,
+            Some(FrameKey(3)),
+            [None, None],
+            false
+        ));
+    }
+    #[test]
+    fn frm_act_buff_store_actor_rva_145ce0_human_arm_skips_seats() {
+        // GAME 0x545ce0, mafia-re `game/mission/Mission.cpp:1869-1872`: a
+        // human deactivates without seat clearing.
+        let mut buffer = Vec::new();
+        let mut backend = store_actor_fake(BufferedActorKind::Human);
+        assert!(frm_act_buff_store_actor(&mut buffer, &mut backend, Some(FrameKey(4)), [None, None], false));
+        assert_eq!(backend.calls, vec!["deactivate_human", "reset"]);
+        let mut other = store_actor_fake(BufferedActorKind::Other);
+        assert!(frm_act_buff_store_actor(&mut buffer, &mut other, Some(FrameKey(5)), [None, None], false));
+        assert_eq!(other.calls, vec!["reset"]);
+    }
+    struct StoreActiveFake {
+        kind: BufferedActorKind,
+        calls: Vec<&'static str>,
+    }
+    impl FrmActBuffStoreActiveBackend for StoreActiveFake {
+        fn buffered_actor_kind(&self, _: FrameKey) -> BufferedActorKind {
+            self.kind
+        }
+        fn clear_buffered_car_seats(&mut self, _: FrameKey) {
+            self.calls.push("clear_seats");
+        }
+        fn deactivate_buffered_car(&mut self, _: FrameKey) {
+            self.calls.push("deactivate_car");
+        }
+        fn reset_buffered_placement(&mut self, _: FrameKey) {
+            self.calls.push("reset");
+        }
+    }
+    #[test]
+    fn frm_act_buff_store_active_actor_rva_1464d0_guards_and_pushes() {
+        // GAME 0x5464d0, mafia-re `game/mission/Mission.cpp:1976-1991`:
+        // reserved and duplicate actors refuse; a car empties its seats
+        // before it is deactivated.
+        let mut active = vec![FrameKey(1)];
+        let mut backend = StoreActiveFake {
+            kind: BufferedActorKind::Car,
+            calls: Vec::new(),
+        };
+        assert!(!frm_act_buff_store_active_actor(&mut active, &mut backend, FrameKey(1), [None, None]));
+        assert!(!frm_act_buff_store_active_actor(
+            &mut active,
+            &mut backend,
+            FrameKey(2),
+            [Some(FrameKey(2)), None]
+        ));
+        assert_eq!(active, vec![FrameKey(1)]);
+        assert!(frm_act_buff_store_active_actor(&mut active, &mut backend, FrameKey(2), [None, None]));
+        assert_eq!(active, vec![FrameKey(1), FrameKey(2)]);
+        assert_eq!(backend.calls, vec!["clear_seats", "deactivate_car", "reset"]);
+    }
+    struct FinishFake {
+        finished: Vec<FrameKey>,
+    }
+    impl FrmActBuffRemoveActiveBackend for FinishFake {
+        fn finish_buffered_active_actor(&mut self, actor: FrameKey) {
+            self.finished.push(actor);
+        }
+    }
+    #[test]
+    fn frm_act_buff_remove_active_actor_rva_1466e0_takes_last_match() {
+        // GAME 0x5466e0, mafia-re `game/mission/Mission.cpp:1995-2008`: the
+        // match ends first, then the last one takes its place.
+        let mut active = vec![FrameKey(1), FrameKey(2), FrameKey(2)];
+        let mut backend = FinishFake {
+            finished: Vec::new(),
+        };
+        assert!(frm_act_buff_remove_active_actor(&mut active, &mut backend, FrameKey(2)));
+        assert_eq!(backend.finished, vec![FrameKey(2)]);
+        assert_eq!(active, vec![FrameKey(1), FrameKey(2)]);
+        assert!(!frm_act_buff_remove_active_actor(&mut active, &mut backend, FrameKey(7)));
+        assert_eq!(active, vec![FrameKey(1), FrameKey(2)]);
+    }
+    struct TakebackFake {
+        kind: BufferedActorKind,
+        calls: Vec<&'static str>,
+    }
+    impl FrmActBuffTakebackBackend for TakebackFake {
+        fn buffered_actor_kind(&self, _: FrameKey) -> BufferedActorKind {
+            self.kind
+        }
+        fn reset_buffered_car(&mut self, _: FrameKey) {
+            self.calls.push("reset_car");
+        }
+        fn rebirth_buffered_actor(&mut self, _: FrameKey) {
+            self.calls.push("rebirth");
+        }
+    }
+    #[test]
+    fn frm_act_buff_is_active_actor_rva_146770_rebirths_and_takes() {
+        // GAME 0x546770, mafia-re `game/mission/Mission.cpp:2015-2030`: a
+        // car resets with a full tank before the shared rebirth, then the
+        // last one takes the match's place.
+        let mut active = vec![FrameKey(1), FrameKey(2), FrameKey(3)];
+        let mut car = TakebackFake {
+            kind: BufferedActorKind::Car,
+            calls: Vec::new(),
+        };
+        assert!(frm_act_buff_is_active_actor(&mut active, &mut car, FrameKey(2)));
+        assert_eq!(car.calls, vec!["reset_car", "rebirth"]);
+        assert_eq!(active, vec![FrameKey(1), FrameKey(3)]);
+        let mut human = TakebackFake {
+            kind: BufferedActorKind::Human,
+            calls: Vec::new(),
+        };
+        assert!(frm_act_buff_is_active_actor(&mut active, &mut human, FrameKey(1)));
+        assert_eq!(human.calls, vec!["rebirth"]);
+        assert!(!frm_act_buff_is_active_actor(&mut active, &mut human, FrameKey(9)));
+    }
+    #[test]
+    fn frm_act_buff_store_actor_sound_rva_146830_dedups_by_pair() {
+        // GAME 0x546830, mafia-re `game/mission/Mission.cpp:2037-2047`: an
+        // actor/number pair is kept at most once; the sound never updates.
+        let mut buffer = Vec::new();
+        frm_act_buff_store_actor_sound(&mut buffer, FrameKey(1), 4, 40);
+        frm_act_buff_store_actor_sound(&mut buffer, FrameKey(1), 4, 41);
+        assert_eq!(buffer.len(), 1);
+        assert_eq!(buffer[0].sound, 40);
+        frm_act_buff_store_actor_sound(&mut buffer, FrameKey(1), 5, 42);
+        frm_act_buff_store_actor_sound(&mut buffer, FrameKey(2), 4, 43);
+        assert_eq!(buffer.len(), 3);
+    }
+    #[test]
+    fn frm_act_buff_get_actor_sound_rva_146aa0_takes_last_match() {
+        // GAME 0x546aa0, mafia-re `game/mission/Mission.cpp:2053-2064`: the
+        // match leaves with the last one taking its place; misses yield none.
+        let mut buffer = vec![
+            ActorSoundBufferEntry {
+                actor: FrameKey(1),
+                number: 4,
+                sound: 40,
+            },
+            ActorSoundBufferEntry {
+                actor: FrameKey(1),
+                number: 5,
+                sound: 41,
+            },
+        ];
+        assert_eq!(frm_act_buff_get_actor_sound(&mut buffer, FrameKey(1), 4), Some(40));
+        assert_eq!(
+            buffer,
+            vec![ActorSoundBufferEntry {
+                actor: FrameKey(1),
+                number: 5,
+                sound: 41,
+            }]
+        );
+        assert_eq!(frm_act_buff_get_actor_sound(&mut buffer, FrameKey(1), 4), None);
+    }
+    struct ClearFake {
+        calls: Vec<(u32, FrameKey, bool, FrameKey)>,
+    }
+    impl FrmActBuffClearBackend for ClearFake {
+        fn teardown_buffered_entry(&mut self, actor: FrameKey, release_frame: bool, frame: FrameKey) {
+            self.calls.push((0, actor, release_frame, frame));
+        }
+        fn release_buffered_frame(&mut self, frame: FrameKey) {
+            self.calls.push((1, FrameKey(0), false, frame));
+        }
+        fn finish_buffered_active_actor(&mut self, actor: FrameKey) {
+            self.calls.push((2, actor, false, FrameKey(0)));
+        }
+        fn release_buffered_sound(&mut self, sound: u32) {
+            self.calls.push((3, FrameKey(sound), false, FrameKey(0)));
+        }
+    }
+    #[test]
+    fn frm_act_buff_clear_all_rva_146b70_drains_back_to_front() {
+        // GAME 0x546b70, mafia-re `game/mission/Mission.cpp:2071-2092`: each
+        // buffer drains from its last entry in native order, then stays empty.
+        let mut buffer = vec![
+            FrameActorBufferEntry {
+                actor: Some(FrameKey(1)),
+                frame: FrameKey(11),
+                name: b"a.i3d".to_vec(),
+                release_frame: true,
+            },
+            FrameActorBufferEntry {
+                actor: None,
+                frame: FrameKey(12),
+                name: b"b.i3d".to_vec(),
+                release_frame: false,
+            },
+        ];
+        let mut active = vec![FrameKey(2)];
+        let mut sounds = vec![ActorSoundBufferEntry {
+            actor: FrameKey(2),
+            number: 4,
+            sound: 40,
+        }];
+        let mut backend = ClearFake { calls: Vec::new() };
+        frm_act_buff_clear_all(&mut buffer, &mut active, &mut sounds, &mut backend);
+        assert!(buffer.is_empty());
+        assert!(active.is_empty());
+        assert!(sounds.is_empty());
+        assert_eq!(
+            backend.calls,
+            vec![
+                (1, FrameKey(0), false, FrameKey(12)),
+                (0, FrameKey(1), true, FrameKey(11)),
+                (2, FrameKey(2), false, FrameKey(0)),
+                (3, FrameKey(40), false, FrameKey(0)),
+            ]
+        );
+    }
+    struct SeatsFake {
+        count: usize,
+        cleared: Vec<(FrameKey, usize)>,
+    }
+    impl ClearCarSeatsBackend for SeatsFake {
+        fn car_seat_count(&self, _: FrameKey) -> usize {
+            self.count
+        }
+        fn clear_car_seat(&mut self, car: FrameKey, seat: usize) {
+            self.cleared.push((car, seat));
+        }
+    }
+    #[test]
+    fn frm_act_buff_clear_car_seats_empties_back_to_front() {
+        // Working name, mafia-re `game/mission/Mission.cpp:1848-1849`: the
+        // static helper walks the seats from the last one; no outline entry
+        // exists, so no RVA is claimed here.
+        let mut backend = SeatsFake {
+            count: 3,
+            cleared: Vec::new(),
+        };
+        frm_act_buff_clear_car_seats(&mut backend, FrameKey(7));
+        assert_eq!(
+            backend.cleared,
+            vec![(FrameKey(7), 2), (FrameKey(7), 1), (FrameKey(7), 0)]
+        );
     }
     #[test]
     fn scene_error_callback_filters_error_and_log() {

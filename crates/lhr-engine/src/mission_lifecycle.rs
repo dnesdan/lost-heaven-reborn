@@ -15,6 +15,7 @@ use crate::mission_components::{
     GameConstructorGlobals, GameConstructorInputs, MissionAllocation, MissionAllocator,
     MissionComponent, MissionComponentKind,
 };
+use crate::mission_options::MissionOptions;
 use crate::mission_resources::MissionCaches;
 use crate::scene_ownership::SceneKey;
 
@@ -182,6 +183,42 @@ impl MissionLifecycle {
     /// identity word; no tshift owner is resolved here.
     pub fn get_tshift(&self) -> i32 {
         self.word(0x28) as i32
+    }
+    /// Working name (no outline Game.exe entry is claimed; mafia-re
+    /// `game/mission/Mission.h:228-233`, `C_mission::GetGame`): reads the
+    /// game member (mission +0x24, the `C_game` the mission owns). The
+    /// reference only ventures a guess at an outline copy (`Mission.h:230`,
+    /// `0x47ae50`, inventory-only with no unique body), so no RVA is
+    /// claimed here. The host keeps the member's identity word; no game
+    /// owner is resolved here.
+    pub fn get_game(&self) -> i32 {
+        self.word(0x24) as i32
+    }
+    /// Working name (no outline Game.exe entry is claimed; mafia-re
+    /// `game/mission/Mission.h:278-281`, `C_mission::GetScene`): reads the
+    /// scene member (mission +0x10). No outline copy exists in the
+    /// reference, so no RVA is claimed here. Unlike
+    /// [`MissionLifecycle::scene`], which resolves the owned `SceneKey`,
+    /// this reads the raw member word, like [`MissionLifecycle::get_tshift`].
+    pub fn get_scene(&self) -> i32 {
+        self.word(0x10) as i32
+    }
+    /// Working name (no outline Game.exe entry is claimed; mafia-re
+    /// `game/mission/Mission.h:268-271`, `C_mission::GetOptions`): reads the
+    /// staged video/audio option words (mission +0x90, `S_mission_options`
+    /// layout `Mission.h:23-31`) into the option state. The reference folds
+    /// the only outline copy with `I3D_frame::GetScale` (`0x47aec0`,
+    /// inventory-only, no unique body), so no RVA is claimed here.
+    pub fn get_options(&self) -> MissionOptions {
+        MissionOptions {
+            level_of_detail: f32::from_le_bytes(self.word(0x90).to_le_bytes()),
+            draw_distance: f32::from_le_bytes(self.word(0x94).to_le_bytes()),
+            far_range: f32::from_le_bytes(self.word(0x98).to_le_bytes()),
+            game_effects: self.word(0x9c) as i32,
+            game_sounds: self.word(0xa0) as i32,
+            shadows: self.word(0xa4) as i32,
+            particles: self.word(0xa8) as i32,
+        }
     }
     pub fn pending_scene(&self) -> Option<SceneKey> {
         self.pending_scene
@@ -1000,6 +1037,48 @@ mod tests {
         mission.put_word(0x28, (-1i32) as u32);
         assert_eq!(mission.get_tshift(), -1);
         assert_eq!(mission.get_tshift() as u32, mission.word(0x28));
+    }
+    #[test]
+    fn mission_get_game_reads_staged_member_word() {
+        // Working name, mafia-re `game/mission/Mission.h:228-233`: the game
+        // member (mission +0x24) read. The constructor stores a null member,
+        // so the default read is zero.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.get_game(), 0);
+        mission.put_word(0x24, 0x1234_5678);
+        assert_eq!(mission.get_game(), 0x1234_5678 as i32);
+    }
+    #[test]
+    fn mission_get_scene_reads_staged_member_word() {
+        // Working name, mafia-re `game/mission/Mission.h:278-281`: the scene
+        // member (mission +0x10) read. Unlike `scene()`, which resolves the
+        // owned key, this reads the raw staged identity word.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.get_scene(), 0);
+        mission.put_word(0x10, (-42i32) as u32);
+        assert_eq!(mission.get_scene(), -42);
+    }
+    #[test]
+    fn mission_get_options_reads_staged_words() {
+        // Working name, mafia-re `game/mission/Mission.h:268-271` with the
+        // `S_mission_options` layout `Mission.h:23-31`: the seven staged
+        // option words map onto the option state in member order.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        mission.put_word(0x90, 1f32.to_bits());
+        mission.put_word(0x94, 0.5f32.to_bits());
+        mission.put_word(0x98, 250.0f32.to_bits());
+        mission.put_word(0x9c, 2);
+        mission.put_word(0xa0, (-1i32) as u32);
+        mission.put_word(0xa4, 6);
+        mission.put_word(0xa8, 0);
+        let options = mission.get_options();
+        assert_eq!(options.level_of_detail, 1.0);
+        assert_eq!(options.draw_distance, 0.5);
+        assert_eq!(options.far_range, 250.0);
+        assert_eq!(options.game_effects, 2);
+        assert_eq!(options.game_sounds, -1);
+        assert_eq!(options.shadows, 6);
+        assert_eq!(options.particles, 0);
     }
     struct Heap {
         next: u32,
