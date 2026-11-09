@@ -67,6 +67,11 @@ the weather-buffer reset before the host sound mute. It stops explicitly at
 the unimplemented scene Render effect; an Open-only input probe lacks a
 constructed Scene and stops earlier at that missing owner. Later Init and
 script scheduling remain unavailable, with no additional function credit.
+The CPU load probe now also prints the first reached `C_game::Init` driver
+boundary and the actual retained scalar/weather/PCM observations. This
+ordered inspection deliberately runs after the separate `GameInitStart`
+script diagnostic; the two independent probes do not establish an executable
+native gameplay sequence.
 
 Historically at engine `041eed8`, INTRO's CPU probe completed source loading and
 exited 0, while MISE01's CPU probe intentionally exited 1 at unsupported car

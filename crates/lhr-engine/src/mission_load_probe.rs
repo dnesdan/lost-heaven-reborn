@@ -4,6 +4,7 @@
 use lhr_engine::{
     actor_world::ActorWorld,
     game_camera_projection::GameCameraProjection,
+    game_init_order::{InitAttempt, InitRunError},
     host_scene_adapters::InspectionScreen,
     mission_content_loading::{
         GameGlobalProgramWorldRunner, MissionContentOwner, MissionProgramDiagnostic,
@@ -280,6 +281,33 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
         Err(detail) => {
             writeln!(report, "GameInitStart stopped: {detail}").unwrap();
         }
+    }
+    // Independent ordered Init inspection AFTER the GameInitStart script
+    // diagnostic above. It starts with the actual retained Scene, but is not
+    // a continuation of that diagnostic or a successful full GameInit. In
+    // particular the true Init driver stops before GlobalProgramStart while
+    // this command separately exercises that script with counting effects.
+    // Keep the first failure and reached owner state visible without changing
+    // whether an otherwise complete source-load probe exits successfully.
+    if load.is_ok() {
+        let mut attempt = InitAttempt::default();
+        let result = attempt.run(&mut session);
+        let status = match result {
+            // SessionInitError already carries the reached InitStep prefix.
+            Err(InitRunError::Callback(failure)) => format!("stopped: {}", failure.error),
+            Err(InitRunError::AlreadyEntered) => "unexpected repeated Init attempt".into(),
+            Ok(()) => "all ordered callbacks returned (gameplay unverified)".into(),
+        };
+        let (passed, car_sounds, weather, buffer) = session.game_init_reset_observation();
+        writeln!(
+            report,
+            "GameInit ordered inspection (independent, after script diagnostic): {status}; last={:?}; mission_passed={passed} car_sounds={car_sounds} weather={weather:?} weather_buffer={buffer} PCM_gain={:?}",
+            attempt.last(),
+            session.audio().master_gain()
+        )
+        .unwrap();
+    } else {
+        writeln!(report, "GameInit ordered inspection: skipped after stopped load").unwrap();
     }
     writeln!(
         report,
