@@ -506,8 +506,10 @@ class RewriteProgressTests(unittest.TestCase):
         # material; marker-only, tests green; working-name helper unfiled).
         # +9 mixed small-getter differential (complete 1-7 insn walks; pin
         # tests green; 2 STUBs + outside-memory held as contract).
+        # +2 mesh-level batch (GetFGroup/GetStats complete walks; pin tests
+        # visual_resources 147 pass).
         self.assertEqual(ls3df["ported"], 145 + 849)
-        self.assertEqual(ls3df["verified"], 145 + 428)
+        self.assertEqual(ls3df["verified"], 145 + 430)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

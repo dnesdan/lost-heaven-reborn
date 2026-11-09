@@ -1154,8 +1154,8 @@
       "va": "0x10031180",
       "name": "I3D_mesh_level::GetFGroup (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::face_group_at",
-      "tier": "contract",
-      "evidence": "REA ghidra linear walk ~30 insns, no procedure entry (walk-derived) + unsigned bounds check + invalid-index words (typo kept) + mafia-re I3d_mesh.cpp:304-314 + negative/huge/mid-chain tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_dde4a4cc7a + complete walk all branches (unsigned bounds + warn path + indexed chain walk + RET 8); pin tests visual_resources 147 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1172,8 +1172,8 @@
       "va": "0x100311e0",
       "name": "I3D_mesh_level::GetStats (upstream working name)",
       "symbol": "lhr_engine::visual_resources::VisualResources::mesh_level_stats",
-      "tier": "contract",
-      "evidence": "REA ghidra 19-insn walk, no procedure entry (walk-derived) + size 0x44/num<<5/NumFaces-vcall/faces*6 + mafia-re I3d_mesh.cpp:328-337 + sum/scale/wrap tests (wrapping_add/mul, same policy as 0x317a0); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_f4a172ab80 + complete linear walk entry to RET 8 (stats fill + NumFaces vcall); pin tests visual_resources"
     },
     {
       "binary": "LS3DF.dll",
