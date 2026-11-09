@@ -7058,8 +7058,8 @@
       "va": "0x10071910",
       "name": "IGraph::ReadCharBuffer",
       "symbol": "lhr_engine::input_keyboard::read_char_buffer",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2800-2809 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "REA ev_7a67ff43c1 + complete walk (CALL copy + load + clear + RET 4); pin tests input_keyboard 5 / keyboard 6 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7067,8 +7067,8 @@
       "va": "0x10071940",
       "name": "IGraph::ClearCharBuffer",
       "symbol": "lhr_engine::input_keyboard::clear_char_buffer",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2809-2818 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "REA ev_0ec89bcd9b + complete walk (REP STOSD clear + RET 4); pin tests input_keyboard 5 / keyboard 6 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7085,8 +7085,8 @@
       "va": "0x10071a10",
       "name": "IGraph::ReadChar",
       "symbol": "lhr_engine::input_keyboard::read_char",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2841-2850 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "REA ev_cfc9c2183e + complete walk 3 insns (load + clear + RET 4); pin tests input_keyboard 5 / keyboard 6 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7094,8 +7094,8 @@
       "va": "0x10071a30",
       "name": "IGraph::TestKey",
       "symbol": "lhr_engine::input_keyboard::test_key",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2850-2857 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "REA ev_8762452e69 + complete walk 4 insns (table bit test + SHR + RET 8); pin tests input_keyboard 5 / keyboard 6 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7121,8 +7121,8 @@
       "va": "0x10071af0",
       "name": "IGraph::KeyShift",
       "symbol": "lhr_engine::input_keyboard::key_shift",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2870-2881 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "REA ev_cf20cee0fd + complete walk both branches (modifier bit test -> 1/0 + RET 4); pin tests input_keyboard 5 / keyboard 6 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7130,8 +7130,8 @@
       "va": "0x10071b10",
       "name": "IGraph::KeyCtrl",
       "symbol": "lhr_engine::input_keyboard::key_ctrl",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2891-2900 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "REA ev_a75b13b2c6 + complete walk both branches (modifier bit test -> 1/0 + RET 4); pin tests input_keyboard 5 / keyboard 6 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7139,8 +7139,8 @@
       "va": "0x10071b30",
       "name": "IGraph::KeyAlt",
       "symbol": "lhr_engine::input_keyboard::key_alt",
-      "tier": "contract",
-      "evidence": "mafia-re ls3df/IGraph/IGraph.cpp:2900-2909 + authored Rust tests (not executed here)"
+      "tier": "differential",
+      "evidence": "REA ev_641ee182bf + complete walk both branches (modifier bit test -> 1/0 + RET 4); pin tests input_keyboard 5 / keyboard 6 pass"
     },
     {
       "binary": "LS3DF.dll",

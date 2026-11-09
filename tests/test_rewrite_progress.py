@@ -531,8 +531,11 @@ class RewriteProgressTests(unittest.TestCase):
         # SetName shared-helper held as contract).
         # +5 scene-anim batch (GetAnimationSet/GetAnimBlend/GetAnimTime/
         # AnimIsOn/NumInterpolators complete walks; pin tests 10/8).
+        # +7 IGraph keyboard batch (ReadCharBuffer/ClearCharBuffer/ReadChar/
+        # TestKey/KeyShift/KeyCtrl/KeyAlt complete walks; pin tests 5/6;
+        # ReadKey/ReadKeys/GetShiftKeys/TranslateKey loops held).
         self.assertEqual(ls3df["ported"], 145 + 852)
-        self.assertEqual(ls3df["verified"], 145 + 442)
+        self.assertEqual(ls3df["verified"], 145 + 449)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
