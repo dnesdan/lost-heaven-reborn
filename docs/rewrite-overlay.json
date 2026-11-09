@@ -14026,6 +14026,60 @@
       "symbol": "lhr_engine::player_actor::PlayerState::set_car_damage_unsupported",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x595c30)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x99dc0",
+      "va": "0x499dc0",
+      "name": "C_shvestky::GameDone",
+      "symbol": "lhr_engine::police_state::police_game_done",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Police GameDone (GAME 0x499dc0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xafc40",
+      "va": "0x4afc40",
+      "name": "C_traffic_car::AI",
+      "symbol": "lhr_engine::traffic_car_actor::traffic_ai",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Traffic AI (GAME 0x4afc40). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xb5270",
+      "va": "0x4b5270",
+      "name": "C_traffic_car::Update",
+      "symbol": "lhr_engine::traffic_car_actor::traffic_update",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Traffic update (GAME 0x4b5270). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xbaad0",
+      "va": "0x4baad0",
+      "name": "C_traffic_car::Hit",
+      "symbol": "lhr_engine::traffic_car_actor::traffic_hit",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Traffic hit (GAME 0x4baad0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xba9c0",
+      "va": "0x4ba9c0",
+      "name": "C_traffic_car::IsPossibleColl",
+      "symbol": "lhr_engine::traffic_car_actor::traffic_is_possible_coll",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Traffic coll check (GAME 0x4ba9c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xaad20",
+      "va": "0x4aad20",
+      "name": "C_traffic_car::LoadData",
+      "symbol": "lhr_engine::traffic_car_actor::traffic_load_data",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Traffic LoadData (GAME 0x4aad20). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

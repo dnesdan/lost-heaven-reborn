@@ -379,7 +379,9 @@ class RewriteProgressTests(unittest.TestCase):
         # +14 human/player action contracts (BezZasobniku/FakeWeapon/Cocot/
         # bridge/ChangeAnim/RepairGate/Holster/WeaponDrop/BoxDrop + 4 player
         # STUBs; marker-only, tests green).
-        self.assertEqual(game["ported"], 149 + 652)
+        # +6 police/traffic contracts (GameDone/AI/Update/Hit/IsPossibleColl/
+        # LoadData STUBs; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 658)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
