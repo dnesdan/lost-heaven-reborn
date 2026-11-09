@@ -439,6 +439,48 @@ impl ModelArena {
         }
         Ok(state)
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the light-type member (I3D.h:1931 `I3DLIGHTTYPE ltype`; mafia-re
+    /// ls3df/I3D/I3D.h at pin 113b5b6). The original exposes no named getter:
+    /// the light virtuals are setters plus UpdateV (I3D.h:1915-1926), and
+    /// callers read the member in place. Same availability guard as `light`.
+    pub fn light_type_of(&self, key: FrameKey) -> Result<u32, ModelError> {
+        Ok(self.light(key)?.light_type)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the light-mode member (I3D.h:1930 `uint mode, I3DLIGHTMODE_*`;
+    /// mafia-re ls3df/I3D/I3D.h at pin 113b5b6). No named original getter;
+    /// same availability guard as `light`.
+    pub fn light_mode_of(&self, key: FrameKey) -> Result<u32, ModelError> {
+        Ok(self.light(key)?.mode)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the diffuse store (I3D.h:1933 `S_vector diffuse`; SetDiffuse writes
+    /// `color`, which this projection keeps as the diffuse word triple).
+    /// No named original getter; same availability guard as `light`.
+    pub fn light_diffuse_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.light(key)?.color)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the power store (I3D.h:1932 `float power`; SetDiffusePower writes
+    /// `intensity`). No named original getter; same availability guard as
+    /// `light`.
+    pub fn light_power_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.light(key)?.intensity)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the range store (I3D.h:1934 `float near_range, far_range`; SetRange
+    /// writes `range`). No named original getter; same availability guard as
+    /// `light`.
+    pub fn light_range_of(&self, key: FrameKey) -> Result<[f32; 2], ModelError> {
+        Ok(self.light(key)?.range)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the cone store (I3D.h:1936 `float cone_in, cone_out`; SetCone writes
+    /// `cone`). No named original getter; same availability guard as `light`.
+    pub fn light_cone_of(&self, key: FrameKey) -> Result<[f32; 2], ModelError> {
+        Ok(self.light(key)?.cone)
+    }
     pub fn light_random_state(&mut self) -> &mut LightCrtRandom {
         &mut self.light_random
     }
@@ -576,6 +618,57 @@ mod tests {
         assert_eq!(arena.state(key).unwrap().update_count, count);
         // Unsupported light kinds stay explicit when runtime Update is requested.
         assert!(arena.graph.update(key).is_err());
+    }
+    #[test]
+    fn light_type_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_type_of(key).unwrap(), 3);
+        arena.graph.set_light_type(key, 2).unwrap();
+        assert_eq!(arena.light_type_of(key).unwrap(), 2);
+    }
+    #[test]
+    fn light_mode_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_mode_of(key).unwrap(), 0xff6b);
+        arena.graph.set_light_mode(key, 0x21).unwrap();
+        assert_eq!(arena.light_mode_of(key).unwrap(), 0x21);
+    }
+    #[test]
+    fn light_diffuse_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_diffuse_of(key).unwrap(), [1.; 3]);
+        arena.graph.set_light_diffuse(key, [0.25, 0.5, 0.75]).unwrap();
+        assert_eq!(arena.light_diffuse_of(key).unwrap(), [0.25, 0.5, 0.75]);
+    }
+    #[test]
+    fn light_power_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_power_of(key).unwrap(), 1.);
+        arena.graph.set_light_diffuse_power(key, 2.).unwrap();
+        assert_eq!(arena.light_power_of(key).unwrap(), 2.);
+    }
+    #[test]
+    fn light_range_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_range_of(key).unwrap(), [1., 100.]);
+        arena.graph.set_light_range(key, 5., 50.).unwrap();
+        assert_eq!(arena.light_range_of(key).unwrap(), [5., 50.]);
+    }
+    #[test]
+    fn light_cone_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(
+            arena.light_cone_of(key).unwrap(),
+            [f32::from_bits(0x3eb2b8c3), f32::from_bits(0x3f32b8c3)]
+        );
+        arena.graph.set_light_cone(key, 0.3, 0.9).unwrap();
+        assert_eq!(arena.light_cone_of(key).unwrap(), [0.3, 0.9]);
     }
     #[test]
     fn interrupted_numeric_effect_never_becomes_a_valid_light_cache() {

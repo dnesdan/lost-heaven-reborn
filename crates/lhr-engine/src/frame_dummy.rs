@@ -9,6 +9,20 @@ use crate::{
     scene_weather_dummy::WEATHER_FLAG,
 };
 
+/// DUMMYF_INV_MAT_VALID 0x10 (mafia-re ls3df/I3D/I3D.h:1824 at pin 113b5b6):
+/// inv_matrix is up to date (PC only); cleared when the frame moves or is
+/// normalized, set by GetInvMatrix.
+pub const DUMMYF_INV_MAT_VALID: u32 = 0x10;
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the DUMMYF_INV_MAT_VALID bit (I3D.h:1824) that GetInvMatrix gates on
+/// (I3D.h:1852; mafia-re ls3df/I3D/I3D.h at pin 113b5b6). The original
+/// exposes no named accessor: Normalize and GetInvMatrix test and store the
+/// bit in place.
+pub fn dummy_inv_matrix_valid(dummy_flags: u32) -> bool {
+    dummy_flags & DUMMYF_INV_MAT_VALID != 0
+}
+
 impl ModelArena {
     pub fn create_dummy_frame(&mut self) -> Result<FrameKey, ModelError> {
         self.insert(
@@ -227,6 +241,15 @@ impl ModelArena {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inv_matrix_valid_reader_reports_only_bit_four() {
+        assert_eq!(DUMMYF_INV_MAT_VALID, 0x10);
+        assert!(dummy_inv_matrix_valid(DUMMYF_INV_MAT_VALID));
+        assert!(dummy_inv_matrix_valid(u32::MAX));
+        assert!(!dummy_inv_matrix_valid(0));
+        assert!(!dummy_inv_matrix_valid(0x03));
+        assert!(!dummy_inv_matrix_valid(0x20));
+    }
     #[test]
     fn genuine_dummy_constructor_box_copy_and_last_release_share_one_owner() {
         let mut arena = ModelArena::default();

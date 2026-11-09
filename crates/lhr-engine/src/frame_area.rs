@@ -547,6 +547,30 @@ impl crate::model_loading::ModelArena {
         sink.unsupported_area_image(14, &self.frame(frame)?.name_bytes);
         Ok(())
     }
+    /// Original I3D_area::LoadImage, LS3DF RVA 0x5ce0, VA 0x10005ce0.
+    /// Evidenced original name `?LoadImage@I3D_area@@UAEXXZ` from the
+    /// `FUNCTION: LS3DF 0x10005ce0` marker (mafia-re ls3df/I3D/I3D.h:2489 at
+    /// pin 113b5b6; LS3DF11 cross-marker VA 0x10005cd0 at I3D.h:2492). The
+    /// marker lives in I3D.h because the original keeps this file's copy
+    /// folded with I3D_sound::LoadImage, which is the same code
+    /// (I3D.h:2487-2488). Order-exact mirror of `area_save_image`
+    /// (RVA 0x5ca0): areas are not loaded; the native
+    /// dbgPrintf("** nepodporovany typ:%s  LoadImage()  %s",
+    /// FrameType2String(m_Type), GetName()) becomes one backend call carrying
+    /// the evidenced type word (14, AREA from the 0x51a0 ctor store) and the
+    /// live name bytes. No state is touched. The exact FrameType2String
+    /// spelling is unverified (OPEN), so only the numeric type crosses the
+    /// boundary, never an invented string.
+    pub fn area_load_image(
+        &self,
+        key: AreaKey,
+        sink: &mut impl AreaImageDiagnostic,
+    ) -> Result<(), crate::model_loading::ModelError> {
+        self.area(key)?;
+        let frame = key.frame();
+        sink.unsupported_area_image(14, &self.frame(frame)?.name_bytes);
+        Ok(())
+    }
     /// Native5440 changes non-owning circular links and Scene count/version.
     /// In particular removal leaves stale prev/next words as the source does.
     pub(crate) fn area_change_scene_ring(
@@ -1044,6 +1068,34 @@ mod tests {
             name: Vec::new(),
         };
         arena.area_save_image(key, &mut rec).unwrap();
+        assert_eq!((rec.calls, rec.ty), (1, 14));
+        assert_eq!(arena.area_storage().allocation_calls(), before_calls);
+        assert_eq!(arena.area(key).unwrap().vertex_count, 0);
+        arena.release(key.frame()).unwrap();
+    }
+    #[test]
+    fn load_image_emits_unsupported_once_without_touching_state_rva_0x5ce0() {
+        struct Rec {
+            calls: u32,
+            ty: u32,
+            name: Vec<u8>,
+        }
+        impl AreaImageDiagnostic for Rec {
+            fn unsupported_area_image(&mut self, frame_type: u32, name: &[u8]) {
+                self.calls += 1;
+                self.ty = frame_type;
+                self.name = name.to_vec();
+            }
+        }
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        let before_calls = arena.area_storage().allocation_calls();
+        let mut rec = Rec {
+            calls: 0,
+            ty: 0,
+            name: Vec::new(),
+        };
+        arena.area_load_image(key, &mut rec).unwrap();
         assert_eq!((rec.calls, rec.ty), (1, 14));
         assert_eq!(arena.area_storage().allocation_calls(), before_calls);
         assert_eq!(arena.area(key).unwrap().vertex_count, 0);

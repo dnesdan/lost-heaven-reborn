@@ -12,6 +12,19 @@ use crate::{
 
 /// JOINTF_LOADED 0x1 (I3D.h:2033): bone_matrix and index came from the file.
 pub const JOINTF_LOADED: u32 = 0x1;
+/// JOINTF_JMAT_VALID 0x10 (mafia-re ls3df/I3D/I3D.h:2054 at pin 113b5b6):
+/// joint_matrix is up to date; GetJointMatrix tests this bit (I3D.h:2071).
+pub const JOINTF_JMAT_VALID: u32 = 0x10;
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the JOINTF_JMAT_VALID bit (I3D.h:2054) that GetJointMatrix tests
+/// (I3D.h:2071; mafia-re ls3df/I3D/I3D.h at pin 113b5b6). The original
+/// exposes no named accessor: the joint virtuals are Duplicate, UpdateV and
+/// LoadImage only (I3D.h:2066-2068), and the matrix decision reads the flag
+/// word in place.
+pub fn joint_matrix_valid(flags: u32) -> bool {
+    flags & JOINTF_JMAT_VALID != 0
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct I3dJointState {
@@ -140,6 +153,15 @@ mod tests {
         assert_eq!(state.singlemesh, Some(FrameKey(7)));
     }
 
+    #[test]
+    fn joint_matrix_valid_reads_only_the_jmat_valid_bit() {
+        assert!(joint_matrix_valid(JOINTF_JMAT_VALID));
+        assert!(joint_matrix_valid(JOINTF_LOADED | JOINTF_JMAT_VALID));
+        assert!(joint_matrix_valid(u32::MAX));
+        assert!(!joint_matrix_valid(0));
+        assert!(!joint_matrix_valid(JOINTF_LOADED));
+        assert!(!joint_matrix_valid(0x0f));
+    }
     #[test]
     fn changed_only_invalidates_joint_while_update_requests_singlemesh_work() {
         for (frame_flags, flags, target) in [

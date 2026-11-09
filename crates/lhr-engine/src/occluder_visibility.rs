@@ -24,6 +24,31 @@ use crate::scene_visibility::{
     Result, SceneVisibilityError, IN_VIEW, ON,
 };
 
+/// I3D_occluder::occl_flags and face-flags words (mafia-re ls3df/I3D/I3D.h:2349
+/// at pin 113b5b6; the member names are guessed there). Upstream working names,
+/// not evidenced original symbols: the original exposes no named accessors,
+/// and UpdateShadow plus the portal walk test the bits in place. The host
+/// projection folds OCCLF_ACTIVE onto arena frame-flag bit 2 (cleared with
+/// `put_flags` below when a victim is hidden).
+/// OCCLF_ACTIVE 0x2: UpdateShadow made its volume this frame, and nothing hides it.
+pub const OCCLF_ACTIVE: u32 = 0x2;
+/// OCCLF_PORTAL 0x4: the camera is on both sides of its sector's portals.
+pub const OCCLF_PORTAL: u32 = 0x4;
+/// OCCLFF_FACING 0x1: the face faces the camera (UpdateShadow).
+pub const OCCLFF_FACING: u32 = 0x1;
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the OCCLF_ACTIVE bit (I3D.h:2350). No named original accessor.
+pub fn occluder_shadow_active(flags: u32) -> bool {
+    flags & OCCLF_ACTIVE != 0
+}
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the OCCLFF_FACING bit (I3D.h:2356). No named original accessor.
+pub fn occluder_face_facing(face_flags: u32) -> bool {
+    face_flags & OCCLFF_FACING != 0
+}
+
 #[derive(Clone)]
 struct Volume {
     key: OccluderKey,
@@ -575,6 +600,22 @@ pub(crate) fn prepare_sector(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shadow_active_reader_reports_only_occlf_active_bit() {
+        assert_eq!((OCCLF_ACTIVE, OCCLF_PORTAL, OCCLFF_FACING), (0x2, 0x4, 0x1));
+        assert!(occluder_shadow_active(OCCLF_ACTIVE));
+        assert!(occluder_shadow_active(OCCLF_ACTIVE | OCCLF_PORTAL));
+        assert!(occluder_shadow_active(u32::MAX));
+        assert!(!occluder_shadow_active(0));
+        assert!(!occluder_shadow_active(OCCLF_PORTAL));
+    }
+    #[test]
+    fn face_facing_reader_reports_only_facing_bit() {
+        assert!(occluder_face_facing(OCCLFF_FACING));
+        assert!(occluder_face_facing(u32::MAX));
+        assert!(!occluder_face_facing(0));
+        assert!(!occluder_face_facing(0x2));
+    }
     #[test]
     fn raw_prepare_sector_portal_loops_keep_their_distinct_depth_associations() {
         let mut arena = ModelArena::default();

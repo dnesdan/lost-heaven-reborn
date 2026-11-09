@@ -14467,6 +14467,15 @@
       "symbol": "lhr_engine::human_actor::HumanState::dead_body_entry_gate",
       "tier": "contract",
       "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. DeadBody entry gate (GAME 0x589c20)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5ce0",
+      "va": "0x10005ce0",
+      "name": "I3D_area::LoadImage",
+      "symbol": "lhr_engine::frame_area::ModelArena::area_load_image",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D device owners deferred; folded with sound-LoadImage). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
