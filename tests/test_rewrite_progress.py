@@ -399,7 +399,10 @@ class RewriteProgressTests(unittest.TestCase):
         # DeathActor x2, GetActorFromGuid, AddFramePlacement, InternTempActAdd,
         # LightnessTick STUBs; FrmActBuff_GetModel ledger-duplicate held;
         # LightnessClear wrong-address remediated 0x1b5180->0x1b5780).
-        self.assertEqual(game["ported"], 149 + 703)
+        # +12 actor accessor contracts (GetPos/SetPos/GetDir/SetDir/
+        # SetOwnFrame/GetWorldDir/Rebirth/SaveGameSize/FrameActor x2 STUBs/
+        # IsGlobalActor/shot AddToCutscene; 1 working-name uncredited).
+        self.assertEqual(game["ported"], 149 + 715)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

@@ -105,6 +105,16 @@ impl ActorShotState {
     pub fn particle(&self) -> i32 {
         self.word(0x88) as i32
     }
+    /// GAME 0x404e20 (RVA 0x4e20) C_actor_shot::AddToCutscene (mafia-re
+    /// 113b5b6 game/actors/C_actor.cpp:631-637): the shot actor files one
+    /// record kind of `sizeof(S_actor_shot_record)` bytes (0x10 per
+    /// game/actors/C_actor_shot.h:5-13) and no other kinds, then reports
+    /// true. The recorder call stays with the cutscene owner (DEFERRED);
+    /// this leaf stages the three size words plus the constant verdict, in
+    /// (sizes, verdict) order, mirroring the base-actor leaf.
+    pub fn add_to_cutscene(&self) -> ([u32; 3], bool) {
+        ([0x10, 0, 0], true)
+    }
 }
 
 #[cfg(test)]
@@ -148,5 +158,14 @@ mod tests {
         assert!(state.firing());
         assert!(!state.shoots());
         assert_eq!(state.particle(), 7);
+    }
+
+    #[test]
+    // GAME 0x404e20 (RVA 0x4e20) C_actor_shot::AddToCutscene (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:631-637): one 0x10-byte shot-record kind, no
+    // other kinds, constant true; the recorder call stays DEFERRED.
+    fn add_to_cutscene_rva_4e20_files_shot_record_size() {
+        let state = constructed();
+        assert_eq!(state.add_to_cutscene(), ([0x10, 0, 0], true));
     }
 }

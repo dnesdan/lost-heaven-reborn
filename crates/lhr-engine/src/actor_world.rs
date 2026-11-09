@@ -104,6 +104,14 @@ pub struct BaseActorState {
     /// No overlay entry of its own; rides the 0x17d2e0 stop entry.
     pub rendered: bool,
 }
+/// Original active actor-state value (mafia-re 113b5b6
+/// game/actors/C_actor.h:61 ACTSTATE_ACTIVE 0): the GameInit steady state,
+/// also written by Rebirth.
+pub const ACTSTATE_ACTIVE: u32 = 0;
+/// Original inert actor-state value (mafia-re 113b5b6 game/actors/C_actor.h:63
+/// ACTSTATE_NONE 2): SetActState never enters it and Rebirth is the only
+/// writer that leaves it.
+pub const ACTSTATE_NONE: u32 = 2;
 impl BaseActorState {
     fn construct(seed: BaseActorSeed) -> Self {
         Self {
@@ -169,6 +177,66 @@ impl BaseActorState {
     /// the 0x68 frame link, None without a frame.
     pub fn frame_id(&self) -> Option<FrameReferenceId> {
         self.frame
+    }
+    /// GAME 0x47af30 (RVA 0x7af30) C_actor::GetPos (mafia-re 113b5b6
+    /// game/actors/C_actor.h:323-327): return the 0x24 position triplet by
+    /// value. The words stay inside the staged 0x21 window; the read is a
+    /// plain little-endian f32 triplet with no rounding.
+    pub fn pos(&self) -> [f32; 3] {
+        Self::window_triplet(&self.bytes_21_5f, POS_WINDOW_OFFSET)
+    }
+    /// GAME 0x47af50 (RVA 0x7af50) C_actor::SetPos (mafia-re 113b5b6
+    /// game/actors/C_actor.h:399-403): store the 0x24 position triplet by
+    /// value.
+    pub fn set_pos(&mut self, pos: [f32; 3]) {
+        Self::set_window_triplet(&mut self.bytes_21_5f, POS_WINDOW_OFFSET, pos);
+    }
+    /// GAME 0x47af70 (RVA 0x7af70) C_actor::GetDir (mafia-re 113b5b6
+    /// game/actors/C_actor.h:329-332): return the 0x30 direction triplet by
+    /// value, same windowed read as pos.
+    pub fn dir(&self) -> [f32; 3] {
+        Self::window_triplet(&self.bytes_21_5f, DIR_WINDOW_OFFSET)
+    }
+    /// GAME 0x47af90 (RVA 0x7af90) C_actor::SetDir (mafia-re 113b5b6
+    /// game/actors/C_actor.h:405-408): store the 0x30 direction triplet by
+    /// value.
+    pub fn set_dir(&mut self, dir: [f32; 3]) {
+        Self::set_window_triplet(&mut self.bytes_21_5f, DIR_WINDOW_OFFSET, dir);
+    }
+    /// GAME 0x47afe0 (RVA 0x7afe0) C_actor::SetOwnFrame (mafia-re 113b5b6
+    /// game/actors/C_actor.h:431-435): store the 0x6c own-frame latch. The
+    /// destructor/GameDone release reads it back (see destroy_base_inner);
+    /// the original exposes no getter, see own_frame.
+    pub fn set_own_frame(&mut self, own: bool) {
+        self.release_frame = u8::from(own);
+    }
+    /// Working-name reader for the 0x6c own-frame latch written by
+    /// set_own_frame (GAME 0x47afe0, RVA 0x7afe0): the original exposes no
+    /// getter, the destructor reads the byte in place instead.
+    pub fn own_frame(&self) -> bool {
+        self.release_frame != 0
+    }
+    /// GAME 0x408040 (RVA 0x8040) C_actor::GetWorldDir (mafia-re 113b5b6
+    /// game/actors/C_actor.cpp:1691-1697): the frame's world direction where
+    /// one is staged, else the staged 0x30 direction. The frame/matrix owner
+    /// stays DEFERRED, so the caller stages the frame direction.
+    pub fn world_dir(&self, frame_dir: Option<[f32; 3]>) -> [f32; 3] {
+        frame_dir.unwrap_or_else(|| self.dir())
+    }
+    fn window_triplet(window: &[u8; 63], offset: usize) -> [f32; 3] {
+        std::array::from_fn(|lane| {
+            f32::from_le_bytes(
+                window[offset + lane * 4..offset + lane * 4 + 4]
+                    .try_into()
+                    .expect("window triplet"),
+            )
+        })
+    }
+    fn set_window_triplet(window: &mut [u8; 63], offset: usize, value: [f32; 3]) {
+        for (lane, word) in value.iter().enumerate() {
+            window[offset + lane * 4..offset + lane * 4 + 4]
+                .copy_from_slice(&word.to_le_bytes());
+        }
     }
     /// GAME 0x47aff0 (RVA 0x7aff0) C_actor::SetUnknown65 (mafia-re 113b5b6
     /// game/actors/C_actor.h:437-440): store the 0x65 byte. Sibling writer
@@ -263,6 +331,18 @@ impl BaseActorState {
     pub fn act_state(&self) -> u32 {
         self.state_1c
     }
+    /// GAME 0x406dd0 (RVA 0x6dd0) C_actor::Rebirth (mafia-re 113b5b6
+    /// game/actors/C_actor.cpp:1366-1375): an actor in ACTSTATE_NONE returns
+    /// to ACTSTATE_ACTIVE. Returns whether the game-side change flag would
+    /// be raised (act_mission->game->act_state_changed = true); the game
+    /// owner stays DEFERRED, so the edge is reported, not delivered.
+    pub fn rebirth(&mut self) -> bool {
+        if self.state_1c == ACTSTATE_NONE {
+            self.state_1c = ACTSTATE_ACTIVE;
+            return true;
+        }
+        false
+    }
     /// Inline C_actor::GetType read (mafia-re 113b5b6
     /// game/actors/C_actor.h:294-299; working name, no standalone FUNCTION
     /// and no RVA claimed: VC6 left the callers out of line and the copies
@@ -299,6 +379,32 @@ impl BaseActorState {
         None
     }
 }
+/// GAME 0x406590 (RVA 0x6590) C_actor::Actor_SaveGameGetSize (mafia-re
+/// 113b5b6 game/actors/C_actor.cpp:1146-1155): the saved-actor reference
+/// size for a staged frame name: two words without an actor, a nameless
+/// frame or an empty name, else two words plus the NUL-terminated name.
+/// The frame/car owners stay DEFERRED; the caller stages the frame name.
+pub fn actor_savegame_size(frame_name: Option<&str>) -> u32 {
+    match frame_name {
+        Some(name) if !name.is_empty() => 8 + name.len() as u32 + 1,
+        _ => 8,
+    }
+}
+/// GAME 0x547130 (RVA 0x147130) C_actor::SetFrameActor EXPLICIT
+/// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_actor.h:507-519): give
+/// the frame the actor-pointer slot, freeing the previous user data (and a
+/// null-pointed allocation). The frame user-data owner does not exist here,
+/// so no pointer is stored and no allocation is freed.
+pub fn set_frame_actor_unsupported() {}
+/// GAME 0x604d90 (RVA 0x204d90) C_actor::GetFrameActor EXPLICIT
+/// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_actor.h:492-505): read
+/// the frame user data as the actor-pointer slot. The frame owner does not
+/// exist here, so no pointer is returned.
+pub fn get_frame_actor_unsupported() {}
+/// Byte offset of the 0x24 pos triplet inside the staged 0x21 window.
+const POS_WINDOW_OFFSET: usize = 0x24 - 0x21;
+/// Byte offset of the 0x30 dir triplet inside the staged 0x21 window.
+const DIR_WINDOW_OFFSET: usize = 0x30 - 0x21;
 /// One staged C_actor spline key for the GetRecordPos/GetRecordRot walk
 /// cores (mafia-re 113b5b6 game/actors/C_actor.h:106-122 S_actor_record):
 /// the key time, the frame position/rotation, the Hermite tangents and the
@@ -1327,6 +1433,20 @@ impl ActorWorld {
         if let Some(i) = self.static_actors.values.iter().rposition(|a| *a == actor) {
             self.static_actors.values.swap_remove(i);
         }
+    }
+    /// GAME 0x407fb0 (RVA 0x7fb0) C_actor::IsGlobalActor (mafia-re 113b5b6
+    /// game/actors/C_actor.cpp:1667-1679): false for a null actor, else a
+    /// reverse scan of the static (global) collection for the identity.
+    /// Stale or unknown identities simply miss.
+    pub fn is_global_actor(&self, actor: Option<ActorReferenceId>) -> bool {
+        let Some(actor) = actor else {
+            return false;
+        };
+        self.static_actors
+            .values
+            .iter()
+            .rev()
+            .any(|slot| *slot == Some(actor))
     }
     /// GAME 0x47b000 (RVA 0x7b000) C_actor::GetGlobalActors (mafia-re
     /// 113b5b6 game/actors/C_actor.h:442-445): the native returns the whole
@@ -6747,6 +6867,104 @@ mod tests {
         assert_eq!(w.actor_count, 1);
         assert_eq!(w.source(ActorSource::Static), &[Some(a)]);
         assert!(p.actor_frees.is_empty());
+    }
+    #[test]
+    // GAME 0x47af30/0x47af50 (RVA 0x7af30/0x7af50) C_actor::GetPos/SetPos
+    // (mafia-re 113b5b6 game/actors/C_actor.h:323-327, :399-403): the stored
+    // triplet reads back exactly and the dir window is untouched.
+    fn pos_rva_7af30_7af50_round_trip_keeps_dir_window() {
+        let mut state = BaseActorState::construct(seed());
+        let dir_before = state.dir();
+        state.set_pos([1.0, -2.5, 3.25]);
+        assert_eq!(state.pos(), [1.0, -2.5, 3.25]);
+        assert_eq!(state.dir(), dir_before);
+    }
+    #[test]
+    // GAME 0x47af70/0x47af90 (RVA 0x7af70/0x7af90) C_actor::GetDir/SetDir
+    // (mafia-re 113b5b6 game/actors/C_actor.h:329-332, :405-408): the stored
+    // triplet reads back exactly and the pos window is untouched.
+    fn dir_rva_7af70_7af90_round_trip_keeps_pos_window() {
+        let mut state = BaseActorState::construct(seed());
+        let pos_before = state.pos();
+        state.set_dir([0.0, 0.0, 1.0]);
+        assert_eq!(state.dir(), [0.0, 0.0, 1.0]);
+        assert_eq!(state.pos(), pos_before);
+    }
+    #[test]
+    // GAME 0x47afe0 (RVA 0x7afe0) C_actor::SetOwnFrame (mafia-re 113b5b6
+    // game/actors/C_actor.h:431-435): the 0x6c latch follows the writer; the
+    // working-name reader reports it (the original has no getter).
+    fn own_frame_rva_7afe0_latch_follows_writer() {
+        let mut state = BaseActorState::construct(seed());
+        assert!(state.own_frame());
+        state.set_own_frame(false);
+        assert!(!state.own_frame());
+        state.set_own_frame(true);
+        assert!(state.own_frame());
+    }
+    #[test]
+    // GAME 0x406dd0 (RVA 0x6dd0) C_actor::Rebirth (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:1366-1375): only ACTSTATE_NONE returns to
+    // ACTSTATE_ACTIVE with the game-notify edge; other states are untouched.
+    fn rebirth_rva_6dd0_only_none_returns_to_active() {
+        let mut state = BaseActorState::construct(seed());
+        assert!(!state.rebirth());
+        assert_eq!(state.act_state(), seed().state_1c);
+        state.state_1c = ACTSTATE_ACTIVE;
+        assert!(!state.rebirth());
+        assert_eq!(state.act_state(), ACTSTATE_ACTIVE);
+        state.state_1c = ACTSTATE_NONE;
+        assert!(state.rebirth());
+        assert_eq!(state.act_state(), ACTSTATE_ACTIVE);
+        assert!(!state.rebirth());
+    }
+    #[test]
+    // GAME 0x408040 (RVA 0x8040) C_actor::GetWorldDir (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:1691-1697): a staged frame direction wins,
+    // otherwise the staged 0x30 direction is returned.
+    fn world_dir_rva_8040_frame_wins_over_staged_dir() {
+        let mut state = BaseActorState::construct(seed());
+        state.set_dir([0.0, 0.0, 1.0]);
+        assert_eq!(state.world_dir(None), [0.0, 0.0, 1.0]);
+        assert_eq!(state.world_dir(Some([1.0, 0.0, 0.0])), [1.0, 0.0, 0.0]);
+    }
+    #[test]
+    // GAME 0x407fb0 (RVA 0x7fb0) C_actor::IsGlobalActor (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:1667-1679): null misses; construction
+    // registers (like the native constructor), erasure (GAME 0x407f50)
+    // removes and registration (GAME 0x407d50) re-admits without duplicates.
+    fn is_global_actor_rva_7fb0_matches_registration() {
+        let mut w = world();
+        let mut e = Effects::default();
+        let a = actor(&mut w, &mut e, 1);
+        let b = actor(&mut w, &mut e, 2);
+        assert!(!w.is_global_actor(None));
+        assert!(w.is_global_actor(Some(a)));
+        assert!(w.is_global_actor(Some(b)));
+        w.del_actor_from_global(Some(a));
+        assert!(!w.is_global_actor(Some(a)));
+        assert!(w.is_global_actor(Some(b)));
+        w.add_actor_to_global(Some(a), &mut e).unwrap();
+        assert!(w.is_global_actor(Some(a)));
+    }
+    #[test]
+    // GAME 0x406590 (RVA 0x6590) C_actor::Actor_SaveGameGetSize (mafia-re
+    // 113b5b6 game/actors/C_actor.cpp:1146-1155): two words without a name,
+    // two words plus the NUL-terminated name otherwise.
+    fn savegame_size_rva_6590_counts_name_plus_nul() {
+        assert_eq!(actor_savegame_size(None), 8);
+        assert_eq!(actor_savegame_size(Some("")), 8);
+        assert_eq!(actor_savegame_size(Some("a")), 10);
+        assert_eq!(actor_savegame_size(Some("frame01")), 16);
+    }
+    #[test]
+    // GAME 0x547130 (RVA 0x147130) C_actor::SetFrameActor and GAME 0x604d90
+    // (RVA 0x204d90) C_actor::GetFrameActor (mafia-re 113b5b6
+    // game/actors/C_actor.h:492-519): explicit unsupported stubs pin the
+    // addresses while the frame user-data owner stays DEFERRED.
+    fn frame_actor_rva_147130_204d90_stubs_pin_addresses() {
+        set_frame_actor_unsupported();
+        get_frame_actor_unsupported();
     }
 }
 

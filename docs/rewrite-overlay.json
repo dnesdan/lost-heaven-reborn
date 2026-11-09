@@ -14602,6 +14602,114 @@
       "symbol": "lhr_engine::game_housekeeping::lightness_tick",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7af30",
+      "va": "0x47af30",
+      "name": "C_actor::GetPos",
+      "symbol": "lhr_engine::actor_world::BaseActorState::pos",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Pos read (GAME 0x47af30)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7af50",
+      "va": "0x47af50",
+      "name": "C_actor::SetPos",
+      "symbol": "lhr_engine::actor_world::BaseActorState::set_pos",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Pos write (GAME 0x47af50)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7af70",
+      "va": "0x47af70",
+      "name": "C_actor::GetDir",
+      "symbol": "lhr_engine::actor_world::BaseActorState::dir",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Dir read (GAME 0x47af70)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7af90",
+      "va": "0x47af90",
+      "name": "C_actor::SetDir",
+      "symbol": "lhr_engine::actor_world::BaseActorState::set_dir",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Dir write (GAME 0x47af90)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7afe0",
+      "va": "0x47afe0",
+      "name": "C_actor::SetOwnFrame",
+      "symbol": "lhr_engine::actor_world::BaseActorState::set_own_frame",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Own-frame latch (GAME 0x47afe0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x8040",
+      "va": "0x408040",
+      "name": "C_actor::GetWorldDir",
+      "symbol": "lhr_engine::actor_world::BaseActorState::world_dir",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. World dir (GAME 0x408040)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6dd0",
+      "va": "0x406dd0",
+      "name": "C_actor::Rebirth",
+      "symbol": "lhr_engine::actor_world::BaseActorState::rebirth",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Rebirth (GAME 0x406dd0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6590",
+      "va": "0x406590",
+      "name": "C_actor::Actor_SaveGameGetSize",
+      "symbol": "lhr_engine::actor_world::actor_savegame_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Savegame size (GAME 0x406590)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x147130",
+      "va": "0x547130",
+      "name": "C_actor::SetFrameActor",
+      "symbol": "lhr_engine::actor_world::set_frame_actor_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: frame user-data owner deferred (GAME 0x547130)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x204d90",
+      "va": "0x604d90",
+      "name": "C_actor::GetFrameActor",
+      "symbol": "lhr_engine::actor_world::get_frame_actor_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: frame user-data owner deferred (GAME 0x604d90)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7fb0",
+      "va": "0x407fb0",
+      "name": "C_actor::IsGlobalActor",
+      "symbol": "lhr_engine::actor_world::ActorWorld::is_global_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Global-actor check (GAME 0x407fb0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4e20",
+      "va": "0x404e20",
+      "name": "C_actor_shot::AddToCutscene",
+      "symbol": "lhr_engine::actor_shot::ActorShotState::add_to_cutscene",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Shot cutscene add (GAME 0x404e20)."
     }
   ],
   "vm": {
