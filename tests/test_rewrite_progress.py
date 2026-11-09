@@ -529,8 +529,10 @@ class RewriteProgressTests(unittest.TestCase):
         # 11 working-name helpers uncredited).
         # +2 AnimIsOn/GetName batch (complete walks; pin tests 1/7/1;
         # SetName shared-helper held as contract).
+        # +5 scene-anim batch (GetAnimationSet/GetAnimBlend/GetAnimTime/
+        # AnimIsOn/NumInterpolators complete walks; pin tests 10/8).
         self.assertEqual(ls3df["ported"], 145 + 852)
-        self.assertEqual(ls3df["verified"], 145 + 437)
+        self.assertEqual(ls3df["verified"], 145 + 442)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

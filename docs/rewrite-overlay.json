@@ -1883,8 +1883,8 @@
       "va": "0x1004b1b0",
       "name": "I3D_scene::GetAnimationSet (upstream working name)",
       "symbol": "lhr_engine::scene_animation_runtime::ModelArena::original_scene_animation_set",
-      "tier": "contract",
-      "evidence": "No Ghidra body; 64B entry/mid/RET probe (OOB/null->NULL, [ipol+8+idx*0x1c]) + mafia-re I3d_scene.cpp:873-882 + none/identity tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_2fdcfce4fc + complete walk (index>=8 -> null; else 0x1c-stride slot load + RET 8); pin tests animation_set 10 / scene_animation 8 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1910,8 +1910,8 @@
       "va": "0x1004b290",
       "name": "I3D_scene::GetAnimBlend (upstream working name)",
       "symbol": "lhr_engine::scene_animation_runtime::ModelArena::original_scene_animation_blend",
-      "tier": "contract",
-      "evidence": "No Ghidra body; 96B probe (OOB/null->FLD 0.0, else FLD +0x20) + mafia-re I3d_scene.cpp:914-923 + zero/roundtrip/NaN tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_4a3bc85736 + complete walk (index>=8 -> 0.0; else 0x1c-stride float load + RET 8); pin tests animation_set 10 / scene_animation 8 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1928,8 +1928,8 @@
       "va": "0x1004b310",
       "name": "I3D_scene::GetAnimTime (upstream working name)",
       "symbol": "lhr_engine::scene_animation_runtime::ModelArena::original_scene_animation_time",
-      "tier": "contract",
-      "evidence": "No Ghidra body; 96B probe (OOB/null->0, else [+0x14]) + mafia-re I3d_scene.cpp:942-951 + zero/roundtrip tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_a8c33e6d5f + complete walk (index>=8 -> 0; else 0x1c-stride dword load + RET 8); pin tests animation_set 10 / scene_animation 8 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1937,8 +1937,8 @@
       "va": "0x1004b340",
       "name": "I3D_scene::AnimIsOn (upstream working name)",
       "symbol": "lhr_engine::scene_animation_runtime::ModelArena::original_scene_animation_is_on",
-      "tier": "contract",
-      "evidence": "No Ghidra body; 96B probe (OOB/null->false, else AL=[+0x0c]) + mafia-re I3d_scene.cpp:953-962 + on/stop tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_fa5e8b6b06 + complete walk (index>=8 -> 0; else 0x1c-stride byte load + RET 8); pin tests animation_set 10 / scene_animation 8 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1946,8 +1946,8 @@
       "va": "0x1004b370",
       "name": "I3D_scene::NumInterpolators (upstream working name)",
       "symbol": "lhr_engine::scene_animation_runtime::ModelArena::original_scene_num_interpolators",
-      "tier": "contract",
-      "evidence": "No Ghidra body; 96B probe (null->0, else [ipol+0xf0]) + mafia-re I3d_scene.cpp:964-971 + absent/count tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_542d0d998f + complete walk (null -> RET; else [+0xf0] count + RET 4); pin tests animation_set 10 / scene_animation 8 pass"
     },
     {
       "binary": "LS3DF.dll",
