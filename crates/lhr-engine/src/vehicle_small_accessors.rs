@@ -504,6 +504,14 @@ pub const CAR_IS_SEAT_LEFT_ENTRY: u32 = 0x42ba10;
 pub const CAR_GET_SEAT_PROPERTY_ENTRY: u32 = 0x41dc30;
 /// `C_car::GetPlacementFromTCK` 0x41c550: seat animation placement query.
 pub const CAR_GET_PLACEMENT_FROM_TCK_ENTRY: u32 = 0x41c550;
+/// `C_car::SetEnterProtect` 0x429580: keeps humans from getting in or out.
+pub const CAR_SET_ENTER_PROTECT_ENTRY: u32 = 0x429580;
+/// `C_car::ShowCarEnergy` 0x429450: the car's energy for the HUD.
+pub const CAR_SHOW_CAR_ENERGY_ENTRY: u32 = 0x429450;
+/// `C_car::_RepairPosition` 0x41e690: repairs the car position.
+pub const CAR_REPAIR_POSITION_ENTRY: u32 = 0x41e690;
+/// `C_car::GetPlacementFromTCK1` 0x41c680: place by the car and direction.
+pub const CAR_GET_PLACEMENT_FROM_TCK1_ENTRY: u32 = 0x41c680;
 
 /// RVA 0x1d810, VA 0x41d810 (`C_car::SetOwner`,
 /// mafia-re 113b5b6 `game/vehicles/C_car.cpp:318-323`).
@@ -664,6 +672,49 @@ pub fn car_get_placement_from_tck_unsupported(
 ) -> Result<bool, VehicleSmallStubError> {
     Err(VehicleSmallStubError::Unsupported {
         entry: CAR_GET_PLACEMENT_FROM_TCK_ENTRY,
+    })
+}
+
+/// RVA 0x29580, VA 0x429580 (`C_car::SetEnterProtect`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:424-429`).
+/// STUB: keeps the humans from getting in or out. The enter-protect/actor
+/// owners stay outside this contract, so the boundary is explicit.
+pub fn car_set_enter_protect_unsupported(_protect: bool) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_SET_ENTER_PROTECT_ENTRY,
+    })
+}
+
+/// RVA 0x29450, VA 0x429450 (`C_car::ShowCarEnergy`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:410-414`).
+/// STUB: the car's energy for the HUD. The HUD/frame owner stays outside
+/// this contract, so the boundary is explicit; the native `float` answer is
+/// preserved in the return type.
+pub fn car_show_car_energy_unsupported() -> Result<f32, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_SHOW_CAR_ENERGY_ENTRY,
+    })
+}
+
+/// RVA 0x1e690, VA 0x41e690 (`C_car::_RepairPosition`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:334-338`).
+/// STUB: repairs the car position. The frame/collision owners stay outside
+/// this contract, so the boundary is explicit.
+pub fn car_repair_position_unsupported(_unknown: bool) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_REPAIR_POSITION_ENTRY,
+    })
+}
+
+/// RVA 0x1c680, VA 0x41c680 (`C_car::GetPlacementFromTCK1`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:53-57`).
+/// STUB: a place by the car and its direction for the traffic walker. The
+/// frame/placement owners stay outside this contract, so no position is
+/// staged and the boundary is explicit; the native `bool` answer is
+/// preserved in the return type.
+pub fn car_get_placement_from_tck1_unsupported() -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_GET_PLACEMENT_FROM_TCK1_ENTRY,
     })
 }
 
@@ -1229,6 +1280,54 @@ mod tests {
         assert_eq!(
             car_get_placement_from_tck_unsupported(0, 0),
             Err(VehicleSmallStubError::Unsupported { entry: 0x41c550 })
+        );
+    }
+
+    #[test]
+    fn rva_29580_set_enter_protect_reports_unsupported() {
+        // C_car::SetEnterProtect GAME RVA 0x29580 (VA 0x429580).
+        assert_eq!(CAR_SET_ENTER_PROTECT_ENTRY, 0x429580);
+        assert_eq!(
+            car_set_enter_protect_unsupported(true),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x429580 })
+        );
+        assert_eq!(
+            car_set_enter_protect_unsupported(false),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x429580 })
+        );
+    }
+
+    #[test]
+    fn rva_29450_show_car_energy_reports_unsupported() {
+        // C_car::ShowCarEnergy GAME RVA 0x29450 (VA 0x429450).
+        assert_eq!(CAR_SHOW_CAR_ENERGY_ENTRY, 0x429450);
+        assert_eq!(
+            car_show_car_energy_unsupported(),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x429450 })
+        );
+    }
+
+    #[test]
+    fn rva_1e690_repair_position_reports_unsupported() {
+        // C_car::_RepairPosition GAME RVA 0x1e690 (VA 0x41e690).
+        assert_eq!(CAR_REPAIR_POSITION_ENTRY, 0x41e690);
+        assert_eq!(
+            car_repair_position_unsupported(true),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x41e690 })
+        );
+        assert_eq!(
+            car_repair_position_unsupported(false),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x41e690 })
+        );
+    }
+
+    #[test]
+    fn rva_1c680_get_placement_from_tck1_reports_unsupported() {
+        // C_car::GetPlacementFromTCK1 GAME RVA 0x1c680 (VA 0x41c680).
+        assert_eq!(CAR_GET_PLACEMENT_FROM_TCK1_ENTRY, 0x41c680);
+        assert_eq!(
+            car_get_placement_from_tck1_unsupported(),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x41c680 })
         );
     }
 }

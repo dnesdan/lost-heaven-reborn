@@ -4069,6 +4069,65 @@ impl HumanState {
     /// is touched and no owner is filed; the stub exists only to pin the
     /// address while those owners stay DEFERRED.
     pub fn deactivate_unsupported() {}
+    /// GAME 0x58d020 (RVA 0x18d020, VA 0x58d020) C_human::FreeHand EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:9626):
+    /// the body runs the Do_Holster carry gate (owned separately as
+    /// `holster_requires_carry_drop`), then harvests the hand frames into a
+    /// vector and files each as a physical thing through the
+    /// scene/physics/mission owners. The frame, scene and physics owners do
+    /// not exist here, so no state is touched and no owner is filed; the
+    /// stub exists only to pin the address while those owners stay DEFERRED.
+    pub fn free_hand_unsupported() {}
+    /// GAME 0x58d2c0 (RVA 0x18d2c0, VA 0x58d2c0) C_human::StartWeaponEffect
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:9673): the body arms the reload/shot effect
+    /// moves (cylinder slide, clip drop, shells, left-hand clip) through the
+    /// weapon-model frames, the driver visuals and the physics/mission
+    /// owners. The inventory, frame, driver and physics owners do not exist
+    /// here, so no state is touched (not even the leading `effect_step = 0`,
+    /// which the effect program owns) and no owner is filed; the stub exists
+    /// only to pin the address while those owners stay DEFERRED.
+    pub fn start_weapon_effect_unsupported(_effect: i32) {}
+    /// GAME 0x58da70 (RVA 0x18da70, VA 0x58da70) C_human::TickWeaponEffect
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:9872): the body advances `effect_pos` by
+    /// `time * effect_speed` and poses the effect frame (cylinder/slide/
+    /// foregrip) per the right-hand item. The effect-frame and inventory
+    /// owners do not exist here, so no state is touched and no owner is
+    /// filed; the stub exists only to pin the address while those owners
+    /// stay DEFERRED.
+    pub fn tick_weapon_effect_unsupported(_time_ms: u32) {}
+    /// GAME 0x58a5a0 (RVA 0x18a5a0, VA 0x58a5a0)
+    /// C_human::EineMeineKleineAutoInLuft EXPLICIT UNSUPPORTED STUB
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:8852; the name is the
+    /// upstream PS2 working name for the burning-wreck ride, NOT original):
+    /// the body links the frame to the wreck, swaps the model to the burnt
+    /// one, kills the human through Death and stages the death animation at
+    /// its last frame. The frame, model-change, death, animation and
+    /// indicator owners do not exist here, so no state is touched and no
+    /// owner is filed; the stub exists only to pin the address while those
+    /// owners stay DEFERRED.
+    pub fn eine_meine_kleine_auto_in_luft_unsupported() {}
+    /// GAME 0x587190 (RVA 0x187190, VA 0x587190)
+    /// C_human::_intern_ChangeModel EXPLICIT UNSUPPORTED STUB (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:7883): the body keeps the original
+    /// model name, invalidates the actor, drops the shadow, stops the
+    /// animations, erases the dynamic collisions and rebuilds poses, hand
+    /// targets and shadow for the new model. The frame, model-cache,
+    /// collision, shadow and mission owners do not exist here, so no state
+    /// is touched and no owner is filed; the stub exists only to pin the
+    /// address while those owners stay DEFERRED.
+    pub fn intern_change_model_unsupported() {}
+    /// GAME 0x582180 (RVA 0x182180, VA 0x582180) C_human::Use_Actor EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:6681): the
+    /// body dispatches the use action over doors, turnouts, cars, railway
+    /// wagons and trucks (seat checks through Can_EnterToCar and
+    /// GetSeatProperty, traffic/police handoffs, climb animations). The
+    /// door/turnout/car/rail actors plus the scene, police and animation
+    /// owners do not exist here, so no state is touched and no owner is
+    /// filed; the stub exists only to pin the address while those owners
+    /// stay DEFERRED.
+    pub fn use_actor_unsupported() {}
 }
 
 /// Small-probe boundary for the bool-returning C_human leaves pinned above.
@@ -6229,6 +6288,84 @@ mod human_state_flags_tests {
         HumanState::deactivate_unsupported();
     }
     #[test]
+    // GAME 0x58d020 (RVA 0x18d020) C_human::FreeHand (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9626): explicit unsupported stub, frame/scene/
+    // physics owners past the Do_Holster carry gate; invoking it touches no
+    // staged words.
+    fn rva_18d020_free_hand_stub_runs_without_state() {
+        HumanState::free_hand_unsupported();
+    }
+    #[test]
+    // GAME 0x58d2c0 (RVA 0x18d2c0) C_human::StartWeaponEffect (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9673): explicit unsupported stub, inventory/
+    // frame/driver/physics owners; invoking it touches no staged words.
+    fn rva_18d2c0_start_weapon_effect_stub_runs_without_state() {
+        HumanState::start_weapon_effect_unsupported(0);
+        HumanState::start_weapon_effect_unsupported(1);
+    }
+    #[test]
+    // GAME 0x58da70 (RVA 0x18da70) C_human::TickWeaponEffect (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9872): explicit unsupported stub, effect-frame/
+    // inventory owners; invoking it touches no staged words.
+    fn rva_18da70_tick_weapon_effect_stub_runs_without_state() {
+        HumanState::tick_weapon_effect_unsupported(0);
+        HumanState::tick_weapon_effect_unsupported(16);
+    }
+    #[test]
+    // GAME 0x58a5a0 (RVA 0x18a5a0) C_human::EineMeineKleineAutoInLuft
+    // (mafia-re 113b5b6 game/actors/C_human.cpp:8852): explicit unsupported
+    // stub, frame/model-change/death/animation/indicator owners; invoking it
+    // touches no staged words.
+    fn rva_18a5a0_eine_meine_stub_runs_without_state() {
+        HumanState::eine_meine_kleine_auto_in_luft_unsupported();
+    }
+    #[test]
+    // GAME 0x587190 (RVA 0x187190) C_human::_intern_ChangeModel (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:7883): explicit unsupported stub,
+    // frame/model-cache/collision/shadow/mission owners; invoking it touches
+    // no staged words.
+    fn rva_187190_intern_change_model_stub_runs_without_state() {
+        HumanState::intern_change_model_unsupported();
+    }
+    #[test]
+    // GAME 0x582180 (RVA 0x182180) C_human::Use_Actor (mafia-re 113b5b6
+    // game/actors/C_human.cpp:6681): explicit unsupported stub, door/turnout/
+    // car/rail actors plus scene/police/animation owners; invoking it touches
+    // no staged words.
+    fn rva_182180_use_actor_stub_runs_without_state() {
+        HumanState::use_actor_unsupported();
+    }
+    #[test]
+    // GAME 0x58bf30 (RVA 0x18bf30) SettleOnGround (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9427): explicit unsupported stub, frame/
+    // collision owners; invoking it stages no height.
+    fn rva_18bf30_settle_on_ground_stub_runs_without_state() {
+        assert_eq!(SETTLE_ON_GROUND_ENTRY, 0x58bf30);
+        settle_on_ground_unsupported();
+    }
+    #[test]
+    // GAME 0x58c980 (RVA 0x18c980) SlideOffEdge (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9514): explicit unsupported stub, frame/
+    // collision owners; the native bool verdict is preserved as Err.
+    fn rva_18c980_slide_off_edge_reports_unsupported() {
+        assert_eq!(SLIDE_OFF_EDGE_ENTRY, 0x58c980);
+        assert_eq!(
+            slide_off_edge_unsupported(),
+            Err(WallPushError::Unsupported { entry: 0x58c980 })
+        );
+    }
+    #[test]
+    // GAME 0x56d130 (RVA 0x16d130) human_notify_callback (mafia-re 113b5b6
+    // game/actors/C_human.cpp:784): explicit unsupported stub, frame/sound/
+    // scene/material owners; the native uint answer is preserved as Err.
+    fn rva_16d130_human_notify_callback_reports_unsupported() {
+        assert_eq!(HUMAN_NOTIFY_CALLBACK_ENTRY, 0x56d130);
+        assert_eq!(
+            human_notify_callback_unsupported(0, 1, 0),
+            Err(HumanNotifyError::Unsupported { entry: 0x56d130 })
+        );
+    }
+    #[test]
     // GAME 0x58d270 (RVA 0x18d270) C_human::BezZasobnikuWeaponEffect (mafia-re
     // 113b5b6 game/actors/C_human.cpp:9660): only ids 9-10 hide a present
     // visual clip; missing or non-visual clips stay untouched.
@@ -7850,6 +7987,61 @@ pub const PUSH_OUT_OF_WALLS_ENTRY: u32 = 0x58c4f0;
 pub fn push_out_of_walls_unsupported() -> Result<bool, WallPushError> {
     Err(WallPushError::Unsupported {
         entry: PUSH_OUT_OF_WALLS_ENTRY,
+    })
+}
+
+/// GAME 0x58bf30 (RVA 0x18bf30, VA 0x58bf30) SettleOnGround (mafia-re 113b5b6
+/// game/actors/C_human.cpp:9427) EXPLICIT UNSUPPORTED STUB: lifting/lowering
+/// the frame by the ground mean height under the staged bone points and
+/// turning it to the ground mean normal needs the frame and global collision
+/// owners (`GetMatrix/TestLineV/SetPos/Update`), so no height is staged and
+/// no frame is touched; the stub exists only to pin the address while those
+/// owners stay DEFERRED.
+pub const SETTLE_ON_GROUND_ENTRY: u32 = 0x58bf30;
+
+/// GAME 0x58bf30 (RVA 0x18bf30, VA 0x58bf30) ground-settle stub.
+pub fn settle_on_ground_unsupported() {}
+
+/// GAME 0x58c980 (RVA 0x18c980, VA 0x58c980) SlideOffEdge (mafia-re 113b5b6
+/// game/actors/C_human.cpp:9514) EXPLICIT UNSUPPORTED STUB: sliding the frame
+/// off a ledge (or lowering it to the nearest ground within 50) needs the
+/// frame and global collision owners (`GetMatrix/TestLineV/TestLineH/SetPos/
+/// Update`), so no displacement is staged; the stub exists only to pin the
+/// address while those owners stay DEFERRED. The native `bool` answer is
+/// preserved in the return type.
+pub const SLIDE_OFF_EDGE_ENTRY: u32 = 0x58c980;
+
+/// GAME 0x58c980 (RVA 0x18c980, VA 0x58c980) ledge-slide stub.
+pub fn slide_off_edge_unsupported() -> Result<bool, WallPushError> {
+    Err(WallPushError::Unsupported {
+        entry: SLIDE_OFF_EDGE_ENTRY,
+    })
+}
+
+/// Animation-note callback boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HumanNotifyError {
+    Unsupported { entry: u32 },
+}
+
+/// GAME 0x56d130 (RVA 0x16d130, VA 0x56d130) human_notify_callback (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:784) EXPLICIT UNSUPPORTED STUB: the
+/// model's animation-note dispatch (step sounds/tracks, car doors, weapon
+/// hand swaps, grenade throw, weapon effects, screams) needs the frame,
+/// sound, scene and material owners, so no note is handled; the stub exists
+/// only to pin the address while those owners stay DEFERRED. The native
+/// `uint` answer is preserved in the return type.
+pub const HUMAN_NOTIFY_CALLBACK_ENTRY: u32 = 0x56d130;
+
+/// GAME 0x56d130 (RVA 0x16d130, VA 0x56d130) note-callback stub. The frame
+/// owner is deferred, so only the staged note words cross the boundary.
+pub fn human_notify_callback_unsupported(
+    _message: u32,
+    _param1: u32,
+    _param2: u32,
+) -> Result<u32, HumanNotifyError> {
+    Err(HumanNotifyError::Unsupported {
+        entry: HUMAN_NOTIFY_CALLBACK_ENTRY,
     })
 }
 

@@ -15421,6 +15421,123 @@
       "symbol": "lhr_engine::human_actor::HumanState::deactivate_unsupported",
       "tier": "contract",
       "evidence": "REA ev_51eda226e6 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18d020",
+      "va": "0x58d020",
+      "name": "C_human::FreeHand",
+      "symbol": "lhr_engine::human_actor::HumanState::free_hand_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18d2c0",
+      "va": "0x58d2c0",
+      "name": "C_human::StartWeaponEffect",
+      "symbol": "lhr_engine::human_actor::HumanState::start_weapon_effect_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18da70",
+      "va": "0x58da70",
+      "name": "C_human::TickWeaponEffect",
+      "symbol": "lhr_engine::human_actor::HumanState::tick_weapon_effect_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18a5a0",
+      "va": "0x58a5a0",
+      "name": "C_human::EineMeineKleineAutoInLuft",
+      "symbol": "lhr_engine::human_actor::HumanState::eine_meine_kleine_auto_in_luft_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x187190",
+      "va": "0x587190",
+      "name": "C_human::_intern_ChangeModel",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_change_model_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x182180",
+      "va": "0x582180",
+      "name": "C_human::Use_Actor",
+      "symbol": "lhr_engine::human_actor::HumanState::use_actor_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18bf30",
+      "va": "0x58bf30",
+      "name": "C_human settle on ground (working name)",
+      "symbol": "lhr_engine::human_actor::settle_on_ground_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18c980",
+      "va": "0x58c980",
+      "name": "C_human slide off edge (working name)",
+      "symbol": "lhr_engine::human_actor::slide_off_edge_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16d130",
+      "va": "0x56d130",
+      "name": "C_human notify callback (working name)",
+      "symbol": "lhr_engine::human_actor::human_notify_callback_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29580",
+      "va": "0x429580",
+      "name": "C_car::SetEnterProtect",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_enter_protect_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29450",
+      "va": "0x429450",
+      "name": "C_car::ShowCarEnergy",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_show_car_energy_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e690",
+      "va": "0x41e690",
+      "name": "C_car::RepairPosition",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_repair_position_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c680",
+      "va": "0x41c680",
+      "name": "C_car::GetPlacementFromTCK1",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_placement_from_tck1_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

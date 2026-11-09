@@ -419,7 +419,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +15 human anim STUB contracts (ShiftAnimation/ChangeState/DynColls x3/
         # PoseSetPose x2/ChangeWeaponModel/DropOutItems/Zasrate x2/ForceDeath/
         # ThrowMeFromCar/Activate/Deactivate; all STUBs).
-        self.assertEqual(game["ported"], 149 + 786)
+        # +13 weapon/use STUB contracts (FreeHand/WeaponEffect x2/EineMeine/
+        # ChangeModel/Use_Actor/settle/slide/notify/EnterProtect/Energy/
+        # Repair/Placement; all STUBs held as contract).
+        self.assertEqual(game["ported"], 149 + 799)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
