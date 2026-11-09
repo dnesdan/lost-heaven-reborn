@@ -3328,6 +3328,21 @@ impl HumanState {
     pub fn actor_speed_into(&self, speed: &mut [f32; 3]) {
         *speed = self.velocity;
     }
+    /// GAME 0x56b180 (RVA 0x16b180) C_human::AddToCutscene (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:42-48): the human files three record kinds
+    /// (0x28, 0x2c and 0x38 bytes) and reports true. The recorder call
+    /// (`cutscene.AddActor`) stays with the cutscene owner (DEFERRED); this
+    /// leaf only stages the three size words plus the constant verdict, in
+    /// (sizes, verdict) order.
+    pub fn add_to_cutscene(&self) -> ([u32; 3], bool) {
+        ([0x28, 0x2c, 0x38], true)
+    }
+    /// Static C_human::HideLegs no-op (mafia-re 113b5b6
+    /// game/actors/C_human.h:672-673; working name, no standalone FUNCTION
+    /// and no RVA claimed: hides or shows a driver's legs, but empty on the
+    /// PC, so neither the model nor the flag is touched). The model owner is
+    /// irrelevant here: there is no body to run.
+    pub fn hide_legs_empty(_hide: bool) {}
     /// GAME 0x57a5f0 (RVA 0x17a5f0) C_human::PoseValidate EXPLICIT
     /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:4714):
     /// the body is frame-only (`frame->SetPoseBlend(valid ? 1.0 : 0.0)` plus
@@ -5331,6 +5346,22 @@ mod human_state_flags_tests {
             human.weapon_drop_carry_action(),
             WeaponDropCarry::CarryBoxDrop
         );
+    }
+    #[test]
+    // GAME 0x56b180 (RVA 0x16b180) C_human::AddToCutscene (mafia-re 113b5b6
+    // game/actors/C_human.cpp:42-48): three record kinds of 0x28, 0x2c and
+    // 0x38 bytes, verdict true.
+    fn add_to_cutscene_rva_16b180_stages_three_kind_sizes() {
+        let human = HumanState::construct(seed());
+        assert_eq!(human.add_to_cutscene(), ([0x28, 0x2c, 0x38], true));
+    }
+    #[test]
+    // Static C_human::HideLegs (mafia-re 113b5b6
+    // game/actors/C_human.h:672-673; working name, no RVA claimed: empty on
+    // the PC): hiding or showing touches no state.
+    fn hide_legs_working_name_is_empty_noop() {
+        HumanState::hide_legs_empty(true);
+        HumanState::hide_legs_empty(false);
     }
     #[test]
     // GAME 0x58b690 (RVA 0x18b690) C_human::Do_FuckingBoxDrop (mafia-re 113b5b6

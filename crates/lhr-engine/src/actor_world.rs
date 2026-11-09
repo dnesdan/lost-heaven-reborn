@@ -201,6 +201,271 @@ impl BaseActorState {
     pub fn record_key(&self, _time: i32) -> i32 {
         -1
     }
+    /// GAME 0x4091f0 (RVA 0x91f0) C_actor::GetActorSpeed (mafia-re 113b5b6
+    /// game/actors/C_actor.h:230-233): the base actor has no speed, so it
+    /// zeroes the caller's speed word (`speed.Zero()` inline in the header;
+    /// the out-of-line copy the linker kept is the folded SYNTHETIC at this
+    /// address). The walking human override publishes its velocity instead;
+    /// see HumanState::actor_speed_into (GAME 0x51af20).
+    pub fn base_actor_speed_into(&self, speed: &mut [f32; 3]) {
+        *speed = [0.0, 0.0, 0.0];
+    }
+    /// GAME 0x409210 (RVA 0x9210) C_actor::GetMaterialID (mafia-re 113b5b6
+    /// game/actors/C_actor.h:250-253): the base reports material 0. The
+    /// frame argument the native takes is unused by the base body and is
+    /// not staged here; material owners stay DEFERRED.
+    pub fn material_id(&self) -> i32 {
+        0
+    }
+    /// GAME 0x407590 (RVA 0x7590) C_actor::IsPossibleColl (mafia-re 113b5b6
+    /// game/actors/C_actor.h:254-258): the base never collides, so it
+    /// returns false without reading any input. The native probe arguments
+    /// (the other actor, both travel vectors, the radius, the distance out
+    /// word and the hit-slot out word) are all unused by the base body and
+    /// are not staged here; the pedestrian override with real probe math
+    /// lives with the collision owner (DEFERRED).
+    pub fn is_possible_coll(&self) -> bool {
+        false
+    }
+    /// GAME 0x4aa450 (RVA 0x4a450) C_actor::Collision (mafia-re 113b5b6
+    /// game/actors/C_actor.h:238-242): the base never collides, so it
+    /// returns false without reading any input. The native arguments (the
+    /// other actor, three vectors, the radius and the frame) are all unused
+    /// by the base body and are not staged here.
+    pub fn collision(&self) -> bool {
+        false
+    }
+    /// GAME 0x404e00 (RVA 0x4e00) C_actor::AddToCutscene (mafia-re 113b5b6
+    /// game/actors/C_actor.cpp:623-629): the base files one record kind of
+    /// `sizeof(S_actor_record)` bytes (0x5c per game/actors/C_actor.h:102)
+    /// and no other kinds, then reports true. The recorder call
+    /// (`cutscene.AddActor`) stays with the cutscene owner (DEFERRED); this
+    /// leaf only stages the three size words plus the constant verdict, in
+    /// (sizes, verdict) order.
+    pub fn add_to_cutscene(&self) -> ([u32; 3], bool) {
+        ([0x5c, 0, 0], true)
+    }
+    /// GAME 0x4075a0 (RVA 0x75a0) C_actor::GetBoundPoints2D EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_actor.cpp:1534-1611): the body projects the frame's
+    /// high-detail bounding volume through its matrix (four padded ground
+    /// corners past a 0.7071 up-facing gate, else eight padded corners with
+    /// the furthest +x/-x/+z/-z selection) into the caller's 2D point list.
+    /// The frame, matrix and bound-volume owners do not exist here, so no
+    /// point is produced and no owner is filed; the stub exists only to pin
+    /// the address while those owners stay DEFERRED.
+    pub fn bound_points_2d_unsupported() {}
+    /// Inline C_actor::GetActState read (mafia-re 113b5b6
+    /// game/actors/C_actor.h:281-286; working name, no standalone FUNCTION
+    /// and no RVA claimed: C_game::ChangeActState reads the state through
+    /// it at the call sites). Reads the 0x1c act-state word (ACTSTATE_*),
+    /// backed by the staged state_1c word.
+    pub fn act_state(&self) -> u32 {
+        self.state_1c
+    }
+    /// Inline C_actor::GetType read (mafia-re 113b5b6
+    /// game/actors/C_actor.h:294-299; working name, no standalone FUNCTION
+    /// and no RVA claimed: VC6 left the callers out of line and the copies
+    /// folded with C_mission::GetScene and others). Reads the 0x10 type
+    /// word (ACTOR_*, ACTOR_ACTOR 1 from the constructor), backed by the
+    /// staged word_10.
+    pub fn actor_type(&self) -> u32 {
+        self.word_10
+    }
+    /// Inline C_actor::GetActFlags read (mafia-re 113b5b6
+    /// game/actors/C_actor.h:446-450; working name, no new address claimed:
+    /// the only folded copy (GAME 0x604d80) is retained in the ledger).
+    /// Reads the 0x04 act-flags word (ACTF_*), backed by the staged flags
+    /// word.
+    pub fn act_flags(&self) -> u32 {
+        self.flags
+    }
+    /// Read of the C_actor::SetFromMission word (mafia-re 113b5b6
+    /// game/actors/C_actor.h:271-276 and :369-371: 0x66 from_mission; the
+    /// setter's address GAME 0x547220 is retained in the ledger and no
+    /// reference getter exists, so this is a working name with no address
+    /// claimed). Reports whether the actor was marked as a mission-file
+    /// actor; the writer is BaseActorState::set_from_mission.
+    pub fn from_mission(&self) -> bool {
+        self.byte_66 != 0
+    }
+    /// Base C_actor::GetProgram leaf (mafia-re 113b5b6
+    /// game/actors/C_actor.h:260-265; working name, no address claimed: the
+    /// NULL-returning bodies were folded by the linker into the group kept
+    /// under C_seagull::SaveGameGetSize at GAME 0x409220). The base actor
+    /// carries no script, so the leaf reports no program; the detector and
+    /// entity overrides live with their program owners.
+    pub fn program(&self) -> Option<&CProgram> {
+        None
+    }
+}
+/// One staged C_actor spline key for the GetRecordPos/GetRecordRot walk
+/// cores (mafia-re 113b5b6 game/actors/C_actor.h:106-122 S_actor_record):
+/// the key time, the frame position/rotation, the Hermite tangents and the
+/// position/rotation eases, exactly the words the two walks read. The
+/// rotation is x/y/z/s like S_quat (vector, then scalar). The 12 unknown
+/// bytes, the anim word and the per-type record_sizes byte stepping live
+/// with the recorder owner; callers stage the keys in record order.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StagedActorRecord {
+    pub time: i32,
+    pub pos: [f32; 3],
+    pub rot: [f32; 4],
+    pub tangent_out: [f32; 3],
+    pub tangent_in: [f32; 3],
+    pub ease_from: f32,
+    pub ease_to: f32,
+    pub rot_ease_from: f32,
+    pub rot_ease_to: f32,
+}
+/// Shared Ease core of the record walks (mafia-re 113b5b6
+/// game/mission/C_recorder.cpp:36-57): the time between two keys eased over
+/// `a`, then linear, then over `b` (`a` and `b` scaled down to a sum of 1);
+/// the time itself where they add up to nothing. Private helper, no port
+/// claimed: the out-of-line Ease (GAME 0x598410) belongs to the recorder
+/// owner. The f32 operations replicate the original exactly, including the
+/// divide-by-zero NaN over a zero-length ease edge.
+fn cutscene_ease(u: f32, a: f32, b: f32) -> f32 {
+    let s = a + b;
+    if s < 0.001 {
+        return u;
+    }
+    let (a, b) = if s > 1.0 { (a / s, b / s) } else { (a, b) };
+    let k = 1.0 / (2.0 - a - b);
+    if u < a {
+        return k / a * u * u;
+    }
+    if u < 1.0 - b {
+        return k * (2.0 * u - a);
+    }
+    let u = 1.0 - u;
+    1.0 - k / b * u * u
+}
+/// Bracket walk shared by the GetRecordPos/GetRecordRot cores (mafia-re
+/// 113b5b6 game/actors/C_actor.cpp:855-865 and :1871-1881): the last key at
+/// or before the query time plus the key after it, or the same key twice
+/// past the last key time. The recorder's raw byte stepping by
+/// record_sizes[type] is replaced by the staged slice order; an empty
+/// slice never reaches this helper (callers return the zero
+/// position/rotation first) and a missing successor (malformed input the
+/// original trusts) settles on the available key. Returns the (previous,
+/// next) indexes.
+fn record_bracket(records: &[StagedActorRecord], last_key_time: i32, time: i32) -> (usize, usize) {
+    let mut prev = 0;
+    for (index, record) in records.iter().enumerate() {
+        if record.time > last_key_time {
+            break;
+        }
+        if record.time <= time {
+            prev = index;
+        }
+        if record.time >= last_key_time {
+            break;
+        }
+    }
+    let next = if records[prev].time < last_key_time && prev + 1 < records.len() {
+        prev + 1
+    } else {
+        prev
+    };
+    (prev, next)
+}
+/// GAME 0x405a00 (RVA 0x5a00) C_actor::GetRecordPos walk-and-blend core
+/// (mafia-re 113b5b6 game/actors/C_actor.cpp:849-884): the last record up
+/// to the query time, blended towards the next by Hermite's basis over the
+/// eased fraction, else the bracketing record's own position; the zero
+/// vector without records. The recorder's block walk (first_block,
+/// last_key_time) arrives staged as the record slice plus the last key
+/// time. The rotation ease the original computes and discards is recomputed
+/// and dropped the same way, so the staged rotation-ease words are read
+/// exactly like the original reads them.
+pub fn record_pos_at(records: &[StagedActorRecord], last_key_time: i32, time: i32) -> [f32; 3] {
+    if records.is_empty() {
+        return [0.0, 0.0, 0.0];
+    }
+    let (prev, next) = record_bracket(records, last_key_time, time);
+    let prev_record = records[prev];
+    let next_record = records[next];
+    if time <= prev_record.time {
+        return prev_record.pos;
+    }
+    if next != prev && time <= next_record.time {
+        let span = (next_record.time - prev_record.time) as f32;
+        let f = (time - prev_record.time) as f32 / span;
+        let _rotation_ease = cutscene_ease(f, prev_record.rot_ease_from, next_record.rot_ease_to);
+        let s = cutscene_ease(f, prev_record.ease_from, next_record.ease_to);
+        let s2 = s * s;
+        let s3 = s2 * s;
+        let w0 = 2.0 * s3 - 3.0 * s2 + 1.0;
+        let w1 = 3.0 * s2 - 2.0 * s3;
+        let w2 = s3 - 2.0 * s2 + s;
+        let w3 = s3 - s2;
+        return std::array::from_fn(|i| {
+            prev_record.pos[i] * w0
+                + next_record.pos[i] * w1
+                + prev_record.tangent_out[i] * w2
+                + next_record.tangent_in[i] * w3
+        });
+    }
+    next_record.pos
+}
+/// Slerp core of the rotation walk below, x/y/z/s order like S_quat
+/// (vector, then scalar). Follows LS3DF S_quat::Slerp (mafia-re 113b5b6
+/// ls3df/I3D/I3d_math.cpp:1188-1223 with SLERP_DELTA 0.0001): the shorter
+/// arc always wins (the native `shorten` flag is read but never changes the
+/// negate-on-negative-dot select), near-unit dots fall back to the linear
+/// blend, and no normalization occurs. The delta-bound comparison keeps the
+/// original float-vs-double promotion. Host f32 acos/sin back the
+/// spherical branch: its transcendental rounding is host math, so only
+/// branch selection and algebra are pinned here. Private helper, no port
+/// claimed.
+fn quat_slerp_short(first: [f32; 4], second: [f32; 4], fraction: f32) -> [f32; 4] {
+    let mut cosom = first[0] * second[0] + first[1] * second[1] + first[2] * second[2]
+        + first[3] * second[3];
+    let mut to = second;
+    if cosom < 0.0 {
+        cosom = -cosom;
+        to = [-second[0], -second[1], -second[2], -second[3]];
+    }
+    let (scale0, scale1) = if f64::from(1.0 - cosom) > 0.0001 {
+        let omega = cosom.acos();
+        let sinom = omega.sin();
+        (
+            ((1.0 - fraction) * omega).sin() / sinom,
+            (fraction * omega).sin() / sinom,
+        )
+    } else {
+        (1.0 - fraction, fraction)
+    };
+    [
+        scale0 * first[0] + scale1 * to[0],
+        scale0 * first[1] + scale1 * to[1],
+        scale0 * first[2] + scale1 * to[2],
+        scale0 * first[3] + scale1 * to[3],
+    ]
+}
+/// GAME 0x42cc20 (RVA 0x2cc20) C_actor::GetRecordRot walk-and-slerp core
+/// (mafia-re 113b5b6 game/actors/C_actor.cpp:1865-1893): the same bracket
+/// walk as GetRecordPos, then the previous rotation, or the slerp towards
+/// the next over the plain time fraction (the rotation ease plays no role
+/// here); the zero quaternion without records. Same staging contract as
+/// [`record_pos_at`].
+pub fn record_rot_at(records: &[StagedActorRecord], last_key_time: i32, time: i32) -> [f32; 4] {
+    if records.is_empty() {
+        return [0.0, 0.0, 0.0, 0.0];
+    }
+    let (prev, next) = record_bracket(records, last_key_time, time);
+    let prev_rot = records[prev].rot;
+    let next_rot = records[next].rot;
+    if time <= records[prev].time {
+        return prev_rot;
+    }
+    if next != prev && time <= records[next].time {
+        let span = (records[next].time - records[prev].time) as f32;
+        let f = (time - records[prev].time) as f32 / span;
+        return quat_slerp_short(prev_rot, next_rot, f);
+    }
+    next_rot
 }
 /// Evidenced primary vtable identities; opaque tags supply no derived behavior.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9676,5 +9941,244 @@ mod human_owner_tests {
         );
         assert!(w.delete_entity(a, 1, &mut frames, &mut heap).is_err());
         assert_eq!(*heap.log.borrow(), log);
+    }
+    #[test]
+    // GAME 0x4091f0 (RVA 0x91f0) C_actor::GetActorSpeed (mafia-re 113b5b6
+    // game/actors/C_actor.h:230-233): the base zeroes the caller's speed.
+    fn base_actor_speed_rva_91f0_zeroes_speed() {
+        let state = BaseActorState::construct(base());
+        let mut speed = [1.0f32, -2.0, 3.5];
+        state.base_actor_speed_into(&mut speed);
+        assert_eq!(speed, [0.0, 0.0, 0.0]);
+    }
+    #[test]
+    // GAME 0x409210 (RVA 0x9210) C_actor::GetMaterialID (mafia-re 113b5b6
+    // game/actors/C_actor.h:250-253): the base reports material 0.
+    fn material_id_rva_9210_returns_zero() {
+        let state = BaseActorState::construct(base());
+        assert_eq!(state.material_id(), 0);
+    }
+    #[test]
+    // GAME 0x407590 (RVA 0x7590) C_actor::IsPossibleColl (mafia-re 113b5b6
+    // game/actors/C_actor.h:254-258): the base never collides.
+    fn is_possible_coll_rva_7590_returns_false() {
+        let state = BaseActorState::construct(base());
+        assert!(!state.is_possible_coll());
+    }
+    #[test]
+    // GAME 0x4aa450 (RVA 0x4a450) C_actor::Collision (mafia-re 113b5b6
+    // game/actors/C_actor.h:238-242): the base never collides.
+    fn collision_rva_4a450_returns_false() {
+        let state = BaseActorState::construct(base());
+        assert!(!state.collision());
+    }
+    #[test]
+    // GAME 0x404e00 (RVA 0x4e00) C_actor::AddToCutscene (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:623-629): one record kind of 0x5c bytes, no
+    // other kinds, verdict true.
+    fn add_to_cutscene_rva_4e00_stages_single_kind_sizes() {
+        let state = BaseActorState::construct(base());
+        assert_eq!(state.add_to_cutscene(), ([0x5c, 0, 0], true));
+    }
+    #[test]
+    // GAME 0x4075a0 (RVA 0x75a0) C_actor::GetBoundPoints2D (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:1534): explicit unsupported stub, frame owner
+    // DEFERRED.
+    fn bound_points_2d_rva_75a0_is_unsupported_stub() {
+        BaseActorState::bound_points_2d_unsupported();
+    }
+    #[test]
+    // Inline C_actor::GetActState (mafia-re 113b5b6
+    // game/actors/C_actor.h:281-286; working name, no RVA claimed): reads
+    // the staged 0x1c act-state word.
+    fn act_state_working_name_reads_state_word() {
+        let state = BaseActorState::construct(base());
+        assert_eq!(state.act_state(), 5);
+    }
+    #[test]
+    // Inline C_actor::GetType (mafia-re 113b5b6 game/actors/C_actor.h:294-299
+    // with ACTOR_ACTOR 1 at :18; working name, no RVA claimed): reads the
+    // staged 0x10 type word.
+    fn actor_type_working_name_reads_actor_word() {
+        let state = BaseActorState::construct(base());
+        assert_eq!(state.actor_type(), 1);
+    }
+    #[test]
+    // Inline C_actor::GetActFlags (mafia-re 113b5b6
+    // game/actors/C_actor.h:446-450; working name, folded GAME 0x604d80
+    // occupied so no RVA claimed): reads the staged 0x04 flags word.
+    fn act_flags_working_name_reads_flags_word() {
+        let state = BaseActorState::construct(base());
+        assert_eq!(state.act_flags(), 0);
+    }
+    #[test]
+    // C_actor::SetFromMission word read (mafia-re 113b5b6
+    // game/actors/C_actor.h:271-276; working name, setter GAME 0x547220
+    // occupied so no RVA claimed): false until the setter marks it.
+    fn from_mission_working_name_reads_setter_word() {
+        let mut state = BaseActorState::construct(base());
+        assert!(!state.from_mission());
+        state.set_from_mission();
+        assert!(state.from_mission());
+    }
+    #[test]
+    // Base C_actor::GetProgram (mafia-re 113b5b6
+    // game/actors/C_actor.h:260-265; working name, no address claimed: the
+    // NULL-returning bodies folded into the group kept at GAME 0x409220):
+    // the base carries no script.
+    fn base_program_working_name_returns_none() {
+        let state = BaseActorState::construct(base());
+        assert!(state.program().is_none());
+    }
+    fn record_key_at(time: i32, pos: [f32; 3], rot: [f32; 4]) -> StagedActorRecord {
+        StagedActorRecord {
+            time,
+            pos,
+            rot,
+            tangent_out: [0.0, 0.0, 0.0],
+            tangent_in: [0.0, 0.0, 0.0],
+            ease_from: 0.0,
+            ease_to: 0.0,
+            rot_ease_from: 0.0,
+            rot_ease_to: 0.0,
+        }
+    }
+    #[test]
+    // GAME 0x405a00 (RVA 0x5a00) C_actor::GetRecordPos (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:849-853): the zero vector without records.
+    fn record_pos_rva_5a00_empty_is_zero() {
+        assert_eq!(record_pos_at(&[], 200, 150), [0.0, 0.0, 0.0]);
+    }
+    #[test]
+    // GAME 0x405a00 (RVA 0x5a00) C_actor::GetRecordPos (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:866-867): at or before the previous key the
+    // leaf returns that key's own position.
+    fn record_pos_rva_5a00_at_or_before_key_returns_key_pos() {
+        let records = [
+            record_key_at(0, [1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0]),
+            record_key_at(100, [9.0, 9.0, 9.0], [0.0, 0.0, 0.0, 1.0]),
+        ];
+        assert_eq!(record_pos_at(&records, 100, 0), [1.0, 2.0, 3.0]);
+        assert_eq!(record_pos_at(&records, 100, -10), [1.0, 2.0, 3.0]);
+    }
+    #[test]
+    // GAME 0x405a00 (RVA 0x5a00) C_actor::GetRecordPos (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:868-882): mid-span Hermite blend with zero
+    // eases and zero tangents averages the bracketing positions (f = 0.5
+    // eased to s = 0.5, weights 0.5/0.5/0.125/-0.125, all exact in f32).
+    // The three-key walk settles the 100..200 bracket for time 150.
+    fn record_pos_rva_5a00_midpoint_blend_is_exact() {
+        let records = [
+            record_key_at(0, [-4.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+            record_key_at(100, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+            record_key_at(200, [8.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+        ];
+        assert_eq!(record_pos_at(&records, 200, 150), [4.0, 0.0, 0.0]);
+    }
+    #[test]
+    // GAME 0x405a00 (RVA 0x5a00) C_actor::GetRecordPos (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:868-873): Ease(0.5, 1.0, 0.0) eases the
+    // fraction to exactly 0.25 (k = 1, u < a arm), so the 16-unit span
+    // blends to exactly 2.5.
+    fn record_pos_rva_5a00_eased_fraction_blend_is_exact() {
+        let mut prev = record_key_at(0, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]);
+        prev.ease_from = 1.0;
+        let mut next = record_key_at(100, [16.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]);
+        next.ease_to = 0.0;
+        assert_eq!(record_pos_at(&[prev, next], 100, 50), [2.5, 0.0, 0.0]);
+    }
+    #[test]
+    // GAME 0x405a00 (RVA 0x5a00) C_actor::GetRecordPos (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:883): past the last key the leaf returns the
+    // next (last) key's position.
+    fn record_pos_rva_5a00_past_end_returns_next_pos() {
+        let records = [
+            record_key_at(0, [1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0]),
+            record_key_at(100, [7.0, 8.0, 9.0], [0.0, 0.0, 0.0, 1.0]),
+        ];
+        assert_eq!(record_pos_at(&records, 100, 250), [7.0, 8.0, 9.0]);
+    }
+    #[test]
+    // GAME 0x42cc20 (RVA 0x2cc20) C_actor::GetRecordRot (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:1865-1869): the zero quaternion without
+    // records.
+    fn record_rot_rva_2cc20_empty_is_zero_quat() {
+        assert_eq!(record_rot_at(&[], 200, 150), [0.0, 0.0, 0.0, 0.0]);
+    }
+    #[test]
+    // GAME 0x42cc20 (RVA 0x2cc20) C_actor::GetRecordRot (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:1882-1883): at or before the previous key the
+    // leaf returns that key's own rotation.
+    fn record_rot_rva_2cc20_at_or_before_key_returns_key_rot() {
+        let prev_rot = [0.0, 0.0, 0.0, 1.0];
+        let records = [
+            record_key_at(0, [0.0; 3], prev_rot),
+            record_key_at(100, [0.0; 3], [0.0, 0.0, 1.0, 0.0]),
+        ];
+        assert_eq!(record_rot_at(&records, 100, 0), prev_rot);
+        assert_eq!(record_rot_at(&records, 100, -10), prev_rot);
+    }
+    #[test]
+    // GAME 0x42cc20 (RVA 0x2cc20) C_actor::GetRecordRot (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:1884-1891): the end fraction reproduces the
+    // next key's rotation exactly (scale0 = sin 0 / sinom = 0, scale1 = 1),
+    // and a shared rotation slerps to itself exactly through the linear
+    // branch (dot 1).
+    fn record_rot_rva_2cc20_endpoints_are_exact() {
+        let next_rot = [0.0, 0.0, 0.70710677, 0.70710677];
+        let records = [
+            record_key_at(0, [0.0; 3], [0.0, 0.0, 0.0, 1.0]),
+            record_key_at(100, [0.0; 3], next_rot),
+        ];
+        assert_eq!(record_rot_at(&records, 100, 100), next_rot);
+        let shared = [
+            record_key_at(0, [0.0; 3], [0.0, 0.0, 0.0, 1.0]),
+            record_key_at(100, [0.0; 3], [0.0, 0.0, 0.0, 1.0]),
+        ];
+        assert_eq!(record_rot_at(&shared, 100, 50), [0.0, 0.0, 0.0, 1.0]);
+    }
+    #[test]
+    // GAME 0x42cc20 (RVA 0x2cc20) C_actor::GetRecordRot with LS3DF
+    // S_quat::Slerp (mafia-re 113b5b6 ls3df/I3D/I3d_math.cpp:1190-1223):
+    // opposite quaternions negate to the same rotation first (the native
+    // `shorten` flag never changes that select), so the midpoint slerp is
+    // exactly the shared rotation through the linear branch.
+    fn record_rot_rva_2cc20_opposite_quats_take_shorter_arc() {
+        let records = [
+            record_key_at(0, [0.0; 3], [0.0, 0.0, 0.0, 1.0]),
+            record_key_at(100, [0.0; 3], [0.0, 0.0, 0.0, -1.0]),
+        ];
+        assert_eq!(record_rot_at(&records, 100, 50), [0.0, 0.0, 0.0, 1.0]);
+    }
+    #[test]
+    // GAME 0x42cc20 (RVA 0x2cc20) C_actor::GetRecordRot, spherical branch:
+    // halfway between the identity and a quarter turn about y the slerp
+    // weights are sin(pi/4)/sin(pi/2), i.e. 0.70710678 up to host
+    // transcendental rounding (pinned separately from the exact branch
+    // tests above), with exact zeros off-axis.
+    fn record_rot_rva_2cc20_quarter_turn_midpoint() {
+        let records = [
+            record_key_at(0, [0.0; 3], [0.0, 0.0, 0.0, 1.0]),
+            record_key_at(100, [0.0; 3], [0.0, 1.0, 0.0, 0.0]),
+        ];
+        let mid = record_rot_at(&records, 100, 50);
+        assert_eq!(mid[0], 0.0);
+        assert_eq!(mid[2], 0.0);
+        assert!((mid[1] - 0.70710678).abs() < 1e-6);
+        assert!((mid[3] - 0.70710678).abs() < 1e-6);
+        let norm = (mid[0] * mid[0] + mid[1] * mid[1] + mid[2] * mid[2] + mid[3] * mid[3]).sqrt();
+        assert!((norm - 1.0).abs() < 1e-6);
+    }
+    #[test]
+    // GAME 0x42cc20 (RVA 0x2cc20) C_actor::GetRecordRot (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:1892): past the last key the leaf returns the
+    // next (last) key's rotation.
+    fn record_rot_rva_2cc20_past_end_returns_next_rot() {
+        let next_rot = [0.0, 0.0, 1.0, 0.0];
+        let records = [
+            record_key_at(0, [0.0; 3], [0.0, 0.0, 0.0, 1.0]),
+            record_key_at(100, [0.0; 3], next_rot),
+        ];
+        assert_eq!(record_rot_at(&records, 100, 250), next_rot);
     }
 }
