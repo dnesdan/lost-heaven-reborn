@@ -393,7 +393,9 @@ class RewriteProgressTests(unittest.TestCase):
         # +12 human gate contracts (ChangeWeapon/Reload/PlayAnim/Jump/Climb/
         # SideJump/ClimbInCarLR/Shoot/ThrowGrenade/FuckingBox x2/DeadBody entry
         # gates; full bodies deferred; 1 working-name uncredited).
-        self.assertEqual(game["ported"], 149 + 689)
+        # +2 GlobalProgram contracts (GameInit/GameDone loops; 13 working-name
+        # helpers uncredited; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 691)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

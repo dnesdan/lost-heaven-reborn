@@ -1335,6 +1335,89 @@ impl PolicePursuitRecord {
     pub fn car_steal_time(&self) -> u32 {
         self.car_steal_time
     }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `illegal_path_time` latch (`SHVF_ILLEGAL_PATH`, counted up while the
+    /// car is faster than 11, at most 5000; `SHVREASON_ILLEGAL_PATH` past
+    /// 5800). The native expiry runs inline in `Tick` 0x49a300 (mafia-re
+    /// game/ai/C_shvestky.cpp:261-276 at pin 113b5b6) with no dedicated
+    /// function, so no RVA is claimed.
+    pub fn illegal_path_time(&self) -> u32 {
+        self.illegal_path_time
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `collision_time` latch (`SHVF_CRASH`, the strongest `CarCollision`
+    /// hit, at most 4000). The native expiry runs inline in `Tick` 0x49a300
+    /// (mafia-re game/ai/C_shvestky.cpp:243-250 at pin 113b5b6) with no
+    /// dedicated function, so no RVA is claimed.
+    pub fn collision_time(&self) -> u32 {
+        self.collision_time
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `hits_time` latch (the humans the car hit, forgotten once the time
+    /// runs out). The native expiry runs inline in `Tick` 0x49a300 (mafia-re
+    /// game/ai/C_shvestky.cpp:327-331 at pin 113b5b6) with no dedicated
+    /// function, so no RVA is claimed.
+    pub fn hits_time(&self) -> i32 {
+        self.hits_time
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `hits` count (the humans the car hit below `SHVSTATE_KILL`).
+    /// The native count is maintained inline in `Tick` 0x49a300 (mafia-re
+    /// game/ai/C_shvestky.cpp:327-331 at pin 113b5b6) with no dedicated
+    /// function, so no RVA is claimed.
+    pub fn hits(&self) -> u32 {
+        self.hits
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `block_way` flag (the police action is on the human once alerted;
+    /// `Tick` 0x49a300 only raises road blocks for such records, mafia-re
+    /// game/ai/C_shvestky.cpp:388 at pin 113b5b6). No dedicated function
+    /// reads it natively, so no RVA is claimed.
+    pub fn is_block_way(&self) -> bool {
+        self.block_way
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `alerted` flag (`NabonzovalJsemHo`'s, also raised by `ForceArrest`).
+    /// The native flag is read inline in `Tick` 0x49a300 and
+    /// `CreateShvestkyTest` (mafia-re game/ai/C_shvestky.cpp at pin 113b5b6)
+    /// with no dedicated function, so no RVA is claimed.
+    pub fn is_alerted(&self) -> bool {
+        self.alerted
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `support_level` (the more policemen the player's states 5 and 6
+    /// brought, raised by `DalsiChalpiDoPartie` in `CreateShvestkyTest`,
+    /// mafia-re game/ai/C_shvestky.cpp:721-736 at pin 113b5b6). No dedicated
+    /// function reads it natively, so no RVA is claimed.
+    pub fn support_level(&self) -> u32 {
+        self.support_level
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `rammed_car` word (`StrcilJsemHoPoldumDoVyfuku`'s police car). The
+    /// native word is read inline in `CreateShvestkyTest` (mafia-re
+    /// game/ai/C_shvestky.cpp at pin 113b5b6) with no dedicated function, so
+    /// no RVA is claimed.
+    pub fn rammed_car(&self) -> u32 {
+        self.rammed_car
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `new_state` latch, which `CreateShvestkyTest` raises from the flag
+    /// arms and then promotes into `state` (mafia-re
+    /// game/ai/C_shvestky.cpp:640-663 at pin 113b5b6). The companion
+    /// `status_word` reads `state`; no dedicated function reads `new_state`
+    /// natively, so no RVA is claimed.
+    pub fn pending_state(&self) -> u32 {
+        self.new_state
+    }
 }
 
 /// Original `C_shvestky::PocetNasranych` 0x49d460 (mafia-re
@@ -2446,5 +2529,44 @@ mod tests {
         assert_eq!(record.car_steal_time(), 0);
         record.record_car_steal();
         assert_eq!(record.car_steal_time(), 5000);
+    }
+
+    #[test]
+    fn record_latch_counters_report_staged_times() {
+        // Working names: no separate native entries (inline Tick expiry).
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.illegal_path_time(), 0);
+        assert_eq!(record.collision_time(), 0);
+        assert_eq!(record.hits_time(), -1);
+        assert_eq!(record.hits(), 0);
+        record.illegal_path_time = 5800;
+        record.collision_time = 4000;
+        record.hits_time = 12;
+        record.hits = 3;
+        assert_eq!(record.illegal_path_time(), 5800);
+        assert_eq!(record.collision_time(), 4000);
+        assert_eq!(record.hits_time(), 12);
+        assert_eq!(record.hits(), 3);
+    }
+
+    #[test]
+    fn record_action_flags_report_staged_state() {
+        // Working names: no separate native entries (inline Tick reads).
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.is_block_way());
+        assert!(!record.is_alerted());
+        assert_eq!(record.support_level(), 0);
+        assert_eq!(record.rammed_car(), 0);
+        assert_eq!(record.pending_state(), SHVSTATE_NONE);
+        record.block_way = true;
+        record.alerted = true;
+        record.support_level = 2;
+        record.rammed_car = 0x1234;
+        record.new_state = SHVSTATE_ARREST;
+        assert!(record.is_block_way());
+        assert!(record.is_alerted());
+        assert_eq!(record.support_level(), 2);
+        assert_eq!(record.rammed_car(), 0x1234);
+        assert_eq!(record.pending_state(), SHVSTATE_ARREST);
     }
 }

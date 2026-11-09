@@ -316,6 +316,79 @@ pub fn get_effects(effects: Option<EffectsHandle>) -> Option<EffectsHandle> {
     effects
 }
 
+/// Opaque game-manager handle. Native `C_game*` identity is the caller's
+/// concern; `None` is the native NULL.
+pub type GameHandle = u32;
+
+/// Working name (no outline RVA is claimed): reads the staged game-manager
+/// handle (`C_mission::GetGame`, mafia-re `game/mission/Mission.h:230-233`
+/// at pin 113b5b6). The header only notes the outline copy is "most likely"
+/// the getter at 0x47ae50, which does not verify an entry, so no RVA is
+/// claimed. The game object stays with its owner (DEFERRED).
+pub fn get_game(game: Option<GameHandle>) -> Option<GameHandle> {
+    game
+}
+
+/// Opaque scene handle. Native `I3D_scene*` identity is the caller's
+/// concern; `None` is the native NULL.
+pub type SceneHandle = u32;
+
+/// Working name (no outline RVA is claimed): reads the staged scene handle
+/// (`C_mission::GetScene`, mafia-re `game/mission/Mission.h:279-281` at pin
+/// 113b5b6). The header carries no `FUNCTION` marker for it, so no outline
+/// entry exists to claim. The scene stays with its owner (DEFERRED).
+pub fn get_scene(scene: Option<SceneHandle>) -> Option<SceneHandle> {
+    scene
+}
+
+/// FUNCTION: GAME RVA 0x140520, VA 0x540520 (mafia-re
+/// `game/mission/Mission.cpp:476-481`, `C_mission::GlobalProgramGameInit`):
+/// inits every staged whole-game script, from the last one to the first.
+/// The program objects and their `Init` stay with the caller behind `init`.
+pub fn global_program_game_init<P>(programs: &mut [P], mut init: impl FnMut(&mut P)) {
+    for index in (0..programs.len()).rev() {
+        init(&mut programs[index]);
+    }
+}
+
+/// FUNCTION: GAME RVA 0x140550, VA 0x540550 (mafia-re
+/// `game/mission/Mission.cpp:483-488`, `C_mission::GlobalProgramGameDone`):
+/// runs `Done` on every staged whole-game script, from the last one to the
+/// first. The program objects and their `Done` stay with the caller behind
+/// `done`.
+pub fn global_program_game_done<P>(programs: &mut [P], mut done: impl FnMut(&mut P)) {
+    for index in (0..programs.len()).rev() {
+        done(&mut programs[index]);
+    }
+}
+
+/// Scalar actor-numbering counter behind `C_mission::last_actor_number`
+/// (mafia-re `game/mission/Mission.h:119-121` at pin 113b5b6): the last
+/// number `C_actor::Init` gave an actor, which `Open`
+/// (`Mission.cpp:626`) clears. Only the clear and the read are owned here;
+/// the numbering itself stays with the actor owner (DEFERRED).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MissionActorNumberState {
+    last_actor_number: i32,
+}
+
+impl MissionActorNumberState {
+    /// Working name (no outline RVA; inline store, mafia-re
+    /// `game/mission/Mission.cpp:626`, `C_mission::Open`): clears the last
+    /// actor number, as `Open` does before `Close`. No Game.exe function
+    /// entry is claimed.
+    pub fn reset_last_actor_number(&mut self) {
+        self.last_actor_number = 0;
+    }
+
+    /// Working name (no outline RVA; counter read, mafia-re
+    /// `game/mission/Mission.h:119-121`): reads the last number an actor
+    /// was given. No Game.exe function entry is claimed.
+    pub fn last_actor_number(&self) -> i32 {
+        self.last_actor_number
+    }
+}
+
 /// Cutscene flag bits of `C_actor::act_flags` (mafia-re pin 113b5b6,
 /// `game/actors/C_actor.h:81-84`).
 pub const ACTF_CUTSCENE_PLAYED: i32 = 0x1;
@@ -1156,5 +1229,48 @@ mod tests {
         assert_eq!(presence.mission_name(), Some("mise01"));
         presence.stage_mission_name(None);
         assert_eq!(presence.mission_name(), None);
+    }
+
+    #[test]
+    fn global_program_game_init_rva_140520_inits_from_last() {
+        // C_mission::GlobalProgramGameInit GAME RVA 0x140520 (VA 0x540520).
+        let mut programs = vec![1u32, 2, 3];
+        let mut order = Vec::new();
+        global_program_game_init(&mut programs, |program| order.push(*program));
+        assert_eq!(order, vec![3, 2, 1]);
+        let mut empty: Vec<u32> = Vec::new();
+        global_program_game_init(&mut empty, |_| panic!("no program to init"));
+    }
+
+    #[test]
+    fn global_program_game_done_rva_140550_dones_from_last() {
+        // C_mission::GlobalProgramGameDone GAME RVA 0x140550 (VA 0x540550).
+        let mut programs = vec![7u32, 9];
+        let mut order = Vec::new();
+        global_program_game_done(&mut programs, |program| order.push(*program));
+        assert_eq!(order, vec![9, 7]);
+        let mut empty: Vec<u32> = Vec::new();
+        global_program_game_done(&mut empty, |_| panic!("no program to done"));
+    }
+
+    #[test]
+    fn game_and_scene_working_name_round_trip_handles() {
+        // C_mission::GetGame (Mission.h:230-233, outline copy only "most
+        // likely" at 0x47ae50) and C_mission::GetScene (Mission.h:279-281,
+        // no FUNCTION marker): no outline RVA is claimed for either.
+        assert_eq!(get_game(Some(11)), Some(11));
+        assert_eq!(get_game(None), None);
+        assert_eq!(get_scene(Some(13)), Some(13));
+        assert_eq!(get_scene(None), None);
+    }
+
+    #[test]
+    fn actor_number_working_name_reset_and_read() {
+        // C_mission::last_actor_number (Mission.h:119-121), cleared by Open
+        // (Mission.cpp:626): no outline RVA is claimed.
+        let mut state = MissionActorNumberState::default();
+        assert_eq!(state.last_actor_number(), 0);
+        state.reset_last_actor_number();
+        assert_eq!(state.last_actor_number(), 0);
     }
 }

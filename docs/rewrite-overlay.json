@@ -14476,6 +14476,24 @@
       "symbol": "lhr_engine::frame_area::ModelArena::area_load_image",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (D3D device owners deferred; folded with sound-LoadImage). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x140520",
+      "va": "0x540520",
+      "name": "C_mission::GlobalProgramGameInit",
+      "symbol": "lhr_engine::mission_actor_lists::global_program_game_init",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. GlobalProgram GameInit loop (GAME 0x540520)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x140550",
+      "va": "0x540550",
+      "name": "C_mission::GlobalProgramGameDone",
+      "symbol": "lhr_engine::mission_actor_lists::global_program_game_done",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. GlobalProgram GameDone loop (GAME 0x540550)."
     }
   ],
   "vm": {
