@@ -153,7 +153,7 @@ class RewriteProgressTests(unittest.TestCase):
         # +4 vehicle materials latch (CloseMaterials 0x4c5c80 / GetHeadPos
         # 0x4cc620 / SetMaterials 0x4c5c10 / SetParticles 0x4cc0).
         # +10 housekeeping/mission slice, all contract (cbFindTaxiPoints
-        # 0x5b6e0 / LightnessClear 0x5b5180 / ScoreSet 0x5b9fe0 / ScoreSetOn
+        # 0x5b6e0 / LightnessClear 0x5b5780 (remediated from misfiled 0x5b5180)
         # 0x5b9fa0 (remediated from misfiled 0x5f9a0) / InternTempActDel 0x5a79f0
         # cbScreamArea 0x5b9110 / ShowProgress 0x540950 / SceneErrFnc 0x540fd0
         # / GetTShift 0x547120).
@@ -395,7 +395,11 @@ class RewriteProgressTests(unittest.TestCase):
         # gates; full bodies deferred; 1 working-name uncredited).
         # +2 GlobalProgram contracts (GameInit/GameDone loops; 13 working-name
         # helpers uncredited; marker-only, tests green).
-        self.assertEqual(game["ported"], 149 + 691)
+        # +12 stack/death/placement contracts (Inventory/Float/Character x2,
+        # DeathActor x2, GetActorFromGuid, AddFramePlacement, InternTempActAdd,
+        # LightnessTick STUBs; FrmActBuff_GetModel ledger-duplicate held;
+        # LightnessClear wrong-address remediated 0x1b5180->0x1b5780).
+        self.assertEqual(game["ported"], 149 + 703)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

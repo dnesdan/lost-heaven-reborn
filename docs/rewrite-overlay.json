@@ -10429,12 +10429,12 @@
     },
     {
       "binary": "Game.exe",
-      "rva": "0x1b5180",
-      "va": "0x5b5180",
+      "rva": "0x1b5780",
+      "va": "0x5b5780",
       "name": "C_game::LightnessClear",
       "symbol": "lhr_engine::game_housekeeping::lightness_clear",
       "tier": "contract",
-      "evidence": "Lightness clear (GAME 0x5b5180). Marker-only contract; tests green on this tree."
+      "evidence": "Wrong-address remediation: reference FUNCTION GAME 0x5b5780 (was misfiled as RVA 0x1b5180). Lightness entries clear (GAME 0x5b5780). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -14494,6 +14494,114 @@
       "symbol": "lhr_engine::mission_actor_lists::global_program_game_done",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. GlobalProgram GameDone loop (GAME 0x540550)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b1e10",
+      "va": "0x5b1e10",
+      "name": "C_game::InventoryStackPush",
+      "symbol": "lhr_engine::game_housekeeping::inventory_stack_push",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b20b0",
+      "va": "0x5b20b0",
+      "name": "C_game::InventoryStackPop",
+      "symbol": "lhr_engine::game_housekeeping::inventory_stack_pop",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b2350",
+      "va": "0x5b2350",
+      "name": "C_game::FloatStackPush",
+      "symbol": "lhr_engine::game_housekeeping::float_stack_push",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b2530",
+      "va": "0x5b2530",
+      "name": "C_game::FloatStackPop",
+      "symbol": "lhr_engine::game_housekeeping::float_stack_pop",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b25c0",
+      "va": "0x5b25c0",
+      "name": "C_game::CharacterStackPush",
+      "symbol": "lhr_engine::game_housekeeping::character_stack_push",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b2740",
+      "va": "0x5b2740",
+      "name": "C_game::CharacterStackPop",
+      "symbol": "lhr_engine::game_housekeeping::character_stack_pop",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b4560",
+      "va": "0x5b4560",
+      "name": "C_game::DeathActorAdd",
+      "symbol": "lhr_engine::game_housekeeping::death_actor_add",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b4720",
+      "va": "0x5b4720",
+      "name": "C_game::DeathActorProcess",
+      "symbol": "lhr_engine::game_housekeeping::death_actor_process",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b4790",
+      "va": "0x5b4790",
+      "name": "C_game::GetActorFromGuid",
+      "symbol": "lhr_engine::game_housekeeping::get_actor_from_guid",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b0300",
+      "va": "0x5b0300",
+      "name": "C_game::AddFramePlacement",
+      "symbol": "lhr_engine::game_housekeeping::add_frame_placement",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a7b70",
+      "va": "0x5a7b70",
+      "name": "C_game::InternTempActAdd",
+      "symbol": "lhr_engine::game_housekeeping::intern_temp_act_add",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b57e0",
+      "va": "0x5b57e0",
+      "name": "C_game::LightnessTick",
+      "symbol": "lhr_engine::game_housekeeping::lightness_tick",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

@@ -265,6 +265,28 @@ pub fn frm_act_buff_store_model(
     });
 }
 
+/// FUNCTION: GAME RVA 0x1463d0, VA 0x5463d0 (mafia-re pin 113b5b6,
+/// `game/mission/Mission.cpp:1956-1970`, `C_mission::FrmActBuff_GetModel`).
+/// Already ported in the frozen ledger as `ActorRegistry::take_frame`,
+/// so this spelling carries no new function credit: same native, second
+/// host spelling. Take back a stored model by file name. The buffer is searched from its
+/// last entry; the first model-only entry (no actor) whose stored name
+/// matches case-insensitively is unlinked with a back-swap and its model
+/// returned. Actor entries never match. The native NULL-frame guard holds by
+/// construction: [`frm_act_buff_store_model`] only admits `Some` models.
+pub fn frm_act_buff_get_model(
+    buffer: &mut Vec<FrameActorBufferEntry>,
+    name: &[u8],
+) -> Option<FrameKey> {
+    for index in (0..buffer.len()).rev() {
+        let entry = &buffer[index];
+        if entry.actor.is_none() && entry.name.eq_ignore_ascii_case(name) {
+            return Some(buffer.swap_remove(index).frame);
+        }
+    }
+    None
+}
+
 /// Actor-kind dispatch shared by the `FrmActBuff` store/take-back ports
 /// (mafia-re pin 113b5b6, `game/mission/Mission.cpp:1867-1877,1973-1981,
 /// 2010-2031`): `ACTOR_PLAYER`/`ACTOR_ENTITY` share the human arm,
@@ -4315,6 +4337,35 @@ mod tests {
         assert!(MISSION_OPEN_DEFERRED);
         assert!(MISSION_CREATE_ACTOR_DEFERRED);
         assert!(MISSION_TICK_DEFERRED);
+    }
+    #[test]
+    fn frm_act_buff_get_model_takes_model_only_entries() {
+        // Same native as ledger-ported take_frame (RVA 0x1463d0): no credit.
+        let mut buffer = Vec::new();
+        frm_act_buff_store_model(&mut buffer, Some(FrameKey(11)), b"models\\car.i3d");
+        frm_act_buff_store_model(&mut buffer, Some(FrameKey(12)), b"plain.i3d");
+        // Actor entries never match, even under a stored model name.
+        buffer.push(FrameActorBufferEntry {
+            actor: Some(FrameKey(3)),
+            frame: FrameKey(13),
+            name: b"car.i3d".to_vec(),
+            release_frame: false,
+        });
+        assert_eq!(
+            frm_act_buff_get_model(&mut buffer, b"CAR.I3D"),
+            Some(FrameKey(11))
+        );
+        // Native back-swap unlink order: the last entry moves into the gap.
+        assert_eq!(buffer.len(), 2);
+        assert_eq!(buffer[0].frame, FrameKey(13));
+        assert_eq!(buffer[1].frame, FrameKey(12));
+        assert_eq!(frm_act_buff_get_model(&mut buffer, b"car.i3d"), None);
+        assert_eq!(
+            frm_act_buff_get_model(&mut buffer, b"plain.i3d"),
+            Some(FrameKey(12))
+        );
+        assert_eq!(buffer.len(), 1);
+        assert_eq!(buffer[0].frame, FrameKey(13));
     }
     struct StoreActorFake {
         frame: Option<FrameKey>,
