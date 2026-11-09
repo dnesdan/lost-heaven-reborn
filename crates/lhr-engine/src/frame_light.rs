@@ -481,6 +481,15 @@ impl ModelArena {
     pub fn light_cone_of(&self, key: FrameKey) -> Result<[f32; 2], ModelError> {
         Ok(self.light(key)?.cone)
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the frame on-flag word the occupied `SetOn` setter (PC RVA 0x21400;
+    /// mafia-re ls3df/I3D/frames/I3d_light.cpp:241-253 at pin 113b5b6) tests
+    /// first (`flags & 1`). The original exposes no `I3D_light::GetOn`: the
+    /// light virtuals are setters plus UpdateV (I3D.h:1915-1926), and callers
+    /// read the member in place. Same availability guard as `light`.
+    pub fn light_on_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.state(key)?.flags & 1 != 0)
+    }
     pub fn light_random_state(&mut self) -> &mut LightCrtRandom {
         &mut self.light_random
     }
@@ -618,6 +627,15 @@ mod tests {
         assert_eq!(arena.state(key).unwrap().update_count, count);
         // Unsupported light kinds stay explicit when runtime Update is requested.
         assert!(arena.graph.update(key).is_err());
+    }
+    #[test]
+    fn light_on_reader_reports_flag_word_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        arena.set_light_on(key, false).unwrap();
+        assert!(!arena.light_on_of(key).unwrap());
+        arena.set_light_on(key, true).unwrap();
+        assert!(arena.light_on_of(key).unwrap());
     }
     #[test]
     fn light_type_reader_reports_constructor_default_then_setter_store() {

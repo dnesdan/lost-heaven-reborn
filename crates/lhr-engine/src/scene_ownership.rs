@@ -1172,6 +1172,14 @@ impl ModelArena {
         *changed = changed.wrapping_add(1);
         Ok(())
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the group-bit word the occupied `SetGroupBits` setter (PC RVA
+    /// 0x508b0; mafia-re ls3df/I3D/I3D.h:948-954 in-class body at pin
+    /// 113b5b6) stores. The original exposes no `I3D_sector::GetGroupBits`.
+    /// No new RVA is claimed; same availability guard as `sector`.
+    pub fn sector_group_bits_of(&self, sector: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(sector)?.geometry.group_bits)
+    }
     /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
     /// RVA 0x4e970, VA 0x1004e970.
     /// I3D_scene::Update (mafia-re ls3df/I3D/I3D.h:1452, in-class empty body;
@@ -3072,6 +3080,16 @@ mod scene_group_bits_and_trivial_rva_tests {
         arena.sector_set_group_bits(sector, 0).unwrap();
         assert_eq!(arena.sector(sector).unwrap().geometry.group_bits, 0);
         assert_eq!(arena.sector_lights_changed(sector).unwrap(), 2);
+    }
+
+    #[test]
+    fn sector_group_bits_reader_reports_setter_store() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        assert_eq!(arena.sector_group_bits_of(sector).unwrap(), 0);
+        arena.sector_set_group_bits(sector, 0x1122_3344).unwrap();
+        assert_eq!(arena.sector_group_bits_of(sector).unwrap(), 0x1122_3344);
     }
 
     #[test]

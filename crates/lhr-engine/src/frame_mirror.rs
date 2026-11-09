@@ -1062,6 +1062,27 @@ impl ModelArena {
     pub fn mirror_state(&self, key: FrameKey) -> Result<&I3dMirrorState, ModelError> {
         self.mirror_state_ref(key)
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the clamped color triple the occupied `SetColor` setter (PC RVA
+    /// 0x319f0; mafia-re ls3df/I3D/visuals/I3d_mirror.cpp at pin 113b5b6)
+    /// stores. The original exposes no `I3D_mirror::GetColor` (that file
+    /// defines only `SetColor`/`SetViewBox`); same guard as `mirror_state`.
+    pub fn mirror_color_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.mirror_state(key)?.color)
+    }
+    /// Upstream working name, not an evidenced original symbol: gated read
+    /// of the `view_box` the occupied `SetViewBox` setter (PC RVA 0x331b0)
+    /// stores, reported only while the `MIRF_VIEW_BOX` flag it sets is
+    /// present. The original exposes no `I3D_mirror::GetViewBox`; same guard
+    /// as `mirror_state`.
+    pub fn mirror_view_box_of(&self, key: FrameKey) -> Result<Option<SMatrix>, ModelError> {
+        let state = self.mirror_state(key)?;
+        if state.has_view_box() {
+            Ok(Some(state.view_box))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1117,6 +1138,34 @@ mod tests {
         assert_eq!(s.color, [0.; 3]);
         assert!(s.scene.is_none() && s.copies.is_empty());
         assert!(arena.frame(key).unwrap().visual_bounds.is_none());
+    }
+
+    #[test]
+    fn mirror_color_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_mirror_frame().unwrap();
+        assert_eq!(arena.mirror_color_of(key).unwrap(), [0.; 3]);
+        arena.set_mirror_color(key, [0.25, 0.5, 0.75]).unwrap();
+        assert_eq!(arena.mirror_color_of(key).unwrap(), [0.25, 0.5, 0.75]);
+        arena.set_mirror_color(key, [-1.0, 2.0, f32::NAN]).unwrap();
+        let color = arena.mirror_color_of(key).unwrap();
+        assert_eq!(color[0].to_bits(), 0.0f32.to_bits());
+        assert_eq!(color[1].to_bits(), 1.0f32.to_bits());
+        assert!(color[2].is_nan());
+    }
+
+    #[test]
+    fn mirror_view_box_reader_is_none_until_set_view_box_stores() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_mirror_frame().unwrap();
+        assert_eq!(arena.mirror_view_box_of(key).unwrap(), None);
+        assert!(arena
+            .mirror_store_view_box(key, [-1., -1., -1.], [1., 1., 1.], SMatrix::identity())
+            .unwrap());
+        assert_eq!(
+            arena.mirror_view_box_of(key).unwrap(),
+            Some(SMatrix::identity())
+        );
     }
 
     #[test]

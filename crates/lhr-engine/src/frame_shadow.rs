@@ -824,6 +824,59 @@ impl ModelArena {
         state.shadow_flags = 0;
         Ok(SCENE_OK)
     }
+
+    /// Working name for the `range` word read: the original exposes no
+    /// `I3D_shadow::GetRange` (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp at
+    /// pin 113b5b6 defines only `Set*` entry points; the `SetRange` setter
+    /// RVA 0x51800 is already occupied). No new RVA is claimed: this only
+    /// re-reads the setter-written word through the existing `shadow`
+    /// accessor, with the same availability guard.
+    pub fn shadow_range_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.shadow(key)?.range)
+    }
+
+    /// Working name for the `max_texture_distance` word read: the original
+    /// exposes no `I3D_shadow::GetMaxTextureDistance` (setter RVA 0x51840
+    /// already occupied). No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_max_texture_distance_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.shadow(key)?.max_texture_distance)
+    }
+
+    /// Working name for the clamped `color` triple read: the original
+    /// exposes no `I3D_shadow::GetColor` (setter RVA 0x518b0 already
+    /// occupied). No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_color_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.shadow(key)?.color)
+    }
+
+    /// Working name for the clamped `reverse_factor` word read: the original
+    /// exposes no `I3D_shadow::GetReverseFactor` (setter RVA 0x51980 already
+    /// occupied). No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_reverse_factor_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.shadow(key)?.reverse_factor)
+    }
+
+    /// Working name for the `orthogonal` flag read: the original exposes no
+    /// `I3D_shadow::GetOrthogonal` (setter RVA 0x519e0 already occupied).
+    /// No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_is_orthogonal_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.orthogonal)
+    }
+
+    /// Working name for the rounded `size_x`/`size_y` pair read: the original
+    /// exposes no `I3D_shadow::GetTextureSize` (setter RVA 0x51a20 already
+    /// occupied). No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_texture_size_of(&self, key: FrameKey) -> Result<[u32; 2], ModelError> {
+        let state = self.shadow(key)?;
+        Ok([state.size_x, state.size_y])
+    }
+
+    /// Working name for the `lock` word read: the original exposes no
+    /// `I3D_shadow::GetShadowLock` (setter RVA 0x51400 already occupied).
+    /// No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_lock_of(&self, key: FrameKey) -> Result<u32, ModelError> {
+        Ok(self.shadow(key)?.lock)
+    }
 }
 
 #[cfg(test)]
@@ -923,6 +976,121 @@ mod tests {
         }
         arena.link_frame_base(key, Some(parent), 0).unwrap();
         key
+    }
+
+    #[test]
+    fn shadow_range_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_range_of(key).unwrap(), 8.0);
+        arena.shadow_set_range(key, 12.0).unwrap();
+        assert_eq!(arena.shadow_range_of(key).unwrap(), 12.0);
+        arena.shadow_set_range(key, -1.0).unwrap();
+        assert_eq!(arena.shadow_range_of(key).unwrap(), 12.0);
+        assert_eq!(
+            arena.shadow_range_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_max_texture_distance_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_max_texture_distance_of(key).unwrap(), 1.0);
+        arena.shadow_set_max_texture_distance(key, 2.5).unwrap();
+        assert_eq!(arena.shadow_max_texture_distance_of(key).unwrap(), 2.5);
+        arena.shadow_set_max_texture_distance(key, 33.0).unwrap();
+        assert_eq!(arena.shadow_max_texture_distance_of(key).unwrap(), 2.5);
+        assert_eq!(
+            arena
+                .shadow_max_texture_distance_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_color_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_color_of(key).unwrap(), [0.0; 3]);
+        arena.shadow_set_color(key, [0.25, 0.5, 2.0]).unwrap();
+        assert_eq!(arena.shadow_color_of(key).unwrap(), [0.25, 0.5, 1.0]);
+        assert_eq!(
+            arena.shadow_color_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_reverse_factor_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_reverse_factor_of(key).unwrap(), 0.5);
+        arena.shadow_set_reverse_factor(key, 0.75).unwrap();
+        assert_eq!(arena.shadow_reverse_factor_of(key).unwrap(), 0.75);
+        arena.shadow_set_reverse_factor(key, -1.0).unwrap();
+        assert_eq!(arena.shadow_reverse_factor_of(key).unwrap(), 0.0);
+        assert_eq!(
+            arena
+                .shadow_reverse_factor_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_orthogonal_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert!(arena.shadow_is_orthogonal_of(key).unwrap());
+        arena.shadow_set_orthogonal(key, false).unwrap();
+        assert!(!arena.shadow_is_orthogonal_of(key).unwrap());
+        assert_eq!(
+            arena
+                .shadow_is_orthogonal_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_texture_size_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        let mut tex = NullTex {
+            released: Vec::new(),
+        };
+        assert_eq!(arena.shadow_texture_size_of(key).unwrap(), [64, 64]);
+        arena.shadow_set_texture_size(key, 100, 5, &mut tex).unwrap();
+        assert_eq!(arena.shadow_texture_size_of(key).unwrap(), [128, 128]);
+        assert_eq!(
+            arena
+                .shadow_texture_size_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_lock_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_lock_of(key).unwrap(), SHADOW_LOCK_NONE);
+        arena.set_shadow_lock(key, 7).unwrap();
+        assert_eq!(arena.shadow_lock_of(key).unwrap(), 7);
+        assert_eq!(
+            arena.shadow_lock_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
     }
 
     #[test]

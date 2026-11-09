@@ -247,6 +247,33 @@ impl SceneResources {
         }
         Ok(())
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the viewport rectangle the occupied `SetViewport` setter (PC RVA
+    /// 0x4a9c0; mafia-re ls3df/I3D/I3d_scene.cpp at pin 113b5b6) stores. The
+    /// original exposes no `I3D_scene::GetViewport`. No new RVA is claimed.
+    pub fn scene_viewport_rect(&self, scene: SceneKey) -> Result<[i32; 4], SceneResourceError> {
+        Ok(self
+            .construction(scene)
+            .ok_or(SceneResourceError::UnknownConstruction(scene))?
+            .viewport)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the stored view-projection-screen words at +0x188 the occupied
+    /// `SetViewProjMatrix` setter (PC RVA 0x4aa50) writes. The original
+    /// exposes no `I3D_scene::GetViewProjMatrix`. No new RVA is claimed.
+    pub fn scene_view_proj_matrix_of(
+        &self,
+        scene: SceneKey,
+    ) -> Result<SMatrix, SceneResourceError> {
+        let entry = self
+            .construction(scene)
+            .ok_or(SceneResourceError::UnknownConstruction(scene))?;
+        let mut elements = [0.0f32; 16];
+        for (index, slot) in elements.iter_mut().enumerate() {
+            *slot = f32::from_bits(entry.words[0x188 / 4 + index]);
+        }
+        Ok(SMatrix { elements })
+    }
     /// I3D_scene::TransformPoints, PC RVA 0x49e60 (differential: Ghidra body
     /// 94 insns/~7 BBs, 2 RETs). Camera first (absent -> NoActiveCamera, the
     /// 0x80000009 word via NOT_INITIALIZED), then screen halves in native
@@ -1476,6 +1503,46 @@ mod tests {
                 .unwrap();
         });
     }
+    #[test]
+    fn viewport_rect_and_view_proj_matrix_read_setter_written_words() {
+        use crate::native_transform::SMatrix;
+        let mut arena = ModelArena::default();
+        let mut shared = SceneResources::default();
+        let mut textures = TextureResources::new().unwrap();
+        let mut storage = CpuTextureStorage::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        shared
+            .continue_constructor(
+                &arena,
+                scene,
+                &mut Screen(Vec::new()),
+                &mut textures,
+                &mut Images {
+                    reads: 0,
+                    missing: true,
+                },
+                &mut storage,
+            )
+            .unwrap();
+        shared.set_viewport(&arena, scene, [1, 2, 800, 600]).unwrap();
+        assert_eq!(shared.scene_viewport_rect(scene).unwrap(), [1, 2, 800, 600]);
+        shared
+            .set_view_proj_matrix(&arena, scene, SMatrix::identity())
+            .unwrap();
+        let matrix = shared.scene_view_proj_matrix_of(scene).unwrap();
+        // Viewport [1, 2, 800, 600]: halves [(800-1)*0.5, (2-600)*0.5].
+        assert_eq!(matrix.elements[0].to_bits(), 399.5f32.to_bits());
+        assert_eq!(matrix.elements[5].to_bits(), (-299f32).to_bits());
+        assert_eq!(matrix.elements[10].to_bits(), 1f32.to_bits());
+        assert_eq!(matrix.elements[15].to_bits(), 1f32.to_bits());
+        assert!(matches!(
+            shared.scene_viewport_rect(crate::scene_ownership::SceneKey(
+                crate::frame_transform::FrameKey(u32::MAX)
+            )),
+            Err(SceneResourceError::UnknownConstruction(_))
+        ));
+    }
+
     #[test]
     fn view_proj_matrix_copies_then_scales_columns_and_transform_projects() {
         use crate::native_transform::SMatrix;
