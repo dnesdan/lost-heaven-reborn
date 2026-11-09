@@ -1237,6 +1237,41 @@ impl ModelArena {
     pub fn scene_primary_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
         Ok(self.scene(scene)?.sectors[0])
     }
+    /// Working name for the LS3DF-inlined `I3D_scene::backdrop_sector` read
+    /// (mafia-re ls3df/I3D/I3D.h:1565). No LS3DF FUNCTION address exists
+    /// for it: the member is only stored by the sector ring setup. Slot 1
+    /// of the retained primary/backdrop/omni/near order; no caches move.
+    pub fn scene_backdrop_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
+        Ok(self.scene(scene)?.sectors[1])
+    }
+    /// Working name for the LS3DF-inlined `I3D_scene::omni_sector` read
+    /// (mafia-re ls3df/I3D/I3D.h:1566). No LS3DF FUNCTION address exists
+    /// for it. Slot 2 of the retained primary/backdrop/omni/near order.
+    pub fn scene_omni_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
+        Ok(self.scene(scene)?.sectors[2])
+    }
+    /// Working name for the LS3DF-inlined `I3D_scene::near_sector` read
+    /// (mafia-re ls3df/I3D/I3D.h:1567). No LS3DF FUNCTION address exists
+    /// for it. Slot 3 of the retained primary/backdrop/omni/near order.
+    pub fn scene_near_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
+        Ok(self.scene(scene)?.sectors[3])
+    }
+    /// Working name for the `occluders_changed` state-flag read at +0x275
+    /// (mafia-re ls3df/I3D/I3D.h:1581). No LS3DF FUNCTION address exists
+    /// for it: the flag is only stored, cleared by the constructor
+    /// (mafia-re ls3df/I3D/I3d_scene.cpp:109) and set by the occluder ring
+    /// joins (mafia-re ls3df/I3D/frames/I3d_occluder.cpp:125,143).
+    pub fn scene_occluders_changed(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(self.scene(scene)?.occluders_changed)
+    }
+    /// Working name for the `areas_changed` state-flag read at +0x280
+    /// (mafia-re ls3df/I3D/I3D.h:1582). No LS3DF FUNCTION address exists
+    /// for it: the flag is only stored, cleared by the constructor
+    /// (mafia-re ls3df/I3D/I3d_scene.cpp:112) and set by the area ring
+    /// joins (mafia-re ls3df/I3D/frames/I3d_area.cpp:66,83).
+    pub fn scene_areas_changed(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(self.scene(scene)?.areas_changed)
+    }
     /// Working name for the in-class empty `I3D_scene::SetOn`
     /// (mafia-re ls3df/I3D/I3D.h:1454). No LS3DF FUNCTION address exists
     /// for it and the reference marks no Game.exe out-of-line copy either;
@@ -1662,6 +1697,18 @@ mod tests {
         arena.release(light).unwrap();
         assert!(arena.sector(sectors[1]).unwrap().lights.is_empty());
         assert_eq!(arena.sector_lights_changed(sectors[1]), Ok(3));
+    }
+    #[test]
+    fn scene_sector_slots_and_change_flags_read_ctor_state() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sectors = arena.scene(scene).unwrap().sectors;
+        assert_eq!(arena.scene_primary_sector(scene), Ok(sectors[0]));
+        assert_eq!(arena.scene_backdrop_sector(scene), Ok(sectors[1]));
+        assert_eq!(arena.scene_omni_sector(scene), Ok(sectors[2]));
+        assert_eq!(arena.scene_near_sector(scene), Ok(sectors[3]));
+        assert_eq!(arena.scene_occluders_changed(scene), Ok(false));
+        assert_eq!(arena.scene_areas_changed(scene), Ok(false));
     }
     #[test]
     fn fog_sector_membership_selects_latest_on_light_and_releases_reciprocals() {
