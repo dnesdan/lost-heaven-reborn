@@ -367,7 +367,10 @@ class RewriteProgressTests(unittest.TestCase):
         # all STUBs held as contract).
         # +1 program Compile differential (Ghidra body 287/53; pin tests
         # program_compiler 20 / compile 35 pass).
-        self.assertEqual(game["ported"], 149 + 596)
+        # +14 traffic-car/housekeeping STUB contracts (ctor/dtor/Init/
+        # ChangeState/GameInit/GameDone + 8 scene stubs; all STUBs held
+        # as contract).
+        self.assertEqual(game["ported"], 149 + 610)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

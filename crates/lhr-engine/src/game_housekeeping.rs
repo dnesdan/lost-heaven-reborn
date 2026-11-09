@@ -2003,6 +2003,315 @@ pub fn tick_car_sound_manager() -> Result<(), UnwrittenGameEntry> {
     })
 }
 
+/// STUB: GAME RVA 0x1b5450, VA 0x5b5450 (`game.cpp:4127-4131`,
+/// `C_game::LightnessAdd`): unwritten upstream (`StubLog` only). The
+/// lightness list and the actor/frame owners stay with their owners
+/// (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b5450` (code, not a data offset and not
+/// another binary). RVA `0x1b5450` = `0x5b5450 - 0x400000`; VA
+/// `0x400000 + 0x1b5450` = `0x5b5450`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const LIGHTNESS_ADD_ENTRY: u32 = 0x5b5450;
+
+/// Original `C_game::LightnessAdd` stub: always reports the boundary
+/// instead of inventing lightness ownership.
+pub fn lightness_add(
+    _actor: ActorId,
+    _frame: FrameId,
+    _unknown: u16,
+    _pos: [f32; 3],
+) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: LIGHTNESS_ADD_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b56f0, VA 0x5b56f0 (`game.cpp:4133-4137`,
+/// `C_game::LightnessDel`): unwritten upstream (`StubLog` only). The
+/// lightness list stays with its owner (DEFERRED). Explicit unsupported
+/// boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b56f0` (code, not a data offset and not
+/// another binary). RVA `0x1b56f0` = `0x5b56f0 - 0x400000`; VA
+/// `0x400000 + 0x1b56f0` = `0x5b56f0`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const LIGHTNESS_DEL_ENTRY: u32 = 0x5b56f0;
+
+/// Original `C_game::LightnessDel` stub: always reports the boundary
+/// instead of inventing lightness ownership.
+pub fn lightness_del(_frame: FrameId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: LIGHTNESS_DEL_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b7be0, VA 0x5b7be0 (`game.cpp:3771-3776`,
+/// `C_game::DestroyControlSignal`): unwritten upstream (`StubLog` only).
+/// The collision object, the signal frames and the human owner stay with
+/// their owners (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b7be0` (code, not a data offset and not
+/// another binary). RVA `0x1b7be0` = `0x5b7be0 - 0x400000`; VA
+/// `0x400000 + 0x1b7be0` = `0x5b7be0`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const DESTROY_CONTROL_SIGNAL_ENTRY: u32 = 0x5b7be0;
+
+/// Original `C_game::DestroyControlSignal` stub: always reports the
+/// boundary instead of inventing collision/signal ownership.
+pub fn destroy_control_signal(
+    _coll: u32,
+    _pos: [f32; 3],
+    _from: [f32; 3],
+    _dir: [f32; 3],
+    _human: ActorId,
+) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DESTROY_CONTROL_SIGNAL_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b9690, VA 0x5b9690 (`game.cpp:4203-4206`,
+/// `C_game::AddDeadHumanForTick`): unwritten upstream (`StubLog` only).
+/// The dead-human fade list and the human owner stay with their owners
+/// (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b9690` (code, not a data offset and not
+/// another binary). RVA `0x1b9690` = `0x5b9690 - 0x400000`; VA
+/// `0x400000 + 0x1b9690` = `0x5b9690`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const ADD_DEAD_HUMAN_FOR_TICK_ENTRY: u32 = 0x5b9690;
+
+/// Original `C_game::AddDeadHumanForTick` stub: always reports the boundary
+/// instead of inventing fade-list ownership.
+pub fn add_dead_human_for_tick(_human: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_DEAD_HUMAN_FOR_TICK_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b98c0, VA 0x5b98c0 (`game.cpp:3934-3938`,
+/// `C_game::TickDeadHumanForTick`): unwritten upstream (`StubLog` only).
+/// The dead-human fade tick stays with its owner (DEFERRED). Explicit
+/// unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b98c0` (code, not a data offset and not
+/// another binary). RVA `0x1b98c0` = `0x5b98c0 - 0x400000`; VA
+/// `0x400000 + 0x1b98c0` = `0x5b98c0`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const TICK_DEAD_HUMAN_FOR_TICK_ENTRY: u32 = 0x5b98c0;
+
+/// Original `C_game::TickDeadHumanForTick` stub: always reports the
+/// boundary instead of inventing fade-tick ownership.
+pub fn tick_dead_human_for_tick(_time: u32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TICK_DEAD_HUMAN_FOR_TICK_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1ba390, VA 0x5ba390 (`game.cpp:4004-4008`,
+/// `C_game::ItemBlurTick`): unwritten upstream (`StubLog` only). The blur
+/// switch it reads (`item_blur`, cleared by the ported
+/// `ClearDeathHumanFade`, GAME 0x5ba310) and the effect owner stay with
+/// their owners (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5ba390` (code, not a data offset and not
+/// another binary). RVA `0x1ba390` = `0x5ba390 - 0x400000`; VA
+/// `0x400000 + 0x1ba390` = `0x5ba390`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const ITEM_BLUR_TICK_ENTRY: u32 = 0x5ba390;
+
+/// Original `C_game::ItemBlurTick` stub: always reports the boundary
+/// instead of inventing effect ownership.
+pub fn item_blur_tick(_time: u32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ITEM_BLUR_TICK_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1bab20, VA 0x5bab20 (`game.cpp:4016-4020`,
+/// `C_game::RecPrepareHumans`): unwritten upstream (`StubLog` only). The
+/// human/recording preparation stays with the actor owner (DEFERRED).
+/// Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5bab20` (code, not a data offset and not
+/// another binary). RVA `0x1bab20` = `0x5bab20 - 0x400000`; VA
+/// `0x400000 + 0x1bab20` = `0x5bab20`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const REC_PREPARE_HUMANS_ENTRY: u32 = 0x5bab20;
+
+/// Original `C_game::RecPrepareHumans` stub: always reports the boundary
+/// instead of inventing human preparation.
+pub fn rec_prepare_humans() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: REC_PREPARE_HUMANS_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1bb570, VA 0x5bb570 (`game.cpp:4075-4080`, the static
+/// `AddInterCityBox` helper of `C_game::InterCity_GameInit`): unwritten
+/// upstream (`StubLog` only). The collision arrays, matrices, frames and
+/// the scene dummy frame stay with the collision and scene owners
+/// (DEFERRED), so no parameter is staged here. Explicit unsupported
+/// boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5bb570` (code, not a data offset and not
+/// another binary). RVA `0x1bb570` = `0x5bb570 - 0x400000`; VA
+/// `0x400000 + 0x1bb570` = `0x5bb570`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const ADD_INTER_CITY_BOX_ENTRY: u32 = 0x5bb570;
+
+/// Original `AddInterCityBox` stub: always reports the boundary instead of
+/// inventing collision/scene ownership.
+pub fn add_inter_city_box() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_INTER_CITY_BOX_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x0aa7a0, VA 0x4aa7a0 (`game/vehicles/C_trf_c.cpp:23-27`,
+/// `C_traffic_car::C_traffic_car`): unwritten upstream (`StubLog` only).
+/// Traffic-car construction stays with the actor owner (DEFERRED).
+/// Explicit unsupported boundary.
+///
+/// Verified in reference: `game/vehicles/C_trf_c.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x4aa7a0` (code, not a data offset and
+/// not another binary). RVA `0x0aa7a0` = `0x4aa7a0 - 0x400000`; VA
+/// `0x400000 + 0x0aa7a0` = `0x4aa7a0`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const TRAFFIC_CAR_CTOR_ENTRY: u32 = 0x4aa7a0;
+
+/// Original `C_traffic_car::C_traffic_car` stub: always reports the
+/// boundary instead of inventing actor ownership.
+pub fn traffic_car_ctor() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_CAR_CTOR_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x0aa830, VA 0x4aa830 (`game/vehicles/C_trf_c.cpp:53-57`,
+/// `C_traffic_car::~C_traffic_car`): unwritten upstream (`StubLog` only).
+/// Traffic-car destruction stays with the actor owner (DEFERRED). Explicit
+/// unsupported boundary.
+///
+/// Verified in reference: `game/vehicles/C_trf_c.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x4aa830` (code, not a data offset and
+/// not another binary). RVA `0x0aa830` = `0x4aa830 - 0x400000`; VA
+/// `0x400000 + 0x0aa830` = `0x4aa830`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const TRAFFIC_CAR_DTOR_ENTRY: u32 = 0x4aa830;
+
+/// Original `C_traffic_car::~C_traffic_car` stub: always reports the
+/// boundary instead of inventing actor ownership.
+pub fn traffic_car_dtor() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_CAR_DTOR_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x0aa860, VA 0x4aa860 (`game/vehicles/C_trf_c.cpp:59-64`,
+/// `C_traffic_car::Init`): unwritten upstream (`StubLog` only, then the
+/// `C_actor::Init` base call). The actor init stays with the actor owner
+/// (DEFERRED), so the base-call result is unobservable here. Explicit
+/// unsupported boundary.
+///
+/// Verified in reference: `game/vehicles/C_trf_c.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x4aa860` (code, not a data offset and
+/// not another binary). RVA `0x0aa860` = `0x4aa860 - 0x400000`; VA
+/// `0x400000 + 0x0aa860` = `0x4aa860`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const TRAFFIC_CAR_INIT_ENTRY: u32 = 0x4aa860;
+
+/// Original `C_traffic_car::Init` stub: always reports the boundary instead
+/// of inventing actor ownership.
+pub fn traffic_car_init(_frame: FrameId) -> Result<bool, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_CAR_INIT_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x0aa8b0, VA 0x4aa8b0 (`game/vehicles/C_trf_c.cpp:66-71`,
+/// `C_traffic_car::ChangeState`): unwritten upstream (`StubLog` only, then
+/// the `C_actor::ChangeState` base call). The actor state stays with the
+/// actor owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/vehicles/C_trf_c.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x4aa8b0` (code, not a data offset and
+/// not another binary). RVA `0x0aa8b0` = `0x4aa8b0 - 0x400000`; VA
+/// `0x400000 + 0x0aa8b0` = `0x4aa8b0`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const TRAFFIC_CAR_CHANGE_STATE_ENTRY: u32 = 0x4aa8b0;
+
+/// Original `C_traffic_car::ChangeState` stub: always reports the boundary
+/// instead of inventing actor ownership.
+pub fn traffic_car_change_state() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_CAR_CHANGE_STATE_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x0b54a0, VA 0x4b54a0 (`game/vehicles/C_trf_c.cpp:131-136`,
+/// `C_traffic_car::GameInit`): unwritten upstream (`StubLog` only, then the
+/// `C_actor::GameInit` base call). The actor game-init stays with the actor
+/// owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/vehicles/C_trf_c.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x4b54a0` (code, not a data offset and
+/// not another binary). RVA `0x0b54a0` = `0x4b54a0 - 0x400000`; VA
+/// `0x400000 + 0x0b54a0` = `0x4b54a0`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const TRAFFIC_CAR_GAME_INIT_ENTRY: u32 = 0x4b54a0;
+
+/// Original `C_traffic_car::GameInit` stub: always reports the boundary
+/// instead of inventing actor ownership.
+pub fn traffic_car_game_init() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_CAR_GAME_INIT_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x0b8010, VA 0x4b8010 (`game/vehicles/C_trf_c.cpp:138-143`,
+/// `C_traffic_car::GameDone`): unwritten upstream (`StubLog` only, then the
+/// `C_actor::GameDone` base call). The actor game-done stays with the actor
+/// owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/vehicles/C_trf_c.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x4b8010` (code, not a data offset and
+/// not another binary). RVA `0x0b8010` = `0x4b8010 - 0x400000`; VA
+/// `0x400000 + 0x0b8010` = `0x4b8010`. The RVA is not taken as a ported
+/// entry by `docs/rewrite-overlay.json` or by any Rust symbol in this tree
+/// (the frozen `docs/progress.json` inventory row carries no port).
+pub const TRAFFIC_CAR_GAME_DONE_ENTRY: u32 = 0x4b8010;
+
+/// Original `C_traffic_car::GameDone` stub: always reports the boundary
+/// instead of inventing actor ownership.
+pub fn traffic_car_game_done() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_CAR_GAME_DONE_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3627,6 +3936,158 @@ mod tests {
         assert_eq!(
             tick_car_sound_manager(),
             Err(UnwrittenGameEntry::Unsupported { entry: 0x5ba110 })
+        );
+    }
+
+    #[test]
+    fn rva_1b5450_lightness_add_reports_unsupported() {
+        // C_game::LightnessAdd GAME RVA 0x1b5450 (VA 0x5b5450): STUB.
+        assert_eq!(LIGHTNESS_ADD_ENTRY, 0x5b5450);
+        assert_eq!(
+            lightness_add(1, 2, 3, [0.0; 3]),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b5450 })
+        );
+        assert_eq!(
+            lightness_add(u32::MAX, 0, u16::MAX, [1.0, 2.0, 3.0]),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b5450 })
+        );
+    }
+
+    #[test]
+    fn rva_1b56f0_lightness_del_reports_unsupported() {
+        // C_game::LightnessDel GAME RVA 0x1b56f0 (VA 0x5b56f0): STUB.
+        assert_eq!(LIGHTNESS_DEL_ENTRY, 0x5b56f0);
+        assert_eq!(
+            lightness_del(11),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b56f0 })
+        );
+    }
+
+    #[test]
+    fn rva_1b7be0_destroy_control_signal_reports_unsupported() {
+        // C_game::DestroyControlSignal GAME RVA 0x1b7be0 (VA 0x5b7be0): STUB.
+        assert_eq!(DESTROY_CONTROL_SIGNAL_ENTRY, 0x5b7be0);
+        assert_eq!(
+            destroy_control_signal(1, [0.0; 3], [0.0; 3], [0.0; 3], 4),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b7be0 })
+        );
+    }
+
+    #[test]
+    fn rva_1b9690_add_dead_human_for_tick_reports_unsupported() {
+        // C_game::AddDeadHumanForTick GAME RVA 0x1b9690 (VA 0x5b9690): STUB.
+        assert_eq!(ADD_DEAD_HUMAN_FOR_TICK_ENTRY, 0x5b9690);
+        assert_eq!(
+            add_dead_human_for_tick(7),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b9690 })
+        );
+    }
+
+    #[test]
+    fn rva_1b98c0_tick_dead_human_for_tick_reports_unsupported() {
+        // C_game::TickDeadHumanForTick GAME RVA 0x1b98c0 (VA 0x5b98c0): STUB.
+        assert_eq!(TICK_DEAD_HUMAN_FOR_TICK_ENTRY, 0x5b98c0);
+        assert_eq!(
+            tick_dead_human_for_tick(100),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b98c0 })
+        );
+    }
+
+    #[test]
+    fn rva_1ba390_item_blur_tick_reports_unsupported() {
+        // C_game::ItemBlurTick GAME RVA 0x1ba390 (VA 0x5ba390): STUB.
+        assert_eq!(ITEM_BLUR_TICK_ENTRY, 0x5ba390);
+        assert_eq!(
+            item_blur_tick(0),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ba390 })
+        );
+        assert_eq!(
+            item_blur_tick(u32::MAX),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ba390 })
+        );
+    }
+
+    #[test]
+    fn rva_1bab20_rec_prepare_humans_reports_unsupported() {
+        // C_game::RecPrepareHumans GAME RVA 0x1bab20 (VA 0x5bab20): STUB.
+        assert_eq!(REC_PREPARE_HUMANS_ENTRY, 0x5bab20);
+        assert_eq!(
+            rec_prepare_humans(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5bab20 })
+        );
+    }
+
+    #[test]
+    fn rva_1bb570_add_inter_city_box_reports_unsupported() {
+        // AddInterCityBox GAME RVA 0x1bb570 (VA 0x5bb570): STUB.
+        assert_eq!(ADD_INTER_CITY_BOX_ENTRY, 0x5bb570);
+        assert_eq!(
+            add_inter_city_box(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5bb570 })
+        );
+    }
+
+    #[test]
+    fn rva_0aa7a0_traffic_car_ctor_reports_unsupported() {
+        // C_traffic_car::C_traffic_car GAME RVA 0x0aa7a0 (VA 0x4aa7a0): STUB.
+        assert_eq!(TRAFFIC_CAR_CTOR_ENTRY, 0x4aa7a0);
+        assert_eq!(
+            traffic_car_ctor(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x4aa7a0 })
+        );
+    }
+
+    #[test]
+    fn rva_0aa830_traffic_car_dtor_reports_unsupported() {
+        // C_traffic_car::~C_traffic_car GAME RVA 0x0aa830 (VA 0x4aa830): STUB.
+        assert_eq!(TRAFFIC_CAR_DTOR_ENTRY, 0x4aa830);
+        assert_eq!(
+            traffic_car_dtor(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x4aa830 })
+        );
+    }
+
+    #[test]
+    fn rva_0aa860_traffic_car_init_reports_unsupported() {
+        // C_traffic_car::Init GAME RVA 0x0aa860 (VA 0x4aa860): STUB.
+        assert_eq!(TRAFFIC_CAR_INIT_ENTRY, 0x4aa860);
+        assert_eq!(
+            traffic_car_init(9),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x4aa860 })
+        );
+        assert_eq!(
+            traffic_car_init(0),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x4aa860 })
+        );
+    }
+
+    #[test]
+    fn rva_0aa8b0_traffic_car_change_state_reports_unsupported() {
+        // C_traffic_car::ChangeState GAME RVA 0x0aa8b0 (VA 0x4aa8b0): STUB.
+        assert_eq!(TRAFFIC_CAR_CHANGE_STATE_ENTRY, 0x4aa8b0);
+        assert_eq!(
+            traffic_car_change_state(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x4aa8b0 })
+        );
+    }
+
+    #[test]
+    fn rva_0b54a0_traffic_car_game_init_reports_unsupported() {
+        // C_traffic_car::GameInit GAME RVA 0x0b54a0 (VA 0x4b54a0): STUB.
+        assert_eq!(TRAFFIC_CAR_GAME_INIT_ENTRY, 0x4b54a0);
+        assert_eq!(
+            traffic_car_game_init(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x4b54a0 })
+        );
+    }
+
+    #[test]
+    fn rva_0b8010_traffic_car_game_done_reports_unsupported() {
+        // C_traffic_car::GameDone GAME RVA 0x0b8010 (VA 0x4b8010): STUB.
+        assert_eq!(TRAFFIC_CAR_GAME_DONE_ENTRY, 0x4b8010);
+        assert_eq!(
+            traffic_car_game_done(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x4b8010 })
         );
     }
 }

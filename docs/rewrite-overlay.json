@@ -13513,6 +13513,132 @@
       "symbol": "lhr_engine::model_loading::ModelArena::billboard_set_space",
       "tier": "contract",
       "evidence": "Empty SetSpace shared tail (LS3DF 0x1005e30). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b5450",
+      "va": "0x5b5450",
+      "name": "C_game::LightnessAdd",
+      "symbol": "lhr_engine::game_housekeeping::lightness_add",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Lightness add (GAME 0x5b5450). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b56f0",
+      "va": "0x5b56f0",
+      "name": "C_game::LightnessDel",
+      "symbol": "lhr_engine::game_housekeeping::lightness_del",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Lightness del (GAME 0x5b56f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b7be0",
+      "va": "0x5b7be0",
+      "name": "C_game::DestroyControlSignal",
+      "symbol": "lhr_engine::game_housekeeping::destroy_control_signal",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Control-signal destroy (GAME 0x5b7be0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b9690",
+      "va": "0x5b9690",
+      "name": "C_game::AddDeadHumanForTick",
+      "symbol": "lhr_engine::game_housekeeping::add_dead_human_for_tick",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Dead-human add (GAME 0x5b9690). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b98c0",
+      "va": "0x5b98c0",
+      "name": "C_game::TickDeadHumanForTick",
+      "symbol": "lhr_engine::game_housekeeping::tick_dead_human_for_tick",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Dead-human tick (GAME 0x5b98c0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ba390",
+      "va": "0x5ba390",
+      "name": "C_game::ItemBlurTick",
+      "symbol": "lhr_engine::game_housekeeping::item_blur_tick",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Item-blur tick (GAME 0x5ba390). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1bab20",
+      "va": "0x5bab20",
+      "name": "C_game::RecPrepareHumans",
+      "symbol": "lhr_engine::game_housekeeping::rec_prepare_humans",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Recorder humans prep (GAME 0x5bab20). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1bb570",
+      "va": "0x5bb570",
+      "name": "C_game::AddInterCityBox",
+      "symbol": "lhr_engine::game_housekeeping::add_inter_city_box",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Inter-city box add (GAME 0x5bb570). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0aa7a0",
+      "va": "0x4aa7a0",
+      "name": "C_traffic_car::C_traffic_car",
+      "symbol": "lhr_engine::game_housekeeping::traffic_car_ctor",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Traffic-car ctor (GAME 0x4aa7a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0aa830",
+      "va": "0x4aa830",
+      "name": "C_traffic_car::~C_traffic_car",
+      "symbol": "lhr_engine::game_housekeeping::traffic_car_dtor",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Traffic-car dtor (GAME 0x4aa830). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0aa860",
+      "va": "0x4aa860",
+      "name": "C_traffic_car::Init",
+      "symbol": "lhr_engine::game_housekeeping::traffic_car_init",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Traffic-car init (GAME 0x4aa860). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0aa8b0",
+      "va": "0x4aa8b0",
+      "name": "C_traffic_car::ChangeState",
+      "symbol": "lhr_engine::game_housekeeping::traffic_car_change_state",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Traffic-car state change (GAME 0x4aa8b0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0b54a0",
+      "va": "0x4b54a0",
+      "name": "C_traffic_car::GameInit",
+      "symbol": "lhr_engine::game_housekeeping::traffic_car_game_init",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Traffic-car GameInit (GAME 0x4b54a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0b8010",
+      "va": "0x4b8010",
+      "name": "C_traffic_car::GameDone",
+      "symbol": "lhr_engine::game_housekeeping::traffic_car_game_done",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/actor owners deferred). Traffic-car GameDone (GAME 0x4b8010). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
