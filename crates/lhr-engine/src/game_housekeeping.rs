@@ -219,7 +219,8 @@ pub fn compare_shadows(a: &ShadowItem, b: &ShadowItem) -> i32 {
     }
 }
 
-/// FUNCTION: GAME 0x5b6e0 (`game.cpp:3628`, `S_hlp::cbFindTaxiPoints`).
+/// FUNCTION: GAME RVA 0x1b6b60, VA 0x5b6b60 (`game.cpp:3627-3632`,
+/// `C_game::S_hlp::cbFindTaxiPoints`).
 /// Records every visited frame; the original pushes the frame pointer into
 /// the taxi-point list and returns `I3DENUMRET_OK` to continue enumeration.
 pub fn cb_find_taxi_points(frame: &HousekeepingFrame, list: &mut Vec<FrameId>) {
@@ -1784,6 +1785,224 @@ pub fn add_to_cutscene() -> Result<bool, UnwrittenGameEntry> {
     })
 }
 
+/// STUB: GAME RVA 0x1b9390, VA 0x5b9390 (`game.cpp:3887-3891`,
+/// `game.h:703`, `C_game::TickScreamAreas`): unwritten upstream (`StubLog`
+/// only). The camera-area id accumulation (`camera_scream_areas`,
+/// `scream_areas_time`) stays with the scene owner (DEFERRED). Explicit
+/// unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b9390` (code, not a data offset and not
+/// another binary). RVA `0x1b9390` = `0x5b9390 - 0x400000`; VA
+/// `0x400000 + 0x1b9390` = `0x5b9390`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TICK_SCREAM_AREAS_ENTRY: u32 = 0x5b9390;
+
+/// Original `C_game::TickScreamAreas` stub: always reports the boundary
+/// instead of inventing the scene tick.
+pub fn tick_scream_areas() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TICK_SCREAM_AREAS_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1baa40, VA 0x5baa40 (`game.cpp:4010-4014`,
+/// `game.h:446`, `C_game::RemoveDeathHumanFade`): unwritten upstream
+/// (`StubLog` only). The per-entry fade owner stays with its owner
+/// (DEFERRED); `ClearDeathHumanFade` (GAME 0x5ba310, already ported) only
+/// observes the emptied list plus the cleared blur switch. Explicit
+/// unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5baa40` (code, not a data offset and not
+/// another binary). RVA `0x1baa40` = `0x5baa40 - 0x400000`; VA
+/// `0x400000 + 0x1baa40` = `0x5baa40`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const REMOVE_DEATH_HUMAN_FADE_ENTRY: u32 = 0x5baa40;
+
+/// Original `C_game::RemoveDeathHumanFade` stub: always reports the
+/// boundary instead of inventing fade ownership.
+pub fn remove_death_human_fade(_index: i32, _flag: bool) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: REMOVE_DEATH_HUMAN_FADE_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b7f70, VA 0x5b7f70 (`game.cpp:3804-3808`,
+/// `game.h:809`, `C_game::AddInvisibleActor`): unwritten upstream
+/// (`StubLog` only). The invisible-actor list and the actor owner stay
+/// with their owners (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b7f70` (code, not a data offset and not
+/// another binary). RVA `0x1b7f70` = `0x5b7f70 - 0x400000`; VA
+/// `0x400000 + 0x1b7f70` = `0x5b7f70`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const ADD_INVISIBLE_ACTOR_ENTRY: u32 = 0x5b7f70;
+
+/// Original `C_game::AddInvisibleActor` stub: always reports the boundary
+/// instead of inventing the invisible-actor owner.
+pub fn add_invisible_actor(_actor: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_INVISIBLE_ACTOR_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b8150, VA 0x5b8150 (`game.cpp:3810-3814`,
+/// `game.h:673`, `C_game::FindActorsVect`): unwritten upstream (`StubLog`
+/// only). The actor-vector scan stays with the mission owner (DEFERRED).
+/// Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b8150` (code, not a data offset and not
+/// another binary). RVA `0x1b8150` = `0x5b8150 - 0x400000`; VA
+/// `0x400000 + 0x1b8150` = `0x5b8150`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const FIND_ACTORS_VECT_ENTRY: u32 = 0x5b8150;
+
+/// Original `C_game::FindActorsVect` stub: always reports the boundary
+/// instead of inventing the actor-vector scan.
+pub fn find_actors_vect() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: FIND_ACTORS_VECT_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b81e0, VA 0x5b81e0 (`game.cpp:3816-3820`,
+/// `game.h:812`, `C_game::AddCutsceneParticle`): unwritten upstream
+/// (`StubLog` only). The cutscene-particle list stays with the cutscene
+/// owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b81e0` (code, not a data offset and not
+/// another binary). RVA `0x1b81e0` = `0x5b81e0 - 0x400000`; VA
+/// `0x400000 + 0x1b81e0` = `0x5b81e0`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const ADD_CUTSCENE_PARTICLE_ENTRY: u32 = 0x5b81e0;
+
+/// Original `C_game::AddCutsceneParticle` stub: always reports the
+/// boundary instead of inventing cutscene-particle ownership.
+pub fn add_cutscene_particle(_particle: i32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_CUTSCENE_PARTICLE_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b8390, VA 0x5b8390 (`game.cpp:3822-3826`,
+/// `game.h:813`, `C_game::DestroyCutsceneParticles`): unwritten upstream
+/// (`StubLog` only). The cutscene-particle list stays with the cutscene
+/// owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b8390` (code, not a data offset and not
+/// another binary). RVA `0x1b8390` = `0x5b8390 - 0x400000`; VA
+/// `0x400000 + 0x1b8390` = `0x5b8390`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const DESTROY_CUTSCENE_PARTICLES_ENTRY: u32 = 0x5b8390;
+
+/// Original `C_game::DestroyCutsceneParticles` stub: always reports the
+/// boundary instead of inventing cutscene-particle ownership.
+pub fn destroy_cutscene_particles() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DESTROY_CUTSCENE_PARTICLES_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b8e70, VA 0x5b8e70 (`game.cpp:3836-3840`,
+/// `game.h:816`, `C_game::AddCreatedFrameToVector`): unwritten upstream
+/// (`StubLog` only). The created-frames vector stays with the scene owner
+/// (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b8e70` (code, not a data offset and not
+/// another binary). RVA `0x1b8e70` = `0x5b8e70 - 0x400000`; VA
+/// `0x400000 + 0x1b8e70` = `0x5b8e70`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const ADD_CREATED_FRAME_TO_VECTOR_ENTRY: u32 = 0x5b8e70;
+
+/// Original `C_game::AddCreatedFrameToVector` stub: always reports the
+/// boundary instead of inventing created-frame ownership.
+pub fn add_created_frame_to_vector(_frame: FrameId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_CREATED_FRAME_TO_VECTOR_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b9040, VA 0x5b9040 (`game.cpp:3842-3847`,
+/// `game.h:817`, `C_game::DelCreatedFrameToVector`): unwritten upstream
+/// (`StubLog` + `false`). The created-frames vector stays with the scene
+/// owner (DEFERRED); the host mirrors the native `false` without inventing
+/// the removal, like `is_valid_taxi_passenger` (GAME 0x5b6d10).
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5b9040` (code, not a data offset and not
+/// another binary). RVA `0x1b9040` = `0x5b9040 - 0x400000`; VA
+/// `0x400000 + 0x1b9040` = `0x5b9040`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub fn del_created_frame_to_vector(_frame: FrameId) -> bool {
+    false
+}
+
+/// STUB: GAME RVA 0x1ba010, VA 0x5ba010 (`game.cpp:3976-3980`,
+/// `game.h:820`, `C_game::SetCameraRotRepair`): unwritten upstream
+/// (`StubLog` only). The camera-rotation repair flag stays with the camera
+/// owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5ba010` (code, not a data offset and not
+/// another binary). RVA `0x1ba010` = `0x5ba010 - 0x400000`; VA
+/// `0x400000 + 0x1ba010` = `0x5ba010`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const SET_CAMERA_ROT_REPAIR_ENTRY: u32 = 0x5ba010;
+
+/// Original `C_game::SetCameraRotRepair` stub: always reports the boundary
+/// instead of inventing camera ownership.
+pub fn set_camera_rot_repair() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: SET_CAMERA_ROT_REPAIR_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1ba080, VA 0x5ba080 (`game.cpp:3982-3986`,
+/// `game.h:821`, `C_game::ClearCartridges`): unwritten upstream (`StubLog`
+/// only). The cartridge frames stay with the actor owner (DEFERRED).
+/// Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5ba080` (code, not a data offset and not
+/// another binary). RVA `0x1ba080` = `0x5ba080 - 0x400000`; VA
+/// `0x400000 + 0x1ba080` = `0x5ba080`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const CLEAR_CARTRIDGES_ENTRY: u32 = 0x5ba080;
+
+/// Original `C_game::ClearCartridges` stub: always reports the boundary
+/// instead of inventing cartridge ownership.
+pub fn clear_cartridges() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: CLEAR_CARTRIDGES_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1ba110, VA 0x5ba110 (`game.cpp:3988-3992`,
+/// `game.h:674`, `C_game::TickCarSoundManager`): unwritten upstream
+/// (`StubLog` only). The car-sound tick stays with the sound owner
+/// (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+/// the marker is `// STUB: GAME 0x5ba110` (code, not a data offset and not
+/// another binary). RVA `0x1ba110` = `0x5ba110 - 0x400000`; VA
+/// `0x400000 + 0x1ba110` = `0x5ba110`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TICK_CAR_SOUND_MANAGER_ENTRY: u32 = 0x5ba110;
+
+/// Original `C_game::TickCarSoundManager` stub: always reports the
+/// boundary instead of inventing car-sound ownership.
+pub fn tick_car_sound_manager() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TICK_CAR_SOUND_MANAGER_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1967,7 +2186,8 @@ mod tests {
     }
 
     #[test]
-    fn find_taxi_points_pushes_every_frame() {
+    fn rva_1b6b60_find_taxi_points_pushes_every_frame() {
+        // C_game::S_hlp::cbFindTaxiPoints GAME RVA 0x1b6b60 (VA 0x5b6b60).
         let frame = HousekeepingFrame::leaf(5, false);
         let mut list = vec![1];
         cb_find_taxi_points(&frame, &mut list);
@@ -3296,6 +3516,117 @@ mod tests {
         assert_eq!(
             add_to_cutscene(),
             Err(UnwrittenGameEntry::Unsupported { entry: 0x56b180 })
+        );
+    }
+
+    #[test]
+    fn rva_1b9390_tick_scream_areas_reports_unsupported() {
+        // C_game::TickScreamAreas GAME RVA 0x1b9390 (VA 0x5b9390): STUB.
+        assert_eq!(TICK_SCREAM_AREAS_ENTRY, 0x5b9390);
+        assert_eq!(
+            tick_scream_areas(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b9390 })
+        );
+    }
+
+    #[test]
+    fn rva_1baa40_remove_death_human_fade_reports_unsupported() {
+        // C_game::RemoveDeathHumanFade GAME RVA 0x1baa40 (VA 0x5baa40): STUB.
+        assert_eq!(REMOVE_DEATH_HUMAN_FADE_ENTRY, 0x5baa40);
+        assert_eq!(
+            remove_death_human_fade(0, false),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5baa40 })
+        );
+        assert_eq!(
+            remove_death_human_fade(-1, true),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5baa40 })
+        );
+    }
+
+    #[test]
+    fn rva_1b7f70_add_invisible_actor_reports_unsupported() {
+        // C_game::AddInvisibleActor GAME RVA 0x1b7f70 (VA 0x5b7f70): STUB.
+        assert_eq!(ADD_INVISIBLE_ACTOR_ENTRY, 0x5b7f70);
+        assert_eq!(
+            add_invisible_actor(7),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b7f70 })
+        );
+    }
+
+    #[test]
+    fn rva_1b8150_find_actors_vect_reports_unsupported() {
+        // C_game::FindActorsVect GAME RVA 0x1b8150 (VA 0x5b8150): STUB.
+        assert_eq!(FIND_ACTORS_VECT_ENTRY, 0x5b8150);
+        assert_eq!(
+            find_actors_vect(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b8150 })
+        );
+    }
+
+    #[test]
+    fn rva_1b81e0_add_cutscene_particle_reports_unsupported() {
+        // C_game::AddCutsceneParticle GAME RVA 0x1b81e0 (VA 0x5b81e0): STUB.
+        assert_eq!(ADD_CUTSCENE_PARTICLE_ENTRY, 0x5b81e0);
+        assert_eq!(
+            add_cutscene_particle(3),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b81e0 })
+        );
+    }
+
+    #[test]
+    fn rva_1b8390_destroy_cutscene_particles_reports_unsupported() {
+        // C_game::DestroyCutsceneParticles GAME RVA 0x1b8390 (VA 0x5b8390).
+        assert_eq!(DESTROY_CUTSCENE_PARTICLES_ENTRY, 0x5b8390);
+        assert_eq!(
+            destroy_cutscene_particles(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b8390 })
+        );
+    }
+
+    #[test]
+    fn rva_1b8e70_add_created_frame_to_vector_reports_unsupported() {
+        // C_game::AddCreatedFrameToVector GAME RVA 0x1b8e70 (VA 0x5b8e70).
+        assert_eq!(ADD_CREATED_FRAME_TO_VECTOR_ENTRY, 0x5b8e70);
+        assert_eq!(
+            add_created_frame_to_vector(11),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5b8e70 })
+        );
+    }
+
+    #[test]
+    fn rva_1b9040_del_created_frame_to_vector_returns_false() {
+        // C_game::DelCreatedFrameToVector GAME RVA 0x1b9040 (VA 0x5b9040).
+        assert!(!del_created_frame_to_vector(11));
+        assert!(!del_created_frame_to_vector(0));
+    }
+
+    #[test]
+    fn rva_1ba010_set_camera_rot_repair_reports_unsupported() {
+        // C_game::SetCameraRotRepair GAME RVA 0x1ba010 (VA 0x5ba010): STUB.
+        assert_eq!(SET_CAMERA_ROT_REPAIR_ENTRY, 0x5ba010);
+        assert_eq!(
+            set_camera_rot_repair(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ba010 })
+        );
+    }
+
+    #[test]
+    fn rva_1ba080_clear_cartridges_reports_unsupported() {
+        // C_game::ClearCartridges GAME RVA 0x1ba080 (VA 0x5ba080): STUB.
+        assert_eq!(CLEAR_CARTRIDGES_ENTRY, 0x5ba080);
+        assert_eq!(
+            clear_cartridges(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ba080 })
+        );
+    }
+
+    #[test]
+    fn rva_1ba110_tick_car_sound_manager_reports_unsupported() {
+        // C_game::TickCarSoundManager GAME RVA 0x1ba110 (VA 0x5ba110): STUB.
+        assert_eq!(TICK_CAR_SOUND_MANAGER_ENTRY, 0x5ba110);
+        assert_eq!(
+            tick_car_sound_manager(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ba110 })
         );
     }
 }

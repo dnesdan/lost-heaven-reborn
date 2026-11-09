@@ -361,7 +361,11 @@ class RewriteProgressTests(unittest.TestCase):
         # police_state 61 pass; 4 STUBs held as contract).
         # +1 C_human::IsPossibleColl 0x178c60 differential (complete x87
         # discriminant walk entry to RET 0x28; pin tests 4+2 pass).
-        self.assertEqual(game["ported"], 149 + 585)
+        # +11 housekeeping STUB contracts (ScreamAreas/DeathFade/Invisible/
+        # FindVect/CutsceneParticles x2/CreatedFrame x2/CamRot/Cartridges/
+        # CarSound; cbFindTaxiPoints VA-form RVA fixed 0x5b6e0->0x1b6b60;
+        # all STUBs held as contract).
+        self.assertEqual(game["ported"], 149 + 596)
         self.assertEqual(game["verified"], 149 + 498)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

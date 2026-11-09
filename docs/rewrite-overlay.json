@@ -10420,8 +10420,8 @@
     },
     {
       "binary": "Game.exe",
-      "rva": "0x5b6e0",
-      "va": "0x45b6e0",
+      "rva": "0x1b6b60",
+      "va": "0x5b6b60",
       "name": "S_hlp::cbFindTaxiPoints",
       "symbol": "lhr_engine::game_housekeeping::cb_find_taxi_points",
       "tier": "contract",
@@ -13396,6 +13396,105 @@
       "symbol": "lhr_engine::visual_resources::VisualResources::material_is_animated",
       "tier": "differential",
       "evidence": "REA ev_99314538ab + complete walk 4 insns (load + AND 0x4000000 + RET 4); pin tests green"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b9390",
+      "va": "0x5b9390",
+      "name": "C_game::TickScreamAreas",
+      "symbol": "lhr_engine::game_housekeeping::tick_scream_areas",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Scream-areas tick (GAME 0x5b9390). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1baa40",
+      "va": "0x5baa40",
+      "name": "C_game::RemoveDeathHumanFade",
+      "symbol": "lhr_engine::game_housekeeping::remove_death_human_fade",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Death-human fade remove (GAME 0x5baa40). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b7f70",
+      "va": "0x5b7f70",
+      "name": "C_game::AddInvisibleActor",
+      "symbol": "lhr_engine::game_housekeeping::add_invisible_actor",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Invisible actor add (GAME 0x5b7f70). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b8150",
+      "va": "0x5b8150",
+      "name": "C_game::FindActorsVect",
+      "symbol": "lhr_engine::game_housekeeping::find_actors_vect",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Actors-vect find (GAME 0x5b8150). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b81e0",
+      "va": "0x5b81e0",
+      "name": "C_game::AddCutsceneParticle",
+      "symbol": "lhr_engine::game_housekeeping::add_cutscene_particle",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Cutscene particle add (GAME 0x5b81e0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b8390",
+      "va": "0x5b8390",
+      "name": "C_game::DestroyCutsceneParticles",
+      "symbol": "lhr_engine::game_housekeeping::destroy_cutscene_particles",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Cutscene particles destroy (GAME 0x5b8390). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b8e70",
+      "va": "0x5b8e70",
+      "name": "C_game::AddCreatedFrameToVector",
+      "symbol": "lhr_engine::game_housekeeping::add_created_frame_to_vector",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Created-frame add (GAME 0x5b8e70). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b9040",
+      "va": "0x5b9040",
+      "name": "C_game::DelCreatedFrameToVector",
+      "symbol": "lhr_engine::game_housekeeping::del_created_frame_to_vector",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Created-frame del (GAME 0x5b9040). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ba010",
+      "va": "0x5ba010",
+      "name": "C_game::SetCameraRotRepair",
+      "symbol": "lhr_engine::game_housekeeping::set_camera_rot_repair",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Camera-rot repair (GAME 0x5ba010). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ba080",
+      "va": "0x5ba080",
+      "name": "C_game::ClearCartridges",
+      "symbol": "lhr_engine::game_housekeeping::clear_cartridges",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Cartridges clear (GAME 0x5ba080). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ba110",
+      "va": "0x5ba110",
+      "name": "C_game::TickCarSoundManager",
+      "symbol": "lhr_engine::game_housekeeping::tick_car_sound_manager",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Car-sound tick (GAME 0x5ba110). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
