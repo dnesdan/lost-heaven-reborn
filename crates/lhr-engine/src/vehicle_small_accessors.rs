@@ -281,6 +281,185 @@ pub fn vehicle_get_siren(siren: bool) -> bool {
     siren
 }
 
+/// RVA 0xa9c30, VA 0x4a9c30 (`C_Vehicle::GetVelocityRef`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:424-428`).
+/// Returns the stored velocity vector by reference.
+pub fn vehicle_velocity_ref(velocity: &[f32; 3]) -> &[f32; 3] {
+    velocity
+}
+
+/// RVA 0xa9c40, VA 0x4a9c40 (`C_Vehicle::IsUnknown540`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:429-435`).
+/// True while either of the 0x540/0x544 words is nonzero. The comparison is
+/// the IEEE `!=` against 0.0, so NaN counts as nonzero exactly like the
+/// original float comparison.
+pub fn vehicle_is_unknown_540(first: f32, second: f32) -> bool {
+    first != 0.0 || second != 0.0
+}
+
+/// RVA 0xa9c70, VA 0x4a9c70 (`C_Vehicle::GetUnknownC48`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:436-440`).
+/// Returns the stored 0xc48 vector by reference.
+pub fn vehicle_unknown_c48(stored: &[f32; 3]) -> &[f32; 3] {
+    stored
+}
+
+/// RVA 0xa9c80, VA 0x4a9c80 (`C_Vehicle::GetUp`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:441-445`).
+/// Returns the stored up-axis vector by reference.
+pub fn vehicle_up(up: &[f32; 3]) -> &[f32; 3] {
+    up
+}
+
+/// RVA 0xa9c90, VA 0x4a9c90 (`C_Vehicle::GetWheel`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:446-450`).
+/// Returns the opaque identity of wheel `index`. In-range indices mirror the
+/// original `wheels[i]` read; out-of-range indices yield `None` instead of
+/// the native out-of-bounds read. Wheel identities never cross as pointers.
+pub fn vehicle_get_wheel(wheels: &[u32], index: i32) -> Option<u32> {
+    if index < 0 {
+        return None;
+    }
+    wheels.get(index as usize).copied()
+}
+
+/// `S_wheel::flags` collision bit copied by `GetCarWheelColl` and
+/// `SetCarWheelColl` (mafia-re 113b5b6 `game/vehicles/C_Vehicle.h:90`).
+pub const WHEELF_COLLISION: u32 = 8;
+
+/// RVA 0x1e9c0, VA 0x41e9c0 (`C_car::GetLevelsCount`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:340-345`).
+/// Returns the tuning-level count as the original `int` return.
+pub fn car_levels_count(level_count: usize) -> i32 {
+    level_count as i32
+}
+
+/// RVA 0x1e9f0, VA 0x41e9f0 (`C_car::GetActualLevel`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:347-351`).
+/// Reads the stored tuning level.
+pub fn car_actual_level(actual_level: i32) -> i32 {
+    actual_level
+}
+
+/// One seat latch projected for `C_car::GetOwner`: the occupancy flag plus
+/// the opaque owner identity (`S_car_seat` at mafia-re 113b5b6
+/// `game/vehicles/C_car.h:44-51`). Pointers never cross this boundary.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CarSeatSlot {
+    pub occupied: bool,
+    pub owner: u32,
+}
+
+/// RVA 0x1dec0, VA 0x41dec0 (`C_car::GetOwner`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:325-332`).
+/// Returns the seat owner's opaque identity, or `None` for the original
+/// NULL: a negative seat, a seat past the vector, or an unoccupied seat.
+pub fn car_get_owner(seats: &[CarSeatSlot], seat: i32) -> Option<u32> {
+    if seat < 0 {
+        return None;
+    }
+    let slot = seats.get(seat as usize)?;
+    if slot.occupied {
+        Some(slot.owner)
+    } else {
+        None
+    }
+}
+
+/// RVA 0x29770, VA 0x429770 (`C_car::SetEnterProtect1`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:430-441`).
+/// Sets or clears the seat bit in `enter_protect` and raises
+/// `wake_request`. The `SetActState(ACTSTATE_ACTIVE)` call stays with the
+/// actor owner. The shift is `wrapping_shl`, so huge seats wrap instead of
+/// the native shift overflow; negative seats cannot be expressed.
+pub fn car_set_enter_protect1(
+    enter_protect: &mut u32,
+    wake_request: &mut bool,
+    seat: u32,
+    on: bool,
+) {
+    let bit = 1u32.wrapping_shl(seat);
+    if on {
+        *enter_protect |= bit;
+    } else {
+        *enter_protect &= !bit;
+    }
+    *wake_request = true;
+}
+
+/// RVA 0x297b0, VA 0x4297b0 (`C_car::GetCarWheelColl`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:443-450`).
+/// Copies each wheel's `WHEELF_COLLISION` flag into `out`, over the shared
+/// prefix of both slices (the original bounds by `min(num, num_wheels)`).
+pub fn car_get_wheel_coll(flags: &[u32], out: &mut [bool]) {
+    let count = flags.len().min(out.len());
+    for (index, slot) in out.iter_mut().enumerate().take(count) {
+        *slot = flags[index] & WHEELF_COLLISION != 0;
+    }
+}
+
+/// RVA 0x29800, VA 0x429800 (`C_car::SetCarWheelColl`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:452-464`).
+/// Writes each input flag into the matching wheel's `WHEELF_COLLISION` bit,
+/// over the shared prefix of both slices.
+pub fn car_set_wheel_coll(flags: &mut [u32], colls: &[bool]) {
+    let count = flags.len().min(colls.len());
+    for (index, flag) in flags.iter_mut().enumerate().take(count) {
+        if colls[index] {
+            *flag |= WHEELF_COLLISION;
+        } else {
+            *flag &= !WHEELF_COLLISION;
+        }
+    }
+}
+
+/// RVA 0x29dd0, VA 0x429dd0 (`C_car::GetActorSpeed`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:593-597`).
+/// Copies the stored velocity into the caller's speed vector.
+pub fn car_get_actor_speed(velocity: [f32; 3]) -> [f32; 3] {
+    velocity
+}
+
+/// RVA 0x29e50, VA 0x429e50 (`C_car::GetTimeParking`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:479-484`).
+/// Elapsed milliseconds since `parking_time` as the original unsigned
+/// subtraction (`GetGameTime() - parking_time` with 32-bit wrapping). The
+/// mission-clock read stays with the mission owner; only the arithmetic
+/// leaf lives here.
+pub fn car_parked_duration(game_time: u32, parking_time: u32) -> u32 {
+    game_time.wrapping_sub(parking_time)
+}
+
+/// Force-feedback profile scales stored by `C_car::SetForceFeedback`
+/// (mafia-re 113b5b6 `game/vehicles/C_car.cpp:24-34`, globals at GAME
+/// 0x6322dc-0x6322ec).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CarForceFeedbackScales {
+    pub volume: f32,
+    pub tire_grip: f32,
+    pub collisions: f32,
+    pub suspension: f32,
+    pub revs: f32,
+}
+
+/// RVA 0x2bb90, VA 0x42bb90 (`C_car::SetForceFeedback`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:485-493`).
+/// Stores the five profile scales in argument order.
+pub fn car_set_force_feedback(
+    slot: &mut CarForceFeedbackScales,
+    volume: f32,
+    tire_grip: f32,
+    collisions: f32,
+    suspension: f32,
+    revs: f32,
+) {
+    slot.volume = volume;
+    slot.tire_grip = tire_grip;
+    slot.collisions = collisions;
+    slot.suspension = suspension;
+    slot.revs = revs;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -558,5 +737,151 @@ mod tests {
         // RVA 0xa9c20: plain member read.
         assert!(vehicle_get_siren(true));
         assert!(!vehicle_get_siren(false));
+    }
+
+    #[test]
+    fn rva_a9c30_get_velocity_ref_returns_stored_vector() {
+        // RVA 0xa9c30: const S_vector & return of the stored velocity.
+        let velocity = [1.0f32, -2.0, 0.5];
+        assert_eq!(vehicle_velocity_ref(&velocity), &[1.0f32, -2.0, 0.5]);
+    }
+
+    #[test]
+    fn rva_a9c40_is_unknown_540_flags_any_nonzero_word() {
+        // RVA 0xa9c40: true when either word is nonzero, IEEE compare.
+        assert!(!vehicle_is_unknown_540(0.0, 0.0));
+        assert!(!vehicle_is_unknown_540(-0.0, 0.0));
+        assert!(vehicle_is_unknown_540(1.0, 0.0));
+        assert!(vehicle_is_unknown_540(0.0, -1.0));
+        assert!(vehicle_is_unknown_540(f32::NAN, 0.0));
+    }
+
+    #[test]
+    fn rva_a9c70_get_unknown_c48_returns_stored_vector() {
+        // RVA 0xa9c70: const S_vector & return of the 0xc48 vector.
+        let stored = [0.25f32, 0.5, 1.0];
+        assert_eq!(vehicle_unknown_c48(&stored), &[0.25f32, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn rva_a9c80_get_up_returns_stored_vector() {
+        // RVA 0xa9c80: const S_vector & return of the up axis.
+        let up = [0.0f32, 0.0, 1.0];
+        assert_eq!(vehicle_up(&up), &[0.0f32, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn rva_a9c90_get_wheel_returns_identity_or_none() {
+        // RVA 0xa9c90: wheels[i]; out-of-range yields None, never OOB.
+        let wheels = [11u32, 22, 33];
+        assert_eq!(vehicle_get_wheel(&wheels, 0), Some(11));
+        assert_eq!(vehicle_get_wheel(&wheels, 2), Some(33));
+        assert_eq!(vehicle_get_wheel(&wheels, 3), None);
+        assert_eq!(vehicle_get_wheel(&wheels, -1), None);
+        assert_eq!(vehicle_get_wheel(&[], 0), None);
+    }
+
+    #[test]
+    fn rva_1e9c0_get_levels_count_returns_vector_size() {
+        // RVA 0x1e9c0: v_levels.size() as int.
+        assert_eq!(car_levels_count(0), 0);
+        assert_eq!(car_levels_count(4), 4);
+    }
+
+    #[test]
+    fn rva_1e9f0_get_actual_level_reads_store() {
+        // RVA 0x1e9f0: plain member read.
+        assert_eq!(car_actual_level(0), 0);
+        assert_eq!(car_actual_level(2), 2);
+        assert_eq!(car_actual_level(-1), -1);
+    }
+
+    #[test]
+    fn rva_1dec0_get_owner_gates_seat_and_occupancy() {
+        // RVA 0x1dec0: NULL for bad seats and unoccupied seats.
+        let seats = [
+            CarSeatSlot {
+                occupied: true,
+                owner: 0x1234,
+            },
+            CarSeatSlot {
+                occupied: false,
+                owner: 0x5678,
+            },
+        ];
+        assert_eq!(car_get_owner(&seats, 0), Some(0x1234));
+        assert_eq!(car_get_owner(&seats, 1), None);
+        assert_eq!(car_get_owner(&seats, 2), None);
+        assert_eq!(car_get_owner(&seats, -1), None);
+        assert_eq!(car_get_owner(&[], 0), None);
+    }
+
+    #[test]
+    fn rva_29770_set_enter_protect1_sets_bit_and_wakes() {
+        // RVA 0x29770: bit set/clear plus wake_request = true.
+        let mut protect = 0u32;
+        let mut wake = false;
+        car_set_enter_protect1(&mut protect, &mut wake, 2, true);
+        assert_eq!(protect, 0b100);
+        assert!(wake);
+        car_set_enter_protect1(&mut protect, &mut wake, 0, true);
+        assert_eq!(protect, 0b101);
+        car_set_enter_protect1(&mut protect, &mut wake, 2, false);
+        assert_eq!(protect, 0b001);
+        assert!(wake);
+    }
+
+    #[test]
+    fn rva_297b0_get_car_wheel_coll_copies_collision_bits() {
+        // RVA 0x297b0: colls[i] = flags & WHEELF_COLLISION, bounded prefix.
+        let flags = [WHEELF_COLLISION, 0, 0x40000000 | WHEELF_COLLISION];
+        let mut out = [false; 2];
+        car_get_wheel_coll(&flags, &mut out);
+        assert_eq!(out, [true, false]);
+        let mut empty: [bool; 0] = [];
+        car_get_wheel_coll(&flags, &mut empty);
+    }
+
+    #[test]
+    fn rva_29800_set_car_wheel_coll_writes_collision_bits() {
+        // RVA 0x29800: set/clear WHEELF_COLLISION, other bits preserved.
+        let mut flags = [0u32, WHEELF_COLLISION | 0x10, 0x20];
+        car_set_wheel_coll(&mut flags, &[true, false, true]);
+        assert_eq!(flags, [WHEELF_COLLISION, 0x10, 0x20 | WHEELF_COLLISION]);
+        let mut untouched = [0x10u32];
+        car_set_wheel_coll(&mut untouched, &[]);
+        assert_eq!(untouched, [0x10]);
+    }
+
+    #[test]
+    fn rva_29dd0_get_actor_speed_copies_velocity() {
+        // RVA 0x29dd0: speed = velocity.
+        assert_eq!(car_get_actor_speed([1.0, 2.0, 3.0]), [1.0, 2.0, 3.0]);
+        assert_eq!(car_get_actor_speed([0.0, 0.0, 0.0]), [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn rva_29e50_parked_duration_wraps_like_unsigned_sub() {
+        // RVA 0x29e50: GetGameTime() - parking_time, 32-bit wrapping.
+        assert_eq!(car_parked_duration(1000, 400), 600);
+        assert_eq!(car_parked_duration(400, 400), 0);
+        assert_eq!(car_parked_duration(0, 1), u32::MAX);
+    }
+
+    #[test]
+    fn rva_2bb90_set_force_feedback_stores_five_scales() {
+        // RVA 0x2bb90: five static float stores in argument order.
+        let mut scales = CarForceFeedbackScales::default();
+        car_set_force_feedback(&mut scales, 1.0, 2.0, 3.0, 4.0, 5.0);
+        assert_eq!(
+            scales,
+            CarForceFeedbackScales {
+                volume: 1.0,
+                tire_grip: 2.0,
+                collisions: 3.0,
+                suspension: 4.0,
+                revs: 5.0,
+            }
+        );
     }
 }
