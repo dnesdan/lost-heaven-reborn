@@ -143,6 +143,13 @@ impl CityBaseCache {
         self.open
     }
 
+    /// Host admission query over this owner, not another original function.
+    /// Close removes live entries but retains the successful-Open epilogue
+    /// marker; a closed cache can therefore still belong to a prior attempt.
+    pub(crate) fn has_opened_or_retained_data(&self) -> bool {
+        self.open || !self.blocks.is_empty() || !self.model_sets.is_empty() || self.unknown_28 != 0
+    }
+
     pub fn unknown_20(&self) -> u32 {
         self.unknown_20
     }

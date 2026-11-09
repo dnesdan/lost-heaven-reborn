@@ -15,6 +15,8 @@ use crate::scene_projection::SceneRenderBackend;
 pub enum MissionSourceOpenError {
     Admission(MissionLoadCallError),
     MissionAlreadyOpened,
+    /// Earlier public Open helpers consumed an owner or retained effects.
+    SessionNotFresh,
     InvalidMissionName(String),
     /// The retained failure() identifies the bootstrap phase and cause.
     BootstrapStopped,
@@ -56,6 +58,24 @@ impl MissionLoadSession {
         }
         if self.open_mission_opened || self.game_initialized {
             return Err(MissionSourceOpenError::MissionAlreadyOpened);
+        }
+        // The legacy Open helpers do not enter load(). Their one-shot owners
+        // and reached effects must not be erased by bootstrap/ClosePrevious.
+        // Configuration-only mission name and volume remain caller inputs.
+        if !matches!(
+            self.navigation.outcome(),
+            crate::mission_session_navigation::SessionNavigationOutcome::NotAttempted
+        ) || !matches!(
+            self.roads.outcome(),
+            crate::mission_session_roads::SessionRoadsOutcome::NotAttempted
+        ) || self.base_cache.has_opened_or_retained_data()
+            || self.open_cache_progress != 0
+            || self.open_restore_volume
+            || self.open_muted
+            || self.open_restored.is_some()
+            || self.game_init_reset_entered
+        {
+            return Err(MissionSourceOpenError::SessionNotFresh);
         }
         Self::validate_open_mission_name(mission)
             .map_err(MissionSourceOpenError::InvalidMissionName)?;

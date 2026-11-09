@@ -95,6 +95,239 @@ fn roads() -> Vec<u8> {
     .concat()
 }
 
+fn assert_nonfresh_preserved(session: &mut MissionLoadSession) {
+    let counts = session.owned_counts().unwrap();
+    let navigation = (
+        session.navigation().outcome().clone(),
+        session.navigation().node_count(),
+        session.navigation().link_count(),
+        session.navigation().live_allocations(),
+        session.navigation().live_bytes(),
+    );
+    let roads = (
+        session.roads().outcome().clone(),
+        session.roads().network().cloned(),
+    );
+    let cache = session.base_cache().clone();
+    let precision = session.precision_state();
+    let failures = format!("{:?}/{:?}", session.failure(), session.discard_failure());
+    let inputs = (
+        session.open_mission_name().map(<[u8]>::to_vec),
+        session.open_configured_volume().to_bits(),
+        session.open_cache_progress(),
+        session.open_restore_volume(),
+        session.open_muted(),
+        session.open_restored().map(f32::to_bits),
+    );
+    assert_eq!(session.phase(), MissionLoadPhase::NotStarted);
+    assert!(!session.entered);
+    assert!(session.scene().unwrap().is_none());
+    let mut screen = Screen::default();
+    let mut render = renderer();
+    for _ in 0..2 {
+        assert_eq!(
+            session.open_source_in_order(
+                "synthetic",
+                &[],
+                request(&[]).projection,
+                &mut screen,
+                &mut render,
+            ),
+            Err(MissionSourceOpenError::SessionNotFresh)
+        );
+        assert_eq!(screen.calls, 0);
+        assert_eq!(render.calls, 0);
+        assert_eq!(session.owned_counts().unwrap(), counts);
+        assert_eq!(
+            (
+                session.navigation().outcome().clone(),
+                session.navigation().node_count(),
+                session.navigation().link_count(),
+                session.navigation().live_allocations(),
+                session.navigation().live_bytes(),
+            ),
+            navigation
+        );
+        assert_eq!(
+            (
+                session.roads().outcome().clone(),
+                session.roads().network().cloned()
+            ),
+            roads
+        );
+        assert_eq!(session.base_cache(), &cache);
+        assert_eq!(session.precision_state(), precision);
+        assert_eq!(current_precision(), None);
+        assert_eq!(
+            format!("{:?}/{:?}", session.failure(), session.discard_failure()),
+            failures
+        );
+        assert_eq!(
+            (
+                session.open_mission_name().map(<[u8]>::to_vec),
+                session.open_configured_volume().to_bits(),
+                session.open_cache_progress(),
+                session.open_restore_volume(),
+                session.open_muted(),
+                session.open_restored().map(f32::to_bits),
+            ),
+            inputs
+        );
+        assert_eq!(session.phase(), MissionLoadPhase::NotStarted);
+        assert!(!session.entered);
+        assert!(!session.open_mission_opened());
+        assert!(session.scene().unwrap().is_none());
+    }
+}
+
+#[test]
+fn ordered_source_open_preserves_previously_attempted_navigation_and_roads() {
+    use crate::mission_session_navigation::SessionNavigationOutcome as Navigation;
+    use crate::mission_session_roads::SessionRoadsOutcome as Roads;
+    for navigation in [true, false] {
+        for state in ["loaded", "absent", "failed", "unavailable"] {
+            let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+            let path = fixture.0.join("missions/synthetic").join(if navigation {
+                "check.bin"
+            } else {
+                "road.bin"
+            });
+            match state {
+                "loaded" => std::fs::write(
+                    &path,
+                    if navigation {
+                        self::navigation()
+                    } else {
+                        roads()
+                    },
+                )
+                .unwrap(),
+                "absent" => {}
+                "failed" => std::fs::write(&path, b"bad").unwrap(),
+                "unavailable" => std::fs::create_dir(&path).unwrap(),
+                _ => unreachable!(),
+            }
+            let mut session = fixture.session();
+            session.set_open_mission_name("retained input").unwrap();
+            session.set_open_configured_volume(0.625).unwrap();
+            let result = if navigation {
+                session.load_navigation_for_open("synthetic")
+            } else {
+                session.load_roads_for_open("synthetic")
+            };
+            assert_eq!(result.is_ok(), matches!(state, "loaded" | "absent"));
+            if navigation {
+                assert!(matches!(
+                    (state, session.navigation().outcome()),
+                    ("loaded", Navigation::Loaded { .. })
+                        | ("absent", Navigation::Absent { .. })
+                        | ("failed", Navigation::Failed { .. })
+                        | ("unavailable", Navigation::SourceUnavailable { .. })
+                ));
+            } else {
+                assert!(matches!(
+                    (state, session.roads().outcome()),
+                    ("loaded", Roads::Loaded { .. })
+                        | ("absent", Roads::Absent { .. })
+                        | ("failed", Roads::Failed { .. })
+                        | ("unavailable", Roads::SourceUnavailable { .. })
+                ));
+            }
+            assert_nonfresh_preserved(&mut session);
+            // In particular, a Failed navigation owner is still interrupted;
+            // admission must not try a destructor or force it back to empty.
+        }
+    }
+}
+
+#[test]
+fn ordered_source_open_preserves_legacy_open_bin_failure_owners() {
+    let fixture = Fixture::new(Some(&world(&[])), None, None);
+    std::fs::write(fixture.0.join("missions/synthetic/check.bin"), navigation()).unwrap();
+    std::fs::write(fixture.0.join("missions/synthetic/road.bin"), roads()).unwrap();
+    let mut session = fixture.session();
+    session.set_open_mission_name("synthetic").unwrap();
+    session.set_open_configured_volume(0.25).unwrap();
+    let mut attempt = crate::mission_open_order::OpenAttempt::default();
+    assert_eq!(attempt.run(&mut session), Ok(OpenResult::OpenBinFailed));
+    assert_eq!(attempt.last(), Some(OpenStep::AdvanceCacheProgress));
+    assert_eq!(session.navigation().node_count(), 1);
+    assert_eq!(session.roads().node_count(), 1);
+    assert!(session.open_restore_volume());
+    assert_nonfresh_preserved(&mut session);
+}
+
+fn cache_source() -> Vec<u8> {
+    fn text(bytes: &[u8]) -> Vec<u8> {
+        [(bytes.len() as u32).to_le_bytes().as_slice(), bytes].concat()
+    }
+    let mut model = text(b"car.i3d");
+    for value in [1f32, 2., 3., 1., 0., 0., 0., 1., 2., 1.] {
+        model.extend(value.to_le_bytes());
+    }
+    model.extend(7u32.to_le_bytes());
+    for value in [2f32, 3., 4.] {
+        model.extend(value.to_le_bytes());
+    }
+    let mut block = text(b"district");
+    block.extend([0; 19 * 4]);
+    block.extend(chunk(2000, &model));
+    chunk(
+        500,
+        &[1u32.to_le_bytes().as_slice(), &chunk(1000, &block)].concat(),
+    )
+}
+
+#[test]
+fn ordered_source_open_preserves_existing_cache_and_open_effect_markers() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    std::fs::write(
+        fixture.0.join("missions/synthetic/cache.bin"),
+        cache_source(),
+    )
+    .unwrap();
+    let mut cached = fixture.session();
+    assert!(cached.open_cache_bin_for_open("synthetic").unwrap());
+    assert!(cached.base_cache().is_open());
+    assert_eq!(cached.base_cache().blocks().len(), 1);
+    assert_eq!(cached.base_cache().model_sets()[0].name, b"car.i3d");
+    assert_nonfresh_preserved(&mut cached);
+    cached.close_previous_for_open().unwrap();
+    assert!(!cached.base_cache().is_open());
+    assert!(cached.base_cache().blocks().is_empty());
+    assert_eq!(
+        cached.base_cache().unknown_28(),
+        crate::city_base_cache::BASE_CACHE_OPEN_UNKNOWN_28
+    );
+    assert_nonfresh_preserved(&mut cached);
+
+    let mut probed = fixture.session();
+    assert!(probed.probe_cache_bin_for_open("synthetic").unwrap());
+    assert_eq!(probed.open_cache_progress(), 1);
+    assert!(!probed.base_cache().is_open());
+    assert_nonfresh_preserved(&mut probed);
+
+    let mut restore_pending = fixture.session();
+    restore_pending.mark_open_restore_volume().unwrap();
+    assert_nonfresh_preserved(&mut restore_pending);
+}
+
+#[test]
+fn ordered_source_open_accepts_configuration_without_consumed_owners() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    session
+        .set_open_mission_name("previous configuration")
+        .unwrap();
+    session.set_open_configured_volume(0.625).unwrap();
+    let mut render = renderer();
+    assert_eq!(open(&mut session, &mut render), Ok(OpenResult::Opened));
+    assert_eq!(render.calls, 1);
+    assert_eq!(session.open_mission_name(), Some(b"synthetic".as_slice()));
+    assert_eq!(session.audio().master_gain().unwrap(), 0.625);
+    discard(&mut session);
+}
+
 #[test]
 fn ordered_source_open_retains_real_world_actors_programs_and_restarts_cleanly() {
     let bytes = scene2(
