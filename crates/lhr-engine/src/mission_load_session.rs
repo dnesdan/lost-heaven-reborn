@@ -71,6 +71,8 @@ pub enum MissionLoadPhase {
     LoadMap,
     Scene2Input,
     Scene2Prefix,
+    /// A reached ordered source-Open boundary outside the shared loaders.
+    OpenStep(crate::mission_open_order::OpenStep),
     /// The admitted scene2 input, including source actors/programs, completed.
     /// This does not imply GameInit, compiled scripts or gameplay completion.
     PrefixComplete,
@@ -106,6 +108,10 @@ pub enum MissionLoadCause {
         detail: String,
     },
     Scene2Prefix(MissionSceneLoadError),
+    OpenStep {
+        step: crate::mission_open_order::OpenStep,
+        detail: String,
+    },
 }
 
 #[derive(Debug)]
@@ -434,6 +440,10 @@ pub struct MissionLoadSession {
     // even if a host caller abandons the session without explicit disposal.
     startup_patches: ProgramPatchStartup,
 }
+
+#[path = "session_source_open.rs"]
+mod owned_source_open;
+pub use owned_source_open::MissionSourceOpenError;
 
 #[path = "session_program_runtime.rs"]
 mod owned_program_runtime;
@@ -841,7 +851,9 @@ impl MissionLoadSession {
     /// This is host PCM behavior, not original DirectSound numeric parity.
     pub fn tick_restore_volume_head(&mut self) -> Result<bool, String> {
         self.open_terminal_guard()?;
-        if !self.open_mission_opened {
+        if !self.open_mission_opened
+            || (self.entered && self.phase != MissionLoadPhase::PrefixComplete)
+        {
             return Err("mission tick requires completed Open".into());
         }
         if !crate::mission_actor_lists::tick_consume_restore_volume(
@@ -1255,7 +1267,9 @@ impl MissionLoadSession {
 
     fn game_init_admission(&self) -> Result<(), String> {
         self.open_terminal_guard()?;
-        if self.phase != MissionLoadPhase::PrefixComplete && !self.open_mission_opened {
+        if self.phase != MissionLoadPhase::PrefixComplete
+            && (self.entered || !self.open_mission_opened)
+        {
             return Err("game init requires completed open prefix".into());
         }
         Ok(())
@@ -1476,6 +1490,59 @@ impl MissionLoadSession {
     where
         S::Error: std::fmt::Debug,
     {
+        let scene = self.bootstrap_source(request.model_directories, screen)?;
+        self.load_world_source(scene, request.world_input)?;
+        self.prepare_source_weather(scene)?;
+        self.fill_source_sector_groups(scene)?;
+
+        // `C_mission::Open` loads `check.bin` after sector-group fill and
+        // before roads/`OpenBin`. Absent files skip like `ROpen`-failed.
+        self.phase = MissionLoadPhase::Navigation;
+        let check_path = match request.scene2_path.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/check.bin"),
+            None => "check.bin".into(),
+        };
+        self.navigation
+            .load(&self.installation, &check_path)
+            .map_err(MissionLoadCause::Navigation)?;
+
+        // `C_mission::Open` loads `road.bin` after `check.bin`. Same
+        // absence rule; the network format is established by REA (see
+        // `road_network.rs`).
+        self.phase = MissionLoadPhase::Roads;
+        let road_path = match request.scene2_path.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/road.bin"),
+            None => "road.bin".into(),
+        };
+        self.roads
+            .load(&self.installation, &road_path)
+            .map_err(MissionLoadCause::Roads)?;
+
+        // Keep the legacy source-loader order: its name map precedes the
+        // required input read. Ordered Open uses the same helpers in its own
+        // evidenced file-open-before-map order.
+        self.initialize_source_map(scene, request.scene2_path)?;
+        self.phase = MissionLoadPhase::Scene2Input;
+        self.scene2_bytes = Some(
+            self.installation
+                .read_original_path(request.scene2_path)
+                .map_err(|error| MissionLoadCause::Scene2Input {
+                    path: request.scene2_path.into(),
+                    detail: error.to_string(),
+                })?,
+        );
+
+        self.load_source_scene2_prefix(request.projection, screen)
+    }
+
+    fn bootstrap_source<S: DriverSceneScreen>(
+        &mut self,
+        model_directories: &[&[u8]],
+        screen: &mut S,
+    ) -> Result<SceneKey, MissionLoadCause>
+    where
+        S::Error: std::fmt::Debug,
+    {
         self.phase = MissionLoadPhase::StartupPatches;
         self.startup_patches
             .initialize(&self.installation)
@@ -1490,7 +1557,7 @@ impl MissionLoadSession {
                 index: 0,
                 error,
             })?;
-        for (index, directory) in request.model_directories.iter().enumerate() {
+        for (index, directory) in model_directories.iter().enumerate() {
             self.caches
                 .add_dir(MissionCacheKind::Model, directory, &mut self.cache_memory)
                 .map_err(|error| MissionLoadCause::CacheDirectory {
@@ -1529,14 +1596,21 @@ impl MissionLoadSession {
                 });
             }
         };
+        Ok(scene)
+    }
 
+    fn load_world_source(
+        &mut self,
+        scene: SceneKey,
+        world_input: &str,
+    ) -> Result<(), MissionLoadCause> {
         self.phase = MissionLoadPhase::World;
         match self.driver.load_scene_world_cpu(
             &mut self.arena,
             &self.resources,
             scene,
             &self.installation,
-            request.world_input,
+            world_input,
         ) {
             Ok(progress) => self.world = Some(progress),
             Err(failure) => {
@@ -1544,10 +1618,11 @@ impl MissionLoadSession {
                 return Err(MissionLoadCause::World(failure.error));
             }
         }
+        Ok(())
+    }
 
-        // MissionOpen resets existing weather, then disables it, before touching
-        // sector groups. Retain a numeric/lifetime failure as the first load
-        // error; the session guard prevents replay of its reached state changes.
+    fn prepare_source_weather(&mut self, scene: SceneKey) -> Result<(), MissionLoadCause> {
+        // Existing mission weather is reset and disabled before sector setup.
         self.resources
             .prepare_mission_weather(&self.arena, scene)
             .map_err(|error| {
@@ -1555,42 +1630,28 @@ impl MissionLoadSession {
                     "mission weather setup: {error:?}"
                 )))
             })?;
-        // This is mission setup, not a change to the reusable SceneOpen adapter.
-        // Navigation and the remaining MissionOpen work are still separate.
+        Ok(())
+    }
+
+    fn fill_source_sector_groups(&mut self, scene: SceneKey) -> Result<(), MissionLoadCause> {
         sector_groups::fill_primary_sector_groups(&mut self.arena, scene)
             .map_err(|error| MissionLoadCause::World(CpuSceneWorldError::Model(error)))?;
+        Ok(())
+    }
 
-        // `C_mission::Open` loads `check.bin` after sector-group fill and
-        // before roads/`OpenBin`. Absent files skip like `ROpen`-failed.
-        self.phase = MissionLoadPhase::Navigation;
-        let check_path = match request.scene2_path.rsplit_once('/') {
-            Some((dir, _)) => format!("{dir}/check.bin"),
-            None => "check.bin".into(),
-        };
-        self.navigation
-            .load(&self.installation, &check_path)
-            .map_err(MissionLoadCause::Navigation)?;
-
-        // `C_mission::Open` loads `road.bin` after `check.bin`. Same
-        // absence rule; the network format is established by REA (see
-        // `road_network.rs`).
-        self.phase = MissionLoadPhase::Roads;
-        let road_path = match request.scene2_path.rsplit_once('/') {
-            Some((dir, _)) => format!("{dir}/road.bin"),
-            None => "road.bin".into(),
-        };
-        self.roads
-            .load(&self.installation, &road_path)
-            .map_err(MissionLoadCause::Roads)?;
-
+    fn initialize_source_map(
+        &mut self,
+        scene: SceneKey,
+        scene2_path: &str,
+    ) -> Result<(), MissionLoadCause> {
         self.phase = MissionLoadPhase::LoadMap;
         match MissionSceneLoader::new(&self.arena, scene) {
             Ok(mut loader) => {
                 // Open copies the mission name, not the scene2 filename. The
                 // requested path's immediate parent supplies that actual name;
                 // an unqualified file has no supplied context and remains None.
-                let mission_path = request.scene2_path.rfind(['/', '\\']).map(|end| {
-                    request.scene2_path[..end]
+                let mission_path = scene2_path.rfind(['/', '\\']).map(|end| {
+                    scene2_path[..end]
                         .rsplit(['/', '\\'])
                         .next()
                         .unwrap()
@@ -1608,16 +1669,17 @@ impl MissionLoadSession {
                 return Err(MissionLoadCause::LoadMap(failure.detail));
             }
         }
-        self.phase = MissionLoadPhase::Scene2Input;
-        self.scene2_bytes = Some(
-            self.installation
-                .read_original_path(request.scene2_path)
-                .map_err(|error| MissionLoadCause::Scene2Input {
-                    path: request.scene2_path.into(),
-                    detail: error.to_string(),
-                })?,
-        );
+        Ok(())
+    }
 
+    fn load_source_scene2_prefix<S: DriverSceneScreen>(
+        &mut self,
+        projection: GameCameraProjection,
+        screen: &mut S,
+    ) -> Result<(), MissionLoadCause>
+    where
+        S::Error: std::fmt::Debug,
+    {
         self.phase = MissionLoadPhase::Scene2Prefix;
         self.loader
             .as_mut()
@@ -1627,7 +1689,7 @@ impl MissionLoadSession {
                 &mut self.arena,
                 &self.resources,
                 screen,
-                request.projection,
+                projection,
                 self.scene2_bytes.as_deref().unwrap(),
                 &mut self.caches,
                 &self.installation,

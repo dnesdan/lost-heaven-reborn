@@ -69,6 +69,16 @@ and the first `Tick` restore-volume gate to the shared Rust PCM master gain.
 retains the already-consumed flag. This is bounded host audio behavior, not a
 complete mission Tick, native DirectSound volume curve or playable GameInit.
 
+`MissionLoadSession::open_source_in_order` loads actual world, weather,
+sector, navigation, road and scene2 owners in the represented Open order on
+a fresh session. It requires a caller renderer between audio mute and the
+scene2 read. Missing scene2 restores audio without creating a map/camera;
+present corrupt or unsupported content retains its reached loader error.
+Scripts and Init stay blocked until the entire sequence, including the final
+cache read, succeeds. It shares loading helpers with the existing probe;
+Game reset, vehicle/progress/media markers, native active Close and playable
+startup remain outside this source-loading path.
+
 The `C_game::Init` ResetMissionState prefix now executes the first scalar
 stores, reads weather ON/COUNT from the current retained Scene, and stages
 the weather-buffer reset before the host sound mute. It stops explicitly at

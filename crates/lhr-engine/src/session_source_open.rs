@@ -1,0 +1,242 @@
+//! Ordered source intake through the session's existing owners.
+//!
+//! OpenWorld/OpenBin reuse the CPU adapters; this is not complete native
+//! C_mission::Open. Game reset, vehicle binding, progress UI and media remain
+//! the disclosed host markers in mission_open_order. No parity credit.
+#![forbid(unsafe_code)]
+
+use super::*;
+use crate::mission_open_order::{
+    OpenAttempt, OpenOperations, OpenResult, OpenRunError, OpenStep, SessionOpenError,
+};
+use crate::scene_projection::SceneRenderBackend;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum MissionSourceOpenError {
+    Admission(MissionLoadCallError),
+    MissionAlreadyOpened,
+    InvalidMissionName(String),
+    /// The retained failure() identifies the bootstrap phase and cause.
+    BootstrapStopped,
+    Open(OpenRunError<SessionOpenError>),
+}
+
+impl MissionLoadSession {
+    /// Load actual world and scene2 owners in the represented Open order.
+    /// The caller supplies the render boundary and an unused session; a prior
+    /// load, interrupted attempt or active mission cannot be replayed here.
+    /// Startup/Scene construction precedes this fresh-session Open sequence.
+    ///
+    /// The name supplies missions/<name>/scene.i3d and scene2.bin together.
+    /// Model directories and projection remain explicit caller inputs. The
+    /// configured volume is read from its existing session field when reached.
+    /// A source prefix is admitted to scripts/Init only after the entire Open
+    /// sequence returns Opened, including its final cache read. That outcome
+    /// is source loading, not native GameInit, active Close or playable startup.
+    pub fn open_source_in_order<S: DriverSceneScreen, R: SceneRenderBackend>(
+        &mut self,
+        mission: &str,
+        model_directories: &[&[u8]],
+        projection: GameCameraProjection,
+        screen: &mut S,
+        renderer: &mut R,
+    ) -> Result<OpenResult, MissionSourceOpenError>
+    where
+        S::Error: std::fmt::Debug,
+    {
+        if self.discard.phase != MissionDiscardPhase::NotStarted {
+            return Err(MissionSourceOpenError::Admission(
+                MissionLoadCallError::TerminalDiscardEntered,
+            ));
+        }
+        if self.entered || self.phase != MissionLoadPhase::NotStarted {
+            return Err(MissionSourceOpenError::Admission(
+                MissionLoadCallError::AlreadyEntered,
+            ));
+        }
+        if self.open_mission_opened || self.game_initialized {
+            return Err(MissionSourceOpenError::MissionAlreadyOpened);
+        }
+        Self::validate_open_mission_name(mission)
+            .map_err(MissionSourceOpenError::InvalidMissionName)?;
+        // This is shared with load(): callbacks and unwind cannot admit a
+        // second source owner through either public entry point.
+        self.entered = true;
+        Pc24PrecisionState::run_owner(
+            self,
+            |session| &mut session.precision,
+            |session| {
+                if let Err(cause) = session.bootstrap_source(model_directories, screen) {
+                    session.retain_source_open_failure(cause);
+                    return Err(MissionSourceOpenError::BootstrapStopped);
+                }
+                let result = OpenAttempt::default().run(&mut SourceOpen {
+                    session,
+                    mission,
+                    projection,
+                    screen,
+                    renderer,
+                });
+                match result {
+                    Ok(OpenResult::Opened) => {
+                        session.phase = MissionLoadPhase::PrefixComplete;
+                        Ok(OpenResult::Opened)
+                    }
+                    Ok(outcome) => Ok(outcome),
+                    Err(error) => {
+                        if let OpenRunError::Callback(failure) = &error {
+                            session.retain_source_open_failure(MissionLoadCause::OpenStep {
+                                step: failure.step,
+                                detail: failure.error.0.clone(),
+                            });
+                        }
+                        Err(MissionSourceOpenError::Open(error))
+                    }
+                }
+            },
+        )
+    }
+
+    fn retain_source_open_failure(&mut self, cause: MissionLoadCause) {
+        self.failure.get_or_insert(MissionLoadFailure {
+            phase: self.phase,
+            cause,
+        });
+    }
+}
+
+struct SourceOpen<'a, S, R> {
+    session: &'a mut MissionLoadSession,
+    mission: &'a str,
+    projection: GameCameraProjection,
+    screen: &'a mut S,
+    renderer: &'a mut R,
+}
+
+impl<S, R> SourceOpen<'_, S, R> {
+    fn source_error(&mut self, step: OpenStep, cause: MissionLoadCause) -> SessionOpenError {
+        let detail = format!("{step:?}: {cause:?}");
+        self.session.retain_source_open_failure(cause);
+        SessionOpenError(detail)
+    }
+
+    fn scene(&self, step: OpenStep) -> Result<SceneKey, SessionOpenError> {
+        self.session
+            .scene()
+            .map_err(|error| SessionOpenError(format!("{step:?}: live Scene: {error:?}")))?
+            .ok_or_else(|| SessionOpenError(format!("{step:?}: Scene unavailable")))
+    }
+}
+
+impl<S: DriverSceneScreen, R: SceneRenderBackend> OpenOperations for SourceOpen<'_, S, R>
+where
+    S::Error: std::fmt::Debug,
+{
+    type Error = SessionOpenError;
+
+    fn execute(&mut self, step: OpenStep) -> Result<(), Self::Error> {
+        self.session.phase = MissionLoadPhase::OpenStep(step);
+        match step {
+            OpenStep::CopyMissionName => self
+                .session
+                .set_open_mission_name(self.mission)
+                .map_err(|detail| SessionOpenError(format!("{step:?}: {detail}"))),
+            OpenStep::OpenWorld => {
+                let scene = self.scene(step)?;
+                let input = MissionLoadSession::open_world_path(self.mission);
+                self.session
+                    .load_world_source(scene, &input)
+                    .map_err(|cause| self.source_error(step, cause))
+            }
+            OpenStep::ResetWeather => {
+                let scene = self.scene(step)?;
+                self.session
+                    .prepare_source_weather(scene)
+                    .map_err(|cause| self.source_error(step, cause))
+            }
+            OpenStep::FillSectorBits => {
+                let scene = self.scene(step)?;
+                self.session
+                    .fill_source_sector_groups(scene)
+                    .map_err(|cause| self.source_error(step, cause))
+            }
+            OpenStep::LoadNavigation => {
+                self.session.phase = MissionLoadPhase::Navigation;
+                let path = MissionLoadSession::open_check_path(self.mission);
+                self.session
+                    .navigation
+                    .load(&self.session.installation, &path)
+                    .map(|_| ())
+                    .map_err(|cause| self.source_error(step, MissionLoadCause::Navigation(cause)))
+            }
+            OpenStep::LoadRoads => {
+                self.session.phase = MissionLoadPhase::Roads;
+                let path = MissionLoadSession::open_road_path(self.mission);
+                self.session
+                    .roads
+                    .load(&self.session.installation, &path)
+                    .map(|_| ())
+                    .map_err(|cause| self.source_error(step, MissionLoadCause::Roads(cause)))
+            }
+            OpenStep::MuteAudioAndRender => {
+                self.session
+                    .mute_audio_and_render_for_open()
+                    .map_err(|detail| SessionOpenError(format!("{step:?}: {detail}")))?;
+                let scene = self.scene(step)?;
+                // The original ignores Render's return word. A host error
+                // still stops before restore_volume and before OpenBin reads.
+                let _status = self
+                    .session
+                    .arena
+                    .scene_render_with_backend(scene, self.renderer)
+                    .map_err(|error| SessionOpenError(format!("{step:?}: Render: {error:?}")))?;
+                Ok(())
+            }
+            _ => self.session.execute(step),
+        }
+    }
+
+    fn media_ready(&mut self) -> Result<bool, Self::Error> {
+        self.session.phase = MissionLoadPhase::OpenStep(OpenStep::WaitForMedia);
+        // Same explicit installation-only host policy as the existing driver;
+        // this is not a reconstructed CD/media owner.
+        self.session.media_ready()
+    }
+
+    fn open_bin(&mut self) -> Result<bool, Self::Error> {
+        let step = OpenStep::OpenBin;
+        self.session.phase = MissionLoadPhase::Scene2Input;
+        let path = MissionLoadSession::open_scene2_path(self.mission);
+        // C_mission::OpenBin (mafia-re 113b5b6, GAME 0x541030)
+        // opens the file before map/camera setup. Read once, after Render:
+        // absence has no map/camera effects; corruption is decoded later.
+        self.session.scene2_bytes =
+            self.session
+                .installation
+                .read_optional(&path)
+                .map_err(|error| {
+                    self.source_error(
+                        step,
+                        MissionLoadCause::Scene2Input {
+                            path: path.clone(),
+                            detail: error.to_string(),
+                        },
+                    )
+                })?;
+        if self.session.scene2_bytes.is_none() {
+            return Ok(false);
+        }
+        let scene = self.scene(step)?;
+        self.session
+            .initialize_source_map(scene, &path)
+            .map_err(|cause| self.source_error(step, cause))?;
+        self.session
+            .load_source_scene2_prefix(self.projection, self.screen)
+            .map_err(|cause| self.source_error(step, cause))?;
+        Ok(true)
+    }
+
+    fn audio_present(&self) -> bool {
+        self.session.audio_present_for_open()
+    }
+}
