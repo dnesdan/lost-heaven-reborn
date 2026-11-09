@@ -5379,3 +5379,657 @@ mod human_state_flags_tests {
         );
     }
 }
+
+/// Original track-playing action value (mafia-re 113b5b6
+/// game/actors/C_human.h:140 HUMAN_ACTION_TRACK 4): written by
+/// C_human::Do_PlayAnim when the staged animation has a track.
+pub const HUMAN_ACTION_TRACK: i32 = 4;
+/// Original car actor kind (mafia-re 113b5b6 game/actors/C_actor.h:21
+/// ACTOR_CAR 4): read by the Do_ClimbInCarLR seat gate.
+pub const ACTOR_CAR: u32 = 4;
+/// Original pistol weapon kind (mafia-re 113b5b6 game/g_material.h:171
+/// WEAPON_KIND_PISTOL 1): admitted by the Do_Reload gate.
+pub const WEAPON_KIND_PISTOL: u32 = 1;
+/// Original submachine-gun weapon kind (mafia-re 113b5b6
+/// game/g_material.h:173 WEAPON_KIND_SMG 3, the Thompson and the shotguns):
+/// upper bound admitted by the Do_Reload gate.
+pub const WEAPON_KIND_SMG: u32 = 3;
+/// Original fire-action end marker (mafia-re 113b5b6 game/g_material.h:158
+/// FIRE_ACTION_END 3): the Do_Reload gate only runs at the end step.
+pub const FIRE_ACTION_END: i32 = 3;
+/// Original fire-action reload marker (mafia-re 113b5b6 game/g_material.h:163
+/// FIRE_ACTION_RELOAD 1): the Do_Reload scan target.
+pub const FIRE_ACTION_RELOAD: i32 = 1;
+/// Original pump-shotgun game-item id (mafia-re 113b5b6 game/g_material.h:129
+/// GAMEITEM_SHOTGUN 11): reloads a shell at a time.
+pub const GAMEITEM_SHOTGUN: i32 = 11;
+/// Original Molotov cocktail game-item id (mafia-re 113b5b6
+/// game/g_material.h:123 GAMEITEM_MOLOTOV 5): admitted by Do_ThrowGrenade.
+pub const GAMEITEM_MOLOTOV: i32 = 5;
+/// Original grenade game-item id (mafia-re 113b5b6 game/g_material.h:133
+/// GAMEITEM_GRENADE 15): admitted by Do_ThrowGrenade.
+pub const GAMEITEM_GRENADE: i32 = 15;
+/// Original take-out/put-away weapon program (mafia-re 113b5b6
+/// game/actors/C_human.h:316 HUMAN_WEAPON_ON_OFF 0).
+pub const HUMAN_WEAPON_ON_OFF: i32 = 0;
+/// Original jump-from-stance animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:623 ANIM_JUMP1 0x5f).
+pub const ANIM_JUMP1: i32 = 0x5f;
+/// Original running-jump animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:625 ANIM_JUMPSTAT 0x61).
+pub const ANIM_JUMPSTAT: i32 = 0x61;
+/// Original overhand-throw animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:656 ANIM_HOD_VRCHEM_HOD 0xa3): played by
+/// Do_ThrowGrenade through the animation owner.
+pub const ANIM_HOD_VRCHEM_HOD: i32 = 0xa3;
+/// Original side-jump animation ids (mafia-re 113b5b6
+/// game/actors/C_actor.h:749-753): Do_SideJump reads the 0x142..=0x149
+/// busy window and writes one of the four bases below.
+pub const ANIM_USKOK_RIGHT_FRONT: i32 = 0x142;
+/// Original side-jump animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:750 ANIM_USKOK_LEFT_BACK 0x144).
+pub const ANIM_USKOK_LEFT_BACK: i32 = 0x144;
+/// Original side-jump animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:751 ANIM_USKOK_FRONT_LEFT 0x146).
+pub const ANIM_USKOK_FRONT_LEFT: i32 = 0x146;
+/// Original side-jump animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:752 ANIM_USKOK_BACK_RIGHT 0x148).
+pub const ANIM_USKOK_BACK_RIGHT: i32 = 0x148;
+/// Original side-jump animation upper bound (mafia-re 113b5b6
+/// game/actors/C_actor.h:753 ANIM_USKOK_FRONT_RIGHT 0x149).
+pub const ANIM_USKOK_FRONT_RIGHT: i32 = 0x149;
+
+/// Entry verdict of the C_human::Do_ChangeWeapon latch (mafia-re 113b5b6
+/// game/actors/C_human.cpp:5990-5994 and :6074-6076).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ChangeWeaponEntry {
+    AlreadyChanging,
+    StartChange,
+    DirectModel,
+}
+
+/// GAME 0x57f550 (RVA 0x17f550) C_human::Do_ChangeWeapon entry latch
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:5987-6076): in a car the model
+/// just changes; on foot a running change returns at once, otherwise the
+/// changing latch is claimed. The weapon-model visibility, ResetWeaponEffects,
+/// DelExtendedAnim, idle/breath timers, fire-table select, animation-cache
+/// program, skip-frames path and the camera/sound program past the latch stay
+/// DEFERRED with the weapon/animation/scene/sound owners.
+pub fn change_weapon_entry(car_present: bool, changing_weapon: bool) -> ChangeWeaponEntry {
+    if car_present {
+        ChangeWeaponEntry::DirectModel
+    } else if changing_weapon {
+        ChangeWeaponEntry::AlreadyChanging
+    } else {
+        ChangeWeaponEntry::StartChange
+    }
+}
+
+/// Reload-table cursor selected by C_human::Do_Reload (mafia-re 113b5b6
+/// game/actors/C_human.cpp:7528-7538): the fire step to resume from and the
+/// step time carried with it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReloadFirePlan {
+    pub step: usize,
+    pub time: i32,
+    pub shell_by_shell: bool,
+}
+
+/// GAME 0x585b40 (RVA 0x185b40) C_human::Do_Reload fire-table scan
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:7515-7551): carrying refuses,
+/// the fire must sit at its end step, the weapon kind must be pistol through
+/// SMG with spare ammunition, then the staged right-hand fire table
+/// (`(action, time)` pairs) is scanned forward to the reload step and stepped
+/// one back with its time. `shell_by_shell_staged` carries the
+/// shotgun-plus-MuzeNabitJeden verdict because the inventory/left-hand-target
+/// owners stay DEFERRED; the fire-table swap, forced/effects latches and the
+/// pump-shotgun hand release are reported through the returned plan.
+pub fn reload_fire_plan(
+    carrying_box: bool,
+    carrying_dead_body: bool,
+    at_end: bool,
+    weapon_kind: u32,
+    spare: i32,
+    fire_table: &[(i32, i32)],
+    shell_by_shell_staged: bool,
+) -> Option<ReloadFirePlan> {
+    if carrying_box || carrying_dead_body {
+        return None;
+    }
+    if !at_end {
+        return None;
+    }
+    if weapon_kind <= WEAPON_KIND_FISTS || weapon_kind > WEAPON_KIND_SMG {
+        return None;
+    }
+    if spare <= 0 {
+        return None;
+    }
+    let mut step = 0usize;
+    while step < fire_table.len()
+        && fire_table[step].0 != FIRE_ACTION_END
+        && fire_table[step].0 != FIRE_ACTION_RELOAD
+    {
+        step += 1;
+    }
+    if step >= fire_table.len() {
+        return None;
+    }
+    let mut time = 0i32;
+    if fire_table[step].0 == FIRE_ACTION_RELOAD && step > 0 {
+        step -= 1;
+        time = fire_table[step].1;
+    }
+    Some(ReloadFirePlan {
+        step,
+        time,
+        shell_by_shell: shell_by_shell_staged,
+    })
+}
+
+/// State words cleared by C_human::Do_PlayAnim (mafia-re 113b5b6
+/// game/actors/C_human.cpp:7612-7619).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlayAnimReset {
+    pub idle_time: i32,
+    pub breath_time: i32,
+    pub velocity: [f32; 3],
+    pub velocity_ramp: f32,
+    pub test_ground: bool,
+    pub fall: f32,
+    pub throw_swung: bool,
+}
+
+/// Outcome of the C_human::Do_PlayAnim leaf: the cleared words, the track
+/// action (Some(HUMAN_ACTION_TRACK) while the staged SetAnim track is live,
+/// None when the action word is left untouched) and the staged active-anim
+/// length passthrough.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlayAnimOutcome {
+    pub reset: PlayAnimReset,
+    pub action: Option<i32>,
+    pub length: u32,
+}
+
+/// GAME 0x585e80 (RVA 0x185e80) C_human::Do_PlayAnim reset leaf (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:7609-7627): clears the idle/breath timers,
+/// velocity, ramp, ground test, fall and throw-swing words, then selects the
+/// track action from the staged SetAnim track and passes the staged active
+/// length through. The indicator clear, SetAnim call and PersonAnim handoff
+/// stay DEFERRED with the indicator/animation owners; `track` and `length`
+/// are the values those owners produce.
+pub fn do_play_anim_leaf(track: i32, length: u32) -> PlayAnimOutcome {
+    PlayAnimOutcome {
+        reset: PlayAnimReset {
+            idle_time: -1,
+            breath_time: -1,
+            velocity: [0.0, 0.0, 0.0],
+            velocity_ramp: 0.0,
+            test_ground: false,
+            fall: 0.0,
+            throw_swung: false,
+        },
+        action: if track != -1 {
+            Some(HUMAN_ACTION_TRACK)
+        } else {
+            None
+        },
+        length,
+    }
+}
+
+/// GAME 0x586190 (RVA 0x186190) C_human::Do_Jump entry gate (mafia-re 113b5b6
+/// game/actors/C_human.cpp:7644-7648): a carried box, a carried body or a
+/// car seat refuses at once. The run/stance/strafe anim-id select, the
+/// Do_Climb fallback, the PersonAnim/DelExtendedAnim/ResetWeaponEffects
+/// program and the force-feedback/indicator effects stay DEFERRED.
+pub fn jump_entry_gate(carrying_box: bool, carrying_dead_body: bool, in_car: bool) -> bool {
+    !carrying_box && !carrying_dead_body && !in_car
+}
+
+/// GAME 0x586400 (RVA 0x186400) C_human::Do_Climb entry gate (mafia-re 113b5b6
+/// game/actors/C_human.cpp:7730-7734): a carried box or a carried body
+/// refuses at once. The knee/waist/head wall probes, the top-line descent,
+/// the room checks and the climb animation stay DEFERRED with the collision
+/// and animation owners.
+pub fn climb_entry_gate(carrying_box: bool, carrying_dead_body: bool) -> bool {
+    !carrying_box && !carrying_dead_body
+}
+
+/// Signed atan2 difference wrapped into -PI..PI, replicating the game
+/// C_actor.cpp AngleTo2 helper (mafia-re 113b5b6 game/actors/C_actor.cpp:1748-1760).
+fn angle_to_2d(a: [f32; 2], b: [f32; 2]) -> f32 {
+    use core::f32::consts::PI;
+    let angle = b[1].atan2(b[0]) - a[1].atan2(a[0]);
+    if angle < -PI {
+        angle + PI * 2.0
+    } else if angle > PI {
+        angle - PI * 2.0
+    } else {
+        angle
+    }
+}
+
+/// Signed S_vector2::DistanceToLine replica (mafia-re 113b5b6
+/// ls3df/I3D/I3d_math.h:579-584): the normal (-dir.y, dir.x) normalized,
+/// then the point projection difference. A zero direction yields zero.
+fn distance_to_line_2d(point: [f32; 2], line_point: [f32; 2], line_dir: [f32; 2]) -> f32 {
+    let mut normal = [-line_dir[1], line_dir[0]];
+    let len = (normal[0] * normal[0] + normal[1] * normal[1]).sqrt();
+    if len > 1e-8 {
+        normal[0] /= len;
+        normal[1] /= len;
+    }
+    (point[0] * normal[0] + point[1] * normal[1])
+        - (line_point[0] * normal[0] + line_point[1] * normal[1])
+}
+
+/// GAME 0x587040 (RVA 0x187040) C_human::Do_SideJump select (mafia-re 113b5b6
+/// game/actors/C_human.cpp:7849-7875): carrying refuses, as does an
+/// in-flight side-jump id in 0x142..=0x149; otherwise the 3D angle between
+/// the staged facing and target directions selects the back/front pair, the
+/// 2D atan2 verdict breaks the tie, and the line side through the staged
+/// position bumps the id by one. Frame/collision/animation owners stay
+/// DEFERRED; every vector arrives staged.
+pub fn side_jump_select(
+    dir: [f32; 3],
+    dir2: [f32; 3],
+    pos: [f32; 3],
+    pos2: [f32; 3],
+    anim_id: i32,
+    carrying_box: bool,
+    carrying_dead_body: bool,
+) -> Option<i32> {
+    use core::f32::consts::PI;
+    if carrying_box || carrying_dead_body {
+        return None;
+    }
+    if (ANIM_USKOK_RIGHT_FRONT..=ANIM_USKOK_FRONT_RIGHT).contains(&anim_id) {
+        return None;
+    }
+    let dot = dir[0] * dir2[0] + dir[1] * dir2[1] + dir[2] * dir2[2];
+    let mag = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt()
+        * (dir2[0] * dir2[0] + dir2[1] * dir2[1] + dir2[2] * dir2[2]).sqrt();
+    let angle = if mag < 1e-8 {
+        0.0
+    } else {
+        (dot / mag).clamp(-1.0, 1.0).acos()
+    };
+    let mut next = if angle < PI / 4.0 {
+        ANIM_USKOK_LEFT_BACK
+    } else if angle > PI * 3.0 / 4.0 {
+        ANIM_USKOK_RIGHT_FRONT
+    } else if angle_to_2d([dir[0], dir[2]], [dir2[0], dir2[2]]) > 0.0 {
+        ANIM_USKOK_BACK_RIGHT
+    } else {
+        ANIM_USKOK_FRONT_LEFT
+    };
+    let side = distance_to_line_2d(
+        [pos[0], pos[2]],
+        [pos2[0], pos2[2]],
+        [dir[0], dir2[2]],
+    );
+    if side < 0.0 {
+        next += 1;
+    }
+    Some(next)
+}
+
+/// GAME 0x581eb0 (RVA 0x181eb0) C_human::Do_ClimbInCarLR seat gate (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:6617-6629): without a car, outside a car
+/// actor, without a seat, or onto an occupied neighbour seat the leaf
+/// refuses; otherwise it yields the paired seat (0<->1, 2<->3). The engine
+/// hand-off, indicator clear, seat animation/mixing-point program,
+/// PersonAnim handoff and ChangeWeaponModel calls stay DEFERRED with the
+/// car/animation owners; `other_occupied` is the staged GetOwner verdict.
+pub fn climb_seat_target(
+    seat: i32,
+    car_present: bool,
+    is_car_actor: bool,
+    other_occupied: bool,
+) -> Option<i32> {
+    if !car_present || !is_car_actor || seat < 0 {
+        return None;
+    }
+    let other = if (seat & 1) != 0 { seat - 1 } else { seat + 1 };
+    if other_occupied {
+        None
+    } else {
+        Some(other)
+    }
+}
+
+/// GAME 0x583590 (RVA 0x183590) C_human::Do_Shoot entry gate (mafia-re 113b5b6
+/// game/actors/C_human.cpp:6962-6966): a carried box or a carried body
+/// refuses the press at once. The pistol/rifle/SMG/thrown/melee programs,
+/// the changing-weapon handoff, the extended-anim clear, the throw timing
+/// and the indicator/player-time effects stay DEFERRED.
+pub fn shoot_entry_gate(carrying_box: bool, carrying_dead_body: bool) -> bool {
+    !carrying_box && !carrying_dead_body
+}
+
+/// GAME 0x583f40 (RVA 0x183f40) C_human::Do_ThrowGrenade throw latch
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:7166-7183): while not ready, or
+/// holding neither a Molotov nor a grenade, the leaf refuses; otherwise the
+/// staged throw direction is latched and the swing cleared. The IsReady
+/// verdict and the held-item id arrive staged (`is_ready`, `item_id`); the
+/// DelExtendedAnim/PersonAnim calls, the HOD animation select, the indicator
+/// clear and the game-time stamp stay DEFERRED with the animation/indicator
+/// owners.
+pub fn throw_grenade_throw_dir(
+    is_ready: bool,
+    item_id: i32,
+    dir: [f32; 3],
+) -> Option<[f32; 3]> {
+    if !is_ready {
+        return None;
+    }
+    if item_id != GAMEITEM_MOLOTOV && item_id != GAMEITEM_GRENADE {
+        return None;
+    }
+    Some(dir)
+}
+
+/// GAME 0x589140 (RVA 0x189140) C_human::Do_FuckingBox entry gate (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:8459-8469; `FuckingBox` is the upstream
+/// working-name family for the carried box, NOT original): a carried dead
+/// body, a frame while already carrying, no frame while carrying nothing, or
+/// an empty right hand refuses at once. The ChangeAnim programs, the frame
+/// link/sector/pose program and the using-object bookkeeping stay DEFERRED.
+pub fn fucking_box_entry_gate(
+    frm_present: bool,
+    carrying_box: bool,
+    carrying_dead_body: bool,
+    right_hand_present: bool,
+) -> bool {
+    if carrying_dead_body {
+        return false;
+    }
+    if frm_present && carrying_box {
+        return false;
+    }
+    if !frm_present && !carrying_box {
+        return false;
+    }
+    if !right_hand_present {
+        return false;
+    }
+    true
+}
+
+/// GAME 0x589680 (RVA 0x189680) C_human::Do_FuckingBoxCancel entry gate
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:8598-8602; `FuckingBox` is the
+/// upstream working-name family for the carried box, NOT original): without
+/// a box or without a right hand there is nothing to cancel. The car-volume
+/// scan, the destination/start-point program and the ChangeAnim/model/invalid
+/// -item program stay DEFERRED with the actor/scene/animation owners.
+pub fn fucking_box_cancel_entry_gate(carrying_box: bool, right_hand_present: bool) -> bool {
+    carrying_box && right_hand_present
+}
+
+/// GAME 0x589c20 (RVA 0x189c20) C_human::Do_DeadBody entry gate (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:8689-8699): a carried box, a frame while
+/// already carrying, no frame while carrying nothing, or an empty right hand
+/// refuses at once. The ChangeAnim programs, the frame link/sector/pose
+/// program, the carrier-human lookup and the using-object bookkeeping stay
+/// DEFERRED.
+pub fn dead_body_entry_gate(
+    frm_present: bool,
+    carrying_box: bool,
+    carrying_dead_body: bool,
+    right_hand_present: bool,
+) -> bool {
+    if carrying_box {
+        return false;
+    }
+    if frm_present && carrying_dead_body {
+        return false;
+    }
+    if !frm_present && !carrying_dead_body {
+        return false;
+    }
+    if !right_hand_present {
+        return false;
+    }
+    true
+}
+
+#[cfg(test)]
+mod do_small_actions_rva_tests {
+    use super::*;
+
+    #[test]
+    fn change_weapon_rva_17f550_selects_entry_arm() {
+        // GAME 0x57f550 (RVA 0x17f550).
+        assert_eq!(
+            change_weapon_entry(false, true),
+            ChangeWeaponEntry::AlreadyChanging
+        );
+        assert_eq!(
+            change_weapon_entry(false, false),
+            ChangeWeaponEntry::StartChange
+        );
+        assert_eq!(
+            change_weapon_entry(true, false),
+            ChangeWeaponEntry::DirectModel
+        );
+        assert_eq!(
+            change_weapon_entry(true, true),
+            ChangeWeaponEntry::DirectModel
+        );
+    }
+
+    #[test]
+    fn reload_rva_185b40_guards_then_scans_to_reload() {
+        // GAME 0x585b40 (RVA 0x185b40).
+        let table = [(0, 100), (FIRE_ACTION_RELOAD, 200), (FIRE_ACTION_END, 0)];
+        assert_eq!(
+            reload_fire_plan(false, false, true, WEAPON_KIND_PISTOL, 3, &table, false),
+            Some(ReloadFirePlan {
+                step: 0,
+                time: 100,
+                shell_by_shell: false,
+            })
+        );
+        assert_eq!(
+            reload_fire_plan(false, false, true, WEAPON_KIND_SMG, 1, &table, true),
+            Some(ReloadFirePlan {
+                step: 0,
+                time: 100,
+                shell_by_shell: true,
+            })
+        );
+        // Guards refuse.
+        assert_eq!(
+            reload_fire_plan(true, false, true, WEAPON_KIND_PISTOL, 3, &table, false),
+            None
+        );
+        assert_eq!(
+            reload_fire_plan(false, true, true, WEAPON_KIND_PISTOL, 3, &table, false),
+            None
+        );
+        assert_eq!(
+            reload_fire_plan(false, false, false, WEAPON_KIND_PISTOL, 3, &table, false),
+            None
+        );
+        assert_eq!(
+            reload_fire_plan(false, false, true, WEAPON_KIND_FISTS, 3, &table, false),
+            None
+        );
+        assert_eq!(
+            reload_fire_plan(false, false, true, 4, 3, &table, false),
+            None
+        );
+        assert_eq!(
+            reload_fire_plan(false, false, true, WEAPON_KIND_PISTOL, 0, &table, false),
+            None
+        );
+        assert_eq!(
+            reload_fire_plan(false, false, true, WEAPON_KIND_PISTOL, 3, &[], false),
+            None
+        );
+        // Reload at step zero keeps step zero with zero time.
+        let leading = [(FIRE_ACTION_RELOAD, 50), (FIRE_ACTION_END, 0)];
+        assert_eq!(
+            reload_fire_plan(false, false, true, WEAPON_KIND_PISTOL, 2, &leading, false),
+            Some(ReloadFirePlan {
+                step: 0,
+                time: 0,
+                shell_by_shell: false,
+            })
+        );
+        // No reload step: the end index is kept with zero time.
+        let plain = [(0, 100), (0, 150), (FIRE_ACTION_END, 0)];
+        assert_eq!(
+            reload_fire_plan(false, false, true, WEAPON_KIND_PISTOL, 2, &plain, false),
+            Some(ReloadFirePlan {
+                step: 2,
+                time: 0,
+                shell_by_shell: false,
+            })
+        );
+    }
+
+    #[test]
+    fn play_anim_rva_185e80_clears_words_and_passes_track() {
+        // GAME 0x585e80 (RVA 0x185e80).
+        let live = do_play_anim_leaf(7, 1234);
+        assert_eq!(live.reset.idle_time, -1);
+        assert_eq!(live.reset.breath_time, -1);
+        assert_eq!(live.reset.velocity, [0.0, 0.0, 0.0]);
+        assert_eq!(live.reset.velocity_ramp, 0.0);
+        assert!(!live.reset.test_ground);
+        assert_eq!(live.reset.fall, 0.0);
+        assert!(!live.reset.throw_swung);
+        assert_eq!(live.action, Some(HUMAN_ACTION_TRACK));
+        assert_eq!(live.length, 1234);
+        let kept = do_play_anim_leaf(-1, 9);
+        assert_eq!(kept.action, None);
+        assert_eq!(kept.length, 9);
+    }
+
+    #[test]
+    fn jump_rva_186190_refuses_carry_and_car() {
+        // GAME 0x586190 (RVA 0x186190).
+        assert!(jump_entry_gate(false, false, false));
+        assert!(!jump_entry_gate(true, false, false));
+        assert!(!jump_entry_gate(false, true, false));
+        assert!(!jump_entry_gate(false, false, true));
+    }
+
+    #[test]
+    fn climb_rva_186400_refuses_carry() {
+        // GAME 0x586400 (RVA 0x186400).
+        assert!(climb_entry_gate(false, false));
+        assert!(!climb_entry_gate(true, false));
+        assert!(!climb_entry_gate(false, true));
+    }
+
+    #[test]
+    fn side_jump_rva_187040_selects_base_and_side() {
+        // GAME 0x587040 (RVA 0x187040).
+        assert_eq!(
+            side_jump_select([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, false, false),
+            Some(ANIM_USKOK_LEFT_BACK)
+        );
+        assert_eq!(
+            side_jump_select([1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, false, false),
+            Some(ANIM_USKOK_RIGHT_FRONT)
+        );
+        assert_eq!(
+            side_jump_select([1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, false, false),
+            Some(ANIM_USKOK_BACK_RIGHT)
+        );
+        assert_eq!(
+            side_jump_select([1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, false, false),
+            Some(ANIM_USKOK_FRONT_LEFT)
+        );
+        // Line side below the track bumps the id by one.
+        assert_eq!(
+            side_jump_select([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 0.0, 0.0], 0, false, false),
+            Some(ANIM_USKOK_LEFT_BACK + 1)
+        );
+        // Carry and in-flight ids refuse.
+        assert_eq!(
+            side_jump_select([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, true, false),
+            None
+        );
+        assert_eq!(
+            side_jump_select([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, false, true),
+            None
+        );
+        assert_eq!(
+            side_jump_select(
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                ANIM_USKOK_LEFT_BACK,
+                false,
+                false
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn climb_seat_rva_181eb0_pairs_and_gates_occupancy() {
+        // GAME 0x581eb0 (RVA 0x181eb0).
+        assert_eq!(climb_seat_target(0, true, true, false), Some(1));
+        assert_eq!(climb_seat_target(1, true, true, false), Some(0));
+        assert_eq!(climb_seat_target(2, true, true, false), Some(3));
+        assert_eq!(climb_seat_target(3, true, true, false), Some(2));
+        assert_eq!(climb_seat_target(0, true, true, true), None);
+        assert_eq!(climb_seat_target(0, false, true, false), None);
+        assert_eq!(climb_seat_target(0, true, false, false), None);
+        assert_eq!(climb_seat_target(-1, true, true, false), None);
+    }
+
+    #[test]
+    fn shoot_rva_183590_refuses_carry() {
+        // GAME 0x583590 (RVA 0x183590).
+        assert!(shoot_entry_gate(false, false));
+        assert!(!shoot_entry_gate(true, false));
+        assert!(!shoot_entry_gate(false, true));
+    }
+
+    #[test]
+    fn throw_grenade_rva_183f40_gates_ready_item_and_latches_dir() {
+        // GAME 0x583f40 (RVA 0x183f40).
+        let dir = [0.0, 1.0, 0.0];
+        assert_eq!(throw_grenade_throw_dir(false, GAMEITEM_MOLOTOV, dir), None);
+        assert_eq!(throw_grenade_throw_dir(true, 0, dir), None);
+        assert_eq!(throw_grenade_throw_dir(true, GAMEITEM_MOLOTOV, dir), Some(dir));
+        assert_eq!(throw_grenade_throw_dir(true, GAMEITEM_GRENADE, dir), Some(dir));
+    }
+
+    #[test]
+    fn fucking_box_rva_189140_gates_frame_carry_and_hand() {
+        // GAME 0x589140 (RVA 0x189140).
+        assert!(fucking_box_entry_gate(true, false, false, true));
+        assert!(fucking_box_entry_gate(false, true, false, true));
+        assert!(!fucking_box_entry_gate(true, false, true, true));
+        assert!(!fucking_box_entry_gate(true, true, false, true));
+        assert!(!fucking_box_entry_gate(false, false, false, true));
+        assert!(!fucking_box_entry_gate(true, false, false, false));
+    }
+
+    #[test]
+    fn fucking_box_cancel_rva_189680_needs_box_and_hand() {
+        // GAME 0x589680 (RVA 0x189680).
+        assert!(fucking_box_cancel_entry_gate(true, true));
+        assert!(!fucking_box_cancel_entry_gate(false, true));
+        assert!(!fucking_box_cancel_entry_gate(true, false));
+    }
+
+    #[test]
+    fn dead_body_rva_189c20_gates_frame_carry_and_hand() {
+        // GAME 0x589c20 (RVA 0x189c20).
+        assert!(dead_body_entry_gate(true, false, false, true));
+        assert!(dead_body_entry_gate(false, false, true, true));
+        assert!(!dead_body_entry_gate(true, true, false, true));
+        assert!(!dead_body_entry_gate(true, false, true, true));
+        assert!(!dead_body_entry_gate(false, false, false, true));
+        assert!(!dead_body_entry_gate(true, false, false, false));
+    }
+}

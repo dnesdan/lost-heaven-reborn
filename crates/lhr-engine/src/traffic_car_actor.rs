@@ -790,3 +790,23 @@ mod tests {
         );
     }
 }
+
+/// Working-name empty tick for the linker's folded C_traffic_car::NetDirect
+/// slot (GAME 0x4ab130; mafia-re game/vehicles/C_trf_c.cpp:112-114 at pin
+/// 113b5b6 carries no FUNCTION tag, so no distinct RVA is claimed): the
+/// reference describes a folded empty out-of-line body, hence an explicit
+/// no-op boundary with no scene/device owners and no state.
+pub fn traffic_net_direct_empty(_time_ms: u32) {}
+
+#[cfg(test)]
+mod traffic_net_direct_empty_tests {
+    use super::*;
+
+    #[test]
+    fn net_direct_working_name_is_empty_noop() {
+        // No FUNCTION tag in mafia-re (C_trf_c.cpp:112-114); working name only.
+        traffic_net_direct_empty(0);
+        traffic_net_direct_empty(16);
+        traffic_net_direct_empty(u32::MAX);
+    }
+}

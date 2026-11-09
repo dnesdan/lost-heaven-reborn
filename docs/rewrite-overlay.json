@@ -14359,6 +14359,114 @@
       "symbol": "lhr_engine::projector_pass::projector_add_fgroups_visual_contract",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17f550",
+      "va": "0x57f550",
+      "name": "C_human::Do_ChangeWeapon",
+      "symbol": "lhr_engine::human_actor::HumanState::change_weapon_entry",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. ChangeWeapon entry latch (GAME 0x57f550)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x185b40",
+      "va": "0x585b40",
+      "name": "C_human::Do_Reload",
+      "symbol": "lhr_engine::human_actor::HumanState::reload_fire_plan",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. Reload fire-table scan (GAME 0x585b40)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x185e80",
+      "va": "0x585e80",
+      "name": "C_human::Do_PlayAnim",
+      "symbol": "lhr_engine::human_actor::HumanState::do_play_anim_leaf",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. PlayAnim reset leaf (GAME 0x585e80)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x186190",
+      "va": "0x586190",
+      "name": "C_human::Do_Jump",
+      "symbol": "lhr_engine::human_actor::HumanState::jump_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. Jump entry gate (GAME 0x586190)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x186400",
+      "va": "0x586400",
+      "name": "C_human::Do_Climb",
+      "symbol": "lhr_engine::human_actor::HumanState::climb_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. Climb entry gate (GAME 0x586400)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x187040",
+      "va": "0x587040",
+      "name": "C_human::Do_SideJump",
+      "symbol": "lhr_engine::human_actor::HumanState::side_jump_select",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. SideJump select (GAME 0x587040)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x181eb0",
+      "va": "0x581eb0",
+      "name": "C_human::Do_ClimbInCarLR",
+      "symbol": "lhr_engine::human_actor::HumanState::climb_seat_target",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. ClimbInCarLR seat gate (GAME 0x581eb0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x183590",
+      "va": "0x583590",
+      "name": "C_human::Do_Shoot",
+      "symbol": "lhr_engine::human_actor::HumanState::shoot_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. Shoot entry gate (GAME 0x583590)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x183f40",
+      "va": "0x583f40",
+      "name": "C_human::Do_ThrowGrenade",
+      "symbol": "lhr_engine::human_actor::HumanState::throw_grenade_throw_dir",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. ThrowGrenade throw latch (GAME 0x583f40)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x189140",
+      "va": "0x589140",
+      "name": "C_human::Do_FuckingBox",
+      "symbol": "lhr_engine::human_actor::HumanState::fucking_box_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. FuckingBox entry gate (GAME 0x589140)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x189680",
+      "va": "0x589680",
+      "name": "C_human::Do_FuckingBoxCancel",
+      "symbol": "lhr_engine::human_actor::HumanState::fucking_box_cancel_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. FuckingBoxCancel entry gate (GAME 0x589680)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x189c20",
+      "va": "0x589c20",
+      "name": "C_human::Do_DeadBody",
+      "symbol": "lhr_engine::human_actor::HumanState::dead_body_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. DeadBody entry gate (GAME 0x589c20)."
     }
   ],
   "vm": {
