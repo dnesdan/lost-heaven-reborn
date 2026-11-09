@@ -20,6 +20,38 @@ pub struct FrameCallbackToken(pub u32);
 /// Native `FRMFLAGS_CALLBACK_MASK` word (I3D.h:267).
 pub const CALLBACK_MASK: u32 = 0x1e00;
 
+/// Native `LS3D_CALLBACK_MESSAGE_0` (mafia-re ls3df/I3D/I3D.h:294-295 at pin
+/// 113b5b6). The zero base of the callback message enum; no message selected.
+/// The reference records no LS3DF FUNCTION address for the enum values (they
+/// are `enum` words, not functions); the values are consumed through
+/// `FRMFLAGS_CALLBACK_MASK` by `SetCallback` (PC RVA 0x1b3c0, occupied, not
+/// claimed here).
+pub const LS3D_CALLBACK_MESSAGE_0: u32 = 0;
+/// Native `CBM_PROGRESS` (mafia-re ls3df/I3D/I3D.h:296 at pin 113b5b6;
+/// Insanity3D's name): a loader's progress report. Same working-name status
+/// as `LS3D_CALLBACK_MESSAGE_0`.
+pub const CBM_PROGRESS: u32 = 8;
+/// Native `CBM_ERROR` (mafia-re ls3df/I3D/I3D.h:297 at pin 113b5b6;
+/// Insanity3D's name). Same working-name status as `LS3D_CALLBACK_MESSAGE_0`.
+pub const CBM_ERROR: u32 = 0x10;
+/// Native `CBM_LOG` (mafia-re ls3df/I3D/I3D.h:298 at pin 113b5b6;
+/// Insanity3D's name). Same working-name status as `LS3D_CALLBACK_MESSAGE_0`.
+pub const CBM_LOG: u32 = 0x20;
+/// Native `LS3D_CALLBACK_NOTE` (mafia-re ls3df/I3D/I3D.h:299-300 at pin
+/// 113b5b6): an animation passed a note key. Same working-name status as
+/// `LS3D_CALLBACK_MESSAGE_0`.
+pub const LS3D_CALLBACK_NOTE: u32 = 0x200;
+/// Native `LS3D_CALLBACK_ANIM_END` (mafia-re ls3df/I3D/I3D.h:302 at pin
+/// 113b5b6): an animation reached an end. Same working-name status as
+/// `LS3D_CALLBACK_MESSAGE_0`. (`LS3D_CALLBACK_LOD`, 0x400, is intentionally
+/// not repeated here: it is owned by `render_lod`, which tests the
+/// `GetObjectLOD` dispatch gate against it.)
+pub const LS3D_CALLBACK_ANIM_END: u32 = 0x800;
+/// Native `LS3D_CALLBACK_NOTE_STRING` (mafia-re ls3df/I3D/I3D.h:303 at pin
+/// 113b5b6): an animation passed a string note key. Same working-name status
+/// as `LS3D_CALLBACK_MESSAGE_0`.
+pub const LS3D_CALLBACK_NOTE_STRING: u32 = 0x1000;
+
 /// Borrowed live view over graph flags plus the owned token registry.
 /// The registry lives on the arena owner; this type only carries state.
 #[derive(Clone, Debug, Default)]
@@ -108,6 +140,17 @@ pub fn callback_masked_flags(flags: u32) -> u32 {
     flags & CALLBACK_MASK
 }
 
+/// Working name for the `flags & message` dispatch gate behind the callback
+/// message words (mafia-re ls3df/I3D/I3D.h:293-304 at pin 113b5b6). The
+/// reference records no LS3DF FUNCTION address for a standalone gate; callers
+/// test the stored flags before invoking the callback (for example,
+/// `GetObjectLOD` tests `frm_flags & LS3D_CALLBACK_LOD`, owned by
+/// `render_lod`). Reports whether `message` is selected in `flags`; pure word
+/// op, no registry or flag moves.
+pub fn callback_message_enabled(flags: u32, message: u32) -> bool {
+    flags & message != 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,5 +175,34 @@ mod tests {
         assert_eq!(callbacks.get(key), Some(FrameCallbackToken(3)));
         callbacks.slots.remove(&key.0);
         assert!(!callbacks.has_callback(key));
+    }
+
+    #[test]
+    fn callback_message_words_match_ls3df_dispatch_values() {
+        // Working names for the LS3D_CALLBACK_MESSAGE enum words (mafia-re
+        // ls3df/I3D/I3D.h:294-303): the reference records no LS3DF FUNCTION
+        // addresses (enum words, not functions). LOD (0x400) is owned by
+        // render_lod and is not repeated here.
+        assert_eq!(LS3D_CALLBACK_MESSAGE_0, 0);
+        assert_eq!(CBM_PROGRESS, 8);
+        assert_eq!(CBM_ERROR, 0x10);
+        assert_eq!(CBM_LOG, 0x20);
+        assert_eq!(LS3D_CALLBACK_NOTE, 0x200);
+        assert_eq!(LS3D_CALLBACK_ANIM_END, 0x800);
+        assert_eq!(LS3D_CALLBACK_NOTE_STRING, 0x1000);
+        assert_eq!(
+            CBM_PROGRESS | CBM_ERROR | CBM_LOG | LS3D_CALLBACK_NOTE | LS3D_CALLBACK_ANIM_END
+                | LS3D_CALLBACK_NOTE_STRING,
+            0x1a38
+        );
+    }
+
+    #[test]
+    fn callback_message_enabled_reports_only_selected_bits() {
+        assert!(callback_message_enabled(LS3D_CALLBACK_NOTE, LS3D_CALLBACK_NOTE));
+        assert!(callback_message_enabled(u32::MAX, CBM_LOG));
+        assert!(!callback_message_enabled(0, CBM_ERROR));
+        assert!(!callback_message_enabled(CBM_PROGRESS, LS3D_CALLBACK_NOTE));
+        assert!(!callback_message_enabled(u32::MAX & !CBM_PROGRESS, CBM_PROGRESS));
     }
 }

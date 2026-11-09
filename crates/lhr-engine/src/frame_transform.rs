@@ -541,6 +541,48 @@ pub fn frm_has_interpolator(flags: u32) -> bool {
 pub fn frm_callback_bits(flags: u32) -> u32 {
     flags & 0x1e00
 }
+/// Native `I3DLINK_UPDMATRIX` (mafia-re ls3df/I3D/I3D.h:307 at pin 113b5b6;
+/// Insanity3D's name, same value and role). Keep the world matrix across
+/// `LinkTo`: the local matrix is made again against the new parent. The
+/// reference records no LS3DF FUNCTION address for the flag itself (it is a
+/// `#define`, not a function); the flag word is consumed by `LinkTo` (PC RVA
+/// 0x1b9d0, already occupied, not claimed here).
+pub const I3DLINK_UPDMATRIX: u32 = 0x1;
+/// Native `I3DLINK_DISCARD_BOUND` (mafia-re ls3df/I3D/I3D.h:308-309 at pin
+/// 113b5b6; the name is a guess). Discard the old parent's and the frame's
+/// hierarchy bound volumes on `LinkTo` instead of updating at once. Same
+/// working-name status as `I3DLINK_UPDMATRIX`; the flag-2 path stays an
+/// explicit `UnsupportedLinkFlags` rejection in `link_to_projection`, so this
+/// word only classifies caller input and moves no state.
+pub const I3DLINK_DISCARD_BOUND: u32 = 0x2;
+/// Native `I3DLINK_UPDATE` (mafia-re ls3df/I3D/I3D.h:310-311 at pin 113b5b6;
+/// the name is a guess). Update the frame at once on `LinkTo` instead of
+/// discarding the bound volumes. Same working-name status as
+/// `I3DLINK_UPDMATRIX`; the flag-4 path stays an explicit
+/// `UnsupportedLinkFlags` rejection in `link_to_projection`.
+pub const I3DLINK_UPDATE: u32 = 0x4;
+/// Working name for the `flags & I3DLINK_UPDMATRIX` gate of `LinkTo`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:468-469 at pin 113b5b6). The
+/// reference records no LS3DF FUNCTION address for the gate itself; the
+/// branch lives inside the occupied `LinkTo` body (PC RVA 0x1b9d0).
+/// Reports whether the link keeps the world matrix; no cache moves.
+pub fn link_keeps_world_matrix(flags: u32) -> bool {
+    flags & I3DLINK_UPDMATRIX != 0
+}
+/// Working name for the `flags & I3DLINK_DISCARD_BOUND` gate of `LinkTo`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:474-476 at pin 113b5b6). Same
+/// working-name status as `link_keeps_world_matrix`. Reports whether the
+/// link discards (rather than updates) the bound volumes; no cache moves.
+pub fn link_discards_bounds(flags: u32) -> bool {
+    flags & I3DLINK_DISCARD_BOUND != 0
+}
+/// Working name for the `flags & I3DLINK_UPDATE` gate of `LinkTo` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:498-501 at pin 113b5b6). Same
+/// working-name status as `link_keeps_world_matrix`. Reports whether the
+/// link updates the frame at once; no cache moves.
+pub fn link_updates_at_once(flags: u32) -> bool {
+    flags & I3DLINK_UPDATE != 0
+}
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
         let id = u32::try_from(self.nodes.len())
@@ -2406,7 +2448,7 @@ impl I3dFrameGraph {
             Option<FrameKey>,
         ) -> Result<(), FrameError>,
     ) -> Result<u32, FrameError> {
-        if flags > 1 {
+        if flags > I3DLINK_UPDMATRIX {
             return Err(FrameError::UnsupportedLinkFlags(flags));
         }
         let result = self.link_to_inner(child, parent, flags, allow_hr, &mut transition);
@@ -2456,7 +2498,7 @@ impl I3dFrameGraph {
         if old == parent {
             return Ok(0);
         }
-        if !allow_hr && flags == 1 && self.state(child)?.flags & 0x1c0000 != 0 {
+        if !allow_hr && flags == I3DLINK_UPDMATRIX && self.state(child)?.flags & 0x1c0000 != 0 {
             return Err(FrameError::UnsupportedLinkState);
         }
         let mut at = parent;
@@ -2471,7 +2513,7 @@ impl I3dFrameGraph {
                 return Err(FrameError::Cycle);
             }
         }
-        if flags & 1 != 0 {
+        if flags & I3DLINK_UPDMATRIX != 0 {
             self.world_matrix(child)?;
         }
         if let Some(old) = old {
@@ -2491,7 +2533,7 @@ impl I3dFrameGraph {
             p.links.child_count = p.links.child_count.wrapping_add(1);
             p.state.flags &= 0xfffffebf;
         }
-        if flags & 1 == 0 {
+        if flags & I3DLINK_UPDMATRIX == 0 {
             let s = &mut self.node_mut(child)?.state;
             s.flags = (s.flags & !0x20) | 0x40000000;
         } else {
@@ -2620,6 +2662,21 @@ impl I3dFrameGraph {
             return Err(error);
         }
         Ok(self.state(key)?.world)
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::UpdateWMatrix` (mafia-re
+    /// ls3df/I3D/I3D.h:505-510 at pin 113b5b6: refresh the world matrix unless
+    /// `FRMFLAGS_WMAT_VALID` is set). The reference records no LS3DF FUNCTION
+    /// address for it (header inline compiled into LS3DF callers) and marks
+    /// no Game.exe out-of-line copy either. A stale cache runs the occupied
+    /// `UpdateWMatrixProc` path (PC RVA 0x1c7d0) through `world_matrix`; an
+    /// already valid cache moves nothing. Unknown frames fail before any
+    /// cache move.
+    pub fn update_w_matrix(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if frm_wmat_valid(self.state(key)?.flags) {
+            return Ok(());
+        }
+        self.world_matrix(key)?;
+        Ok(())
     }
     /// Original I3D_visual::GetRenderMatrix, PC RVA 0x2ad00 (differential:
     /// REA formed Ghidra body FUN_1002ad00 5BB/40B/15insn; mafia-re
@@ -5249,5 +5306,50 @@ mod tests {
         assert!(frame_has_changed(0xffff_ffff));
         assert!(!frame_has_changed(0));
         assert!(!frame_has_changed(0x4000_0000));
+    }
+    #[test]
+    fn link_flag_words_match_native_linkto_bits() {
+        // Working names for the I3DLINK_* words (mafia-re ls3df/I3D/I3D.h:306-311):
+        // the reference records no LS3DF FUNCTION addresses (defines, not functions).
+        assert_eq!(I3DLINK_UPDMATRIX, 0x1);
+        assert_eq!(I3DLINK_DISCARD_BOUND, 0x2);
+        assert_eq!(I3DLINK_UPDATE, 0x4);
+        assert!(link_keeps_world_matrix(I3DLINK_UPDMATRIX));
+        assert!(link_keeps_world_matrix(I3DLINK_UPDMATRIX | I3DLINK_DISCARD_BOUND));
+        assert!(!link_keeps_world_matrix(0));
+        assert!(!link_keeps_world_matrix(I3DLINK_DISCARD_BOUND | I3DLINK_UPDATE));
+        assert!(!link_keeps_world_matrix(u32::MAX & !I3DLINK_UPDMATRIX));
+        assert!(link_discards_bounds(I3DLINK_DISCARD_BOUND));
+        assert!(!link_discards_bounds(0));
+        assert!(!link_discards_bounds(I3DLINK_UPDMATRIX));
+        assert!(link_updates_at_once(I3DLINK_UPDATE));
+        assert!(!link_updates_at_once(0));
+        assert!(!link_updates_at_once(I3DLINK_UPDMATRIX));
+    }
+    #[test]
+    fn update_w_matrix_refreshes_only_a_stale_world_cache() {
+        // Working name for inlined I3D_frame::UpdateWMatrix (I3D.h:505-510): no
+        // LS3DF FUNCTION address exists (header inline, no Game.exe copy either).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        // Fresh constructor frames carry WMAT_VALID: the gate is a no-op.
+        assert!(frm_wmat_valid(graph.state(key).unwrap().flags));
+        graph.update_w_matrix(key).unwrap();
+        assert!(frm_wmat_valid(graph.state(key).unwrap().flags));
+        // Clearing the bit forces the UpdateWMatrixProc path and restores it;
+        // a parentless world cache matches the local matrix.
+        graph.change_flags(key, 0x20, 0).unwrap();
+        assert!(!frm_wmat_valid(graph.state(key).unwrap().flags));
+        graph.update_w_matrix(key).unwrap();
+        assert!(frm_wmat_valid(graph.state(key).unwrap().flags));
+        assert_eq!(
+            graph.world_matrix(key).unwrap(),
+            graph.local_matrix(key).unwrap()
+        );
+        // Unknown frames fail before any cache move.
+        assert_eq!(
+            graph.update_w_matrix(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
     }
 }
