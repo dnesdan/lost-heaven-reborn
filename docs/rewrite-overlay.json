@@ -2900,8 +2900,8 @@
       "va": "0x10021740",
       "name": "I3D_lit_object::UpdateVertices (mafia-re evidenced name)",
       "symbol": "lhr_engine::i3d_object::ObjectResources::update_all_lit_vertices",
-      "tier": "contract",
-      "evidence": "Ghidra formed no procedure; 31-insn linear walk 0x21740-0x21783 (level-major 6x10, null-skip, +0x2c=1/+0x4=-1/+0xC=-1) + mafia-re I3d_lit_object.cpp:87-100 + mark/skip/ownership tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_d24205eaf9 + complete walk entry to RET 4 (level-major 6x10 null-skip loop + epilogue); pin tests lit_ 67 / i3d_object 76 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -2909,8 +2909,8 @@
       "va": "0x10021790",
       "name": "I3D_lit_object::UpdateVertices(index) (mafia-re evidenced name)",
       "symbol": "lhr_engine::i3d_object::ObjectResources::update_lit_lod_vertices",
-      "tier": "contract",
-      "evidence": "Ghidra formed no procedure; 19-insn walk 0x21790-0x217c3 (lod-column-major, index unchecked natively, host hardens 0..10) + mafia-re I3d_lit_object.cpp:102-113 + column/bound tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_82f2dd0934 + complete walk entry to RET 8 (lod-column loop 6x + epilogue); pin tests lit_ 67"
     },
     {
       "binary": "LS3DF.dll",

@@ -499,8 +499,10 @@ class RewriteProgressTests(unittest.TestCase):
         # 6-insn walks; 11 working-name helpers held uncredited).
         # +1 singlemesh UpdateVertices(index) (complete 7-insn walk: forward +
         # counter bump; pin tests singlemesh 33 pass).
+        # +2 lit_object UpdateVertices batch (all + indexed, complete loop
+        # walks entry to RET; pin tests lit_ 67 / i3d_object 76).
         self.assertEqual(ls3df["ported"], 145 + 837)
-        self.assertEqual(ls3df["verified"], 145 + 413)
+        self.assertEqual(ls3df["verified"], 145 + 415)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
