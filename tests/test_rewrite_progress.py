@@ -586,7 +586,9 @@ class RewriteProgressTests(unittest.TestCase):
         # +7 collision/driver STUB contracts (enumSubtree/TestColGeo/
         # TestColSphere/CTPFirst/CullThruPortal/UpdateSound/landpatch Render;
         # phase slices + device STUBs; marker-only, tests green).
-        self.assertEqual(ls3df["ported"], 145 + 872)
+        # +1 FrameType2String trampoline contract (0x19a10; 12 working-name
+        # helpers uncredited; 2 subagent mut bugs fixed).
+        self.assertEqual(ls3df["ported"], 145 + 873)
         self.assertEqual(ls3df["verified"], 145 + 458)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):

@@ -726,6 +726,62 @@ impl VisualResources {
     ) -> Result<Option<MaterialKey>, VisualResourceError> {
         Ok(self.face_group(group)?.material)
     }
+    /// Working name for the direct `num_faces` member read on
+    /// `I3D_face_group` (mafia-re ls3df/I3D/I3D.h carries it as a public
+    /// member, read by the game's inline `NumFaces`). The original reads it
+    /// with no standalone LS3DF accessor, so no LS3DF FUNCTION address
+    /// exists and none is claimed. Reports the stored triangle count.
+    pub fn face_group_num_faces(
+        &self,
+        group: FaceGroupKey,
+    ) -> Result<u32, VisualResourceError> {
+        Ok(self.face_group(group)?.num_faces)
+    }
+    /// Working name for the direct `next` member read on `I3D_face_group`
+    /// (mafia-re ls3df/I3D/I3D.h carries it as a public member, read by the
+    /// game's inline `GetNext`). Same inline-only status as
+    /// `face_group_num_faces`: no LS3DF FUNCTION address exists and none is
+    /// claimed. Reports the level-local successor link, if any.
+    pub fn face_group_next(
+        &self,
+        group: FaceGroupKey,
+    ) -> Result<Option<FaceGroupKey>, VisualResourceError> {
+        Ok(self.face_group(group)?.next)
+    }
+    /// Working name for the direct `mesh_flags` member read on
+    /// `I3D_mesh_level` (mafia-re ls3df/I3D/I3D.h:4120-4123, the game's
+    /// inline `GetFlags` returns it by reference). The original reads it
+    /// with no standalone LS3DF accessor, so no LS3DF FUNCTION address
+    /// exists and none is claimed. Reports the stored level flag word.
+    pub fn mesh_level_flags_of(
+        &self,
+        level: MeshLevelKey,
+    ) -> Result<u32, VisualResourceError> {
+        Ok(self.mesh_level(level)?.mesh_flags)
+    }
+    /// Working name for the direct `num_lods` member read on
+    /// `I3D_mesh_object` (mafia-re ls3df/I3D/I3D.h:5061-5064, the game's
+    /// inline `NumLODs` returns it by reference). Same inline-only status
+    /// as `mesh_level_flags_of`: no LS3DF FUNCTION address exists and none
+    /// is claimed. Reports the stored level count (slots above it keep
+    /// their residue and are never implicitly released).
+    pub fn mesh_object_lod_count(
+        &self,
+        mesh: MeshObjectKey,
+    ) -> Result<u32, VisualResourceError> {
+        Ok(self.mesh_object(mesh)?.num_lods)
+    }
+    /// Working name for the direct `num_fgroups` member read on
+    /// `I3D_mesh_level` (mafia-re ls3df/I3D/I3D.h:5055-5058, the game's
+    /// inline `NumFGroups` returns it by reference). Same inline-only
+    /// status as `mesh_level_flags_of`: no LS3DF FUNCTION address exists
+    /// and none is claimed. Reports the stored face-group count.
+    pub fn mesh_level_group_count(
+        &self,
+        level: MeshLevelKey,
+    ) -> Result<u32, VisualResourceError> {
+        Ok(self.mesh_level(level)?.num_fgroups)
+    }
     /// Driver factory 0x19200 `I3D_driver::CreateMeshLevel` (mafia-re
     /// `ls3df/I3D/I3d_driver.cpp:1398`): operator-new owner is the caller
     /// (no null check in the factory body; the ctor-callee linkage is
@@ -3376,6 +3432,52 @@ mod tests {
             .set_material(group, None, &mut backend)
             .unwrap();
         assert_eq!(resources.face_group_material(group).unwrap(), None);
+    }
+    #[test]
+    fn face_group_num_faces_and_next_report_stored_members() {
+        // Working names for the direct `num_faces`/`next` member reads on
+        // I3D_face_group (mafia-re ls3df/I3D/I3D.h:4047-4055, the game's
+        // inline NumFaces/GetNext): header inlines with no LS3DF FUNCTION
+        // addresses, so none are claimed.
+        let mut resources = VisualResources::new().unwrap();
+        let first = resources.create_face_group().unwrap();
+        let second = resources.create_face_group().unwrap();
+        assert_eq!(resources.face_group_num_faces(first).unwrap(), 0);
+        assert_eq!(resources.face_group_next(first).unwrap(), None);
+        resources.face_group_mut(first).unwrap().num_faces = 7;
+        resources.face_group_mut(first).unwrap().next = Some(second);
+        assert_eq!(resources.face_group_num_faces(first).unwrap(), 7);
+        assert_eq!(resources.face_group_next(first).unwrap(), Some(second));
+        assert_eq!(resources.face_group_next(second).unwrap(), None);
+        let mut foreign = VisualResources::new().unwrap();
+        let bad = foreign.create_face_group().unwrap();
+        assert!(resources.face_group_num_faces(bad).is_err());
+        assert!(resources.face_group_next(bad).is_err());
+    }
+    #[test]
+    fn mesh_level_flags_group_count_and_object_lod_count_report_stores() {
+        // Working names for GetFlags (mafia-re ls3df/I3D/I3D.h:4120-4123),
+        // NumFGroups (I3D.h:5055-5058) and NumLODs (I3D.h:5061-5064):
+        // header inlines with no LS3DF FUNCTION addresses, so none are
+        // claimed. Constructor words are zero; stores read back verbatim.
+        let mut resources = VisualResources::new().unwrap();
+        let level = resources.create_mesh_level().unwrap();
+        let mesh = resources.create_mesh_object().unwrap();
+        assert_eq!(resources.mesh_level_flags_of(level).unwrap(), 0);
+        assert_eq!(resources.mesh_level_group_count(level).unwrap(), 0);
+        assert_eq!(resources.mesh_object_lod_count(mesh).unwrap(), 0);
+        resources.mesh_level_mut(level).unwrap().mesh_flags = 0x18;
+        resources.mesh_level_mut(level).unwrap().num_fgroups = 3;
+        resources.mesh_object_mut(mesh).unwrap().num_lods = 2;
+        assert_eq!(resources.mesh_level_flags_of(level).unwrap(), 0x18);
+        assert_eq!(resources.mesh_level_group_count(level).unwrap(), 3);
+        assert_eq!(resources.mesh_object_lod_count(mesh).unwrap(), 2);
+        let mut foreign = VisualResources::new().unwrap();
+        let bad_level = foreign.create_mesh_level().unwrap();
+        let bad_mesh = foreign.create_mesh_object().unwrap();
+        assert!(resources.mesh_level_flags_of(bad_level).is_err());
+        assert!(resources.mesh_level_group_count(bad_level).is_err());
+        assert!(resources.mesh_object_lod_count(bad_mesh).is_err());
     }
     #[test]
     fn animated_destructor_clears_color_alias_before_interrupted_env_release() {

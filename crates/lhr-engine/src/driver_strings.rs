@@ -5,8 +5,9 @@
 //! (FrameType2StringFunc 1531-1557, FrameType2String trampoline 1559-1563,
 //! VisualType2String 1566-1593), frame enum I3D.h:62-83, visual fourccs
 //! I3D.h:85-98. FrameType2String is an evidenced PS2 original trampoline that
-//! only forwards to the free FrameType2StringFunc, so one port covers RVAs
-//! 0x19930 and 0x19a10 with no separate credit; VisualType2String covers RVA
+//! only forwards to the free FrameType2StringFunc: the shared behavior lives
+//! in `frame_type_string` (RVA 0x19930) and `driver_frame_type_string` (RVA
+//! 0x19a10) mirrors the trampoline call shape with no behavior of its own; VisualType2String covers RVA
 //! 0x19a20. Tier contract (new-module wave policy: contract regardless of
 //! bodies; FrameType2StringFunc formed 20BB/45insn/142B per assignment,
 //! VisualType2String LAB_ per assignment).
@@ -116,6 +117,16 @@ pub fn frame_type_string(scratch: &mut DriverStringScratch, type_word: u32) -> &
     }
 }
 
+/// LS3DF RVA 0x19a10 (VA 0x10019a10). Evidenced name
+/// `I3D_driver::FrameType2String` from mafia-re
+/// ls3df/I3D/I3d_driver.cpp:1559-1563 at pin 113b5b6: the body forwards its
+/// argument to `FrameType2StringFunc` unchanged and adds no behavior of its
+/// own. This mirrors that trampoline exactly instead of folding it into
+/// `frame_type_string` (which covers RVA 0x19930): same shared frame bank,
+/// same lowercase hex unknown format, same static-borrow discipline.
+pub fn driver_frame_type_string(scratch: &mut DriverStringScratch, type_word: u32) -> &str {
+    frame_type_string(scratch, type_word)
+}
 /// LS3DF RVA 0x19a20. Evidenced name I3D_driver::VisualType2String from
 /// mafia-re I3d_driver.cpp:1566-1593. Twelve fourcc arms return literals
 /// (LANDPATCH is constructed by CreateFrame/CreateVisual but has no string
@@ -203,6 +214,37 @@ mod tests {
             frame_type_string(&mut scratch, 0xaa),
             "Unknown type:0xaa",
             "next call overwrites the shared bank; the owned copy survives"
+        );
+        assert_eq!(owned, "Unknown type:0x99");
+    }
+
+    #[test]
+    fn trampoline_rva_0x19a10_forwards_words_verbatim() {
+        // LS3DF RVA 0x19a10 (VA 0x10019a10): the verified trampoline adds no
+        // behavior, so known arms, unknown formatting and the shared-bank
+        // overwrite discipline all match frame_type_string exactly.
+        let mut scratch = DriverStringScratch::default();
+        assert_eq!(
+            driver_frame_type_string(&mut scratch, FRAME_DUMMY),
+            "FRAME_DUMMY"
+        );
+        assert_eq!(
+            driver_frame_type_string(&mut scratch, FRAME_EMITOR),
+            "FRAME_EMITOR"
+        );
+        assert_eq!(
+            driver_frame_type_string(&mut scratch, 0x99),
+            "Unknown type:0x99"
+        );
+        assert_eq!(
+            driver_frame_type_string(&mut scratch, u32::MAX),
+            "Unknown type:0xffffffff"
+        );
+        let owned = driver_frame_type_string(&mut scratch, 0x99).to_owned();
+        assert_eq!(
+            frame_type_string(&mut scratch, 0xaa),
+            "Unknown type:0xaa",
+            "trampoline and free function share the frame bank"
         );
         assert_eq!(owned, "Unknown type:0x99");
     }

@@ -669,6 +669,32 @@ pub fn frame_flags_after_set_callback(flags: u32, has_callback: bool, input: u32
         flags & !masked
     }
 }
+/// Working name for the flag word written by `I3D_frame::SetOn`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:238-244 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1b400, which is already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Setting `on` stores bit0 (FRMFLAGS_ON); clearing it restores the word
+/// without touching any other bit. The kind dispatch and owner updates
+/// stay caller-owned; only the flag word is modeled.
+pub fn frame_flags_after_set_on(flags: u32, on: bool) -> u32 {
+    if on {
+        flags | 1
+    } else {
+        flags & !1
+    }
+}
+/// Working name for the in-class empty base `I3D_frame::Tick`
+/// (mafia-re ls3df/I3D/I3D.h:350 at pin 113b5b6: `Tick(int time) {}`).
+/// The reference records no LS3DF FUNCTION address for it: every kind with
+/// tick work overrides it (scene, model, joint, target), and the base body
+/// is empty. The time argument is ignored and no state moves.
+pub fn frame_tick_noop(_time: i32) {}
+/// Working name for the in-class empty base `I3D_frame::SaveImage`
+/// (mafia-re ls3df/I3D/I3D.h:367 at pin 113b5b6: `SaveImage() {}`).
+/// The reference records no LS3DF FUNCTION address for it: only kinds with
+/// image payloads override it (area, sector, light, sound, portal and the
+/// visuals), and the base body is empty. No state moves.
+pub fn frame_save_image_noop() {}
 /// Working name for the `TICK|SHADOW|TARGET` preservation of
 /// `I3D_frame::Duplicate` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:807-809
 /// at pin 113b5b6). The reference records the body at PC RVA 0x1c5b0,
@@ -5749,6 +5775,22 @@ mod tests {
         assert_eq!(frame_flags_after_set_callback(0, true, 0x8), 0);
         assert_eq!(frame_flags_after_set_callback(0xffff, false, 0x8), 0xffff);
         assert_eq!(frame_flags_after_set_callback(0, true, u32::MAX), 0x1e00);
+    }
+    #[test]
+    fn frame_set_on_stores_bit_zero_and_empty_bases_move_nothing() {
+        // Working names for SetOn (I3d_frame.cpp:238-244, RVA 0x1b400) and
+        // the empty bases Tick (I3D.h:350) and SaveImage (I3D.h:367): the
+        // RVA is occupied and not claimed; the bases have no LS3DF address.
+        assert_eq!(frame_flags_after_set_on(0, true), 1);
+        assert_eq!(frame_flags_after_set_on(0xfffffffe, true), u32::MAX);
+        assert_eq!(frame_flags_after_set_on(1, true), 1);
+        assert_eq!(frame_flags_after_set_on(1, false), 0);
+        assert_eq!(frame_flags_after_set_on(u32::MAX, false), u32::MAX & !1);
+        assert_eq!(frame_flags_after_set_on(0x4000_0000, false), 0x4000_0000);
+        frame_tick_noop(0);
+        frame_tick_noop(-1);
+        frame_tick_noop(i32::MAX);
+        frame_save_image_noop();
     }
     #[test]
     fn frame_duplicate_and_hierarchy_bits_match_native_words() {

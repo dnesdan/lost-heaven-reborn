@@ -15169,6 +15169,15 @@
       "symbol": "lhr_engine::vehicle_small_accessors::car_is_seat_left_unsupported",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19a10",
+      "va": "0x10019a10",
+      "name": "I3D_driver::FrameType2String",
+      "symbol": "lhr_engine::driver_strings::driver_frame_type_string",
+      "tier": "contract",
+      "evidence": "Trampoline forward to FrameType2StringFunc (LS3DF 0x10019a10, I3d_driver.cpp:1559-1563). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

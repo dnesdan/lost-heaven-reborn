@@ -481,6 +481,16 @@ impl ModelArena {
     pub fn light_cone_of(&self, key: FrameKey) -> Result<[f32; 2], ModelError> {
         Ok(self.light(key)?.cone)
     }
+    /// Working name for the `C_list` sector count on `I3D_light`
+    /// (mafia-re ls3df/I3D/I3D.h:1928 `sectors` at +0x140, the sectors the
+    /// light reaches). The reference records no LS3DF FUNCTION address for
+    /// a count reader; the list is mutated in place by the occupied
+    /// `AddLight`/`DeleteLight` bodies (PC RVAs 0x4f3d0/0x4f550), not
+    /// claimed here. Reports how many sectors currently reference the
+    /// light; same availability guard as `light`.
+    pub fn light_sector_count(&self, key: FrameKey) -> Result<usize, ModelError> {
+        Ok(self.light(key)?.sectors.len())
+    }
     /// Upstream working name, not an evidenced original symbol: direct read
     /// of the frame on-flag word the occupied `SetOn` setter (PC RVA 0x21400;
     /// mafia-re ls3df/I3D/frames/I3d_light.cpp:241-253 at pin 113b5b6) tests
@@ -627,6 +637,15 @@ mod tests {
         assert_eq!(arena.state(key).unwrap().update_count, count);
         // Unsupported light kinds stay explicit when runtime Update is requested.
         assert!(arena.graph.update(key).is_err());
+    }
+    #[test]
+    fn light_sector_count_reports_live_list_length() {
+        // Working name for the light-side `sectors` list (I3D.h:1928): no
+        // LS3DF FUNCTION address exists for a count reader.
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_sector_count(key).unwrap(), 0);
+        assert!(arena.light_sector_count(FrameKey(u32::MAX)).is_err());
     }
     #[test]
     fn light_on_reader_reports_flag_word_then_setter_store() {

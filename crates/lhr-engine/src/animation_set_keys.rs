@@ -149,6 +149,22 @@ impl AnimationSetOwner {
     pub fn anims(&self) -> Option<&[FrameAnim]> {
         self.data.as_ref().map(|d| d.anims.as_slice())
     }
+    /// Working name for the LS3DF-inlined `I3D_animation_set::SetOptions`
+    /// (mafia-re ls3df/I3D/I3D.h:5049-5052 at pin 113b5b6: `options = o`).
+    /// The reference records no LS3DF FUNCTION address for it: the only
+    /// out-of-line copy is Game.exe 0x47ad30, which is not claimed here.
+    /// Stores the option word verbatim; no validation or side effect.
+    pub fn set_options(&mut self, options: u32) {
+        self.options = options;
+    }
+    /// Working name for the direct `options` member read on
+    /// `I3D_animation_set` (mafia-re ls3df/I3D/I3D.h `uint options`, written
+    /// by the constructor and `SetOptions`). Same inline-only status as
+    /// `set_options`: no LS3DF FUNCTION address exists and none is
+    /// claimed. Reports the stored option word verbatim.
+    pub fn options_of(&self) -> u32 {
+        self.options
+    }
 }
 
 impl Default for AnimationSetOwner {
@@ -675,6 +691,21 @@ mod tests {
         assert!(o.data.is_none() && o.num_animations() == 0);
         assert_eq!(o.end_time_ms(), 0);
         assert!(o.anims().is_none());
+    }
+    #[test]
+    fn options_setter_stores_and_reader_reports_verbatim() {
+        // Working names for the inlined SetOptions (I3D.h:5049-5052) and
+        // the direct `options` member read: no LS3DF FUNCTION addresses
+        // exist, so none are claimed. The store is unconditional and the
+        // read reports the stored word, including the constructor default.
+        let mut o = AnimationSetOwner::new();
+        assert_eq!(o.options_of(), ANIM_ONCE);
+        o.set_options(0);
+        assert_eq!(o.options_of(), 0);
+        o.set_options(u32::MAX);
+        assert_eq!(o.options_of(), u32::MAX);
+        o.set_options(ANIM_ONCE);
+        assert_eq!(o.options_of(), ANIM_ONCE);
     }
     #[test]
     fn release_orders_and_residue() {
