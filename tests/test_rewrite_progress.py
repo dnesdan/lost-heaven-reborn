@@ -416,7 +416,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +12 Tshift/ctor/shadow-sound contracts (TshiftElem/Store/tick/
         # clearCarSeats/GameCtor/add-remove-temporary/NewShoot/NewExplosion/
         # Stop3DSound/Add-DelFrameForShadow STUBs; 2 working-name uncredited).
-        self.assertEqual(game["ported"], 149 + 771)
+        # +15 human anim STUB contracts (ShiftAnimation/ChangeState/DynColls x3/
+        # PoseSetPose x2/ChangeWeaponModel/DropOutItems/Zasrate x2/ForceDeath/
+        # ThrowMeFromCar/Activate/Deactivate; all STUBs).
+        self.assertEqual(game["ported"], 149 + 786)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

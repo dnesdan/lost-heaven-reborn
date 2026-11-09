@@ -3921,7 +3921,170 @@ impl HumanState {
             BoxDropNext::StageSceneDrop
         }
     }
+    /// GAME 0x5747d0 (RVA 0x1747d0, VA 0x5747d0) C_human::ShiftAnimation
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:3033): the body looks the current animation up
+    /// in the global table, creates its set through the animation cache, and
+    /// ticks the animation machine and the frame at each matching notify key.
+    /// The animation-cache, table and frame owners do not exist here, so no
+    /// state is touched and no owner is filed; the stub exists only to pin
+    /// the address while those owners stay DEFERRED.
+    pub fn shift_animation_unsupported(_note: i32) {}
+    /// GAME 0x5748f0 (RVA 0x1748f0, VA 0x5748f0) C_human::ChangeState
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:3085): the body switches on the actor state and
+    /// drives collision sets, using-object filing, shadow frames and dead-body
+    /// pickup records. The collision, mission, shadow and frame owners do not
+    /// exist here, so no state is touched and no owner is filed; the stub
+    /// exists only to pin the address while those owners stay DEFERRED.
+    pub fn change_state_unsupported() {}
+    /// GAME 0x575ca0 (RVA 0x175ca0, VA 0x575ca0) C_human::CreateDynColls
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:3561): the body allocates the two dynamic
+    /// collision objects and links them to the model's frames. The
+    /// frame/collision owners do not exist here, so no state is touched and
+    /// no owner is filed; the stub exists only to pin the address while those
+    /// owners stay DEFERRED.
+    pub fn create_dyn_colls_unsupported() {}
+    /// GAME 0x575ed0 (RVA 0x175ed0, VA 0x575ed0) C_human::EraseDynColls
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:3598): the body erases the dynamic collision
+    /// objects through the global collision owner and frees them. The
+    /// collision owner does not exist here, so no state is touched and no
+    /// owner is filed; the stub exists only to pin the address while that
+    /// owner stays DEFERRED.
+    pub fn erase_dyn_colls_unsupported() {}
+    /// GAME 0x576040 (RVA 0x176040, VA 0x576040) C_human::UpdateDynColl
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:3667): the body re-poses the dynamic collision
+    /// spheres from the model's frames while they are active. The
+    /// frame/collision owners do not exist here, so no state is touched and
+    /// no owner is filed; the stub exists only to pin the address while those
+    /// owners stay DEFERRED.
+    pub fn update_dyn_coll_unsupported() {}
+    /// GAME 0x579630 (RVA 0x179630, VA 0x579630) C_human::PoseSetPoseNormal
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:4626): the verdict needs the neck child frame,
+    /// the world-direction math and the base frame (pose flag/latch writes).
+    /// The frame owner does not exist here, so no verdict is produced and no
+    /// owner is filed; the stub exists only to pin the address while that
+    /// owner stays DEFERRED. The native `bool` answer is preserved in the
+    /// return type.
+    pub fn pose_set_pose_normal_unsupported() -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: POSE_SET_POSE_NORMAL_ENTRY,
+        })
+    }
+    /// GAME 0x579ea0 (RVA 0x179ea0, VA 0x579ea0) C_human::PoseSetPoseAimed
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:4667): same frame/matrix boundary as
+    /// PoseSetPoseNormal with the narrower aimed cone (PI/3). The frame owner
+    /// does not exist here, so no verdict is produced and no owner is filed;
+    /// the stub exists only to pin the address while that owner stays
+    /// DEFERRED. The native `bool` answer is preserved in the return type.
+    pub fn pose_set_pose_aimed_unsupported() -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: POSE_SET_POSE_AIMED_ENTRY,
+        })
+    }
+    /// GAME 0x57ec20 (RVA 0x17ec20, VA 0x57ec20) C_human::ChangeWeaponModel
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:5773): the body resets the weapon-effect words
+    /// and rebuilds the hand weapon models through the model owner. The
+    /// model/animation owners do not exist here, so no state is touched and
+    /// no owner is filed; the stub exists only to pin the address while those
+    /// owners stay DEFERRED.
+    pub fn change_weapon_model_unsupported() {}
+    /// GAME 0x57faa0 (RVA 0x17faa0, VA 0x57faa0) C_human::DropOutItems
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6146): the entry gate (both hand frames present
+    /// plus a non-empty staged list, see `drop_out_items_gate`) is pure, but
+    /// the drop program creates model frames, opens them through the model
+    /// cache and files physical weapon actors through the mission/scene
+    /// owners. Those owners do not exist here, so no verdict is produced and
+    /// no owner is filed; the stub exists only to pin the address while they
+    /// stay DEFERRED. The native `bool` answer is preserved in the return
+    /// type.
+    pub fn drop_out_items_unsupported() -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: DROP_OUT_ITEMS_ENTRY,
+        })
+    }
+    /// GAME 0x580ca0 (RVA 0x180ca0, VA 0x580ca0)
+    /// C_human::ZasrateLezeniZAuta_ve2rano EXPLICIT UNSUPPORTED STUB (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:6427; the name is the upstream working
+    /// name for the wreck-climb exit, NOT original): the verdict runs the
+    /// seat-side matrix exit, the ground/room collision probes and the
+    /// car/scene handoff (owner clear, shadow, indicators, camera, inventory
+    /// drop, weapon remodel, climb animation). The car, collision, scene and
+    /// animation owners do not exist here, so no verdict is produced and no
+    /// owner is filed; the stub exists only to pin the address while those
+    /// owners stay DEFERRED. The native `bool` answer is preserved in the
+    /// return type.
+    pub fn zasrate_lezeni_ve2rano_unsupported() -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: ZASRATE_LEZENI_VE2RANO_ENTRY,
+        })
+    }
+    /// GAME 0x581220 (RVA 0x181220, VA 0x581220)
+    /// C_human::ZasrateVybliknutiZAuta_ve3rano EXPLICIT UNSUPPORTED STUB
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:6519; the name is the
+    /// upstream working name for the wreck-throw exit, NOT original): the body
+    /// places the human beside the car's front AI point through the car
+    /// matrix and runs the same car/scene handoff as the Lezeni exit. The
+    /// car, collision, scene and animation owners do not exist here, so no
+    /// state is touched and no owner is filed; the stub exists only to pin
+    /// the address while those owners stay DEFERRED.
+    pub fn zasrate_vybliknuti_ve3rano_unsupported() {}
+    /// GAME 0x5878d0 (RVA 0x1878d0, VA 0x5878d0) C_human::_intern_ForceDeath
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:8061): the body picks a random death animation
+    /// through the animation cache, stops and replays the model channels, and
+    /// then writes the energy/alive/disabled words. The animation-cache and
+    /// model owners do not exist here, so no state is touched (not even the
+    /// trailing words, which the cache run owns) and no owner is filed; the
+    /// stub exists only to pin the address while those owners stay DEFERRED.
+    pub fn intern_force_death_unsupported() {}
+    /// GAME 0x588b40 (RVA 0x188b40, VA 0x588b40)
+    /// C_human::_intern_ThrowMeFromCar EXPLICIT UNSUPPORTED STUB (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:8374): the body reads the seat
+    /// properties through the car, clears the driver seat and re-links the
+    /// frame through the car matrix. The car, seat-property and frame owners
+    /// do not exist here, so no state is touched and no owner is filed; the
+    /// stub exists only to pin the address while those owners stay DEFERRED.
+    pub fn intern_throw_me_from_car_unsupported() {}
+    /// GAME 0x58ac90 (RVA 0x18ac90, VA 0x58ac90) C_human::Activate EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:9043): the
+    /// body re-arms the human (alive/render/act-state words) through the
+    /// frame SetOn and the animation-machine Init plus the property-bank
+    /// copy. The frame and animation-machine owners do not exist here, so no
+    /// state is touched and no owner is filed; the stub exists only to pin
+    /// the address while those owners stay DEFERRED.
+    pub fn activate_unsupported() {}
+    /// GAME 0x58b330 (RVA 0x18b330, VA 0x58b330) C_human::Deactivate EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:9177): the
+    /// body unlinks the using objects and the shadow through the mission,
+    /// restores the pre-cutscene model and releases the animation machine.
+    /// The mission, model and animation owners do not exist here, so no state
+    /// is touched and no owner is filed; the stub exists only to pin the
+    /// address while those owners stay DEFERRED.
+    pub fn deactivate_unsupported() {}
 }
+
+/// Small-probe boundary for the bool-returning C_human leaves pinned above.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HumanSmallProbeError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_human::PoseSetPoseNormal` entry, GAME VA 0x579630.
+pub const POSE_SET_POSE_NORMAL_ENTRY: u32 = 0x579630;
+/// `C_human::PoseSetPoseAimed` entry, GAME VA 0x579ea0.
+pub const POSE_SET_POSE_AIMED_ENTRY: u32 = 0x579ea0;
+/// `C_human::DropOutItems` entry, GAME VA 0x57faa0.
+pub const DROP_OUT_ITEMS_ENTRY: u32 = 0x57faa0;
+/// `C_human::ZasrateLezeniZAuta_ve2rano` entry, GAME VA 0x580ca0.
+pub const ZASRATE_LEZENI_VE2RANO_ENTRY: u32 = 0x580ca0;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HumanDataError {
@@ -5938,6 +6101,132 @@ mod human_state_flags_tests {
     fn pose_interpolate_rva_178ee0_stub_runs_without_state() {
         HumanState::pose_interpolate_unsupported(0);
         HumanState::pose_interpolate_unsupported(1000);
+    }
+    #[test]
+    // GAME 0x5747d0 (RVA 0x1747d0) C_human::ShiftAnimation (mafia-re 113b5b6
+    // game/actors/C_human.cpp:3033): explicit unsupported stub, animation
+    // cache/table/frame owners; invoking it touches no staged words.
+    fn rva_1747d0_shift_animation_stub_runs_without_state() {
+        HumanState::shift_animation_unsupported(0);
+        HumanState::shift_animation_unsupported(1);
+    }
+    #[test]
+    // GAME 0x5748f0 (RVA 0x1748f0) C_human::ChangeState (mafia-re 113b5b6
+    // game/actors/C_human.cpp:3085): explicit unsupported stub, collision/
+    // mission/shadow/frame owners; invoking it touches no staged words.
+    fn rva_1748f0_change_state_stub_runs_without_state() {
+        HumanState::change_state_unsupported();
+    }
+    #[test]
+    // GAME 0x575ca0 (RVA 0x175ca0) C_human::CreateDynColls (mafia-re 113b5b6
+    // game/actors/C_human.cpp:3561): explicit unsupported stub, frame/
+    // collision owners; invoking it files no owner.
+    fn rva_175ca0_create_dyn_colls_stub_runs_without_state() {
+        HumanState::create_dyn_colls_unsupported();
+    }
+    #[test]
+    // GAME 0x575ed0 (RVA 0x175ed0) C_human::EraseDynColls (mafia-re 113b5b6
+    // game/actors/C_human.cpp:3598): explicit unsupported stub, collision
+    // owner; invoking it touches no staged words.
+    fn rva_175ed0_erase_dyn_colls_stub_runs_without_state() {
+        HumanState::erase_dyn_colls_unsupported();
+    }
+    #[test]
+    // GAME 0x576040 (RVA 0x176040) C_human::UpdateDynColl (mafia-re 113b5b6
+    // game/actors/C_human.cpp:3667): explicit unsupported stub, frame/
+    // collision owners; invoking it touches no staged words.
+    fn rva_176040_update_dyn_coll_stub_runs_without_state() {
+        HumanState::update_dyn_coll_unsupported();
+    }
+    #[test]
+    // GAME 0x579630 (RVA 0x179630) C_human::PoseSetPoseNormal (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:4626): explicit unsupported stub, frame
+    // owner; the native bool verdict is preserved as Err.
+    fn rva_179630_pose_set_pose_normal_reports_unsupported() {
+        assert_eq!(POSE_SET_POSE_NORMAL_ENTRY, 0x579630);
+        assert_eq!(
+            HumanState::pose_set_pose_normal_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x579630 })
+        );
+    }
+    #[test]
+    // GAME 0x579ea0 (RVA 0x179ea0) C_human::PoseSetPoseAimed (mafia-re 113b5b6
+    // game/actors/C_human.cpp:4667): explicit unsupported stub, frame owner;
+    // the native bool verdict is preserved as Err.
+    fn rva_179ea0_pose_set_pose_aimed_reports_unsupported() {
+        assert_eq!(POSE_SET_POSE_AIMED_ENTRY, 0x579ea0);
+        assert_eq!(
+            HumanState::pose_set_pose_aimed_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x579ea0 })
+        );
+    }
+    #[test]
+    // GAME 0x57ec20 (RVA 0x17ec20) C_human::ChangeWeaponModel (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:5773): explicit unsupported stub,
+    // model/animation owners; invoking it touches no staged words.
+    fn rva_17ec20_change_weapon_model_stub_runs_without_state() {
+        HumanState::change_weapon_model_unsupported();
+    }
+    #[test]
+    // GAME 0x57faa0 (RVA 0x17faa0) C_human::DropOutItems (mafia-re 113b5b6
+    // game/actors/C_human.cpp:6146): explicit unsupported stub, model-cache/
+    // driver/scene owners past the pure `drop_out_items_gate`; the native
+    // bool verdict is preserved as Err.
+    fn rva_17faa0_drop_out_items_reports_unsupported() {
+        assert_eq!(DROP_OUT_ITEMS_ENTRY, 0x57faa0);
+        assert!(drop_out_items_gate(true, true, 1));
+        assert_eq!(
+            HumanState::drop_out_items_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x57faa0 })
+        );
+    }
+    #[test]
+    // GAME 0x580ca0 (RVA 0x180ca0) C_human::ZasrateLezeniZAuta_ve2rano
+    // (mafia-re 113b5b6 game/actors/C_human.cpp:6427): explicit unsupported
+    // stub, car/collision/scene/animation owners; the native bool verdict is
+    // preserved as Err.
+    fn rva_180ca0_zasrate_lezeni_reports_unsupported() {
+        assert_eq!(ZASRATE_LEZENI_VE2RANO_ENTRY, 0x580ca0);
+        assert_eq!(
+            HumanState::zasrate_lezeni_ve2rano_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x580ca0 })
+        );
+    }
+    #[test]
+    // GAME 0x581220 (RVA 0x181220) C_human::ZasrateVybliknutiZAuta_ve3rano
+    // (mafia-re 113b5b6 game/actors/C_human.cpp:6519): explicit unsupported
+    // stub, car/collision/scene/animation owners; invoking it touches no
+    // staged words.
+    fn rva_181220_zasrate_vybliknuti_stub_runs_without_state() {
+        HumanState::zasrate_vybliknuti_ve3rano_unsupported();
+    }
+    #[test]
+    // GAME 0x5878d0 (RVA 0x1878d0) C_human::_intern_ForceDeath (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:8061): explicit unsupported stub,
+    // animation-cache/model owners; invoking it touches no staged words.
+    fn rva_1878d0_intern_force_death_stub_runs_without_state() {
+        HumanState::intern_force_death_unsupported();
+    }
+    #[test]
+    // GAME 0x588b40 (RVA 0x188b40) C_human::_intern_ThrowMeFromCar (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:8374): explicit unsupported stub, car/
+    // seat-property/frame owners; invoking it touches no staged words.
+    fn rva_188b40_intern_throw_me_from_car_stub_runs_without_state() {
+        HumanState::intern_throw_me_from_car_unsupported();
+    }
+    #[test]
+    // GAME 0x58ac90 (RVA 0x18ac90) C_human::Activate (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9043): explicit unsupported stub, frame/
+    // animation-machine owners; invoking it touches no staged words.
+    fn rva_18ac90_activate_stub_runs_without_state() {
+        HumanState::activate_unsupported();
+    }
+    #[test]
+    // GAME 0x58b330 (RVA 0x18b330) C_human::Deactivate (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9177): explicit unsupported stub, mission/model/
+    // animation owners; invoking it touches no staged words.
+    fn rva_18b330_deactivate_stub_runs_without_state() {
+        HumanState::deactivate_unsupported();
     }
     #[test]
     // GAME 0x58d270 (RVA 0x18d270) C_human::BezZasobnikuWeaponEffect (mafia-re

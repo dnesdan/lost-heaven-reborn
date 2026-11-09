@@ -15286,6 +15286,141 @@
       "symbol": "lhr_engine::game_housekeeping::del_frame_for_shadow",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x5ad7c0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1747d0",
+      "va": "0x5747d0",
+      "name": "C_human::ShiftAnimation",
+      "symbol": "lhr_engine::human_actor::HumanState::shift_animation_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1748f0",
+      "va": "0x5748f0",
+      "name": "C_human::ChangeState",
+      "symbol": "lhr_engine::human_actor::HumanState::change_state_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x175ca0",
+      "va": "0x575ca0",
+      "name": "C_human::CreateDynColls",
+      "symbol": "lhr_engine::human_actor::HumanState::create_dyn_colls_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x175ed0",
+      "va": "0x575ed0",
+      "name": "C_human::EraseDynColls",
+      "symbol": "lhr_engine::human_actor::HumanState::erase_dyn_colls_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x176040",
+      "va": "0x576040",
+      "name": "C_human::UpdateDynColl",
+      "symbol": "lhr_engine::human_actor::HumanState::update_dyn_coll_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x179630",
+      "va": "0x579630",
+      "name": "C_human::PoseSetPoseNormal",
+      "symbol": "lhr_engine::human_actor::HumanState::pose_set_pose_normal_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x179ea0",
+      "va": "0x579ea0",
+      "name": "C_human::PoseSetPoseAimed",
+      "symbol": "lhr_engine::human_actor::HumanState::pose_set_pose_aimed_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17ec20",
+      "va": "0x57ec20",
+      "name": "C_human::ChangeWeaponModel",
+      "symbol": "lhr_engine::human_actor::HumanState::change_weapon_model_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17faa0",
+      "va": "0x57faa0",
+      "name": "C_human::DropOutItems",
+      "symbol": "lhr_engine::human_actor::HumanState::drop_out_items_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x180ca0",
+      "va": "0x580ca0",
+      "name": "C_human::ZasrateLezeniZAuta_ve2rano",
+      "symbol": "lhr_engine::human_actor::HumanState::zasrate_lezeni_ve2rano_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x181220",
+      "va": "0x581220",
+      "name": "C_human::ZasrateVybliknutiZAuta_ve3rano",
+      "symbol": "lhr_engine::human_actor::HumanState::zasrate_vybliknuti_ve3rano_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1878d0",
+      "va": "0x5878d0",
+      "name": "C_human::_intern_ForceDeath",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_force_death_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x188b40",
+      "va": "0x588b40",
+      "name": "C_human::_intern_ThrowMeFromCar",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_throw_me_from_car_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18ac90",
+      "va": "0x58ac90",
+      "name": "C_human::Activate",
+      "symbol": "lhr_engine::human_actor::HumanState::activate_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18b330",
+      "va": "0x58b330",
+      "name": "C_human::Deactivate",
+      "symbol": "lhr_engine::human_actor::HumanState::deactivate_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
