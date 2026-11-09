@@ -2,10 +2,10 @@
 use super::*;
 #[path = "mission_init_presentation_tests.rs"]
 mod init_presentation;
-#[path = "session_program_runtime_tests.rs"]
-mod owned_runtime;
 #[path = "session_actor_program_tests.rs"]
 mod owned_actor_runtime;
+#[path = "session_program_runtime_tests.rs"]
+mod owned_runtime;
 #[path = "mission_program_disposal_tests.rs"]
 mod program_disposal;
 #[path = "mission_load_session_program_tests.rs"]

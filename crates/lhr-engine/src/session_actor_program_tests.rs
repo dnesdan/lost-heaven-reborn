@@ -65,6 +65,7 @@ fn program(session: &MissionLoadSession, kind: ActorProgramKind) -> &CProgram {
 struct Diagnostic {
     calls: usize,
     panic_payload: Option<Arc<u32>>,
+    expected_precision: Option<bool>,
 }
 impl MissionProgramDiagnostic for Diagnostic {
     fn message_beep(
@@ -77,7 +78,10 @@ impl MissionProgramDiagnostic for Diagnostic {
         _: i32,
     ) -> Result<(), LookupError> {
         self.calls += 1;
-        assert_eq!(crate::native_precision::current_precision(), Some(false));
+        assert_eq!(
+            crate::native_precision::current_precision(),
+            self.expected_precision
+        );
         world.set_actor_dead(owner.unwrap(), true).unwrap();
         *fields.command_time = 321;
         if let Some(payload) = &self.panic_payload {
@@ -323,7 +327,13 @@ fn session_actor_unwind_retains_game_prefix_program_and_precision_owner() {
             ActorProgramKind::Detector => fixture(None, Some(source)),
         };
         let mut session = fixture.session();
+        assert!(!session.precision_state().precision_raised());
         load(&mut session, &[]).unwrap();
+        // The actual camera load computes an inexact PC24 aspect (800/600)
+        // under this same session owner. Dispatch must retain that reached
+        // sticky precision, rather than start from the fixture's initial false.
+        let precision = session.precision_state();
+        assert!(precision.precision_raised());
         session.game_inline.set_anim_preload(true);
         let actor = actor(&session, kind);
         let frame = session
@@ -345,8 +355,10 @@ fn session_actor_unwind_retains_game_prefix_program_and_precision_owner() {
         let mut diagnostic = Diagnostic {
             calls: 0,
             panic_payload: Some(payload.clone()),
+            expected_precision: Some(precision.precision_raised()),
         };
         initialize(&mut session, kind, &mut diagnostic).unwrap();
+        assert_eq!(session.precision_state(), precision);
         let instructions = program(&session, kind)
             .runtime()
             .unwrap()
@@ -366,7 +378,7 @@ fn session_actor_unwind_retains_game_prefix_program_and_precision_owner() {
         .unwrap();
         assert!(Arc::ptr_eq(&caught, &payload));
         assert_eq!(crate::native_precision::current_precision(), None);
-        assert!(!session.precision_state().precision_raised());
+        assert_eq!(session.precision_state(), precision);
         assert!(session.game_state().night_mission());
         assert!(session.game_state().anim_preload());
         let program = program(&session, kind);

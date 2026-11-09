@@ -1658,8 +1658,28 @@ fn tick_detector_programs_steps_owned_live_state_through_context() {
     assert!(world.detector(detector).unwrap().program().is_some());
     assert!(world.detector(waiter).unwrap().program().is_some());
     drop(context);
-    // Without the waiter the storage detector ticks cleanly and accumulates
-    // across takes: each pass takes the program out and returns it.
+    // Retire only the failed waiter through its actual owners. Replacing its
+    // program with None would leave a detached Ready actor, which now refuses
+    // dispatch rather than being a successful skip.
+    let mut wait_program = world.take_detector_program(waiter).unwrap().unwrap();
+    assert_eq!(
+        wait_program.runtime().unwrap().stage,
+        RuntimeStage::ProcessInterrupted
+    );
+    wait_program.discard_runtime_host().unwrap();
+    world
+        .return_detector_program(waiter, Some(wait_program))
+        .unwrap();
+    world
+        .destroy_detector(
+            waiter,
+            &mut crate::actor_frames::ModelActorFrames::borrow(&mut arena, true),
+            &mut heap,
+        )
+        .unwrap();
+    assert_eq!(world.inspect(waiter).unwrap().0, ActorPhase::Dead);
+    // With the waiter retired, the same storage detector ticks cleanly and
+    // accumulates time across calls without resetting its runtime.
     let mut effects = Effects::default();
     let mut diagnostic = Diagnostic::default();
     let mut context = MissionProgramWorldContext::new(
@@ -1669,9 +1689,6 @@ fn tick_detector_programs_steps_owned_live_state_through_context() {
         &mut diagnostic,
         locales(),
     );
-    world
-        .return_detector_program(waiter, None)
-        .unwrap();
     assert_eq!(
         context.tick_detector_programs(&mut world, 4, &mut budget),
         Ok(1)
