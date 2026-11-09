@@ -6896,8 +6896,8 @@
       "va": "0x1007d160",
       "name": "ISND_sound::SetVolume (working name)",
       "symbol": "lhr_engine::runtime_audio::isound_sound_set_volume",
-      "tier": "contract",
-      "evidence": "mafia-re ab67b13 ls3df/ISound/IS_sound.cpp:399; tier contract (wave policy: no Ghidra body observed; CPU logic behind backend traits + pinning test isound_sound_set_volume_db_pins)"
+      "tier": "differential",
+      "evidence": "REA ev_45ba46173d + complete walk all branches (guard exits 0x80000005; log-scale FYL2X + clamp + vcall + RET 8); pin tests set_volume 3 / set_volume_db 1 pass"
     },
     {
       "binary": "LS3DF.dll",
