@@ -356,6 +356,31 @@ impl PoliceGameInitState {
         self.records_timer
     }
 
+    /// Working name (no separate native entry): reads the owned do_rici
+    /// period timer (`S_timer` at +0x14, mafia-re game/ai/C_shvestky.h:144).
+    /// The native timer fires `TickDoRiciActors` inline in `Tick` 0x49a300
+    /// with no dedicated getter, so no RVA is claimed.
+    pub fn do_rici_timer(&self) -> PoliceTimer {
+        self.do_rici_timer
+    }
+
+    /// Working name (no separate native entry): reads the owned red-light
+    /// period timer (`S_timer` at +0x1c, mafia-re game/ai/C_shvestky.h:145).
+    /// The native timer gates `TestOverRed` inline in `Tick` 0x49a300 with no
+    /// dedicated getter, so no RVA is claimed.
+    pub fn red_light_timer(&self) -> PoliceTimer {
+        self.red_light_timer
+    }
+
+    /// Working name (no separate native entry): reads the owned +0x24 period
+    /// timer (`S_timer` at +0x24, mafia-re game/ai/C_shvestky.h:146, purpose
+    /// not documented). The native timer is reset by `GameInit` 0x499cd0 and
+    /// read inline with no dedicated getter, so no RVA is claimed and no
+    /// gameplay meaning is attached.
+    pub fn unknown_24_timer(&self) -> PoliceTimer {
+        self.unknown_24
+    }
+
     pub fn speed_limit_bits(&self) -> u32 {
         self.speed_limit
     }
@@ -410,6 +435,58 @@ impl PoliceGameInitState {
 
     pub fn unknown_39(&self) -> bool {
         self.unknown_39
+    }
+
+    /// Working name (no separate native entry): reads the owned +0x2c word
+    /// (mafia-re game/ai/C_shvestky.h:147). `GameInit` 0x499cd0 clears it;
+    /// no dedicated native getter exists, so no RVA is claimed and no
+    /// gameplay meaning is attached.
+    pub fn unknown_2c(&self) -> u32 {
+        self.unknown_2c
+    }
+
+    /// Working name (no separate native entry): reads the owned +0x30 word
+    /// (mafia-re game/ai/C_shvestky.h:148). `GameInit` 0x499cd0 clears it;
+    /// no dedicated native getter exists, so no RVA is claimed and no
+    /// gameplay meaning is attached.
+    pub fn unknown_30(&self) -> u32 {
+        self.unknown_30
+    }
+
+    /// Working name (no separate native entry): counts the `free` marks of
+    /// `road_block_cars` (`S_road_block_car`, actor plus `free` at +0x4,
+    /// mafia-re game/ai/C_shvestky.h:120-124). No PC outline is evidenced
+    /// for the car count (unlike the enemy count at 0x49e530), so no RVA is
+    /// claimed; the count is read inline by the road-block setup.
+    pub fn count_free_road_block_cars(&self) -> u32 {
+        self.road_block_cars
+            .iter()
+            .filter(|entry| entry.free)
+            .count() as u32
+    }
+
+    /// Working name (no separate native entry): counts the `free` marks of
+    /// `road_block_irises` (`S_road_block_iris`, actor plus `free` at +0x4,
+    /// mafia-re game/ai/C_shvestky.h:125-129). No PC outline is evidenced
+    /// for the iris count, so no RVA is claimed.
+    pub fn count_free_road_block_irises(&self) -> u32 {
+        self.road_block_irises
+            .iter()
+            .filter(|entry| entry.free)
+            .count() as u32
+    }
+
+    /// Working name (no separate native entry): checks out the last free
+    /// road-block car (`S_road_block_car`, mafia-re
+    /// game/ai/C_shvestky.h:120-124), marking it used and returning its car
+    /// (`None` when none is free). No PC outline is evidenced for the car
+    /// checkout (unlike the iris checkout at 0x49e560), so no RVA is
+    /// claimed; the shape follows the iris outline and the PS2
+    /// `GetTempCar`/`FreeTempCar` family.
+    pub fn take_free_road_block_car(&mut self) -> Option<PoliceActorId> {
+        let index = self.road_block_cars.iter().rposition(|entry| entry.free)?;
+        self.road_block_cars[index].free = false;
+        Some(self.road_block_cars[index].car)
     }
 
     /// Original `C_shvestky::SetActive` 0x49b860 registry prefix: when the
@@ -957,6 +1034,21 @@ pub const SHVF_SIGNAL_MARK: u32 = 0x1000;
 /// `SHVF_HIT_POLICEMAN` 0x2000: `DalJsemPochuzkariDoDrzky`'s bit (the human
 /// punched a patrolman; `SHVSTATE_KILL`, mafia-re game/ai/C_shvestky.h:27).
 pub const SHVF_HIT_POLICEMAN: u32 = 0x2000;
+/// `SHVF_WEAPON` 0x1: an item of 5 to 15 in the right hand, on foot or in a
+/// car (mafia-re game/ai/C_shvestky.h:16, 46-52).
+pub const SHVF_WEAPON: u32 = 0x1;
+/// `SHVF_SPEEDING` 0x4: the car faster than `C_shvestky::speed_limit`
+/// (mafia-re game/ai/C_shvestky.h:18).
+pub const SHVF_SPEEDING: u32 = 0x4;
+/// `SHVF_CRASH` 0x38: `CarCollision`'s three bits, cleared once
+/// `collision_time` runs out (mafia-re game/ai/C_shvestky.h:19-20).
+pub const SHVF_CRASH: u32 = 0x38;
+/// `SHVF_RED_LIGHT` 0x400: `TestOverRed`'s bit, cleared once `signal_time`
+/// runs out (mafia-re game/ai/C_shvestky.h:23).
+pub const SHVF_RED_LIGHT: u32 = 0x400;
+/// `SHVF_RAM_POLICE_CAR` 0x8000: `StrcilJsemHoPoldumDoVyfuku`'s bit (a
+/// police car rammed; mafia-re game/ai/C_shvestky.h:29-30).
+pub const SHVF_RAM_POLICE_CAR: u32 = 0x8000;
 /// `SHVF2_CRASH` 0x38: `flags2` crash bits, cleared once `crash_time` runs
 /// out (mafia-re game/ai/C_shvestky.h:30-32).
 pub const SHVF2_CRASH: u32 = 0x38;
@@ -1631,6 +1723,58 @@ impl PolicePursuitRecord {
     /// unresolved (stub body, no word evidence) and stays deferred.
     pub fn human_status(&self) -> u32 {
         self.flags
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_WEAPON` bit (mafia-re game/ai/C_shvestky.h:16). The native flag
+    /// is maintained inline in `Tick`/`CreateShvestkyTest` with no dedicated
+    /// getter, so no RVA is claimed.
+    pub fn has_weapon(&self) -> bool {
+        self.flags & SHVF_WEAPON != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_SPEEDING` bit (mafia-re game/ai/C_shvestky.h:18, car faster
+    /// than `speed_limit`). Inline native use only, so no RVA is claimed.
+    pub fn is_speeding(&self) -> bool {
+        self.flags & SHVF_SPEEDING != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_CRASH` bits (mafia-re game/ai/C_shvestky.h:19-20). Inline
+    /// native use only, so no RVA is claimed.
+    pub fn has_crash(&self) -> bool {
+        self.flags & SHVF_CRASH != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_RED_LIGHT` bit (mafia-re game/ai/C_shvestky.h:23). Inline
+    /// native use only, so no RVA is claimed.
+    pub fn has_red_light(&self) -> bool {
+        self.flags & SHVF_RED_LIGHT != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_CAR_STEAL` bit (mafia-re game/ai/C_shvestky.h:24-25, paired
+    /// with `record_car_steal`). Inline native use only, so no RVA is
+    /// claimed.
+    pub fn has_car_steal(&self) -> bool {
+        self.flags & SHVF_CAR_STEAL != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_FORCE_ARREST` bit (mafia-re game/ai/C_shvestky.h:28, paired
+    /// with `record_force_arrest`). Inline native use only, so no RVA is
+    /// claimed.
+    pub fn has_force_arrest(&self) -> bool {
+        self.flags & SHVF_FORCE_ARREST != 0
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `SHVF_RAM_POLICE_CAR` bit (mafia-re game/ai/C_shvestky.h:29-30).
+    /// Inline native use only, so no RVA is claimed.
+    pub fn has_ram_police_car(&self) -> bool {
+        self.flags & SHVF_RAM_POLICE_CAR != 0
     }
 
     /// Working name (no separate native entry): reads the owned record's
@@ -3268,5 +3412,206 @@ mod tests {
         record.record_run_over();
         assert_eq!(record.run_over(), 1);
         assert_eq!(record.status_word(), SHVSTATE_NONE);
+    }
+
+    #[test]
+    fn timers_working_name_read_period_timers() {
+        // Working names: +0x14/+0x1c/+0x24 S_timer latches; no dedicated
+        // native getters, reads are inline in Tick 0x49a300.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.do_rici_timer().period_ms(), 200);
+        assert_eq!(state.red_light_timer().period_ms(), 200);
+        assert_eq!(state.unknown_24_timer().period_ms(), 200);
+        state.apply_game_init();
+        assert_eq!(state.do_rici_timer().period_ms(), 913);
+        assert_eq!(state.red_light_timer().period_ms(), 217);
+        assert_eq!(state.unknown_24_timer().period_ms(), 4013);
+        assert_eq!(state.records_timer().period_ms(), 330);
+    }
+
+    #[test]
+    fn unknown_words_working_name_read_cleared_words() {
+        // Working names: +0x2c/+0x30 words; GameInit clears them, no
+        // dedicated native getters and no gameplay meaning attached.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.unknown_2c(), 0);
+        assert_eq!(state.unknown_30(), 0);
+        state.unknown_2c = 5;
+        state.unknown_30 = 9;
+        assert_eq!(state.unknown_2c(), 5);
+        assert_eq!(state.unknown_30(), 9);
+        state.apply_game_init();
+        assert_eq!(state.unknown_2c(), 0);
+        assert_eq!(state.unknown_30(), 0);
+    }
+
+    #[test]
+    fn free_car_count_working_name_counts_free_marks() {
+        // Working name: S_road_block_car free marks; no PC outline.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.count_free_road_block_cars(), 0);
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 1,
+            free: true,
+        });
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 2,
+            free: false,
+        });
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 3,
+            free: true,
+        });
+        assert_eq!(state.count_free_road_block_cars(), 2);
+    }
+
+    #[test]
+    fn free_iris_count_working_name_counts_free_marks() {
+        // Working name: S_road_block_iris free marks; no PC outline.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.count_free_road_block_irises(), 0);
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 1,
+            free: false,
+        });
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 2,
+            free: true,
+        });
+        assert_eq!(state.count_free_road_block_irises(), 1);
+    }
+
+    #[test]
+    fn take_car_working_name_takes_last_free() {
+        // Working name: car checkout following the iris 0x49e560 shape and
+        // the PS2 GetTempCar family; no PC outline, so no RVA is claimed.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.take_free_road_block_car(), None);
+        for (car, free) in [(1, false), (2, true), (3, true)] {
+            state.road_block_cars.push(PoliceRoadBlockCar { car, free });
+        }
+        assert_eq!(state.take_free_road_block_car(), Some(3));
+        assert!(!state.road_block_cars[2].free);
+        assert_eq!(state.take_free_road_block_car(), Some(2));
+        assert_eq!(state.take_free_road_block_car(), None);
+        assert_eq!(state.count_free_road_block_cars(), 0);
+    }
+
+    #[test]
+    fn weapon_flag_working_name_reads_bit() {
+        // Working name: SHVF_WEAPON 0x1; inline native use only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.has_weapon());
+        record.flags |= SHVF_WEAPON;
+        assert!(record.has_weapon());
+        record.flags &= !SHVF_WEAPON;
+        assert!(!record.has_weapon());
+    }
+
+    #[test]
+    fn speeding_flag_working_name_reads_bit() {
+        // Working name: SHVF_SPEEDING 0x4; inline native use only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.is_speeding());
+        record.flags |= SHVF_SPEEDING;
+        assert!(record.is_speeding());
+    }
+
+    #[test]
+    fn crash_bits_working_name_read_any_bit() {
+        // Working name: SHVF_CRASH 0x38; inline native use only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.has_crash());
+        record.flags |= 0x10;
+        assert!(record.has_crash());
+        record.flags &= !SHVF_CRASH;
+        assert!(!record.has_crash());
+        assert_eq!(SHVF_CRASH, 0x38);
+    }
+
+    #[test]
+    fn red_light_flag_working_name_reads_bit() {
+        // Working name: SHVF_RED_LIGHT 0x400; inline native use only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.has_red_light());
+        record.flags |= SHVF_RED_LIGHT;
+        assert!(record.has_red_light());
+    }
+
+    #[test]
+    fn car_steal_flag_working_name_pairs_with_effect() {
+        // Working name: SHVF_CAR_STEAL 0x800; paired with record_car_steal.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.has_car_steal());
+        record.record_car_steal();
+        assert!(record.has_car_steal());
+        assert_eq!(record.car_steal_time(), 5000);
+    }
+
+    #[test]
+    fn force_arrest_flag_working_name_pairs_with_effect() {
+        // Working name: SHVF_FORCE_ARREST 0x4000; paired with
+        // record_force_arrest.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.has_force_arrest());
+        record.record_force_arrest();
+        assert!(record.has_force_arrest());
+        assert_eq!(record.pending_state(), SHVSTATE_ARREST);
+    }
+
+    #[test]
+    fn ram_police_car_flag_working_name_reads_bit() {
+        // Working name: SHVF_RAM_POLICE_CAR 0x8000; inline native use only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.has_ram_police_car());
+        record.flags |= SHVF_RAM_POLICE_CAR;
+        assert!(record.has_ram_police_car());
+        record.flags &= !SHVF_RAM_POLICE_CAR;
+        assert!(!record.has_ram_police_car());
+    }
+
+    #[test]
+    fn flag_constants_match_reference_words() {
+        // mafia-re game/ai/C_shvestky.h:16-30 at pin 113b5b6.
+        assert_eq!(SHVF_WEAPON, 0x1);
+        assert_eq!(SHVF_SPEEDING, 0x4);
+        assert_eq!(SHVF_RED_LIGHT, 0x400);
+        assert_eq!(SHVF_RAM_POLICE_CAR, 0x8000);
+    }
+
+    #[test]
+    fn combined_record_flags_report_each_bit() {
+        // Working names: each SHVF_* reader selects only its own bit(s).
+        let mut record = PolicePursuitRecord::new(7);
+        record.flags = SHVF_WEAPON | SHVF_RED_LIGHT;
+        assert!(record.has_weapon());
+        assert!(record.has_red_light());
+        assert!(!record.is_speeding());
+        assert!(!record.has_crash());
+        assert!(!record.has_car_steal());
+        assert!(!record.has_force_arrest());
+        assert!(!record.has_ram_police_car());
+        assert_eq!(record.human_status(), SHVF_WEAPON | SHVF_RED_LIGHT);
+    }
+
+    #[test]
+    fn road_block_car_and_iris_counts_stay_independent() {
+        // Working names: car/iris/enemy free counts track separate lists.
+        let mut state = PoliceGameInitState::default();
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 1,
+            free: true,
+        });
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 2,
+            free: false,
+        });
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 3,
+            free: true,
+        });
+        assert_eq!(state.count_free_road_block_cars(), 1);
+        assert_eq!(state.count_free_road_block_irises(), 0);
+        assert_eq!(state.count_free_road_block_enemies(), 1);
     }
 }
