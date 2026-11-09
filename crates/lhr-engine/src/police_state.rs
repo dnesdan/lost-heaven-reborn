@@ -800,6 +800,8 @@ pub const CREATE_ROAD_BLOCK_ENTRY: u32 = 0x49d980;
 pub const TAKE_TYRES_RADIO_ENTRY: u32 = 0x49a140;
 /// `C_shvestky::RenamePoliceCar` 0x4a0230.
 pub const RENAME_POLICE_CAR_ENTRY: u32 = 0x4a0230;
+/// `C_shvestky::GameDone` 0x499dc0.
+pub const GAME_DONE_ENTRY: u32 = 0x499dc0;
 
 pub fn send_police_backup(
     _human: PoliceHumanId,
@@ -857,6 +859,19 @@ pub fn take_car_tyres_and_radio(_car: PoliceActorId) -> Result<(), PoliceDispatc
 pub fn rename_police_car(_car: PoliceActorId) -> Result<(), PoliceDispatchError> {
     Err(PoliceDispatchError::Unsupported {
         entry: RENAME_POLICE_CAR_ENTRY,
+    })
+}
+
+/// Original `C_shvestky::GameDone` 0x499dc0 (GAME VA 0x499dc0,
+/// RVA 0x99dc0; mafia-re game/ai/C_shvestky.cpp:61-139 at pin 113b5b6):
+/// deletes the pursuit records, keeps the next mission's actors out of the
+/// do_rici list, hands the temporary cars back to the game and the radar,
+/// and tears down the road-block cars, policemen and enemies. Every owner
+/// it touches (mission actors, game, radar, road blocks, global actors,
+/// frames) stays outside this contract, so the boundary is explicit.
+pub fn police_game_done() -> Result<(), PoliceDispatchError> {
+    Err(PoliceDispatchError::Unsupported {
+        entry: GAME_DONE_ENTRY,
     })
 }
 
@@ -2355,6 +2370,17 @@ mod tests {
         assert_eq!(
             rename_police_car(9),
             Err(PoliceDispatchError::Unsupported { entry: 0x4a0230 })
+        );
+    }
+
+    #[test]
+    fn rva_99dc0_game_done_reports_unsupported() {
+        // C_shvestky::GameDone GAME VA 0x499dc0 (RVA 0x99dc0): teardown
+        // needs mission/game/radar/actor owners, so it stays a boundary.
+        assert_eq!(GAME_DONE_ENTRY, 0x499dc0);
+        assert_eq!(
+            police_game_done(),
+            Err(PoliceDispatchError::Unsupported { entry: 0x499dc0 })
         );
     }
 

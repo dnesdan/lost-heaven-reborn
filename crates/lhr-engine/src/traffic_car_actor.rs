@@ -391,6 +391,85 @@ pub fn corovacka(_car: u32) -> Result<(), TrafficRemovalError> {
     })
 }
 
+/// Still-unported base-delegating traffic-car overrides. The entries name
+/// the original PC addresses; the `C_actor` base, scene/device, chunk and
+/// collision owners stay outside this contract, so each stays an explicit
+/// boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrafficOverrideError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_traffic_car::AI` 0x4afc40: AI tick, base-delegating. Unimplemented;
+/// preserved as an explicit boundary.
+pub const TRAFFIC_AI_ENTRY: u32 = 0x4afc40;
+/// `C_traffic_car::Update` 0x4b5270: per-frame update, base-delegating.
+/// Unimplemented; preserved as an explicit boundary.
+pub const TRAFFIC_UPDATE_ENTRY: u32 = 0x4b5270;
+/// `C_traffic_car::Hit` 0x4baad0: collision hit response, base-delegating.
+/// Unimplemented; preserved as an explicit boundary.
+pub const TRAFFIC_HIT_ENTRY: u32 = 0x4baad0;
+/// `C_traffic_car::IsPossibleColl` 0x4ba9c0: collision query,
+/// base-delegating. Unimplemented; preserved as an explicit boundary.
+pub const TRAFFIC_IS_POSSIBLE_COLL_ENTRY: u32 = 0x4ba9c0;
+/// `C_traffic_car::LoadData` 0x4aad20: load payload, base-delegating.
+/// Unimplemented; preserved as an explicit boundary.
+pub const TRAFFIC_LOAD_DATA_ENTRY: u32 = 0x4aad20;
+
+/// Original `C_traffic_car::AI` (GAME VA 0x4afc40, RVA 0xafc40; mafia-re
+/// game/vehicles/C_trf_c.cpp:117-122 at pin 113b5b6): logs and runs the
+/// `C_actor` base tick. The base/scene owners stay outside this contract,
+/// so the boundary is explicit.
+pub fn traffic_ai(_time_ms: u32) -> Result<(), TrafficOverrideError> {
+    Err(TrafficOverrideError::Unsupported {
+        entry: TRAFFIC_AI_ENTRY,
+    })
+}
+
+/// Original `C_traffic_car::Update` (GAME VA 0x4b5270, RVA 0xb5270;
+/// mafia-re game/vehicles/C_trf_c.cpp:124-129 at pin 113b5b6): logs and
+/// runs the `C_actor` base update. The base/scene owners stay outside this
+/// contract, so the boundary is explicit.
+pub fn traffic_update(_time_ms: u32) -> Result<(), TrafficOverrideError> {
+    Err(TrafficOverrideError::Unsupported {
+        entry: TRAFFIC_UPDATE_ENTRY,
+    })
+}
+
+/// Original `C_traffic_car::Hit` (GAME VA 0x4baad0, RVA 0xbaad0; mafia-re
+/// game/vehicles/C_trf_c.cpp:152-158 at pin 113b5b6): logs and runs the
+/// `C_actor` base hit response, returning its answer. The actor/vector,
+/// frame and collision owners stay outside this contract, so the boundary
+/// is explicit; the native `bool` answer is preserved in the return type.
+pub fn traffic_hit() -> Result<bool, TrafficOverrideError> {
+    Err(TrafficOverrideError::Unsupported {
+        entry: TRAFFIC_HIT_ENTRY,
+    })
+}
+
+/// Original `C_traffic_car::IsPossibleColl` (GAME VA 0x4ba9c0,
+/// RVA 0xba9c0; mafia-re game/vehicles/C_trf_c.cpp:145-150 at pin
+/// 113b5b6): logs and runs the `C_actor` base collision query, returning
+/// its answer. The actor/vector and collision owners stay outside this
+/// contract, so the boundary is explicit; the native `bool` answer is
+/// preserved in the return type.
+pub fn traffic_is_possible_coll() -> Result<bool, TrafficOverrideError> {
+    Err(TrafficOverrideError::Unsupported {
+        entry: TRAFFIC_IS_POSSIBLE_COLL_ENTRY,
+    })
+}
+
+/// Original `C_traffic_car::LoadData` (GAME VA 0x4aad20, RVA 0xaad20;
+/// mafia-re game/vehicles/C_trf_c.cpp:99-104 at pin 113b5b6): logs and
+/// runs the `C_actor` base load, returning its answer. The chunk owner
+/// stays outside this contract, so the boundary is explicit; the native
+/// `bool` answer is preserved in the return type.
+pub fn traffic_load_data() -> Result<bool, TrafficOverrideError> {
+    Err(TrafficOverrideError::Unsupported {
+        entry: TRAFFIC_LOAD_DATA_ENTRY,
+    })
+}
+
 impl TrafficCarState {
     /// Original `C_traffic_car::DuplicateFrom`, GAME RVA 0xaab20
     /// (VA 0x4aab20; mafia-re game/vehicles/C_trf_c.cpp:73-90 at pin
@@ -658,6 +737,56 @@ mod tests {
         assert_eq!(
             corovacka(0x1234),
             Err(TrafficRemovalError::Unsupported { entry: 0x4b8480 })
+        );
+    }
+
+    #[test]
+    fn rva_afc40_ai_reports_unsupported() {
+        // C_traffic_car::AI GAME RVA 0xafc40 (VA 0x4afc40): base-delegating STUB.
+        assert_eq!(TRAFFIC_AI_ENTRY, 0x4afc40);
+        assert_eq!(
+            traffic_ai(16),
+            Err(TrafficOverrideError::Unsupported { entry: 0x4afc40 })
+        );
+    }
+
+    #[test]
+    fn rva_b5270_update_reports_unsupported() {
+        // C_traffic_car::Update GAME RVA 0xb5270 (VA 0x4b5270): base-delegating STUB.
+        assert_eq!(TRAFFIC_UPDATE_ENTRY, 0x4b5270);
+        assert_eq!(
+            traffic_update(16),
+            Err(TrafficOverrideError::Unsupported { entry: 0x4b5270 })
+        );
+    }
+
+    #[test]
+    fn rva_baad0_hit_reports_unsupported() {
+        // C_traffic_car::Hit GAME RVA 0xbaad0 (VA 0x4baad0): base-delegating STUB.
+        assert_eq!(TRAFFIC_HIT_ENTRY, 0x4baad0);
+        assert_eq!(
+            traffic_hit(),
+            Err(TrafficOverrideError::Unsupported { entry: 0x4baad0 })
+        );
+    }
+
+    #[test]
+    fn rva_ba9c0_is_possible_coll_reports_unsupported() {
+        // C_traffic_car::IsPossibleColl GAME RVA 0xba9c0 (VA 0x4ba9c0): base-delegating STUB.
+        assert_eq!(TRAFFIC_IS_POSSIBLE_COLL_ENTRY, 0x4ba9c0);
+        assert_eq!(
+            traffic_is_possible_coll(),
+            Err(TrafficOverrideError::Unsupported { entry: 0x4ba9c0 })
+        );
+    }
+
+    #[test]
+    fn rva_aad20_load_data_reports_unsupported() {
+        // C_traffic_car::LoadData GAME RVA 0xaad20 (VA 0x4aad20): base-delegating STUB.
+        assert_eq!(TRAFFIC_LOAD_DATA_ENTRY, 0x4aad20);
+        assert_eq!(
+            traffic_load_data(),
+            Err(TrafficOverrideError::Unsupported { entry: 0x4aad20 })
         );
     }
 }
