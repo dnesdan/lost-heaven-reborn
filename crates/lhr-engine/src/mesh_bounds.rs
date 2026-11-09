@@ -108,6 +108,42 @@ pub fn set_visual_bound_volume(
     }
 }
 
+/// Working name for the `I3D_visual::GetBoundVolume` lazy gate (mafia-re
+/// ls3df/I3D/I3D.h:2771-2778). No LS3DF FUNCTION address exists for it: it
+/// is a header inline compiled into LS3DF, and the reference marks no
+/// Game.exe out-of-line copy either. When `VISF_BOUND_VALID` (0x20000,
+/// I3D.h:2703) is set the stored local bound is returned untouched; otherwise
+/// the caller's `update` runs the virtual `UpdateBoundProc` equivalent and
+/// its fresh volume is returned. `MeshBoundVolume` is `Copy`, so the returned
+/// value (not a member reference) is the observable behavior.
+pub fn visual_bound_volume_or_update<E>(
+    vis_flags: u32,
+    stored: &MeshBoundVolume,
+    update: impl FnOnce() -> Result<MeshBoundVolume, E>,
+) -> Result<MeshBoundVolume, E> {
+    if vis_flags & 0x20000 != 0 {
+        return Ok(*stored);
+    }
+    update()
+}
+
+/// Working name for the `I3D_visual::GetWBoundVolume` lazy gate (mafia-re
+/// ls3df/I3D/I3D.h:2762-2769). No LS3DF FUNCTION address exists for it, same
+/// header-inline status as the local gate above. When `VISF_WBOUND_VALID`
+/// (0x40000, I3D.h:2704) is set the stored world bound is returned untouched;
+/// otherwise the caller's `update` runs the virtual `UpdateWBoundProc`
+/// equivalent and its fresh volume is returned.
+pub fn visual_world_bound_volume_or_update<E>(
+    vis_flags: u32,
+    stored: &MeshBoundVolume,
+    update: impl FnOnce() -> Result<MeshBoundVolume, E>,
+) -> Result<MeshBoundVolume, E> {
+    if vis_flags & 0x40000 != 0 {
+        return Ok(*stored);
+    }
+    update()
+}
+
 /// Original BBoxVertices, PC RVA 0x6bc00 (differential: REA formed body 19 BB
 /// / 57 insn; mafia-re ls3df/IGraph/Globals.cpp:269-293). Exact 8-vertex slot
 /// order: `for i in 0..2 { for j in 0..2 { push(i, j, min.z); push(i, j,
@@ -458,5 +494,82 @@ mod tests {
         let mut bbox = [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]];
         absorb_point_into_bbox(&mut bbox, [f32::NAN, f32::NAN, f32::NAN]);
         assert_eq!(bbox, [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]);
+    }
+
+    #[test]
+    fn visual_bound_gate_returns_stored_volume_without_calling_update() {
+        use std::cell::Cell;
+        let stored = MeshBoundVolume {
+            bbox: [[-1., -2., -3.], [4., 5., 6.]],
+            center: [1.5, 1.5, 1.5],
+            radius: 2.0,
+        };
+        let calls = Cell::new(0u32);
+        let fresh = MeshBoundVolume::CONSTRUCTOR;
+        let out: Result<MeshBoundVolume, &'static str> = visual_bound_volume_or_update(
+            0x20000,
+            &stored,
+            || {
+                calls.set(calls.get() + 1);
+                Ok(fresh)
+            },
+        );
+        assert_eq!(out, Ok(stored));
+        assert_eq!(calls.get(), 0);
+        // Other validity bits do not satisfy the local gate.
+        let out: Result<MeshBoundVolume, &'static str> = visual_bound_volume_or_update(
+            0x40000,
+            &stored,
+            || {
+                calls.set(calls.get() + 1);
+                Ok(fresh)
+            },
+        );
+        assert_eq!(out, Ok(fresh));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn visual_world_bound_gate_returns_stored_volume_without_calling_update() {
+        use std::cell::Cell;
+        let stored = MeshBoundVolume {
+            bbox: [[-1., -2., -3.], [4., 5., 6.]],
+            center: [1.5, 1.5, 1.5],
+            radius: 2.0,
+        };
+        let calls = Cell::new(0u32);
+        let fresh = MeshBoundVolume::CONSTRUCTOR;
+        let out: Result<MeshBoundVolume, &'static str> = visual_world_bound_volume_or_update(
+            0x40000,
+            &stored,
+            || {
+                calls.set(calls.get() + 1);
+                Ok(fresh)
+            },
+        );
+        assert_eq!(out, Ok(stored));
+        assert_eq!(calls.get(), 0);
+        // The local-valid bit does not satisfy the world gate.
+        let out: Result<MeshBoundVolume, &'static str> = visual_world_bound_volume_or_update(
+            0x20000,
+            &stored,
+            || {
+                calls.set(calls.get() + 1);
+                Ok(fresh)
+            },
+        );
+        assert_eq!(out, Ok(fresh));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn visual_bound_gate_propagates_update_failure() {
+        let stored = MeshBoundVolume::CONSTRUCTOR;
+        let out: Result<MeshBoundVolume, &'static str> =
+            visual_bound_volume_or_update(0, &stored, || Err("backend"));
+        assert_eq!(out, Err("backend"));
+        let out: Result<MeshBoundVolume, &'static str> =
+            visual_world_bound_volume_or_update(0, &stored, || Err("backend"));
+        assert_eq!(out, Err("backend"));
     }
 }

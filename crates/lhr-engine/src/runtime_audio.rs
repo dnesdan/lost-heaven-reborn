@@ -1255,6 +1255,35 @@ fn update_sound(
     Ok(())
 }
 
+/// Working name for the inlined `I3D_sound::GetRangeVolume` (mafia-re
+/// ls3df/I3D/frames/I3d_sound.cpp:20-30). No LS3DF FUNCTION address exists
+/// for it: it is an `inline` member with one copy per call site (the point
+/// and spot sound paths in `m_UpdateSound`), and the reference notes PS2
+/// has no function of its own. Pure three-branch falloff over the caller's
+/// scaled ranges (`scaled_range_n`, `scaled_range_mid`, `scaled_range_f`)
+/// and `range_mid_vol`: 1 up to the near range, a linear fall to `mid_volume`
+/// at the middle, then a linear fall past it. Deliberately unclamped: past
+/// the far range the value keeps falling (negative beyond
+/// `far + (far - mid)`), unlike the host mixer's clamped projection, and a
+/// degenerate `far == mid` span follows IEEE division (signed infinity
+/// past a collapsed far, never a host guard; a collapsed mid never divides
+/// since `dist <= near` returns 1.0 first).
+pub fn sound_range_volume(
+    dist: f32,
+    scaled_near: f32,
+    scaled_mid: f32,
+    scaled_far: f32,
+    mid_volume: f32,
+) -> f32 {
+    if dist <= scaled_near {
+        return 1.0;
+    }
+    if dist <= scaled_mid {
+        return mid_volume + (1.0 - mid_volume) * (1.0 - (dist - scaled_near) / (scaled_mid - scaled_near));
+    }
+    mid_volume * (1.0 - (dist - scaled_mid) / (scaled_far - scaled_mid))
+}
+
 fn gains(
     sound: &SoundState,
     listener: [f32; 3],
@@ -1878,6 +1907,25 @@ mod tests {
             f32::from_bits(audio.read_sound_word(0x1000, 0x1ac).unwrap()),
             std::f32::consts::FRAC_PI_2.cos()
         );
+    }
+
+    #[test]
+    fn range_volume_follows_the_three_native_branches_without_clamps() {
+        // near=2, mid=6, far=10, mid_volume=0.25.
+        assert_eq!(sound_range_volume(0.0, 2.0, 6.0, 10.0, 0.25), 1.0);
+        assert_eq!(sound_range_volume(2.0, 2.0, 6.0, 10.0, 0.25), 1.0);
+        // Middle branch endpoints are exact: at mid the product vanishes.
+        assert_eq!(sound_range_volume(6.0, 2.0, 6.0, 10.0, 0.25), 0.25);
+        // Halfway between near and mid: 0.25 + 0.75 * 0.5 = 0.625.
+        assert_eq!(sound_range_volume(4.0, 2.0, 6.0, 10.0, 0.25), 0.625);
+        // Far endpoint is exact, and past it the native line keeps falling
+        // (no host-style clamp at zero): halfway past far is -0.125.
+        assert_eq!(sound_range_volume(10.0, 2.0, 6.0, 10.0, 0.25), 0.0);
+        assert_eq!(sound_range_volume(12.0, 2.0, 6.0, 10.0, 0.25), -0.125);
+        // Degenerate spans follow IEEE division, never a host guard: past a
+        // collapsed far the slope is signed infinity (a collapsed mid never
+        // divides — `dist <= near` returns 1.0 first).
+        assert!(sound_range_volume(11.0, 2.0, 10.0, 10.0, 0.25).is_infinite());
     }
 
     #[test]

@@ -399,6 +399,47 @@ pub fn frame_is_no_cull(flags: u32) -> bool {
 pub fn frame_duplicate_flags(flags: u32) -> u32 {
     flags & 0x0fa7_3e9f
 }
+/// Working name for the FRMFLAGS_FFTREE bit test (mafia-re ls3df/I3D/I3D.h:286).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit gates `RemoveFromFFTree` in the destructor (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:71). Reports whether the frame sits in the
+/// driver's fast-find tree; no cache moves.
+pub fn frame_in_fast_find_tree(flags: u32) -> bool {
+    flags & 0x2000_0000 != 0
+}
+/// Working name for the FRMFLAGS_TARGET bit test (mafia-re ls3df/I3D/I3D.h:269).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit gates `DeleteFromAnyTarget` in the destructor (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:73). Reports whether the frame is a
+/// target's frame; no cache moves.
+pub fn frame_is_target_frame(flags: u32) -> bool {
+    flags & 0x4000 != 0
+}
+/// Working name for the FRMFLAGS_SHADOW bit test (mafia-re ls3df/I3D/I3D.h:270).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit gates `DeleteFromAnyShadow` in the destructor (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:75). Reports whether the frame is a
+/// shadow's frame; no cache moves.
+pub fn frame_is_shadow_frame(flags: u32) -> bool {
+    flags & 0x8000 != 0
+}
+/// Working name for the FRMFLAGS_WEATHER bit test (mafia-re ls3df/I3D/I3D.h:288).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is set by `WeatherSystemAddDummy` and cleared by
+/// `WeatherSystemDelDummy` (mafia-re ls3df/I3D/I3d_scene.cpp:1058-1078).
+/// Reports whether the dummy is registered in a scene weather system; no
+/// cache moves.
+pub fn frame_is_weather_dummy(flags: u32) -> bool {
+    flags & 0x8000_0000 != 0
+}
+/// Working name for the FRMFLAGS_CHANGED bit test (mafia-re ls3df/I3D/I3D.h:268).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit joins `FRMFLAGS_UPDATE` in the `Update` gate (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:907). Reports whether the frame moved since
+/// the last update; no cache moves.
+pub fn frame_has_changed(flags: u32) -> bool {
+    flags & 0x2000 != 0
+}
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
         let id = u32::try_from(self.nodes.len())
@@ -4999,5 +5040,31 @@ mod tests {
         assert_eq!(frame_duplicate_flags(1), 1);
         assert_eq!(frame_duplicate_flags(0x4000_0000), 0);
         assert_eq!(frame_duplicate_flags(0x0fa7_3e9f), 0x0fa7_3e9f);
+    }
+    #[test]
+    fn frame_list_membership_bits_report_dtor_gates() {
+        assert!(frame_in_fast_find_tree(0x2000_0000));
+        assert!(frame_in_fast_find_tree(0xffff_ffff));
+        assert!(!frame_in_fast_find_tree(0));
+        assert!(!frame_in_fast_find_tree(0x80));
+        assert!(frame_is_target_frame(0x4000));
+        assert!(frame_is_target_frame(0xffff_ffff));
+        assert!(!frame_is_target_frame(0));
+        assert!(!frame_is_target_frame(0x8000));
+        assert!(frame_is_shadow_frame(0x8000));
+        assert!(frame_is_shadow_frame(0xffff_ffff));
+        assert!(!frame_is_shadow_frame(0));
+        assert!(!frame_is_shadow_frame(0x4000));
+    }
+    #[test]
+    fn frame_weather_and_changed_bits_report_state_flags() {
+        assert!(frame_is_weather_dummy(0x8000_0000));
+        assert!(frame_is_weather_dummy(0xffff_ffff));
+        assert!(!frame_is_weather_dummy(0));
+        assert!(!frame_is_weather_dummy(0x2000_0000));
+        assert!(frame_has_changed(0x2000));
+        assert!(frame_has_changed(0xffff_ffff));
+        assert!(!frame_has_changed(0));
+        assert!(!frame_has_changed(0x4000_0000));
     }
 }

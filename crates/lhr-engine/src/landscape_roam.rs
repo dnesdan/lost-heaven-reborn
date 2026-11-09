@@ -186,6 +186,14 @@ impl LandPatch {
     pub fn release(&mut self) {
         self.tag = LANDPATCH_VISUAL_TAG;
     }
+    /// Working name for `I3D_landpatch::isDirty` (mafia-re
+    /// ls3df/I3D/I3D.h:3700-3703). No LS3DF FUNCTION address exists for it:
+    /// it is a header inline compiled into LS3DF, and the reference marks no
+    /// Game.exe out-of-line copy either. Reports whether the variance trees
+    /// still need computing (`m_VarianceDirty`); no state moves.
+    pub fn is_dirty(&self) -> bool {
+        self.variance_dirty
+    }
     fn var_mut(&mut self) -> &mut Vec<u8> {
         if self.current {
             &mut self.var_right
@@ -815,6 +823,13 @@ mod landscape_roam_tests {
     #[test]
     fn ctor_tag_is_lndp() {
         assert_eq!(LandPatch::new().tag, 0x5044_4e4c);
+    }
+    #[test]
+    fn is_dirty_reports_variance_flag() {
+        let mut patch = LandPatch::new();
+        assert!(patch.is_dirty());
+        patch.variance_dirty = false;
+        assert!(!patch.is_dirty());
     }
     #[test]
     fn split_exhaustion_residue_order() {

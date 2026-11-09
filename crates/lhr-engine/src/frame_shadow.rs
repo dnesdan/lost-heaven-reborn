@@ -734,6 +734,17 @@ impl ModelArena {
         Ok(())
     }
 
+    /// Working name for `I3D_shadow::SetVisibleRange` (mafia-re
+    /// ls3df/I3D/I3D.h:2587-2591). No LS3DF FUNCTION address exists for it:
+    /// it is a header inline compiled into LS3DF (`Duplicate` copies
+    /// `visible_range` directly with `FLD`/`FSTP` instead of calling it, per
+    /// the 0x50c60 byte walk). Unconditional store of the caller's range;
+    /// no validation, no flag or light effects.
+    pub fn set_shadow_visible_range(&mut self, key: FrameKey, range: f32) -> Result<(), ModelError> {
+        self.shadow_state_mut(key)?.visible_range = range;
+        Ok(())
+    }
+
     /// Original SetMaxTextureDistance, PC RVA 0x51840 (contract: sweep
     /// 0x10051840–0x1005189e with the `80000007` fail block at 0x10051899).
     /// Ordered `d < 0 || d > 32` reject; NaN passes both ordered comparisons
@@ -990,6 +1001,26 @@ mod tests {
         assert_eq!(arena.shadow_range_of(key).unwrap(), 12.0);
         assert_eq!(
             arena.shadow_range_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_visible_range_setter_stores_unconditionally() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_state(key).unwrap().visible_range, 100.0);
+        arena.set_shadow_visible_range(key, 40.0).unwrap();
+        assert_eq!(arena.shadow_state(key).unwrap().visible_range, 40.0);
+        // Unlike SetRange there is no positivity gate: zero, negative and
+        // NaN all store.
+        arena.set_shadow_visible_range(key, -2.0).unwrap();
+        assert_eq!(arena.shadow_state(key).unwrap().visible_range, -2.0);
+        arena.set_shadow_visible_range(key, f32::NAN).unwrap();
+        assert!(arena.shadow_state(key).unwrap().visible_range.is_nan());
+        assert_eq!(
+            arena.set_shadow_visible_range(FrameKey(u32::MAX), 1.0).unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
     }

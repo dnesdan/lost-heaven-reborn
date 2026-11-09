@@ -372,6 +372,23 @@ pub fn weather_tests_dummy_boxes(flags: u32) -> bool {
 pub fn weather_is_snow(flags: u32) -> bool {
     flags & WSF_SNOW != 0
 }
+/// Working name for the `WS_PARAM_MODE` read arm of `GetWeatherSystemParam`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:1307-1312). The reference records no
+/// LS3DF FUNCTION address for a standalone reader; the arm lives inside the
+/// occupied `GetWeatherSystemParam` dispatcher (PC RVA 0x4c4d0), whose other
+/// arms already have standalone readers (`weather_is_on`,
+/// `weather_tests_primary_sector`, `weather_tests_dummy_boxes`,
+/// `weather_is_snow`) on the same precedent. `WSF_MODE_1` reports 1,
+/// `WSF_MODE_2` reports 2, otherwise 0; no state moves.
+pub fn weather_mode(flags: u32) -> u32 {
+    if flags & WSF_MODE_1 != 0 {
+        1
+    } else if flags & WSF_MODE_2 != 0 {
+        2
+    } else {
+        0
+    }
+}
 
 /// WE_STRUCT corner reshaping shared by SetParam(update=2) and Update alloc,
 /// RVAs 0x4bce0/0x4c660. `size/speed` are native f32 values, `angle` the
@@ -623,6 +640,17 @@ mod tests {
         assert!(weather_tests_dummy_boxes(WSF_DUMMY_TEST));
         assert!(!weather_tests_dummy_boxes(WSF_ON));
         assert!(!weather_tests_dummy_boxes(0));
+    }
+    #[test]
+    fn weather_mode_reports_mode_1_then_mode_2_then_none() {
+        assert_eq!(weather_mode(0), 0);
+        assert_eq!(weather_mode(WSF_ON), 0);
+        assert_eq!(weather_mode(WSF_MODE_1), 1);
+        assert_eq!(weather_mode(WSF_MODE_2), 2);
+        // MODE_1 wins when both bits are set, exactly like the native arm order.
+        assert_eq!(weather_mode(WSF_MODE_1 | WSF_MODE_2), 1);
+        assert_eq!(weather_mode(WSF_MODE_1 | WSF_MODE_2 | WSF_SNOW), 1);
+        assert_eq!(weather_mode(u32::MAX), 1);
     }
     #[test]
     fn weather_snow_bit_selects_snow() {
