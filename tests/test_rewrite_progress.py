@@ -413,7 +413,10 @@ class RewriteProgressTests(unittest.TestCase):
         # 2 subagent test bugs fixed; marker-only, tests green).
         # +10 vehicle setter contracts (sound-volume clean + 9 STUBs; 4 ledger
         # duplicates held unfiled with docs+tests clarified).
-        self.assertEqual(game["ported"], 149 + 759)
+        # +12 Tshift/ctor/shadow-sound contracts (TshiftElem/Store/tick/
+        # clearCarSeats/GameCtor/add-remove-temporary/NewShoot/NewExplosion/
+        # Stop3DSound/Add-DelFrameForShadow STUBs; 2 working-name uncredited).
+        self.assertEqual(game["ported"], 149 + 771)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

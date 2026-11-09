@@ -1311,6 +1311,180 @@ pub fn intern_temp_act_add(_actor: ActorId) -> Result<(), UnwrittenGameEntry> {
     })
 }
 
+/// Inline-constructed `C_game` flag words (FUNCTION: GAME RVA 0x1472f0, VA
+/// 0x5472f0; `game.h:558-569`). The initializer list runs in member order:
+/// `initialized` false, the four `unknown_2eb*` words zero and the trailing
+/// `unknown_2ec4` switch false. Scene, sound, actor and menu owners stay
+/// deferred; only these scalar words are staged here.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GameCtorState {
+    initialized: bool,
+    unknown_2eb0: u32,
+    unknown_2eb8: u32,
+    unknown_2ebc: u32,
+    unknown_2ec0: u32,
+    unknown_2ec4: bool,
+}
+
+impl GameCtorState {
+    /// Mirrors the native `C_game()` initializer list.
+    pub fn new() -> Self {
+        Self {
+            initialized: false,
+            unknown_2eb0: 0,
+            unknown_2eb8: 0,
+            unknown_2ebc: 0,
+            unknown_2ec0: 0,
+            unknown_2ec4: false,
+        }
+    }
+
+    /// Reads the `initialized` word the ctor clears.
+    pub fn initialized(&self) -> bool {
+        self.initialized
+    }
+
+    /// Reads the staged `unknown_2eb0` word.
+    pub fn unknown_2eb0(&self) -> u32 {
+        self.unknown_2eb0
+    }
+
+    /// Reads the staged `unknown_2eb8` word.
+    pub fn unknown_2eb8(&self) -> u32 {
+        self.unknown_2eb8
+    }
+
+    /// Reads the staged `unknown_2ebc` word.
+    pub fn unknown_2ebc(&self) -> u32 {
+        self.unknown_2ebc
+    }
+
+    /// Reads the staged `unknown_2ec0` word.
+    pub fn unknown_2ec0(&self) -> u32 {
+        self.unknown_2ec0
+    }
+
+    /// Reads the trailing `unknown_2ec4` switch the ctor clears.
+    pub fn unknown_2ec4(&self) -> bool {
+        self.unknown_2ec4
+    }
+}
+
+/// STUB: GAME RVA 0x1a77c0, VA 0x5a77c0 (`game.cpp:2416-2420`,
+/// `C_game::AddTemporaryActor`): stages the actor as temporary. Unwritten
+/// upstream; the temporary-actor owner is deferred.
+pub const ADD_TEMPORARY_ACTOR_ENTRY: u32 = 0x5a77c0;
+
+/// Original `C_game::AddTemporaryActor` stub: always reports the boundary.
+pub fn add_temporary_actor(_actor: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_TEMPORARY_ACTOR_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1a7ec0, VA 0x5a7ec0 (`game.cpp:2478-2482`,
+/// `C_game::_RemoveTemporaryActor`, leading underscore as in the
+/// reference): the private temporary-actor removal. Unwritten upstream;
+/// the temporary-actor owner is deferred. Distinct from the outlined
+/// `RemoveTemporaryActor` (GAME 0x5a79a0).
+pub const REMOVE_TEMPORARY_ACTOR_PRIVATE_ENTRY: u32 = 0x5a7ec0;
+
+/// Original `C_game::_RemoveTemporaryActor` stub: always reports the
+/// boundary.
+pub fn remove_temporary_actor_private(_actor: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: REMOVE_TEMPORARY_ACTOR_PRIVATE_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1a84a0, VA 0x5a84a0 (`game.cpp:2519-2525`,
+/// `C_game::NewShoot`): fires a shot from the actor along the direction
+/// with the given power. Unwritten upstream; the shot list, collision and
+/// frame owners are deferred. The reference stub returns `true`; the host
+/// reports the boundary instead of inventing the shot.
+pub const NEW_SHOOT_ENTRY: u32 = 0x5a84a0;
+
+/// Original `C_game::NewShoot` stub: always reports the boundary.
+pub fn new_shoot(
+    _actor: ActorId,
+    _pos: [f32; 3],
+    _dir: [f32; 3],
+    _power: f32,
+    _unknown1: i32,
+    _frame: FrameId,
+    _unknown2: i32,
+) -> Result<bool, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: NEW_SHOOT_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1aae10, VA 0x5aae10 (`game.cpp:2824-2829`,
+/// `C_game::NewExplosion`): spawns an explosion at the position with the
+/// given parameters. Unwritten upstream; the effect/actor owners are
+/// deferred.
+pub const NEW_EXPLOSION_ENTRY: u32 = 0x5aae10;
+
+/// Original `C_game::NewExplosion` stub: always reports the boundary.
+pub fn new_explosion(
+    _actor: ActorId,
+    _pos: [f32; 3],
+    _unknown1: f32,
+    _unknown2: f32,
+    _unknown3: bool,
+    _unknown4: bool,
+    _unknown5: bool,
+    _unknown6: i32,
+) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: NEW_EXPLOSION_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1acc00, VA 0x5acc00 (`game.cpp:2845-2849`,
+/// `C_game::Stop3DSound`): stops the numbered 3D sound with the fade/time
+/// shape. Unwritten upstream; the sound owner is deferred.
+pub const STOP_3D_SOUND_ENTRY: u32 = 0x5acc00;
+
+/// Original `C_game::Stop3DSound` stub: always reports the boundary.
+pub fn stop_3d_sound(_sound: i32, _fade: bool, _time: f32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: STOP_3D_SOUND_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1ad2a0, VA 0x5ad2a0 (`game.cpp:2909-2915`,
+/// `C_game::AddFrameForShadow`): files the frame for shadows and returns
+/// the slot. Unwritten upstream; the shadow/frame owners are deferred. The
+/// reference stub returns `0`; the host reports the boundary instead of
+/// inventing the slot.
+pub const ADD_FRAME_FOR_SHADOW_ENTRY: u32 = 0x5ad2a0;
+
+/// Original `C_game::AddFrameForShadow` stub: always reports the boundary.
+pub fn add_frame_for_shadow(
+    _frame: FrameId,
+    _type1: i32,
+    _type2: i32,
+    _replaced_frame: Option<FrameId>,
+    _name: &str,
+) -> Result<i32, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_FRAME_FOR_SHADOW_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1ad7c0, VA 0x5ad7c0 (`game.cpp:2917-2921`,
+/// `C_game::DelFrameForShadow`): drops the frame's shadow filing.
+/// Unwritten upstream; the shadow/frame owners are deferred.
+pub const DEL_FRAME_FOR_SHADOW_ENTRY: u32 = 0x5ad7c0;
+
+/// Original `C_game::DelFrameForShadow` stub: always reports the boundary.
+pub fn del_frame_for_shadow(_frame: FrameId, _shadow_type: i32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DEL_FRAME_FOR_SHADOW_ENTRY,
+    })
+}
+
 impl GameInlineState {
     /// FUNCTION: GAME RVA 0x7b590, VA 0x47b590 (`game.h:883-887`,
     /// `C_game::SetNightMission`): stores the night-mission switch.
@@ -4853,5 +5027,93 @@ mod tests {
             })
         );
         assert_eq!(INTERN_TEMP_ACT_ADD_ENTRY, 0x5a7b70);
+    }
+
+    #[test]
+    fn game_ctor_rva_1472f0_matches_initializer_list() {
+        // C_game() GAME RVA 0x1472f0 (VA 0x5472f0, game.h:560-569).
+        let state = GameCtorState::new();
+        assert!(!state.initialized());
+        assert_eq!(state.unknown_2eb0(), 0);
+        assert_eq!(state.unknown_2eb8(), 0);
+        assert_eq!(state.unknown_2ebc(), 0);
+        assert_eq!(state.unknown_2ec0(), 0);
+        assert!(!state.unknown_2ec4());
+        assert_eq!(GameCtorState::default(), state);
+    }
+
+    #[test]
+    fn rva_1a77c0_add_temporary_actor_reports_unsupported() {
+        // C_game::AddTemporaryActor GAME RVA 0x1a77c0 (VA 0x5a77c0): STUB.
+        assert_eq!(ADD_TEMPORARY_ACTOR_ENTRY, 0x5a77c0);
+        assert_eq!(
+            add_temporary_actor(7),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5a77c0 })
+        );
+    }
+
+    #[test]
+    fn rva_1a7ec0_remove_temporary_actor_private_reports_unsupported() {
+        // C_game::_RemoveTemporaryActor GAME RVA 0x1a7ec0 (VA 0x5a7ec0):
+        // STUB, distinct from RemoveTemporaryActor 0x5a79a0.
+        assert_eq!(REMOVE_TEMPORARY_ACTOR_PRIVATE_ENTRY, 0x5a7ec0);
+        assert_eq!(
+            remove_temporary_actor_private(7),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5a7ec0 })
+        );
+    }
+
+    #[test]
+    fn rva_1a84a0_new_shoot_reports_unsupported() {
+        // C_game::NewShoot GAME RVA 0x1a84a0 (VA 0x5a84a0): STUB.
+        assert_eq!(NEW_SHOOT_ENTRY, 0x5a84a0);
+        assert_eq!(
+            new_shoot(1, [0.0; 3], [1.0, 0.0, 0.0], 2.5, 0, 9, 0),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5a84a0 })
+        );
+    }
+
+    #[test]
+    fn rva_1aae10_new_explosion_reports_unsupported() {
+        // C_game::NewExplosion GAME RVA 0x1aae10 (VA 0x5aae10): STUB.
+        assert_eq!(NEW_EXPLOSION_ENTRY, 0x5aae10);
+        assert_eq!(
+            new_explosion(1, [0.0; 3], 1.0, 2.0, false, true, false, 0),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5aae10 })
+        );
+    }
+
+    #[test]
+    fn rva_1acc00_stop_3d_sound_reports_unsupported() {
+        // C_game::Stop3DSound GAME RVA 0x1acc00 (VA 0x5acc00): STUB.
+        assert_eq!(STOP_3D_SOUND_ENTRY, 0x5acc00);
+        assert_eq!(
+            stop_3d_sound(3, true, 1.5),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5acc00 })
+        );
+    }
+
+    #[test]
+    fn rva_1ad2a0_add_frame_for_shadow_reports_unsupported() {
+        // C_game::AddFrameForShadow GAME RVA 0x1ad2a0 (VA 0x5ad2a0): STUB.
+        assert_eq!(ADD_FRAME_FOR_SHADOW_ENTRY, 0x5ad2a0);
+        assert_eq!(
+            add_frame_for_shadow(4, 1, 2, Some(8), "semafor.i3d"),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ad2a0 })
+        );
+        assert_eq!(
+            add_frame_for_shadow(4, 1, 2, None, "semafor.i3d"),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ad2a0 })
+        );
+    }
+
+    #[test]
+    fn rva_1ad7c0_del_frame_for_shadow_reports_unsupported() {
+        // C_game::DelFrameForShadow GAME RVA 0x1ad7c0 (VA 0x5ad7c0): STUB.
+        assert_eq!(DEL_FRAME_FOR_SHADOW_ENTRY, 0x5ad7c0);
+        assert_eq!(
+            del_frame_for_shadow(4, 1),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ad7c0 })
+        );
     }
 }

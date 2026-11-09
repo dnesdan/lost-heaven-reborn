@@ -220,6 +220,31 @@ impl MissionLifecycle {
             particles: self.word(0xa8) as i32,
         }
     }
+
+    /// Working name (no outline Game.exe entry is claimed; inline only,
+    /// mafia-re `game/mission/Mission.h:290-294`,
+    /// `C_mission::ResetMissionNumbers`): clears both staged mission numbers
+    /// (mission +0x70 `next_mission_number`, +0x74 `mission_number`) through
+    /// one load of the mission, as the reference does. The body is inlined
+    /// at the single `main` call site, so no Game.exe function entry exists
+    /// and none is claimed here.
+    pub fn reset_mission_numbers(&mut self) {
+        self.put_word(0x70, 0);
+        self.put_word(0x74, 0);
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; folded copy,
+    /// mafia-re `game/mission/Mission.h:272-277`,
+    /// `C_mission::GetMissionName`): reads the staged mission-name word
+    /// (mission +0x68, `char *mission_name`). The reference folds the only
+    /// outline copy with `C_actor::GetFrame` (kept as
+    /// `BaseActorState::frame_id`, GAME 0x47afb0 / RVA 0x7afb0), so the copy
+    /// names the shared body and no separate mission RVA is claimed here.
+    /// The host keeps the word; string ownership stays with the mission
+    /// name owner.
+    pub fn mission_name_word(&self) -> u32 {
+        self.word(0x68)
+    }
     pub fn pending_scene(&self) -> Option<SceneKey> {
         self.pending_scene
     }
@@ -983,6 +1008,112 @@ impl MissionLifecycle {
         }
         self.phase = MissionPhase::Complete;
         Ok(report)
+    }
+}
+
+/// Texture-shift element flag: the shift sets the mesh texture offsets
+/// (`u_ofs`, `v_ofs`; mafia-re `game/mission/tshift.h:41`).
+pub const TSHIFT_TEXTURE: u16 = 1;
+/// Texture-shift element flag: the shift sets the environment-map offsets
+/// (`env_u_ofs`, `env_v_ofs`; mafia-re `game/mission/tshift.h:42`).
+pub const TSHIFT_ENVIRONMENT: u16 = 2;
+
+/// Staged texture-shift element (mafia-re `game/mission/tshift.h:15-38`,
+/// `S_tshift_elem`, 0x1c bytes). Native `I3D_mesh_object`/`I3D_visual`
+/// pointers are staged identity words; live mesh/visual ownership stays
+/// with the scene owner.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TshiftElem {
+    pub mesh: u32,
+    pub visual: u32,
+    pub u_speed: f32,
+    pub v_speed: f32,
+    pub u: f32,
+    pub v: f32,
+    pub flags: u16,
+}
+
+impl TshiftElem {
+    /// FUNCTION: GAME RVA 0x145250, VA 0x545250 (mafia-re
+    /// `game/mission/tshift.h:23-35`, `S_tshift_elem::Init`): stores the
+    /// mesh/visual words and the per-second speeds, zeroes the shift and
+    /// stores the flags. Store order is unspecified (VC6 groups the
+    /// constant stores), so only the resulting values are contracted.
+    pub fn init(mesh: u32, visual: u32, u_speed: f32, v_speed: f32, flags: u16) -> Self {
+        Self {
+            mesh,
+            visual,
+            u_speed,
+            v_speed,
+            u: 0.0,
+            v: 0.0,
+            flags,
+        }
+    }
+}
+
+/// Owned texture-shift list (mafia-re `game/mission/tshift.h:45-62`,
+/// `C_tshift`, `elems` at +0x0). Element storage stays here; live
+/// mesh/visual ownership stays with the scene owner.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TshiftStore {
+    pub elems: Vec<TshiftElem>,
+}
+
+impl TshiftStore {
+    /// FUNCTION: GAME RVA 0x145280, VA 0x545280 (mafia-re
+    /// `game/mission/tshift.h:56-61`, `C_tshift::Add`): pushes the staged
+    /// element. The inlined `push_back` growth stays with the host `Vec`.
+    pub fn add(&mut self, elem: TshiftElem) {
+        self.elems.push(elem);
+    }
+}
+
+/// Host sink for the flag-gated mesh offset writes of
+/// [`tshift_elem_tick`]. Mirrors the two `SetOffsets` call sites (texture
+/// vs. environment); live mesh/visual ownership stays deferred.
+pub trait TshiftOffsetsBackend {
+    fn set_texture_offsets(&mut self, u: f32, v: f32);
+    fn set_env_offsets(&mut self, u: f32, v: f32);
+}
+
+/// FUNCTION: GAME RVA 0x160410, VA 0x560410 (mafia-re
+/// `game/mission/tshift.cpp:19-52`, `S_tshift_elem::Tick`): advances the
+/// shift by `t` seconds and wraps each axis into (-1.0, 1.0] via the
+/// reference's `floor`/`ceil` subtraction (`floor` past +1.0, `ceil` past
+/// -1.0, untouched otherwise, NaN included). The flag-gated offset stores
+/// run through the backend in native order (texture, then environment);
+/// the FPU copy width of the original is a host `f32` copy here.
+pub fn tshift_elem_tick(elem: &mut TshiftElem, t: f32, backend: &mut impl TshiftOffsetsBackend) {
+    elem.u += t * elem.u_speed;
+    if elem.u > 1.0 {
+        elem.u -= elem.u.floor();
+    } else if elem.u < -1.0 {
+        elem.u -= elem.u.ceil();
+    }
+    elem.v += t * elem.v_speed;
+    if elem.v > 1.0 {
+        elem.v -= elem.v.floor();
+    } else if elem.v < -1.0 {
+        elem.v -= elem.v.ceil();
+    }
+    if elem.flags & TSHIFT_TEXTURE != 0 {
+        backend.set_texture_offsets(elem.u, elem.v);
+    }
+    if elem.flags & TSHIFT_ENVIRONMENT != 0 {
+        backend.set_env_offsets(elem.u, elem.v);
+    }
+}
+
+/// FUNCTION: GAME RVA 0x145fd0, VA 0x545fd0 (mafia-re
+/// `game/mission/Mission.h:408-412` marker, `game/mission/Mission.cpp:1844-1850`,
+/// static `ClearCarSeats`): empties the car's seats from the last one via
+/// `SetOwner(NULL, i, 0.0)`. The car/seat owners stay deferred, so the host
+/// takes the staged seat slots and clears them back-to-front in the same
+/// order; `0.0` is the native detach parameter and carries no value here.
+pub fn clear_car_seats(seats: &mut [Option<u32>]) {
+    for slot in seats.iter_mut().rev() {
+        *slot = None;
     }
 }
 
@@ -2028,5 +2159,95 @@ mod tests {
             assert_eq!(mission.bytes[0x0c], 1);
             assert_eq!(mission.components().filter(|(_, alive)| *alive).count(), 5);
         });
+    }
+    #[test]
+    fn tshift_elem_init_rva_145250_stores_speeds_and_zeroes_shift() {
+        // S_tshift_elem::Init GAME RVA 0x145250 (VA 0x545250).
+        let elem = TshiftElem::init(0x11, 0x22, 0.5, -1.25, TSHIFT_TEXTURE | TSHIFT_ENVIRONMENT);
+        assert_eq!(elem.mesh, 0x11);
+        assert_eq!(elem.visual, 0x22);
+        assert_eq!(elem.u_speed, 0.5);
+        assert_eq!(elem.v_speed, -1.25);
+        assert_eq!(elem.u, 0.0);
+        assert_eq!(elem.v, 0.0);
+        assert_eq!(elem.flags, TSHIFT_TEXTURE | TSHIFT_ENVIRONMENT);
+    }
+    #[test]
+    fn tshift_add_rva_145280_pushes_elements_in_order() {
+        // C_tshift::Add GAME RVA 0x145280 (VA 0x545280).
+        let mut store = TshiftStore::default();
+        let first = TshiftElem::init(1, 2, 0.0, 0.0, TSHIFT_TEXTURE);
+        let second = TshiftElem::init(3, 4, 1.0, 1.0, TSHIFT_ENVIRONMENT);
+        store.add(first);
+        store.add(second);
+        assert_eq!(store.elems, vec![first, second]);
+    }
+    struct OffsetLog {
+        texture: Vec<[f32; 2]>,
+        env: Vec<[f32; 2]>,
+    }
+    impl TshiftOffsetsBackend for OffsetLog {
+        fn set_texture_offsets(&mut self, u: f32, v: f32) {
+            self.texture.push([u, v]);
+        }
+        fn set_env_offsets(&mut self, u: f32, v: f32) {
+            self.env.push([u, v]);
+        }
+    }
+    #[test]
+    fn tshift_elem_tick_rva_160410_wraps_and_gates_by_flags() {
+        // S_tshift_elem::Tick GAME RVA 0x160410 (VA 0x560410). Exact binary
+        // fractions keep the f32 wrap assertions bit-exact.
+        let mut backend = OffsetLog { texture: vec![], env: vec![] };
+        let mut elem = TshiftElem::init(1, 2, 0.75, -0.75, TSHIFT_TEXTURE | TSHIFT_ENVIRONMENT);
+        tshift_elem_tick(&mut elem, 2.0, &mut backend);
+        assert_eq!(elem.u, 0.5);
+        assert_eq!(elem.v, -0.5);
+        assert_eq!(backend.texture, vec![[0.5, -0.5]]);
+        assert_eq!(backend.env, vec![[0.5, -0.5]]);
+        // Texture-only: env sink stays quiet; in-range shift passes through.
+        let mut backend = OffsetLog { texture: vec![], env: vec![] };
+        let mut elem = TshiftElem::init(1, 2, 0.25, 0.25, TSHIFT_TEXTURE);
+        tshift_elem_tick(&mut elem, 1.0, &mut backend);
+        assert_eq!((elem.u, elem.v), (0.25, 0.25));
+        assert_eq!(backend.texture.len(), 1);
+        assert!(backend.env.is_empty());
+        // No flags: no sink writes, shift still advances.
+        let mut backend = OffsetLog { texture: vec![], env: vec![] };
+        let mut elem = TshiftElem::init(1, 2, 0.5, 0.5, 0);
+        tshift_elem_tick(&mut elem, 1.0, &mut backend);
+        assert_eq!((elem.u, elem.v), (0.5, 0.5));
+        assert!(backend.texture.is_empty() && backend.env.is_empty());
+    }
+    #[test]
+    fn clear_car_seats_rva_145fd0_clears_back_to_front() {
+        // Static ClearCarSeats GAME RVA 0x145fd0 (VA 0x545fd0).
+        let mut seats = vec![Some(11u32), Some(22), Some(33)];
+        clear_car_seats(&mut seats);
+        assert_eq!(seats, vec![None, None, None]);
+        let mut empty: Vec<Option<u32>> = vec![];
+        clear_car_seats(&mut empty);
+        assert!(empty.is_empty());
+    }
+    #[test]
+    fn reset_mission_numbers_working_name_clears_both_staged_words() {
+        // Inline C_mission::ResetMissionNumbers (Mission.h:290-294); no
+        // outline RVA is claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        mission.put_word(0x70, 7);
+        mission.put_word(0x74, 9);
+        mission.reset_mission_numbers();
+        assert_eq!(mission.word(0x70), 0);
+        assert_eq!(mission.word(0x74), 0);
+    }
+    #[test]
+    fn mission_name_word_working_name_reads_staged_pointer_word() {
+        // C_mission::GetMissionName (Mission.h:272-277); the only outline
+        // copy is folded with C_actor::GetFrame (0x47afb0), so no separate
+        // mission RVA is claimed here.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.mission_name_word(), 0);
+        mission.put_word(0x68, 0x1234_5678);
+        assert_eq!(mission.mission_name_word(), 0x1234_5678);
     }
 }

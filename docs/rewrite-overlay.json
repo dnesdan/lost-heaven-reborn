@@ -15178,6 +15178,114 @@
       "symbol": "lhr_engine::driver_strings::driver_frame_type_string",
       "tier": "contract",
       "evidence": "Trampoline forward to FrameType2StringFunc (LS3DF 0x10019a10, I3d_driver.cpp:1559-1563). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x145250",
+      "va": "0x545250",
+      "name": "TshiftElem::init",
+      "symbol": "lhr_engine::mission_lifecycle::TshiftElem::init",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Tshift elem init (GAME 0x545250)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x145280",
+      "va": "0x545280",
+      "name": "TshiftStore::add",
+      "symbol": "lhr_engine::mission_lifecycle::TshiftStore::add",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Tshift store add (GAME 0x545280)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x160410",
+      "va": "0x560410",
+      "name": "tshift elem tick (working name)",
+      "symbol": "lhr_engine::mission_lifecycle::tshift_elem_tick",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Tshift tick (GAME 0x560410)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x145fd0",
+      "va": "0x545fd0",
+      "name": "clear car seats (working name)",
+      "symbol": "lhr_engine::mission_lifecycle::clear_car_seats",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Car seats clear (GAME 0x545fd0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1472f0",
+      "va": "0x5472f0",
+      "name": "C_game::C_game",
+      "symbol": "lhr_engine::game_housekeeping::GameCtorState::new",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Game ctor state (GAME 0x5472f0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a77c0",
+      "va": "0x5a77c0",
+      "name": "C_game::AddTemporaryActor STUB",
+      "symbol": "lhr_engine::game_housekeeping::add_temporary_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: actor owner deferred (GAME 0x5a77c0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a7ec0",
+      "va": "0x5a7ec0",
+      "name": "C_game::RemoveTemporaryActor STUB",
+      "symbol": "lhr_engine::game_housekeeping::remove_temporary_actor_private",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: actor owner deferred (GAME 0x5a7ec0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a84a0",
+      "va": "0x5a84a0",
+      "name": "C_game::NewShoot STUB",
+      "symbol": "lhr_engine::game_housekeeping::new_shoot",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x5a84a0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1aae10",
+      "va": "0x5aae10",
+      "name": "C_game::NewExplosion STUB",
+      "symbol": "lhr_engine::game_housekeeping::new_explosion",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x5aae10)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1acc00",
+      "va": "0x5acc00",
+      "name": "C_game::Stop3DSound STUB",
+      "symbol": "lhr_engine::game_housekeeping::stop_3d_sound",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: sound owner deferred (GAME 0x5acc00)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ad2a0",
+      "va": "0x5ad2a0",
+      "name": "C_game::AddFrameForShadow STUB",
+      "symbol": "lhr_engine::game_housekeeping::add_frame_for_shadow",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x5ad2a0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ad7c0",
+      "va": "0x5ad7c0",
+      "name": "C_game::DelFrameForShadow STUB",
+      "symbol": "lhr_engine::game_housekeeping::del_frame_for_shadow",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x5ad7c0)."
     }
   ],
   "vm": {
