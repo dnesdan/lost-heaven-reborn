@@ -411,7 +411,9 @@ class RewriteProgressTests(unittest.TestCase):
         # +13 ai-loc/blob/char-struct contracts (ai_loc x3, blob x3,
         # ground-delta STUBs x2, ReadOldCharStruct x2, dtor/death/push STUBs;
         # 2 subagent test bugs fixed; marker-only, tests green).
-        self.assertEqual(game["ported"], 149 + 749)
+        # +10 vehicle setter contracts (sound-volume clean + 9 STUBs; 4 ledger
+        # duplicates held unfiled with docs+tests clarified).
+        self.assertEqual(game["ported"], 149 + 759)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

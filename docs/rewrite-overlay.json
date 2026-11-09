@@ -15079,6 +15079,96 @@
       "symbol": "lhr_engine::human_actor::push_out_of_walls_unsupported",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. STUB: wall owner deferred (GAME 0x58c4f0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xef0d0",
+      "va": "0x4ef0d0",
+      "name": "C_Vehicle::SetSoundVolume",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_sound_volume",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1d810",
+      "va": "0x41d810",
+      "name": "C_car::SetOwner",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_owner_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ea00",
+      "va": "0x41ea00",
+      "name": "C_car::SetActualLevel",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_actual_level_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb00",
+      "va": "0x41eb00",
+      "name": "C_car::InitFFEffects",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_init_ff_effects_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eca0",
+      "va": "0x41eca0",
+      "name": "C_car::DoneFFEffects",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_done_ff_effects_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcd640",
+      "va": "0x4cd640",
+      "name": "C_Vehicle::SetProjectorSize",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_projector_size_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcb570",
+      "va": "0x4cb570",
+      "name": "C_Vehicle::SetSteeringLinearity",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_steering_linearity_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcb6a0",
+      "va": "0x4cb6a0",
+      "name": "C_Vehicle::SetSpeedLimit",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_speed_limit_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcb780",
+      "va": "0x4cb780",
+      "name": "C_Vehicle::EnableSounds",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_enable_sounds_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2ba10",
+      "va": "0x42ba10",
+      "name": "C_car::IsSeatLeft",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_is_seat_left_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
     }
   ],
   "vm": {

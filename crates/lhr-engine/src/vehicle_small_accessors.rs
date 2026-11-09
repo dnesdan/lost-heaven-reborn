@@ -460,6 +460,213 @@ pub fn car_set_force_feedback(
     slot.revs = revs;
 }
 
+/// RVA 0xef0d0, VA 0x4ef0d0 (`C_Vehicle::SetSoundVolume`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle_sounds.cpp:13-16`).
+/// Stores the vehicle-sound volume. The static `sound_volume` (GAME 0x634b00,
+/// default 1.0) stays with the sound owner; only the float assignment lives
+/// here.
+pub fn vehicle_set_sound_volume(slot: &mut f32, volume: f32) {
+    *slot = volume;
+}
+
+/// Explicit boundary for the still-unimplemented small vehicle setters and
+/// queries below. The entries name the original PC addresses (VA); the
+/// actor/scene/frame/sound/device owners stay outside this contract, so each
+/// reports the boundary instead of staging a value.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum VehicleSmallStubError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_car::SetOwner` 0x41d810: seats an actor, NULL clears it.
+pub const CAR_SET_OWNER_ENTRY: u32 = 0x41d810;
+/// `C_car::SetActualLevel` 0x41ea00: selects the tuning level.
+pub const CAR_SET_ACTUAL_LEVEL_ENTRY: u32 = 0x41ea00;
+/// `C_car::InitFFEffects` 0x41eb00: builds force-feedback effects.
+pub const CAR_INIT_FF_EFFECTS_ENTRY: u32 = 0x41eb00;
+/// `C_car::DoneFFEffects` 0x41eca0: frees force-feedback effects.
+pub const CAR_DONE_FF_EFFECTS_ENTRY: u32 = 0x41eca0;
+/// `C_Vehicle::SetPower` 0x4cb130: engine power input.
+pub const VEHICLE_SET_POWER_ENTRY: u32 = 0x4cb130;
+/// `C_Vehicle::SetBrake` 0x4cb2d0: brake input.
+pub const VEHICLE_SET_BRAKE_ENTRY: u32 = 0x4cb2d0;
+/// `C_Vehicle::SetProjectorSize` 0x4cd640: projector-light size.
+pub const VEHICLE_SET_PROJECTOR_SIZE_ENTRY: u32 = 0x4cd640;
+/// `C_Vehicle::SetSteeringLinearity` 0x4cb570: steering linearity.
+pub const VEHICLE_SET_STEERING_LINEARITY_ENTRY: u32 = 0x4cb570;
+/// `C_Vehicle::SetSpeedLimit` 0x4cb6a0: speed limiter.
+pub const VEHICLE_SET_SPEED_LIMIT_ENTRY: u32 = 0x4cb6a0;
+/// `C_Vehicle::EnableSounds` 0x4cb780: vehicle sounds on/off.
+pub const VEHICLE_ENABLE_SOUNDS_ENTRY: u32 = 0x4cb780;
+/// `C_car::IsSeatLeft` 0x42ba10: whether a seat is on the left.
+pub const CAR_IS_SEAT_LEFT_ENTRY: u32 = 0x42ba10;
+/// `C_car::GetSeatProperty` 0x41dc30: seat flags query.
+pub const CAR_GET_SEAT_PROPERTY_ENTRY: u32 = 0x41dc30;
+/// `C_car::GetPlacementFromTCK` 0x41c550: seat animation placement query.
+pub const CAR_GET_PLACEMENT_FROM_TCK_ENTRY: u32 = 0x41c550;
+
+/// RVA 0x1d810, VA 0x41d810 (`C_car::SetOwner`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:318-323`).
+/// STUB: seats `actor` (opaque identity, NULL clears) at `seat` with `mass`.
+/// The seat-vector/actor owners stay outside this contract, so the boundary
+/// is explicit; the native `bool` answer is preserved in the return type.
+pub fn car_set_owner_unsupported(
+    _actor: u32,
+    _seat: i32,
+    _mass: f32,
+) -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_SET_OWNER_ENTRY,
+    })
+}
+
+/// RVA 0x1ea00, VA 0x41ea00 (`C_car::SetActualLevel`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:353-358`).
+/// STUB: selects tuning `level`. The level-vector owner stays outside this
+/// contract, so the boundary is explicit.
+pub fn car_set_actual_level_unsupported(_level: i32) -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_SET_ACTUAL_LEVEL_ENTRY,
+    })
+}
+
+/// RVA 0x1eb00, VA 0x41eb00 (`C_car::InitFFEffects`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:360-364`).
+/// STUB: builds the force-feedback effects. The joystick/device owner stays
+/// outside this contract, so the boundary is explicit.
+pub fn car_init_ff_effects_unsupported() -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_INIT_FF_EFFECTS_ENTRY,
+    })
+}
+
+/// RVA 0x1eca0, VA 0x41eca0 (`C_car::DoneFFEffects`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:366-370`).
+/// STUB: frees the force-feedback effects. The joystick/device owner stays
+/// outside this contract, so the boundary is explicit.
+pub fn car_done_ff_effects_unsupported() -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_DONE_FF_EFFECTS_ENTRY,
+    })
+}
+
+/// RVA 0xcb130, VA 0x4cb130 (`C_Vehicle::SetPower`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:130-134`).
+/// Already ported in the frozen ledger as
+/// `vehicle_controls::VehicleControlState::set_power`, so this spelling
+/// carries no new function credit: same native, second host spelling.
+/// STUB: engine `power` input with a second flag. The dynamics owner stays
+/// outside this contract, so the boundary is explicit.
+pub fn vehicle_set_power_unsupported(
+    _power: f32,
+    _unknown: bool,
+) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: VEHICLE_SET_POWER_ENTRY,
+    })
+}
+
+/// RVA 0xcb2d0, VA 0x4cb2d0 (`C_Vehicle::SetBrake`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:136-140`).
+/// Already ported in the frozen ledger as
+/// `vehicle_controls::VehicleControlState::set_brake`, so this spelling
+/// carries no new function credit: same native, second host spelling.
+/// STUB: `brake` input. The dynamics owner stays outside this contract, so
+/// the boundary is explicit.
+pub fn vehicle_set_brake_unsupported(_brake: f32) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: VEHICLE_SET_BRAKE_ENTRY,
+    })
+}
+
+/// RVA 0xcd640, VA 0x4cd640 (`C_Vehicle::SetProjectorSize`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:207-211`).
+/// STUB: sizes projector-light `projector` to `size`. The light/device owner
+/// stays outside this contract, so the boundary is explicit.
+pub fn vehicle_set_projector_size_unsupported(
+    _projector: u32,
+    _size: [f32; 3],
+) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: VEHICLE_SET_PROJECTOR_SIZE_ENTRY,
+    })
+}
+
+/// RVA 0xcb570, VA 0x4cb570 (`C_Vehicle::SetSteeringLinearity`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:266-270`).
+/// STUB: steering `linearity`. The dynamics/device owner stays outside this
+/// contract, so the boundary is explicit.
+pub fn vehicle_set_steering_linearity_unsupported(
+    _linearity: f32,
+) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: VEHICLE_SET_STEERING_LINEARITY_ENTRY,
+    })
+}
+
+/// RVA 0xcb6a0, VA 0x4cb6a0 (`C_Vehicle::SetSpeedLimit`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:272-276`).
+/// STUB: speed `limit`. The dynamics owner stays outside this contract, so
+/// the boundary is explicit.
+pub fn vehicle_set_speed_limit_unsupported(_limit: f32) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: VEHICLE_SET_SPEED_LIMIT_ENTRY,
+    })
+}
+
+/// RVA 0xcb780, VA 0x4cb780 (`C_Vehicle::EnableSounds`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:278-282`).
+/// STUB: vehicle sounds on/off. The sound owner stays outside this contract,
+/// so the boundary is explicit.
+pub fn vehicle_enable_sounds_unsupported(_on: bool) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: VEHICLE_ENABLE_SOUNDS_ENTRY,
+    })
+}
+
+/// RVA 0x2ba10, VA 0x42ba10 (`C_car::IsSeatLeft`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:683-688`).
+/// STUB: whether `seat` is on the left. The seat-vector owner stays outside
+/// this contract, so the boundary is explicit; the native `bool` answer is
+/// preserved in the return type.
+pub fn car_is_seat_left_unsupported(_seat: i32) -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_IS_SEAT_LEFT_ENTRY,
+    })
+}
+
+/// RVA 0x1dc30, VA 0x41dc30 (`C_car::GetSeatProperty`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:690-695`).
+/// Already ported in the frozen ledger as `car_effects::car_get_seat_property`,
+/// so this spelling carries no new function credit: same native, second host
+/// spelling.
+/// STUB: reads the four seat-property flags of `seat`. The seat-vector owner
+/// stays outside this contract, so no flag is staged and the boundary is
+/// explicit; the native `bool` answer is preserved in the return type.
+pub fn car_get_seat_property_unsupported(_seat: i32) -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_GET_SEAT_PROPERTY_ENTRY,
+    })
+}
+
+/// RVA 0x1c550, VA 0x41c550 (`C_car::GetPlacementFromTCK`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:697-702`).
+/// Already ported in the frozen ledger as `car_effects::car_get_placement_from_tck`,
+/// so this spelling carries no new function credit: same native, second host
+/// spelling.
+/// STUB: seat-animation start placement for `seat`/`anim`. The
+/// frame/seat owners stay outside this contract, so no position is staged
+/// and the boundary is explicit; the native `bool` answer is preserved in
+/// the return type.
+pub fn car_get_placement_from_tck_unsupported(
+    _seat: i32,
+    _anim: i32,
+) -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_GET_PLACEMENT_FROM_TCK_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -882,6 +1089,146 @@ mod tests {
                 suspension: 4.0,
                 revs: 5.0,
             }
+        );
+    }
+
+    #[test]
+    fn rva_ef0d0_set_sound_volume_stores_value() {
+        // C_Vehicle::SetSoundVolume GAME RVA 0xef0d0 (VA 0x4ef0d0).
+        let mut slot = 1.0f32;
+        vehicle_set_sound_volume(&mut slot, 0.5);
+        assert_eq!(slot, 0.5);
+        vehicle_set_sound_volume(&mut slot, 0.0);
+        assert_eq!(slot, 0.0);
+    }
+
+    #[test]
+    fn rva_1d810_set_owner_reports_unsupported() {
+        // C_car::SetOwner GAME RVA 0x1d810 (VA 0x41d810).
+        assert_eq!(CAR_SET_OWNER_ENTRY, 0x41d810);
+        assert_eq!(
+            car_set_owner_unsupported(0x1234, 0, 80.0),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x41d810 })
+        );
+    }
+
+    #[test]
+    fn rva_1ea00_set_actual_level_reports_unsupported() {
+        // C_car::SetActualLevel GAME RVA 0x1ea00 (VA 0x41ea00).
+        assert_eq!(CAR_SET_ACTUAL_LEVEL_ENTRY, 0x41ea00);
+        assert_eq!(
+            car_set_actual_level_unsupported(1),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x41ea00 })
+        );
+    }
+
+    #[test]
+    fn rva_1eb00_init_ff_effects_reports_unsupported() {
+        // C_car::InitFFEffects GAME RVA 0x1eb00 (VA 0x41eb00).
+        assert_eq!(CAR_INIT_FF_EFFECTS_ENTRY, 0x41eb00);
+        assert_eq!(
+            car_init_ff_effects_unsupported(),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x41eb00 })
+        );
+    }
+
+    #[test]
+    fn rva_1eca0_done_ff_effects_reports_unsupported() {
+        // C_car::DoneFFEffects GAME RVA 0x1eca0 (VA 0x41eca0).
+        assert_eq!(CAR_DONE_FF_EFFECTS_ENTRY, 0x41eca0);
+        assert_eq!(
+            car_done_ff_effects_unsupported(),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x41eca0 })
+        );
+    }
+
+    #[test]
+    fn set_power_second_spelling_reports_unsupported() {
+        // C_Vehicle::SetPower GAME RVA 0xcb130 (VA 0x4cb130; ledger-duplicate).
+        assert_eq!(VEHICLE_SET_POWER_ENTRY, 0x4cb130);
+        assert_eq!(
+            vehicle_set_power_unsupported(1.0, false),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4cb130 })
+        );
+    }
+
+    #[test]
+    fn set_brake_second_spelling_reports_unsupported() {
+        // C_Vehicle::SetBrake GAME RVA 0xcb2d0 (VA 0x4cb2d0; ledger-duplicate).
+        assert_eq!(VEHICLE_SET_BRAKE_ENTRY, 0x4cb2d0);
+        assert_eq!(
+            vehicle_set_brake_unsupported(0.5),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4cb2d0 })
+        );
+    }
+
+    #[test]
+    fn rva_cd640_set_projector_size_reports_unsupported() {
+        // C_Vehicle::SetProjectorSize GAME RVA 0xcd640 (VA 0x4cd640).
+        assert_eq!(VEHICLE_SET_PROJECTOR_SIZE_ENTRY, 0x4cd640);
+        assert_eq!(
+            vehicle_set_projector_size_unsupported(0x800000, [1.0, 2.0, 3.0]),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4cd640 })
+        );
+    }
+
+    #[test]
+    fn rva_cb570_set_steering_linearity_reports_unsupported() {
+        // C_Vehicle::SetSteeringLinearity GAME RVA 0xcb570 (VA 0x4cb570).
+        assert_eq!(VEHICLE_SET_STEERING_LINEARITY_ENTRY, 0x4cb570);
+        assert_eq!(
+            vehicle_set_steering_linearity_unsupported(1.0),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4cb570 })
+        );
+    }
+
+    #[test]
+    fn rva_cb6a0_set_speed_limit_reports_unsupported() {
+        // C_Vehicle::SetSpeedLimit GAME RVA 0xcb6a0 (VA 0x4cb6a0).
+        assert_eq!(VEHICLE_SET_SPEED_LIMIT_ENTRY, 0x4cb6a0);
+        assert_eq!(
+            vehicle_set_speed_limit_unsupported(16.0),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4cb6a0 })
+        );
+    }
+
+    #[test]
+    fn rva_cb780_enable_sounds_reports_unsupported() {
+        // C_Vehicle::EnableSounds GAME RVA 0xcb780 (VA 0x4cb780).
+        assert_eq!(VEHICLE_ENABLE_SOUNDS_ENTRY, 0x4cb780);
+        assert_eq!(
+            vehicle_enable_sounds_unsupported(true),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4cb780 })
+        );
+    }
+
+    #[test]
+    fn rva_2ba10_is_seat_left_reports_unsupported() {
+        // C_car::IsSeatLeft GAME RVA 0x2ba10 (VA 0x42ba10).
+        assert_eq!(CAR_IS_SEAT_LEFT_ENTRY, 0x42ba10);
+        assert_eq!(
+            car_is_seat_left_unsupported(0),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42ba10 })
+        );
+    }
+
+    #[test]
+    fn get_seat_property_second_spelling_reports_unsupported() {
+        // C_car::GetSeatProperty GAME RVA 0x1dc30 (VA 0x41dc30; ledger-duplicate).
+        assert_eq!(CAR_GET_SEAT_PROPERTY_ENTRY, 0x41dc30);
+        assert_eq!(
+            car_get_seat_property_unsupported(1),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x41dc30 })
+        );
+    }
+
+    #[test]
+    fn get_placement_from_tck_second_spelling_reports_unsupported() {
+        // C_car::GetPlacementFromTCK GAME RVA 0x1c550 (VA 0x41c550; ledger-duplicate).
+        assert_eq!(CAR_GET_PLACEMENT_FROM_TCK_ENTRY, 0x41c550);
+        assert_eq!(
+            car_get_placement_from_tck_unsupported(0, 0),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x41c550 })
         );
     }
 }
