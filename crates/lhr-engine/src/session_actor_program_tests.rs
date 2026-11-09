@@ -366,7 +366,7 @@ fn session_actor_unwind_retains_game_prefix_program_and_precision_owner() {
         .unwrap();
         assert!(Arc::ptr_eq(&caught, &payload));
         assert_eq!(crate::native_precision::current_precision(), None);
-        assert!(!session.precision_state().precision_raised);
+        assert!(!session.precision_state().precision_raised());
         assert!(session.game_state().night_mission());
         assert!(session.game_state().anim_preload());
         let program = program(&session, kind);
