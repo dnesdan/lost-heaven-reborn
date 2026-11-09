@@ -477,6 +477,70 @@ pub fn frame_is_clipped(flags: u32) -> bool {
 pub fn frame_in_view(flags: u32) -> bool {
     flags & 0x10000 != 0
 }
+/// Working name for the FRMFLAGS_ROT_VALID bit test (mafia-re ls3df/I3D/I3D.h:260).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only tested inside the inlined `UpdateMatrix`/`SetRot` bodies.
+/// Reports whether `m_Rot` currently holds the local matrix rotation; no
+/// cache moves.
+pub fn frm_rot_valid(flags: u32) -> bool {
+    flags & 0x04 != 0
+}
+/// Working name for the FRMFLAGS_QUAT_VALID bit test (mafia-re ls3df/I3D/I3D.h:261).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only tested inside the inlined `UpdateMatrix` body. Reports
+/// whether `m_Rot` holds the rotation the local matrix was made from; no
+/// cache moves.
+pub fn frm_quat_valid(flags: u32) -> bool {
+    flags & 0x08 != 0
+}
+/// Working name for the FRMFLAGS_MAT_VALID bit test (mafia-re ls3df/I3D/I3D.h:262).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `GetLocalMatrix` (mafia-re ls3df/I3D/I3D.h:407-413) refreshes
+/// the matrix through it. Reports whether the local matrix is up to date; no
+/// cache moves.
+pub fn frm_mat_valid(flags: u32) -> bool {
+    flags & 0x10 != 0
+}
+/// Working name for the FRMFLAGS_WMAT_VALID bit test (mafia-re ls3df/I3D/I3D.h:263).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `UpdateWMatrix` (mafia-re ls3df/I3D/I3D.h:505-510) gates on it.
+/// Reports whether the world matrix is up to date; no cache moves.
+pub fn frm_wmat_valid(flags: u32) -> bool {
+    flags & 0x20 != 0
+}
+/// Working name for the FRMFLAGS_HR_BOUND_VALID bit test (mafia-re ls3df/I3D/I3D.h:264).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is cleared by `DiscardHRBoundVol` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:929-943) and set by `UpdateHRBoundVol`.
+/// Reports whether the local hierarchy bound volume is up to date; no cache
+/// moves.
+pub fn frm_hr_bound_valid(flags: u32) -> bool {
+    flags & 0x40 != 0
+}
+/// Working name for the FRMFLAGS_HR_BOUND_W_VALID bit test (mafia-re
+/// ls3df/I3D/I3D.h:266). The reference records no LS3DF FUNCTION address for
+/// a standalone reader; the inlined `GetHRBoundVolumeW` (mafia-re
+/// ls3df/I3D/I3D.h:536-541) refreshes through it. Reports whether the world
+/// hierarchy bound volume is up to date; no cache moves.
+pub fn frm_hr_bound_w_valid(flags: u32) -> bool {
+    flags & 0x100 != 0
+}
+/// Working name for the FRMFLAGS_INTERPOLATOR bit test (mafia-re
+/// ls3df/I3D/I3D.h:285). The reference records no LS3DF FUNCTION address for
+/// a standalone reader; the bit is tested by the scene walker (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:681-684) and excluded from the Duplicate mask.
+/// Reports whether the frame owns an interpolator; no cache moves.
+pub fn frm_has_interpolator(flags: u32) -> bool {
+    flags & 0x1000_0000 != 0
+}
+/// Working name for the FRMFLAGS_CALLBACK_MASK projection (mafia-re
+/// ls3df/I3D/I3D.h:267). The reference records no LS3DF FUNCTION address for
+/// the mask itself; `SetCallback` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:225-234) intersects the input with it.
+/// Keeps only the callback message bits; no cache moves.
+pub fn frm_callback_bits(flags: u32) -> u32 {
+    flags & 0x1e00
+}
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
         let id = u32::try_from(self.nodes.len())
@@ -2990,6 +3054,71 @@ mod tests {
         assert!(!frame_in_view(0x200000));
         assert!(frame_in_view(u32::MAX));
         assert!(!frame_hr_areas_set(u32::MAX & !0x40000));
+    }
+    #[test]
+    fn rot_valid_reports_only_bit_two() {
+        assert!(frm_rot_valid(0x04));
+        assert!(frm_rot_valid(u32::MAX));
+        assert!(!frm_rot_valid(0));
+        assert!(!frm_rot_valid(0x08));
+        assert!(!frm_rot_valid(u32::MAX & !0x04));
+    }
+    #[test]
+    fn quat_valid_reports_only_bit_three() {
+        assert!(frm_quat_valid(0x08));
+        assert!(frm_quat_valid(u32::MAX));
+        assert!(!frm_quat_valid(0));
+        assert!(!frm_quat_valid(0x04));
+        assert!(!frm_quat_valid(u32::MAX & !0x08));
+    }
+    #[test]
+    fn mat_valid_reports_only_bit_four() {
+        assert!(frm_mat_valid(0x10));
+        assert!(frm_mat_valid(u32::MAX));
+        assert!(!frm_mat_valid(0));
+        assert!(!frm_mat_valid(0x20));
+        assert!(!frm_mat_valid(u32::MAX & !0x10));
+    }
+    #[test]
+    fn wmat_valid_reports_only_bit_five() {
+        assert!(frm_wmat_valid(0x20));
+        assert!(frm_wmat_valid(u32::MAX));
+        assert!(!frm_wmat_valid(0));
+        assert!(!frm_wmat_valid(0x10));
+        assert!(!frm_wmat_valid(u32::MAX & !0x20));
+    }
+    #[test]
+    fn hr_bound_valid_reports_only_bit_six() {
+        assert!(frm_hr_bound_valid(0x40));
+        assert!(frm_hr_bound_valid(u32::MAX));
+        assert!(!frm_hr_bound_valid(0));
+        assert!(!frm_hr_bound_valid(0x100));
+        assert!(!frm_hr_bound_valid(u32::MAX & !0x40));
+    }
+    #[test]
+    fn hr_bound_w_valid_reports_only_bit_eight() {
+        assert!(frm_hr_bound_w_valid(0x100));
+        assert!(frm_hr_bound_w_valid(u32::MAX));
+        assert!(!frm_hr_bound_w_valid(0));
+        assert!(!frm_hr_bound_w_valid(0x40));
+        assert!(!frm_hr_bound_w_valid(u32::MAX & !0x100));
+    }
+    #[test]
+    fn interpolator_reader_reports_only_bit_twenty_eight() {
+        assert!(frm_has_interpolator(0x1000_0000));
+        assert!(frm_has_interpolator(u32::MAX));
+        assert!(!frm_has_interpolator(0));
+        assert!(!frm_has_interpolator(0x4000));
+        assert!(!frm_has_interpolator(u32::MAX & !0x1000_0000));
+    }
+    #[test]
+    fn callback_bits_keep_only_the_mask() {
+        assert_eq!(frm_callback_bits(0x1e00), 0x1e00);
+        assert_eq!(frm_callback_bits(u32::MAX), 0x1e00);
+        assert_eq!(frm_callback_bits(0), 0);
+        assert_eq!(frm_callback_bits(0x100), 0);
+        assert_eq!(frm_callback_bits(0x1e01), 0x1e00);
+        assert_eq!(frm_callback_bits(0x2000), 0);
     }
     #[test]
     fn set_frame_local_matrix_stores_matrix_and_scale() {

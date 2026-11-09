@@ -34,6 +34,33 @@ pub const MIRF_VISIBLE: u32 = 0x100;
 pub const MIRF_REFLECT: u32 = 0x200;
 pub const VISF_BOUND_VALID: u32 = 0x0002_0000;
 pub const VISF_WBOUND_VALID: u32 = 0x0004_0000;
+/// VISF_INV_MAT_VALID 0x100000 (mafia-re ls3df/I3D/I3D.h:2706): inv_matrix is
+/// up to date; set by the inlined `I3D_visual::GetInvMatrix`.
+pub const VISF_INV_MAT_VALID: u32 = 0x0010_0000;
+/// Working name for the VISF_BOUND_VALID bit test (mafia-re ls3df/I3D/I3D.h:2703).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `I3D_visual::GetBoundVolume` (mafia-re ls3df/I3D/I3D.h:2771-2778)
+/// refreshes through it. Reports whether the local bound volume is up to
+/// date; no cache moves.
+pub fn vis_bound_valid(visual_flags: u32) -> bool {
+    visual_flags & VISF_BOUND_VALID != 0
+}
+/// Working name for the VISF_WBOUND_VALID bit test (mafia-re ls3df/I3D/I3D.h:2704).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `I3D_visual::GetWBoundVolume` (mafia-re ls3df/I3D/I3D.h:2762-2769)
+/// refreshes through it. Reports whether the world bound volume is up to
+/// date; no cache moves.
+pub fn vis_wbound_valid(visual_flags: u32) -> bool {
+    visual_flags & VISF_WBOUND_VALID != 0
+}
+/// Working name for the VISF_INV_MAT_VALID bit test (mafia-re ls3df/I3D/I3D.h:2706).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `I3D_visual::GetInvMatrix` (mafia-re ls3df/I3D/I3D.h:2780-2790)
+/// sets it after the inverse. Reports whether the inverse matrix is up to
+/// date; no cache moves.
+pub fn vis_inv_mat_valid(visual_flags: u32) -> bool {
+    visual_flags & VISF_INV_MAT_VALID != 0
+}
 pub const MIRROR_UPDATE_CLEAR_MASK: u32 = 0x001c_0000;
 pub const MIRROR_DIRTY_TEST: u32 = 0x4000_2000;
 /// Evidenced ctor stores: 'MIRR' at +0x1d4, 100.0f at +0x2d8, residue at +0x1f0.
@@ -1515,6 +1542,34 @@ mod tests {
             [0.0, 0.0, 0.0]
         )
         .unwrap());
+    }
+
+    #[test]
+    fn vis_bound_valid_reports_only_bit_seventeen() {
+        assert_eq!(VISF_BOUND_VALID, 0x0002_0000);
+        assert!(vis_bound_valid(VISF_BOUND_VALID));
+        assert!(vis_bound_valid(u32::MAX));
+        assert!(!vis_bound_valid(0));
+        assert!(!vis_bound_valid(VISF_WBOUND_VALID));
+        assert!(!vis_bound_valid(u32::MAX & !VISF_BOUND_VALID));
+    }
+    #[test]
+    fn vis_wbound_valid_reports_only_bit_eighteen() {
+        assert_eq!(VISF_WBOUND_VALID, 0x0004_0000);
+        assert!(vis_wbound_valid(VISF_WBOUND_VALID));
+        assert!(vis_wbound_valid(u32::MAX));
+        assert!(!vis_wbound_valid(0));
+        assert!(!vis_wbound_valid(VISF_INV_MAT_VALID));
+        assert!(!vis_wbound_valid(u32::MAX & !VISF_WBOUND_VALID));
+    }
+    #[test]
+    fn vis_inv_mat_valid_reports_only_bit_twenty() {
+        assert_eq!(VISF_INV_MAT_VALID, 0x0010_0000);
+        assert!(vis_inv_mat_valid(VISF_INV_MAT_VALID));
+        assert!(vis_inv_mat_valid(u32::MAX));
+        assert!(!vis_inv_mat_valid(0));
+        assert!(!vis_inv_mat_valid(VISF_BOUND_VALID));
+        assert!(!vis_inv_mat_valid(u32::MAX & !VISF_INV_MAT_VALID));
     }
 
     #[test]

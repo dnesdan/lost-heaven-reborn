@@ -23,6 +23,31 @@ pub fn dummy_inv_matrix_valid(dummy_flags: u32) -> bool {
     dummy_flags & DUMMYF_INV_MAT_VALID != 0
 }
 
+/// DUMMYF_NORMALIZED 0x1 (mafia-re ls3df/I3D/I3D.h:1822): Normalize mapped
+/// the box to (0, 0, 0)-(1, 1, 1).
+pub const DUMMYF_NORMALIZED: u32 = 0x01;
+/// DUMMYF_NORMALIZED_CENTER 0x2 (mafia-re ls3df/I3D/I3D.h:1823): Normalize
+/// mapped the box to (-1, -1, -1)-(1, 1, 1).
+pub const DUMMYF_NORMALIZED_CENTER: u32 = 0x02;
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the DUMMYF_NORMALIZED bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:1822; set by `Normalize`, mafia-re
+/// ls3df/I3D/frames/I3d_dummy.cpp:62-69). Reports the (0, 0, 0)-(1, 1, 1)
+/// normalization; no state moves.
+pub fn dummy_is_normalized(dummy_flags: u32) -> bool {
+    dummy_flags & DUMMYF_NORMALIZED != 0
+}
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the DUMMYF_NORMALIZED_CENTER bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:1823; set by `Normalize`, mafia-re
+/// ls3df/I3D/frames/I3d_dummy.cpp:52-60). Reports the centered (-1, -1,
+/// -1)-(1, 1, 1) normalization; no state moves.
+pub fn dummy_is_center_normalized(dummy_flags: u32) -> bool {
+    dummy_flags & DUMMYF_NORMALIZED_CENTER != 0
+}
+
 impl ModelArena {
     pub fn create_dummy_frame(&mut self) -> Result<FrameKey, ModelError> {
         self.insert(
@@ -249,6 +274,28 @@ mod tests {
         assert!(!dummy_inv_matrix_valid(0));
         assert!(!dummy_inv_matrix_valid(0x03));
         assert!(!dummy_inv_matrix_valid(0x20));
+    }
+    #[test]
+    fn normalized_reader_reports_only_bit_zero() {
+        assert_eq!(DUMMYF_NORMALIZED, 0x01);
+        assert!(dummy_is_normalized(DUMMYF_NORMALIZED));
+        assert!(dummy_is_normalized(u32::MAX));
+        assert!(!dummy_is_normalized(0));
+        assert!(!dummy_is_normalized(DUMMYF_NORMALIZED_CENTER));
+        assert!(!dummy_is_normalized(DUMMYF_INV_MAT_VALID));
+        assert!(!dummy_is_normalized(u32::MAX & !DUMMYF_NORMALIZED));
+    }
+    #[test]
+    fn center_normalized_reader_reports_only_bit_one() {
+        assert_eq!(DUMMYF_NORMALIZED_CENTER, 0x02);
+        assert!(dummy_is_center_normalized(DUMMYF_NORMALIZED_CENTER));
+        assert!(dummy_is_center_normalized(u32::MAX));
+        assert!(!dummy_is_center_normalized(0));
+        assert!(!dummy_is_center_normalized(DUMMYF_NORMALIZED));
+        assert!(!dummy_is_center_normalized(DUMMYF_INV_MAT_VALID));
+        assert!(!dummy_is_center_normalized(
+            u32::MAX & !DUMMYF_NORMALIZED_CENTER
+        ));
     }
     #[test]
     fn genuine_dummy_constructor_box_copy_and_last_release_share_one_owner() {

@@ -25,6 +25,27 @@ impl From<SectorError> for ModelError {
         Self::Sector(e)
     }
 }
+/// SCTF_VISIBLE 0x1 (mafia-re ls3df/I3D/I3D.h:902): the portal walk found the
+/// sector in the view depth range this frame.
+pub const SCTF_VISIBLE: u32 = 0x01;
+/// SCTF_PREPARED 0x4 (mafia-re ls3df/I3D/I3D.h:905): MakeReady ran, so the
+/// sector owns its hull planes.
+pub const SCTF_PREPARED: u32 = 0x04;
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_VISIBLE bit. The reference records no LS3DF FUNCTION address for
+/// a standalone reader (I3D.h:902; set by the portal walk). Reports whether
+/// the sector was found in view this frame; no state moves.
+pub fn sector_is_visible(sector_flags: u32) -> bool {
+    sector_flags & SCTF_VISIBLE != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_PREPARED bit. The reference records no LS3DF FUNCTION address
+/// for a standalone reader (I3D.h:905; set by `MakeReady`, mafia-re
+/// ls3df/I3D/frames/I3d_sector.cpp:333-348). Reports whether the sector hull
+/// is prepared; no state moves.
+pub fn sector_is_prepared(sector_flags: u32) -> bool {
+    sector_flags & SCTF_PREPARED != 0
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SectorBufferKey {
     domain: u64,
@@ -1081,6 +1102,24 @@ mod tests {
         assert_ne!(arena.state(key.frame()).unwrap().flags & 0x100, 0);
         arena.release(key.frame()).unwrap();
         assert_eq!(arena.sector_storage.live_allocations(), 0);
+    }
+    #[test]
+    fn sector_visible_reports_only_bit_zero() {
+        assert_eq!(SCTF_VISIBLE, 0x01);
+        assert!(sector_is_visible(SCTF_VISIBLE));
+        assert!(sector_is_visible(u32::MAX));
+        assert!(!sector_is_visible(0));
+        assert!(!sector_is_visible(SCTF_PREPARED));
+        assert!(!sector_is_visible(u32::MAX & !SCTF_VISIBLE));
+    }
+    #[test]
+    fn sector_prepared_reports_only_bit_two() {
+        assert_eq!(SCTF_PREPARED, 0x04);
+        assert!(sector_is_prepared(SCTF_PREPARED));
+        assert!(sector_is_prepared(u32::MAX));
+        assert!(!sector_is_prepared(0));
+        assert!(!sector_is_prepared(SCTF_VISIBLE));
+        assert!(!sector_is_prepared(u32::MAX & !SCTF_PREPARED));
     }
     #[test]
     fn get_sector_honors_hint_before_ring_but_does_not_filter_ring_primary_flag() {
