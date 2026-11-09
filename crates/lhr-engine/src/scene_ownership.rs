@@ -1386,6 +1386,75 @@ impl ModelArena {
     pub fn scene_has_animation_set(&self, scene: SceneKey) -> Result<bool, ModelError> {
         Ok(self.scene(scene)?.scene_animation.is_some())
     }
+    /// Working name for the `bg_color` words at scene +0x220
+    /// (mafia-re `ls3df/I3D/I3D.h:1568`; stored by the constructor
+    /// `I3d_scene.cpp:96` as (0.0, 0.5, 0.4)). No LS3DF FUNCTION
+    /// address exists for a getter: only `SetGlobalColor`
+    /// (RVA 0x49520, already ported) writes lights. Reports the raw
+    /// stored words; no render state moves.
+    pub fn scene_bg_color(&self, scene: SceneKey) -> Result<[u32; 3], ModelError> {
+        Ok(self.scene(scene)?.field_220)
+    }
+    /// Working name for the `portal_version` word at scene +0x25c
+    /// (mafia-re `ls3df/I3D/I3D.h:1576`). No LS3DF FUNCTION address
+    /// exists for a getter: the word is only maintained by the portal
+    /// connection pass. Reports the live word.
+    pub fn scene_portal_version(&self, scene: SceneKey) -> Result<u32, ModelError> {
+        Ok(self.scene(scene)?.portal_version)
+    }
+    /// Working name for the areas ring head at scene +0x27c
+    /// (mafia-re `ls3df/I3D/I3D.h:1583-1584`). No LS3DF FUNCTION
+    /// address exists for a head getter: the ring is maintained by
+    /// area join/leave paths. Borrows the live head link.
+    pub fn scene_area_head(
+        &self,
+        scene: SceneKey,
+    ) -> Result<Option<crate::frame_area::AreaKey>, ModelError> {
+        Ok(self.scene(scene)?.area_head)
+    }
+    /// Working name for the occluders ring head at scene +0x270
+    /// (mafia-re `ls3df/I3D/I3D.h:1578-1579`). No LS3DF FUNCTION
+    /// address exists for a head getter: the ring is maintained by
+    /// occluder join/leave paths. Borrows the live head link.
+    pub fn scene_occluder_head(
+        &self,
+        scene: SceneKey,
+    ) -> Result<Option<crate::frame_occluder::OccluderKey>, ModelError> {
+        Ok(self.scene(scene)?.occluder_head)
+    }
+    /// Working name for the tick-list capacity at scene +0x148
+    /// (mafia-re `ls3df/I3D/I3D.h:1554`; grown by `AddTickFrame`,
+    /// RVA 0x49f90, already ported). No LS3DF FUNCTION address exists
+    /// for a capacity getter. Reports the live host capacity word.
+    pub fn scene_tick_capacity(&self, scene: SceneKey) -> Result<usize, ModelError> {
+        Ok(self.scene(scene)?.tick_capacity)
+    }
+    /// Working name for the tick-list growth step (ctor 32)
+    /// (mafia-re `ls3df/I3D/I3d_scene.cpp:90-148` list-growth comment).
+    /// No LS3DF FUNCTION address exists for a growth getter.
+    pub fn scene_tick_growth(&self, scene: SceneKey) -> Result<usize, ModelError> {
+        Ok(self.scene(scene)?.tick_growth)
+    }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x4a8c0, VA 0x1004a8c0. Upstream static
+    /// `MakeReadySectors::EnumHelp::I3D_EnumProc` used by
+    /// `I3D_scene::MakeReadySectors` (mafia-re ls3df/I3D/I3d_scene.cpp:651-657),
+    /// not an evidenced original symbol. The reference annotates this
+    /// address as a FUNCTION in LS3DF.dll (code, not data; no Game.exe
+    /// address is used). This RVA is already credited to
+    /// `frame_sector::ModelArena::make_ready_sectors_enum_proc`, so this
+    /// wrapper carries no new function credit: same native, second host
+    /// spelling. The native blind cast trusts the ENUMF_SECTOR
+    /// filter; the host rejects other kinds as missing sector records.
+    /// Success is the native I3DENUMRET_OK path (0).
+    pub fn scene_make_ready_enum_proc(
+        &mut self,
+        frame: FrameKey,
+        _context: u32,
+    ) -> Result<u32, ModelError> {
+        self.sector_make_ready(crate::scene_ownership::SectorKey(frame))?;
+        Ok(0)
+    }
     /// AddLight (PC RVA0x4f3d0), including the native fog-light selection.
     /// These arrays contain borrowed pointers; registration acquires no refs.
     pub fn sector_add_light(
@@ -2592,6 +2661,42 @@ mod tests {
         assert!(arena
             .scene_area_count(SceneKey(FrameKey(u32::MAX)))
             .is_err());
+    }
+    #[test]
+    fn working_name_scene_flag_words_report_ctor_defaults() {
+        // Working names, no LS3DF FUNCTION addresses: bg_color at +0x220
+        // (0.0, 0.5, 0.4 bits), portal_version at +0x25c, tick
+        // capacity/growth at +0x148.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(
+            arena.scene_bg_color(scene).unwrap(),
+            [0, 0x3f000000, 0x3ecccccd]
+        );
+        assert_eq!(arena.scene_portal_version(scene).unwrap(), 0);
+        assert_eq!(arena.scene_tick_capacity(scene).unwrap(), 0);
+        assert_eq!(arena.scene_tick_growth(scene).unwrap(), 32);
+        assert_eq!(arena.scene_area_head(scene).unwrap(), None);
+        assert_eq!(arena.scene_occluder_head(scene).unwrap(), None);
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_bg_color(bad).is_err());
+        assert!(arena.scene_portal_version(bad).is_err());
+        assert!(arena.scene_tick_capacity(bad).is_err());
+        assert!(arena.scene_tick_growth(bad).is_err());
+        assert!(arena.scene_area_head(bad).is_err());
+        assert!(arena.scene_occluder_head(bad).is_err());
+    }
+    #[test]
+    fn make_ready_enum_proc_marks_sector_ready() {
+        // Same native as LS3DF RVA 0x4a8c0 (already credited to
+        // frame_sector::make_ready_sectors_enum_proc): no new credit here.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        assert_eq!(arena.scene_make_ready_enum_proc(sector.frame(), 0).unwrap(), 0);
+        assert_eq!(arena.scene_make_ready_enum_proc(sector.frame(), 999).unwrap(), 0);
+        let member = dummy(&mut arena, b"not-a-sector");
+        assert!(arena.scene_make_ready_enum_proc(member, 0).is_err());
     }
     #[test]
     fn working_name_world_space_defaults_false_and_rejects_unknown() {

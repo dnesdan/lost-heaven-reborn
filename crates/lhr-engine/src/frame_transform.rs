@@ -726,6 +726,59 @@ impl I3dFrameGraph {
             FrameError::NumericDomain("GetWorldScale GetScale")
         })
     }
+    /// Working name for the full `m_FrmFlags` word read at +0xac
+    /// (mafia-re ls3df/I3D/I3D.h:666). No LS3DF FUNCTION address exists
+    /// for a whole-word getter: the reference only inlines single-bit
+    /// tests (for example `IsOn`, Game.exe 0x47acf0, unclaimed here).
+    /// Reports the live word; no cache moves.
+    pub fn frame_flags_word(&self, key: FrameKey) -> Result<u32, FrameError> {
+        Ok(self.state(key)?.flags)
+    }
+    /// Working name for the `m_UpdateCount` read at +0x118
+    /// (mafia-re ls3df/I3D/I3D.h:675). No LS3DF FUNCTION address exists
+    /// for it: the counter is only stored by the update traversal.
+    /// Reports the live count; no cache moves.
+    pub fn frame_update_count(&self, key: FrameKey) -> Result<u32, FrameError> {
+        Ok(self.state(key)?.update_count)
+    }
+    /// Working name for the `m_RenderNumber` read at +0x13c
+    /// (mafia-re ls3df/I3D/I3D.h:683, ctor value -1 as u32::MAX).
+    /// No LS3DF FUNCTION address exists for it: the driver producer
+    /// that writes later renders is unimplemented. Reports the live
+    /// word; no cache moves.
+    pub fn frame_render_number(&self, key: FrameKey) -> Result<u32, FrameError> {
+        Ok(self.state(key)?.render_number)
+    }
+    /// Working name for the full visual-flags word read
+    /// (mafia-re ls3df/I3D/I3D.h visual `vis_flags`). No LS3DF FUNCTION
+    /// address exists for a whole-word getter: the reference only
+    /// inlines masked mode readers (for example shadow/projector modes).
+    /// Reports the live word; no cache moves.
+    pub fn frame_visual_flags_word(&self, key: FrameKey) -> Result<u32, FrameError> {
+        Ok(self.state(key)?.visual_flags)
+    }
+    /// Working name for the `m_pPrev` sibling read at +0x128
+    /// (mafia-re ls3df/I3D/I3D.h:679). No LS3DF FUNCTION address exists
+    /// for it: siblings are only walked by hierarchy traversals.
+    /// Borrows the live link; no ownership claim.
+    pub fn frame_prev_key(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
+        Ok(self.links(key)?.previous)
+    }
+    /// Working name for the `m_pNext` sibling read at +0x128
+    /// (mafia-re ls3df/I3D/I3D.h:679). No LS3DF FUNCTION address exists
+    /// for it: siblings are only walked by hierarchy traversals.
+    /// Borrows the live link; no ownership claim.
+    pub fn frame_next_key(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
+        Ok(self.links(key)?.next)
+    }
+    /// Working name for the scalar `m_WorldScale` read at +0x114
+    /// (mafia-re ls3df/I3D/I3D.h:674). No LS3DF FUNCTION address exists
+    /// for it: the only out-of-line scale reader is the `GetWorldScale`
+    /// vector (Game.exe 0x47a7b0, covered by `frame_world_scale`).
+    /// Reports the stored averaged scale; the matrix cache is untouched.
+    pub fn frame_world_scale_scalar(&self, key: FrameKey) -> Result<f32, FrameError> {
+        Ok(self.state(key)?.world_scale)
+    }
     /// LS3DF-exported `I3D_frame::SetRot` (mafia-re ls3df/I3D/I3D.h:420-427):
     /// the engine build stores the quaternion without the Normalize the
     /// game build performs (the game copy, Game.exe 0x43bce0, is covered by
@@ -4693,5 +4746,79 @@ mod tests {
             graph.visual_render_matrix(key),
             Err(FrameError::NumericDomain(_))
         ));
+    }
+    #[test]
+    fn frame_state_words_report_live_ctor_values() {
+        // Working names for m_FrmFlags/m_UpdateCount/m_RenderNumber reads
+        // (I3D.h:666,675,683): no LS3DF FUNCTION addresses exist.
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        assert_eq!(graph.frame_flags_word(key).unwrap(), 0x4000003d);
+        assert_eq!(graph.frame_update_count(key).unwrap(), 0);
+        assert_eq!(graph.frame_render_number(key).unwrap(), u32::MAX);
+        assert_eq!(
+            graph.frame_flags_word(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+        assert_eq!(
+            graph.frame_update_count(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+        assert_eq!(
+            graph.frame_render_number(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn frame_visual_flags_word_reports_live_word() {
+        // Working name for the visual-flags whole-word read: no LS3DF
+        // FUNCTION address exists (only masked mode readers).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::mesh()).unwrap();
+        assert_eq!(graph.frame_visual_flags_word(key).unwrap(), 0x2a00);
+        graph.set_visual_shadow_mode(key, 2).unwrap();
+        assert_ne!(graph.frame_visual_flags_word(key).unwrap(), 0x2a00);
+        assert_eq!(
+            graph.frame_visual_flags_word(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn frame_sibling_keys_follow_live_links() {
+        // Working names for m_pPrev/m_pNext reads (I3D.h:679): no LS3DF
+        // FUNCTION addresses exist.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let first = graph.insert(I3dFrameState::dummy()).unwrap();
+        let second = graph.insert(I3dFrameState::dummy()).unwrap();
+        assert_eq!(graph.frame_prev_key(first).unwrap(), None);
+        assert_eq!(graph.frame_next_key(first).unwrap(), None);
+        graph.add_child(parent, first).unwrap();
+        graph.add_child(parent, second).unwrap();
+        assert_eq!(graph.frame_next_key(second).unwrap(), Some(first));
+        assert_eq!(graph.frame_prev_key(first).unwrap(), Some(second));
+        assert_eq!(graph.frame_prev_key(second).unwrap(), None);
+        assert_eq!(
+            graph.frame_prev_key(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+        assert_eq!(
+            graph.frame_next_key(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn frame_world_scale_scalar_reports_stored_average() {
+        // Working name for scalar m_WorldScale (I3D.h:674): no LS3DF
+        // FUNCTION address exists (only the GetWorldScale vector).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        assert_eq!(graph.frame_world_scale_scalar(key).unwrap(), 1.0);
+        graph.node_mut(key).unwrap().state.world_scale = 2.5;
+        assert_eq!(graph.frame_world_scale_scalar(key).unwrap(), 2.5);
+        assert_eq!(
+            graph.frame_world_scale_scalar(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
     }
 }

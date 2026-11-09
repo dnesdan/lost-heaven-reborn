@@ -10447,12 +10447,12 @@
     },
     {
       "binary": "Game.exe",
-      "rva": "0x5f9a0",
-      "va": "0x45f9a0",
+      "rva": "0x1b9fa0",
+      "va": "0x5b9fa0",
       "name": "C_game::ScoreSetOn",
       "symbol": "lhr_engine::game_housekeeping::score_set_on",
       "tier": "contract",
-      "evidence": "Score flag store (GAME 0x5f9a0). Marker-only contract; tests green on this tree."
+      "evidence": "Wrong-address remediation: reference FUNCTION GAME 0x5b9fa0 (was misfiled as 0x5f9a0). Score flag store (GAME 0x5b9fa0). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -14080,6 +14080,114 @@
       "symbol": "lhr_engine::traffic_car_actor::traffic_load_data",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Traffic LoadData (GAME 0x4aad20). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x91f0",
+      "va": "0x4091f0",
+      "name": "C_actor::GetActorSpeed",
+      "symbol": "lhr_engine::actor_world::BaseActorState::base_actor_speed_into",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Actor speed read (GAME 0x4091f0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9210",
+      "va": "0x409210",
+      "name": "C_actor::GetMaterialID",
+      "symbol": "lhr_engine::actor_world::BaseActorState::material_id",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Material ID read (GAME 0x409210)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7590",
+      "va": "0x407590",
+      "name": "C_actor::IsPossibleColl",
+      "symbol": "lhr_engine::actor_world::BaseActorState::is_possible_coll",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Coll check (GAME 0x407590)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4a450",
+      "va": "0x44a450",
+      "name": "C_actor::Collision",
+      "symbol": "lhr_engine::actor_world::BaseActorState::collision",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Collision (GAME 0x44a450)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4e00",
+      "va": "0x404e00",
+      "name": "C_actor::AddToCutscene",
+      "symbol": "lhr_engine::actor_world::BaseActorState::add_to_cutscene",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Cutscene add (GAME 0x404e00)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x75a0",
+      "va": "0x4075a0",
+      "name": "C_actor::GetBoundPoints2D",
+      "symbol": "lhr_engine::actor_world::BaseActorState::bound_points_2d_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: frame/matrix/volume owners deferred (GAME 0x4075a0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5a00",
+      "va": "0x405a00",
+      "name": "C_actor::GetRecordPos",
+      "symbol": "lhr_engine::actor_world::record_pos_at",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Record pos walk+blend (GAME 0x405a00)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2cc20",
+      "va": "0x42cc20",
+      "name": "C_actor::GetRecordRot",
+      "symbol": "lhr_engine::actor_world::record_rot_at",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Record rot walk+slerp (GAME 0x42cc20)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16b180",
+      "va": "0x56b180",
+      "name": "C_human::AddToCutscene",
+      "symbol": "lhr_engine::human_actor::HumanState::add_to_cutscene",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Cutscene add (GAME 0x56b180)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ae30",
+      "va": "0x47ae30",
+      "name": "S_mission_options::GetParticles",
+      "symbol": "lhr_engine::mission_options::MissionOptions::get_particles",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Particles getter (GAME 0x47ae30)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ae40",
+      "va": "0x47ae40",
+      "name": "C_mission::GetActors",
+      "symbol": "lhr_engine::mission_actor_lists::get_actors",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Actors getter (GAME 0x47ae40)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ae60",
+      "va": "0x47ae60",
+      "name": "C_mission::GetEffects",
+      "symbol": "lhr_engine::mission_actor_lists::get_effects",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Effects getter (GAME 0x47ae60)."
     }
   ],
   "vm": {

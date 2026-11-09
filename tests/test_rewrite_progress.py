@@ -154,7 +154,7 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x4cc620 / SetMaterials 0x4c5c10 / SetParticles 0x4cc0).
         # +10 housekeeping/mission slice, all contract (cbFindTaxiPoints
         # 0x5b6e0 / LightnessClear 0x5b5180 / ScoreSet 0x5b9fe0 / ScoreSetOn
-        # 0x5f9a10 / InternTempActDel 0x5a79f0 / cbTelephones 0x5b71b0 /
+        # 0x5b9fa0 (remediated from misfiled 0x5f9a0) / InternTempActDel 0x5a79f0
         # cbScreamArea 0x5b9110 / ShowProgress 0x540950 / SceneErrFnc 0x540fd0
         # / GetTShift 0x547120).
         # +3 indexed sound tables (LoadTables 0x55f390 / ConstructSound
@@ -381,7 +381,13 @@ class RewriteProgressTests(unittest.TestCase):
         # STUBs; marker-only, tests green).
         # +6 police/traffic contracts (GameDone/AI/Update/Hit/IsPossibleColl/
         # LoadData STUBs; marker-only, tests green).
-        self.assertEqual(game["ported"], 149 + 658)
+        # +9 actor/human contracts (GetActorSpeed/GetMaterialID/IsPossibleColl/
+        # Collision/AddToCutscene x2/GetRecordPos/GetRecordRot + 1 STUB;
+        # 6 working-name helpers uncredited; marker-only, tests green).
+        # +3 mission getter contracts (GetParticles/GetActors/GetEffects;
+        # ScoreSetOn wrong-address remediated 0x5f9a0->0x1b9fa0; 8 working-name
+        # helpers uncredited; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 670)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

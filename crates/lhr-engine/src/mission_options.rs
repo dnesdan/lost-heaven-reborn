@@ -197,6 +197,29 @@ impl MissionOptions {
         }
     }
 
+    /// FUNCTION: GAME RVA 0x7ae30, VA 0x47ae30 (mafia-re
+    /// `game/mission/Mission.h:58-62`, `S_mission_options::GetParticles`):
+    /// reads the stored particles level.
+    pub fn get_particles(&self) -> i32 {
+        self.particles
+    }
+
+    /// Working name (no outline RVA; inline read-only, mafia-re
+    /// `game/mission/Mission.h:54`, `S_mission_options::GetLevelOfDetail`):
+    /// reads the stored level of detail. The native body is inlined at every
+    /// call site, so no Game.exe function entry is claimed.
+    pub fn get_level_of_detail(&self) -> f32 {
+        self.level_of_detail
+    }
+
+    /// Working name (no outline RVA; inline read-only, mafia-re
+    /// `game/mission/Mission.h:55`, `S_mission_options::GetDrawDistance`):
+    /// reads the stored draw distance. The native body is inlined at every
+    /// call site, so no Game.exe function entry is claimed.
+    pub fn get_draw_distance(&self) -> f32 {
+        self.draw_distance
+    }
+
     /// Video-option application (GAME 0x545a30, mafia-re
     /// `game/mission/Mission.cpp:1738-1754`): with an open city cache the
     /// camera sees `far_range * draw_distance`, otherwise `far_range`; the
@@ -496,5 +519,39 @@ mod tests {
         assert_eq!(camera.ranges, vec![[0.05, 250.0]]);
         assert_eq!(camera.updates, 1);
         assert_eq!(driver.lod_bits, vec![1.0f32.to_bits() as i32]);
+    }
+
+    #[test]
+    fn get_particles_rva_7ae30_reads_stored_level() {
+        // S_mission_options::GetParticles GAME RVA 0x7ae30 (VA 0x47ae30).
+        let options = MissionOptions::new();
+        assert_eq!(options.get_particles(), OPTION_HIGH);
+        let mut custom = MissionOptions::new();
+        custom.set_particles(OPTION_LOW);
+        assert_eq!(custom.get_particles(), OPTION_LOW);
+    }
+
+    #[test]
+    fn get_level_of_detail_working_name_reads_stored_value() {
+        // Inline S_mission_options::GetLevelOfDetail (Mission.h:54); no
+        // outline RVA is claimed.
+        let mut options = MissionOptions::new();
+        assert_eq!(options.get_level_of_detail(), 1.0);
+        options.set_level_of_detail(1.5);
+        assert_eq!(options.get_level_of_detail(), 1.5);
+        options.set_level_of_detail(99.0);
+        assert_eq!(options.get_level_of_detail(), LEVEL_OF_DETAIL_MAX);
+    }
+
+    #[test]
+    fn get_draw_distance_working_name_reads_stored_value() {
+        // Inline S_mission_options::GetDrawDistance (Mission.h:55); no
+        // outline RVA is claimed.
+        let mut options = MissionOptions::new();
+        assert_eq!(options.get_draw_distance(), 1.0);
+        options.set_draw_distance(0.7);
+        assert_eq!(options.get_draw_distance(), 0.7);
+        options.set_draw_distance(-1.0);
+        assert_eq!(options.get_draw_distance(), DRAW_DISTANCE_MIN);
     }
 }
