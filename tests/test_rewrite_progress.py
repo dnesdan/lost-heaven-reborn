@@ -553,7 +553,10 @@ class RewriteProgressTests(unittest.TestCase):
         # ReadKey/ReadKeys/GetShiftKeys/TranslateKey loops held).
         # +5 pose batch (Clear/SetRot/SetRotAbs/SetPos/SetScale complete
         # walks; pin tests animation_pose 12 pass).
-        self.assertEqual(ls3df["ported"], 145 + 852)
+        # +12 driver/projector STUB contracts (DrawPoint/Point2D/Line/Lines/
+        # Triangles/Circle2D/Text/Text2D/Sprite/Box/Sphere + AddFGroups;
+        # device owners deferred; marker-only, tests green).
+        self.assertEqual(ls3df["ported"], 145 + 864)
         self.assertEqual(ls3df["verified"], 145 + 454)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):

@@ -14251,6 +14251,114 @@
       "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_clear_all",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. ClearAll (GAME 0x546b70)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x166c0",
+      "va": "0x100166c0",
+      "name": "I3D_driver::DrawPoint",
+      "symbol": "lhr_engine::render_state::driver_draw_point",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x168f0",
+      "va": "0x100168f0",
+      "name": "I3D_driver::DrawPoint2D",
+      "symbol": "lhr_engine::render_state::driver_draw_point_2d",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x16b20",
+      "va": "0x10016b20",
+      "name": "I3D_driver::DrawLine",
+      "symbol": "lhr_engine::render_state::driver_draw_line",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x16d70",
+      "va": "0x10016d70",
+      "name": "I3D_driver::DrawLines",
+      "symbol": "lhr_engine::render_state::driver_draw_lines",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x16ff0",
+      "va": "0x10016ff0",
+      "name": "I3D_driver::DrawTriangles",
+      "symbol": "lhr_engine::render_state::driver_draw_triangles",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x17580",
+      "va": "0x10017580",
+      "name": "I3D_driver::DrawCircle2D",
+      "symbol": "lhr_engine::render_state::driver_draw_circle_2d",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x17890",
+      "va": "0x10017890",
+      "name": "I3D_driver::DrawText",
+      "symbol": "lhr_engine::render_state::driver_draw_text",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x17d40",
+      "va": "0x10017d40",
+      "name": "I3D_driver::DrawText2D",
+      "symbol": "lhr_engine::render_state::driver_draw_text_2d",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x182f0",
+      "va": "0x100182f0",
+      "name": "I3D_driver::DrawSprite",
+      "symbol": "lhr_engine::render_state::driver_draw_sprite",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x186a0",
+      "va": "0x100186a0",
+      "name": "I3D_driver::DrawBox",
+      "symbol": "lhr_engine::render_state::driver_draw_box",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x18cc0",
+      "va": "0x10018cc0",
+      "name": "I3D_driver::DrawSphere",
+      "symbol": "lhr_engine::render_state::driver_draw_sphere",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x464d0",
+      "va": "0x100464d0",
+      "name": "I3D_projector::AddFGroups",
+      "symbol": "lhr_engine::projector_pass::projector_add_fgroups_visual_contract",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
