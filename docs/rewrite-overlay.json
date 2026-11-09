@@ -13495,6 +13495,24 @@
       "symbol": "lhr_engine::game_housekeeping::tick_car_sound_manager",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Car-sound tick (GAME 0x5ba110). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x4a8c0",
+      "va": "0x1004a8c0",
+      "name": "I3D_scene::MakeReadySectors EnumProc",
+      "symbol": "lhr_engine::frame_sector::ModelArena::make_ready_sectors_enum_proc",
+      "tier": "differential",
+      "evidence": "REA ev_6d23b13a62 + complete walk 4 insns (MOV ECX + CALL MakeReady + XOR + RET 8); pin test 4a8c0 1 pass"
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5e30",
+      "va": "0x10005e30",
+      "name": "I3D_billboard::SetSpace",
+      "symbol": "lhr_engine::model_loading::ModelArena::billboard_set_space",
+      "tier": "contract",
+      "evidence": "Empty SetSpace shared tail (LS3DF 0x1005e30). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

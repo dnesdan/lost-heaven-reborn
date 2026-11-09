@@ -6,6 +6,7 @@
 //! AddFrame/DeleteFrame use RVAs 0x49290/0x49400 for admitted non-emitter frames.
 //! Close (0x4a390) exposes unimplemented external effects as ordered boundaries.
 
+use crate::frame_camera::CameraKey;
 use crate::frame_transform::{FrameKey, FrameKind, I3dFrameState};
 use crate::model_loading::{ModelArena, ModelError, ModelKey};
 
@@ -1226,6 +1227,16 @@ impl ModelArena {
         self.scene(scene)?;
         Ok(0x8000_000e)
     }
+    /// Working name for the LS3DF-inlined `I3D_scene::GetPrimarySector`
+    /// read (mafia-re ls3df/I3D/I3D.h:1546-1549). No LS3DF FUNCTION
+    /// address exists for it: the reference gives only the inline
+    /// declaration, and the game's copy is not claimed here. The
+    /// constructor prefix retains the four sectors in
+    /// primary/backdrop/omni/near order, so index 0 is the primary
+    /// sector; no caches move.
+    pub fn scene_primary_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
+        Ok(self.scene(scene)?.sectors[0])
+    }
     /// AddLight (PC RVA0x4f3d0), including the native fog-light selection.
     /// These arrays contain borrowed pointers; registration acquires no refs.
     pub fn sector_add_light(
@@ -2277,6 +2288,44 @@ mod tests {
             Some(SceneCallback(0x1234))
         );
         assert_eq!(arena.scene_callback(scene).unwrap(), (None, 0));
+    }
+    #[test]
+    fn scene_active_camera_reports_live_handle_and_rejects_unknown_scene() {
+        // Working names for inlined I3D_scene::GetActiveCamera (I3D.h:1548,
+        // defined at I3D.h:5085-5089) and GetPrimarySector (I3D.h:1549): no
+        // LS3DF FUNCTION addresses exist (the reference marks the only
+        // out-of-line copies as the game's, unclaimed here).
+        struct Screen;
+        impl crate::scene_resources::SceneScreen for Screen {
+            type Error = ();
+            fn screen_sx(&mut self) -> Result<i32, ()> {
+                Ok(800)
+            }
+            fn screen_sy(&mut self) -> Result<i32, ()> {
+                Ok(600)
+            }
+        }
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
+            let camera = arena.create_camera(&mut Screen).unwrap();
+            let si = arena.scene_index(scene).unwrap();
+            arena.scenes[si].current_camera = Some(camera);
+            assert_eq!(arena.scene_active_camera(scene).unwrap(), Some(camera));
+            assert!(arena
+                .scene_active_camera(SceneKey(FrameKey(u32::MAX)))
+                .is_err());
+            let sectors = arena.scene(scene).unwrap().sectors;
+            assert_eq!(arena.scene_primary_sector(scene).unwrap(), sectors[0]);
+            assert_eq!(
+                arena.sector(sectors[0]).unwrap().sector_flags & 0x200,
+                0x200
+            );
+            assert!(arena
+                .scene_primary_sector(SceneKey(FrameKey(u32::MAX)))
+                .is_err());
+        });
     }
     #[test]
     fn lifecycle_construct_tick_close_forget_transitions() {

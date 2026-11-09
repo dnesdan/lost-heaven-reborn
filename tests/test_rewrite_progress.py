@@ -514,8 +514,10 @@ class RewriteProgressTests(unittest.TestCase):
         # tests green; 2 STUBs + outside-memory held as contract).
         # +2 mesh-level batch (GetFGroup/GetStats complete walks; pin tests
         # visual_resources 147 pass).
-        self.assertEqual(ls3df["ported"], 145 + 849)
-        self.assertEqual(ls3df["verified"], 145 + 430)
+        # +2 EnumProc/link batch (MakeReadySectors EnumProc + billboard
+        # SetSpace; 1 complete walk + 1 outside-memory hold; pin tests).
+        self.assertEqual(ls3df["ported"], 145 + 851)
+        self.assertEqual(ls3df["verified"], 145 + 431)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

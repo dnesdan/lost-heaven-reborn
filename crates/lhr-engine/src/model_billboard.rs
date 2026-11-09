@@ -147,6 +147,19 @@ impl ModelArena {
             )),
         }
     }
+
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x5e30, VA 0x1005e30.
+    /// `I3D_billboard::SetSpace` (mafia-re ls3df/I3D/I3D.h:2964-2969,
+    /// `?SetSpace@I3D_billboard@@UAGX_N@Z`, evidenced original symbol). The
+    /// native body is empty — one folded copy shared with the morph and the
+    /// single-mesh `SetSpace` — so the world flag is accepted and ignored.
+    /// The host still validates the frame handle, like the other scene
+    /// no-op boundaries; no state moves.
+    pub fn billboard_set_space(&self, frame: FrameKey, _world: bool) -> Result<(), ModelError> {
+        self.frame(frame)?;
+        Ok(())
+    }
 }
 
 /// LS3DF e211c850… RVA 0x5db0 (differential: Ghidra body 62 B/1 BB/13 insn;
@@ -354,6 +367,29 @@ mod tests {
             ["object_set_mesh", "update_bound_cube"]
         );
         assert!(billboard_derived_drop_is_empty());
+    }
+    #[test]
+    fn billboard_empty_set_space_5e30_ignores_world_flag() {
+        // LS3DF RVA 0x5e30, VA 0x1005e30: I3D_billboard::SetSpace
+        // (mafia-re ls3df/I3D/I3D.h:2964-2969) is one folded empty copy
+        // shared with the morph and single-mesh SetSpace, so both flag
+        // values succeed with no state move; only the frame handle is
+        // validated.
+        let mut arena = ModelArena::default();
+        let frame = arena
+            .insert(
+                crate::frame_transform::I3dFrameState::model(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(arena.billboard_set_space(frame, true), Ok(()));
+        assert_eq!(arena.billboard_set_space(frame, false), Ok(()));
+        assert!(arena
+            .billboard_set_space(crate::frame_transform::FrameKey(u32::MAX), true)
+            .is_err());
     }
     #[test]
     fn y5_duplicate_guards_mask_orientation_and_order() {

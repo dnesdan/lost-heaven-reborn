@@ -625,6 +625,16 @@ impl ModelArena {
         self.graph = graph;
         result
     }
+    /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// RVA 0x4a8c0, VA 0x1004a8c0.
+    /// `I3D_scene::MakeReadySectors`' static `I3D_EnumProc` (mafia-re
+    /// ls3df/I3D/I3d_scene.cpp:650-657), evidenced original symbol. Runs
+    /// the sector `MakeReady` and returns `I3DENUMRET_OK` (0) so the
+    /// enumeration continues; the native `context` word is unused.
+    pub fn make_ready_sectors_enum_proc(&mut self, key: SectorKey) -> Result<u32, ModelError> {
+        self.sector_make_ready(key)?;
+        Ok(0)
+    }
     pub fn sector_planes(&self, key: SectorKey) -> Result<Vec<[u32; 4]>, ModelError> {
         let s = self.sector(key)?;
         let Some(buffer) = s.geometry.planes else {
@@ -1112,6 +1122,20 @@ mod tests {
         arena.destroy_empty_scene_base(scene.root()).unwrap();
         assert!(!arena.callbacks.has_slot(scene.root()));
         assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn make_ready_sectors_enum_proc_4a8c0_reports_ok_and_marks_prepared() {
+        // LS3DF RVA 0x4a8c0, VA 0x1004a8c0: MakeReadySectors' static
+        // I3D_EnumProc (mafia-re ls3df/I3D/I3d_scene.cpp:650-657). Runs the
+        // sector MakeReady and returns I3DENUMRET_OK (0).
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        assert_eq!(arena.make_ready_sectors_enum_proc(key), Ok(0));
+        assert_ne!(arena.sector(key).unwrap().sector_flags & 4, 0);
+        assert_eq!(arena.make_ready_sectors_enum_proc(key), Ok(0));
+        assert!(arena
+            .make_ready_sectors_enum_proc(SectorKey(crate::frame_transform::FrameKey(u32::MAX)))
+            .is_err());
     }
     #[test]
     fn loaded_hull_portal_planes_and_last_release_have_real_single_owners() {

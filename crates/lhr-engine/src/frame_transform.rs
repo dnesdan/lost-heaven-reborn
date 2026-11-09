@@ -16,7 +16,7 @@
 use crate::{
     joint_state::{I3dJointState, SinglemeshInvalidationState},
     native_matrix::{checked_f32_add, checked_f32_mul},
-    native_transform::{SMatrix, SQuat},
+    native_transform::{SMatrix, SQuat, vector_set_normalized},
     singlemesh_binding::{DBuildBindingOutcome, I3dSinglemeshBinding},
     singlemesh_bounds::{
         calculate_singlemesh_bounds, SinglemeshBoundVolume, SinglemeshBoundingBox,
@@ -672,6 +672,196 @@ impl I3dFrameGraph {
     /// int; the host count stays within the admitted hierarchy domain.
     pub fn frame_child_count(&self, key: FrameKey) -> Result<u32, FrameError> {
         Ok(self.links(key)?.child_count)
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetType` read
+    /// (mafia-re ls3df/I3D/I3D.h:602-616, LS3DF_EXPORTS by-value branch).
+    /// No LS3DF FUNCTION address exists for it: the only out-of-line copy
+    /// is Game.exe 0x47a6c0, which is not claimed here. Reports the live
+    /// frame kind; no caches move.
+    pub fn frame_kind(&self, key: FrameKey) -> Result<FrameKind, FrameError> {
+        Ok(self.state(key)?.kind)
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetScale` read
+    /// (mafia-re ls3df/I3D/I3D.h:477-481). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47aec0,
+    /// which is not claimed here. Reports the live local scale; the
+    /// matrix cache is untouched.
+    pub fn frame_scale(&self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        Ok(self.state(key)?.scale)
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetPos` read
+    /// (mafia-re ls3df/I3D/I3D.h:460-465). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47a720,
+    /// which is not claimed here. Reports the local matrix translation
+    /// row without touching any cache.
+    pub fn frame_local_position(&self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        let local = self.state(key)?.local;
+        Ok(local.elements[12..15].try_into().unwrap())
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetWorldPos` read
+    /// (mafia-re ls3df/I3D/I3D.h:551-556). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47a730,
+    /// which is not claimed here. Refreshes the world cache first, then
+    /// reports its translation row.
+    pub fn frame_world_position(&mut self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        let world = self.world_matrix(key)?;
+        Ok(world.elements[12..15].try_into().unwrap())
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetWorldScale` read
+    /// (mafia-re ls3df/I3D/I3D.h:519-528). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47a7b0,
+    /// which is not claimed here. Parentless frames report the local
+    /// scale; otherwise the refreshed world matrix basis-row lengths.
+    /// A non-finite world row is a host unavailability, never an invented
+    /// scale; the failure poisons the world cache like other world reads.
+    pub fn frame_world_scale(&mut self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        if self.links(key)?.parent.is_none() {
+            return Ok(self.state(key)?.scale);
+        }
+        let world = self.world_matrix(key)?;
+        world.try_get_scale().map_err(|_| {
+            if let Ok(node) = self.node_mut(key) {
+                node.world_error = Some(FrameError::NumericDomain("GetWorldScale GetScale"));
+            }
+            FrameError::NumericDomain("GetWorldScale GetScale")
+        })
+    }
+    /// LS3DF-exported `I3D_frame::SetRot` (mafia-re ls3df/I3D/I3D.h:420-427):
+    /// the engine build stores the quaternion without the Normalize the
+    /// game build performs (the game copy, Game.exe 0x43bce0, is covered by
+    /// `assign_rotation`). Flag store clears HR_BOUND_W/WMAT/MAT/ROT and
+    /// sets UPDATE/QUAT_VALID, like the game copy but without normalizing.
+    pub fn store_frame_rotation(&mut self, key: FrameKey, rotation: SQuat) -> Result<(), FrameError> {
+        let state = &mut self.node_mut(key)?.state;
+        state.rotation = rotation;
+        state.flags = (state.flags & 0xfffffecb) | 0x40000008;
+        Ok(())
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::SetDir1`
+    /// (mafia-re ls3df/I3D/I3D.h:467-475). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x4609c0,
+    /// which is not claimed here. Turns the local matrix to `direction`
+    /// with `up` as the up vector, then clears HR_BOUND_W/WMAT/QUAT/ROT
+    /// and sets UPDATE/MAT_VALID. A degenerate direction/up pair leaves
+    /// both caches unavailable instead of a partially written basis.
+    pub fn set_direction_from_up(
+        &mut self,
+        key: FrameKey,
+        direction: [f32; 3],
+        up: [f32; 3],
+    ) -> Result<(), FrameError> {
+        let result = (|| {
+            self.node_mut(key)?
+                .state
+                .local
+                .try_set_dir3(direction, up)
+                .map_err(|_| FrameError::DirectionFromVectorsUnavailable)?;
+            let state = &mut self.node_mut(key)?.state;
+            state.flags = (state.flags & 0xfffffed3) | 0x40000010;
+            Ok(())
+        })();
+        let node = self.node_mut(key)?;
+        node.local_error = result.as_ref().err().copied();
+        node.world_error = result.as_ref().err().copied();
+        result
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetDir` read
+    /// (mafia-re ls3df/I3D/I3D.h:558-572). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47a890,
+    /// which is not claimed here. With a stale local matrix the MAT_VALID
+    /// bit is set first, the rotation is normalized in place and the
+    /// basis rebuilt without rescaling rows (unlike UpdateMatrix); the
+    /// returned row is raw. Otherwise a normalized copy of row 2 is
+    /// returned and no state moves.
+    pub fn frame_local_direction(&mut self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        let result = (|| {
+            if self.state(key)?.flags & 0x10 == 0 {
+                self.node_mut(key)?.state.flags |= 0x10;
+                let mut rotation = self.state(key)?.rotation;
+                rotation
+                    .try_normalize()
+                    .map_err(|_| FrameError::NumericDomain("GetDir Normalize"))?;
+                self.node_mut(key)?.state.rotation = rotation;
+                let rotation = self.state(key)?.rotation;
+                self.node_mut(key)?
+                    .state
+                    .local
+                    .try_set_rot3(rotation)
+                    .map_err(|_| FrameError::NumericDomain("GetDir SetRot3"))?;
+                let local = self.state(key)?.local;
+                Ok([local.elements[8], local.elements[9], local.elements[10]])
+            } else {
+                let local = self.state(key)?.local;
+                Ok(vector_set_normalized([
+                    local.elements[8],
+                    local.elements[9],
+                    local.elements[10],
+                ]))
+            }
+        })();
+        let node = self.node_mut(key)?;
+        node.local_error = result.as_ref().err().copied();
+        node.world_error = result.as_ref().err().copied();
+        result
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetWorldDir` read
+    /// (mafia-re ls3df/I3D/I3D.h:573-581). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47aa40,
+    /// which is not claimed here. Refreshes the world cache first, then
+    /// returns its normalized row 2.
+    pub fn frame_world_direction(&mut self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        let world = self.world_matrix(key)?;
+        Ok(vector_set_normalized([
+            world.elements[8],
+            world.elements[9],
+            world.elements[10],
+        ]))
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetRot` read
+    /// (mafia-re ls3df/I3D/I3D.h:5002-5009). The reference notes LS3DF
+    /// keeps no out-of-line copy of it (only Game.exe 0x47a810, which is
+    /// not claimed here); the body is ported verbatim from the header
+    /// with host unavailability guards. With a stale rotation the
+    /// QUAT_VALID bit is stored first, then the quaternion is remade from
+    /// the local matrix; the stored value is returned either way. A
+    /// matrix the host cannot convert poisons both caches instead of
+    /// inventing a rotation.
+    pub fn frame_rotation(&mut self, key: FrameKey) -> Result<SQuat, FrameError> {
+        if self.state(key)?.flags & 8 == 0 {
+            self.node_mut(key)?.state.flags |= 8;
+            let result = SQuat::try_make_from_matrix(&self.state(key)?.local);
+            match result {
+                Ok(rotation) => self.node_mut(key)?.state.rotation = rotation,
+                Err(_) => {
+                    let error = FrameError::QuaternionFromMatrixUnavailable;
+                    let node = self.node_mut(key)?;
+                    node.local_error = Some(error);
+                    node.world_error = Some(error);
+                    return Err(error);
+                }
+            }
+        }
+        Ok(self.state(key)?.rotation)
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetWorldRot` read
+    /// (mafia-re ls3df/I3D/I3D.h:5034-5040). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47a840,
+    /// which is not claimed here. Makes the rotation from the refreshed
+    /// world matrix into the return value; unlike `frame_rotation` no
+    /// flag is stored. An unconvertible world cache is a host
+    /// unavailability, never an invented rotation.
+    pub fn frame_world_rotation(&mut self, key: FrameKey) -> Result<SQuat, FrameError> {
+        let result = (|| {
+            let world = self.world_matrix(key)?;
+            SQuat::try_make_from_matrix(&world)
+                .map_err(|_| FrameError::QuaternionFromMatrixUnavailable)
+        })();
+        if let Err(error) = result.as_ref() {
+            if let Ok(node) = self.node_mut(key) {
+                node.world_error = Some(*error);
+            }
+        }
+        result
     }
     /// GetFrameInterpolator RVA0x1ea60 marks a newly bound destination.
     pub(crate) fn mark_animated(&mut self, key: FrameKey) -> Result<(), FrameError> {
@@ -2510,6 +2700,185 @@ mod tests {
         assert_eq!(graph.frame_child_count(parent).unwrap(), 1);
         graph.add_child(parent, second).unwrap();
         assert_eq!(graph.frame_child_count(parent).unwrap(), 2);
+    }
+    #[test]
+    fn frame_kind_reports_live_kind() {
+        // Working name for inlined I3D_frame::GetType (I3D.h:602-616,
+        // LS3DF_EXPORTS by-value branch): no LS3DF FUNCTION address exists
+        // (only Game.exe 0x47a6c0, unclaimed here).
+        let mut graph = I3dFrameGraph::default();
+        let model = graph.insert(I3dFrameState::model()).unwrap();
+        let dummy = graph.insert(I3dFrameState::dummy()).unwrap();
+        assert_eq!(graph.frame_kind(model).unwrap(), FrameKind::Model);
+        assert_eq!(graph.frame_kind(dummy).unwrap(), FrameKind::Dummy);
+        assert_eq!(
+            graph.frame_kind(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn frame_scale_reads_live_scale() {
+        // Working name for inlined I3D_frame::GetScale (I3D.h:477-481): no
+        // LS3DF FUNCTION address exists (only Game.exe 0x47aec0).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        assert_eq!(graph.frame_scale(key).unwrap(), [1., 1., 1.]);
+        graph.assign_scale(key, [2., 3., 4.]).unwrap();
+        assert_eq!(graph.frame_scale(key).unwrap(), [2., 3., 4.]);
+        assert_eq!(
+            graph.frame_scale(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn frame_local_position_reads_local_row() {
+        // Working name for inlined I3D_frame::GetPos (I3D.h:460-465): no
+        // LS3DF FUNCTION address exists (only Game.exe 0x47a720).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        assert_eq!(graph.frame_local_position(key).unwrap(), [0., 0., 0.]);
+        graph.assign_position(key, [1., 2., 3.]).unwrap();
+        assert_eq!(graph.frame_local_position(key).unwrap(), [1., 2., 3.]);
+    }
+    #[test]
+    fn frame_world_position_uses_parent_cache() {
+        // Working name for inlined I3D_frame::GetWorldPos (I3D.h:551-556):
+        // no LS3DF FUNCTION address exists (only Game.exe 0x47a730).
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let child = graph.insert(I3dFrameState::model()).unwrap();
+        graph.assign_position(parent, [1., 2., 3.]).unwrap();
+        graph.assign_position(child, [4., 5., 6.]).unwrap();
+        graph.add_child(parent, child).unwrap();
+        assert_eq!(graph.frame_world_position(child).unwrap(), [5., 7., 9.]);
+        assert_eq!(graph.frame_world_position(parent).unwrap(), [1., 2., 3.]);
+    }
+    #[test]
+    fn frame_world_scale_falls_back_to_local_without_parent() {
+        // Working name for inlined I3D_frame::GetWorldScale (I3D.h:519-528):
+        // no LS3DF FUNCTION address exists (only Game.exe 0x47a7b0).
+        let mut graph = I3dFrameGraph::default();
+        let solo = graph.insert(I3dFrameState::model()).unwrap();
+        graph.assign_scale(solo, [2., 3., 4.]).unwrap();
+        assert_eq!(graph.frame_world_scale(solo).unwrap(), [2., 3., 4.]);
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let child = graph.insert(I3dFrameState::model()).unwrap();
+        graph.assign_scale(parent, [2., 3., 4.]).unwrap();
+        graph.link_to(child, Some(parent)).unwrap();
+        assert_eq!(graph.frame_world_scale(child).unwrap(), [2., 3., 4.]);
+    }
+    #[test]
+    fn store_frame_rotation_skips_normalize_and_sets_quat_flags() {
+        // LS3DF SetRot (I3D.h:420-427): the engine build stores without the
+        // Normalize the game copy performs (assign_rotation covers that).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        graph
+            .store_frame_rotation(key, SQuat { wxyz: [2., 0., 0., 0.] })
+            .unwrap();
+        assert_eq!(
+            graph.state(key).unwrap().rotation.wxyz,
+            [2., 0., 0., 0.]
+        );
+        assert_eq!(
+            graph.state(key).unwrap().flags & 0x40000008,
+            0x40000008
+        );
+        assert_eq!(graph.state(key).unwrap().flags & 0x134, 0);
+        graph
+            .assign_rotation(key, SQuat { wxyz: [2., 0., 0., 0.] })
+            .unwrap();
+        assert_eq!(
+            graph.state(key).unwrap().rotation.wxyz,
+            [1., 0., 0., 0.]
+        );
+    }
+    #[test]
+    fn set_direction_from_up_writes_dir3_rows_and_mat_flags() {
+        // Working name for inlined I3D_frame::SetDir1 (I3D.h:467-475): no
+        // LS3DF FUNCTION address exists (only Game.exe 0x4609c0).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        graph
+            .set_direction_from_up(key, [0., 0., 1.], [0., 1., 0.])
+            .unwrap();
+        let local = graph.state(key).unwrap().local;
+        assert_eq!(
+            [local.elements[8], local.elements[9], local.elements[10]],
+            [0., 0., 1.]
+        );
+        assert_eq!(
+            graph.state(key).unwrap().flags & 0x40000010,
+            0x40000010
+        );
+        assert_eq!(graph.state(key).unwrap().flags & 0x12c, 0);
+        assert_eq!(
+            graph.set_direction_from_up(key, [0., 0., 1.], [0., 0., 2.]),
+            Err(FrameError::DirectionFromVectorsUnavailable)
+        );
+    }
+    #[test]
+    fn frame_local_direction_rebuilds_row_when_matrix_stale() {
+        // Working name for inlined I3D_frame::GetDir (I3D.h:558-572): no
+        // LS3DF FUNCTION address exists (only Game.exe 0x47a890).
+        let mut graph = I3dFrameGraph::default();
+        let stale = graph
+            .insert(I3dFrameState::source_mesh(
+                [0., 0., 0.],
+                [1., 1., 1.],
+                SQuat { wxyz: [1., 0., 0., 0.] },
+            ))
+            .unwrap();
+        assert_eq!(graph.state(stale).unwrap().flags & 0x10, 0);
+        assert_eq!(
+            graph.frame_local_direction(stale).unwrap(),
+            [0., 0., 1.]
+        );
+        assert_eq!(graph.state(stale).unwrap().flags & 0x10, 0x10);
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        assert_eq!(graph.frame_local_direction(key).unwrap(), [0., 0., 1.]);
+    }
+    #[test]
+    fn frame_world_direction_normalizes_world_row() {
+        // Working name for inlined I3D_frame::GetWorldDir (I3D.h:573-581):
+        // no LS3DF FUNCTION address exists (only Game.exe 0x47aa40).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        assert_eq!(graph.frame_world_direction(key).unwrap(), [0., 0., 1.]);
+        graph.set_direction(key, [1., 0., 0.], 0.).unwrap();
+        let got = graph.frame_world_direction(key).unwrap();
+        for (lane, want) in got.iter().zip([1., 0., 0.]) {
+            assert!((lane - want).abs() < 1e-6, "{got:?}");
+        }
+    }
+    #[test]
+    fn frame_rotation_generates_quat_once_then_reuses_cache() {
+        // Working name for inlined I3D_frame::GetRot (I3D.h:5002-5009): the
+        // reference notes LS3DF keeps no out-of-line copy (only Game.exe
+        // 0x47a810, unclaimed here).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        graph.node_mut(key).unwrap().state.flags &= !8;
+        let first = graph.frame_rotation(key).unwrap();
+        assert_eq!(graph.state(key).unwrap().flags & 8, 8);
+        assert_eq!(graph.state(key).unwrap().rotation.wxyz, first.wxyz);
+        let second = graph.frame_rotation(key).unwrap();
+        assert_eq!(second.wxyz, first.wxyz);
+    }
+    #[test]
+    fn frame_world_rotation_derives_quat_without_storing_flags() {
+        // Working name for inlined I3D_frame::GetWorldRot (I3D.h:5034-5040):
+        // no LS3DF FUNCTION address exists (only Game.exe 0x47a840).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        let before = graph.state(key).unwrap().flags;
+        let rotation = graph.frame_world_rotation(key).unwrap();
+        assert_eq!(rotation.wxyz, [1., 0., 0., 0.]);
+        assert_eq!(graph.state(key).unwrap().flags, before);
+        assert_eq!(
+            graph.state(key).unwrap().rotation.wxyz,
+            [1., 0., 0., 0.]
+        );
     }
     #[test]
     fn visual_void_counts_are_constant_zero() {
