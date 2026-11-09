@@ -853,6 +853,250 @@ impl PoliceGameInitState {
         false
     }
 
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::JakPicusNaTomJest` (GAME VA 0x49d390, RVA 0x9d390,
+    /// already ported by `PolicePursuitRecord::status_word`): scans the
+    /// records back to front for the human and returns that record's `state`
+    /// (`SHVSTATE_NONE` without a record, mafia-re
+    /// game/ai/C_shvestky.h:211). The single outline entry covers the lookup
+    /// plus the field read, so no second RVA is claimed here.
+    pub fn status_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.status_word();
+            }
+        }
+        SHVSTATE_NONE
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::GetCrashTime` (GAME VA 0x49d3e0, RVA 0x9d3e0,
+    /// already ported by `PolicePursuitRecord::crash_time`): scans the
+    /// records back to front for the human and returns that record's
+    /// `crash_time` (`0` without a record, matching the log-only stub's zero
+    /// at mafia-re game/ai/C_shvestky.cpp:791-795). The single outline entry
+    /// covers the lookup plus the field read, so no second RVA is claimed.
+    pub fn crash_time_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.crash_time();
+            }
+        }
+        0
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::GetFireTime` (GAME VA 0x49d420, RVA 0x9d420,
+    /// already ported by `PolicePursuitRecord::fire_time`): scans the records
+    /// back to front for the human and returns that record's `fire_time`
+    /// (`0` without a record, matching the log-only stub's zero at mafia-re
+    /// game/ai/C_shvestky.cpp:798-802). No second RVA is claimed.
+    pub fn fire_time_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.fire_time();
+            }
+        }
+        0
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::PocetPrestupku` (GAME VA 0x49d520, RVA 0x9d520,
+    /// already ported by `PolicePursuitRecord::offenses`): scans the records
+    /// back to front for the human and returns that record's `offenses`
+    /// count (`0` without a record, matching the log-only stub's zero at
+    /// mafia-re game/ai/C_shvestky.cpp:1000-1004). No second RVA is claimed.
+    pub fn offenses_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.offenses();
+            }
+        }
+        0
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::GetHumanStatus` (GAME VA 0x49d340, RVA 0x9d340,
+    /// already ported by `PolicePursuitRecord::human_status`): scans the
+    /// records back to front for the human and returns that record's status
+    /// flag bits (`0` without a record). No second RVA is claimed.
+    pub fn human_status_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.human_status();
+            }
+        }
+        0
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::NeviDoKterePiceVlezl` (GAME VA 0x49d560, RVA
+    /// 0x9d560, already ported by `PolicePursuitRecord::is_nevi`): returns
+    /// `false` while `unknown_38` is set, else scans the records back to
+    /// front for the human and returns that record's `nevi` flag (`false`
+    /// without a record, mafia-re game/ai/C_shvestky.h:94, 218-220). No
+    /// second RVA is claimed.
+    pub fn nevi_for_human(&self, human: PoliceHumanId) -> bool {
+        if self.unknown_38 {
+            return false;
+        }
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.is_nevi();
+            }
+        }
+        false
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::Firing` (GAME VA 0x49cb20, RVA 0x9cb20, already
+    /// ported by `PolicePursuitRecord::record_firing`): scans the records
+    /// back to front for the human and latches `SHVF_FIRE` with the
+    /// caller-supplied `fire_time` (`C_human::Shooting` owns the duration,
+    /// mafia-re game/ai/C_shvestky.h:194-195). Returns whether a record was
+    /// found. No second RVA is claimed.
+    pub fn apply_firing_for_human(&mut self, human: PoliceHumanId, fire_time: u32) -> bool {
+        for record in self.records.iter_mut().rev() {
+            if record.human == human {
+                record.record_firing(fire_time);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::HumanBoxing` (GAME VA 0x49d030, RVA 0x9d030,
+    /// already ported by `PolicePursuitRecord::record_boxing`): scans the
+    /// records back to front for the human and adds 5000 ms to `boxing_time`
+    /// with `SHVF_BOXING` set (mafia-re game/ai/C_shvestky.h:205-206).
+    /// Returns whether a record was found. No second RVA is claimed.
+    pub fn apply_boxing_for_human(&mut self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter_mut().rev() {
+            if record.human == human {
+                record.record_boxing();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::ForceArrest` (GAME VA 0x49d130, RVA 0x9d130,
+    /// already ported by `PolicePursuitRecord::record_force_arrest`): scans
+    /// the records back to front for the human, sets `SHVF_FORCE_ARREST` and
+    /// raises `new_state` to `SHVSTATE_ARREST`. Returns whether a record was
+    /// found. The script `a`/`b` parameters need mission owners and stay
+    /// deferred. No second RVA is claimed.
+    pub fn apply_force_arrest_for_human(&mut self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter_mut().rev() {
+            if record.human == human {
+                record.record_force_arrest();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::NextNaSrackySoudruh` (GAME VA 0x49d220, RVA
+    /// 0x9d220, already ported by `PolicePursuitRecord::record_run_over`):
+    /// scans the records back to front for the human and counts one more
+    /// run-over, raising `state`/`new_state` to `SHVSTATE_KILL` at six
+    /// (mafia-re game/ai/C_shvestky.h:106-108). Returns whether a record was
+    /// found. No second RVA is claimed.
+    pub fn apply_run_over_for_human(&mut self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter_mut().rev() {
+            if record.human == human {
+                record.record_run_over();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::DriveCar` (GAME VA 0x49cbb0, RVA 0x9cbb0,
+    /// already ported by `PolicePursuitRecord::apply_drive_car`): scans the
+    /// records back to front for the human and follows `car` (`None` is the
+    /// native null; `C_human` calls the native with the entered car and with
+    /// null on exit). Returns whether a record was found. The `ACTOR_CAR`
+    /// type read needs actor owners and stays deferred. No second RVA is
+    /// claimed.
+    pub fn apply_drive_car_for_human(
+        &mut self,
+        human: PoliceHumanId,
+        car: Option<PoliceActorId>,
+    ) -> bool {
+        for record in self.records.iter_mut().rev() {
+            if record.human == human {
+                record.apply_drive_car(car);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::CarSteal` (GAME VA 0x49d0b0, RVA 0x9d0b0,
+    /// already ported by `PolicePursuitRecord::record_car_steal`): scans the
+    /// records back to front for the human, sets `SHVF_CAR_STEAL` and latches
+    /// `car_steal_time` to 5000 (mafia-re game/ai/C_shvestky.h:24-25, 65).
+    /// Returns whether a record was found. The native `bool, bool` pair has
+    /// no evidenced meaning and stays deferred. No second RVA is claimed.
+    pub fn apply_car_steal_for_human(&mut self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter_mut().rev() {
+            if record.human == human {
+                record.record_car_steal();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `block_way` flag (`false` without a record). The native flag
+    /// is read inline in `Tick` 0x49a300 (mafia-re
+    /// game/ai/C_shvestky.cpp:388 at pin 113b5b6) with no dedicated
+    /// function, so no RVA is claimed.
+    pub fn block_way_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.is_block_way();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `new_state` latch (`SHVSTATE_NONE` without a record), which
+    /// `CreateShvestkyTest` raises from the flag arms and then promotes into
+    /// `state` (mafia-re game/ai/C_shvestky.cpp:640-663 at pin 113b5b6). No
+    /// dedicated function reads it natively, so no RVA is claimed.
+    pub fn pending_state_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.pending_state();
+            }
+        }
+        SHVSTATE_NONE
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `support_level` (`0` without a record), raised by
+    /// `DalsiChalpiDoPartie` for the player's states 5 and 6 in
+    /// `CreateShvestkyTest` (mafia-re game/ai/C_shvestky.cpp:721-736 at pin
+    /// 113b5b6). No dedicated function reads it natively, so no RVA is
+    /// claimed.
+    pub fn support_level_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.support_level();
+            }
+        }
+        0
+    }
+
     /// Record road-block arm at GAME VA 0x49d2e0 (RVA 0x9d2e0): Ghidra
     /// procedure with a 35-instruction body (REA ev_e8aed070) that does
     /// nothing while the manager is inactive, then scans the records back to
@@ -3613,5 +3857,203 @@ mod tests {
         assert_eq!(state.count_free_road_block_cars(), 1);
         assert_eq!(state.count_free_road_block_irises(), 0);
         assert_eq!(state.count_free_road_block_enemies(), 1);
+    }
+
+    #[test]
+    fn status_for_human_reads_latest_match_or_none() {
+        // Working name: lookup half of JakPicusNaTomJest; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.status_for_human(7), 0);
+        let mut first = PolicePursuitRecord::new(7);
+        first.state = SHVSTATE_ARREST;
+        let mut second = PolicePursuitRecord::new(7);
+        second.state = SHVSTATE_KILL;
+        state.records.push(first);
+        state.records.push(second);
+        assert_eq!(state.status_for_human(7), SHVSTATE_KILL);
+        assert_eq!(state.status_for_human(9), SHVSTATE_NONE);
+    }
+
+    #[test]
+    fn crash_time_for_human_reads_latest_match_or_zero() {
+        // Working name: lookup half of GetCrashTime; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.crash_time_for_human(7), 0);
+        let mut first = PolicePursuitRecord::new(7);
+        first.crash_time = 400;
+        let mut second = PolicePursuitRecord::new(7);
+        second.crash_time = 900;
+        state.records.push(first);
+        state.records.push(second);
+        assert_eq!(state.crash_time_for_human(7), 900);
+    }
+
+    #[test]
+    fn fire_time_for_human_reads_latest_match_or_zero() {
+        // Working name: lookup half of GetFireTime; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.fire_time_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.fire_time = 1500;
+        state.records.push(record);
+        assert_eq!(state.fire_time_for_human(7), 1500);
+        assert_eq!(state.fire_time_for_human(8), 0);
+    }
+
+    #[test]
+    fn offenses_for_human_reads_latest_match_or_zero() {
+        // Working name: lookup half of PocetPrestupku; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.offenses_for_human(7), 0);
+        let mut first = PolicePursuitRecord::new(7);
+        first.offenses = 2;
+        let mut second = PolicePursuitRecord::new(9);
+        second.offenses = 5;
+        state.records.push(first);
+        state.records.push(second);
+        assert_eq!(state.offenses_for_human(7), 2);
+        assert_eq!(state.offenses_for_human(9), 5);
+    }
+
+    #[test]
+    fn human_status_for_human_reads_latest_flags_or_zero() {
+        // Working name: lookup half of GetHumanStatus; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.human_status_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.flags = SHVF_WEAPON | SHVF_SPEEDING;
+        state.records.push(record);
+        assert_eq!(
+            state.human_status_for_human(7),
+            SHVF_WEAPON | SHVF_SPEEDING
+        );
+    }
+
+    #[test]
+    fn nevi_for_human_gates_on_unknown_38_and_record() {
+        // Working name: lookup half of NeviDoKterePiceVlezl.
+        let mut state = PoliceGameInitState::default();
+        let mut record = PolicePursuitRecord::new(7);
+        record.nevi = true;
+        state.records.push(record);
+        assert!(state.nevi_for_human(7));
+        assert!(!state.nevi_for_human(9));
+        state.unknown_38 = true;
+        assert!(!state.nevi_for_human(7));
+    }
+
+    #[test]
+    fn apply_firing_for_human_latches_latest_record() {
+        // Working name: lookup half of Firing.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.apply_firing_for_human(7, 1200));
+        state.records.push(PolicePursuitRecord::new(7));
+        state.records.push(PolicePursuitRecord::new(7));
+        assert!(state.apply_firing_for_human(7, 1200));
+        assert_eq!(state.records[0].fire_time(), 0);
+        assert_eq!(state.records[1].fire_time(), 1200);
+        assert_ne!(state.records[1].human_status() & SHVF_FIRE, 0);
+        assert!(!state.apply_firing_for_human(9, 1200));
+    }
+
+    #[test]
+    fn apply_boxing_for_human_adds_time_to_latest_record() {
+        // Working name: lookup half of HumanBoxing.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.apply_boxing_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        record.boxing_time = 1000;
+        state.records.push(record);
+        assert!(state.apply_boxing_for_human(7));
+        assert_eq!(state.records[0].boxing_time(), 6000);
+        assert_ne!(state.records[0].human_status() & SHVF_BOXING, 0);
+    }
+
+    #[test]
+    fn apply_force_arrest_for_human_raises_latest_record() {
+        // Working name: lookup half of ForceArrest.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.apply_force_arrest_for_human(7));
+        state.records.push(PolicePursuitRecord::new(7));
+        assert!(state.apply_force_arrest_for_human(7));
+        assert_ne!(state.records[0].human_status() & SHVF_FORCE_ARREST, 0);
+        assert_eq!(state.records[0].pending_state(), SHVSTATE_ARREST);
+    }
+
+    #[test]
+    fn apply_run_over_for_human_counts_latest_record() {
+        // Working name: lookup half of NextNaSrackySoudruh.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.apply_run_over_for_human(7));
+        state.records.push(PolicePursuitRecord::new(7));
+        assert!(state.apply_run_over_for_human(7));
+        assert_eq!(state.records[0].run_over(), 1);
+        assert_eq!(state.records[0].status_word(), SHVSTATE_NONE);
+        for _ in 0..5 {
+            assert!(state.apply_run_over_for_human(7));
+        }
+        assert_eq!(state.records[0].run_over(), 6);
+        assert_eq!(state.records[0].status_word(), SHVSTATE_KILL);
+    }
+
+    #[test]
+    fn apply_drive_car_for_human_follows_latest_record() {
+        // Working name: lookup half of DriveCar; None is the native null.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.apply_drive_car_for_human(7, Some(11)));
+        state.records.push(PolicePursuitRecord::new(7));
+        assert!(state.apply_drive_car_for_human(7, Some(11)));
+        assert_eq!(state.records[0].car(), Some(11));
+        assert!(state.apply_drive_car_for_human(7, None));
+        assert_eq!(state.records[0].car(), None);
+        assert!(!state.apply_drive_car_for_human(9, Some(11)));
+    }
+
+    #[test]
+    fn apply_car_steal_for_human_latches_latest_record() {
+        // Working name: lookup half of CarSteal.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.apply_car_steal_for_human(7));
+        state.records.push(PolicePursuitRecord::new(7));
+        assert!(state.apply_car_steal_for_human(7));
+        assert_ne!(state.records[0].human_status() & SHVF_CAR_STEAL, 0);
+        assert_eq!(state.records[0].car_steal_time(), 5000);
+    }
+
+    #[test]
+    fn block_way_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only block_way read; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.block_way_for_human(7));
+        let mut first = PolicePursuitRecord::new(7);
+        first.block_way = false;
+        let mut second = PolicePursuitRecord::new(7);
+        second.block_way = true;
+        state.records.push(first);
+        state.records.push(second);
+        assert!(state.block_way_for_human(7));
+    }
+
+    #[test]
+    fn pending_state_for_human_reads_latest_match_or_none() {
+        // Working name: inline-only new_state read; NONE without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.pending_state_for_human(7), SHVSTATE_NONE);
+        let mut record = PolicePursuitRecord::new(7);
+        record.new_state = SHVSTATE_ARREST;
+        state.records.push(record);
+        assert_eq!(state.pending_state_for_human(7), SHVSTATE_ARREST);
+    }
+
+    #[test]
+    fn support_level_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only support_level read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.support_level_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.support_level = 2;
+        state.records.push(record);
+        assert_eq!(state.support_level_for_human(7), 2);
+        assert_eq!(state.support_level_for_human(8), 0);
     }
 }
