@@ -1478,8 +1478,8 @@
       "va": "0x10033b30",
       "name": "I3D_model::SetName(name) (upstream working name)",
       "symbol": "lhr_engine::model_loading::ModelArena::rename_original_model",
-      "tier": "contract",
-      "evidence": "REA not_in_procedure (walk-derived 12 insn: CALL 0x1b6f0/JL/CALL 0x33ac0 + read_bytes) + mafia-re I3d_model.cpp:273-279 + rename-first/propagate-second/residue tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_1f6ebd5b11 + complete walk both branches (rename + propagate CALLs + RET 8); pin tests model_loading 119 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1523,8 +1523,8 @@
       "va": "0x10034070",
       "name": "I3D_model::ResetAllPoses (upstream working name)",
       "symbol": "lhr_engine::model_animation_runtime::ModelArena::reset_all_model_poses",
-      "tier": "contract",
-      "evidence": "REA LAB_10034070 only, not_in_procedure ev_50040514, 32 guard/call bytes (walk-derived null-guarded delegate) + mafia-re I3d_model.cpp:446-450 + null-noop/clear/clock-preservation tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_9b30dd2353 + complete walk 8 insns (null-check + delegate CALL + RET 4); pin tests reset 3 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1622,8 +1622,8 @@
       "va": "0x10049120",
       "name": "I3D_scene::SetCallback (upstream working name)",
       "symbol": "lhr_engine::scene_ownership::ModelArena::scene_set_callback",
-      "tier": "contract",
-      "evidence": "Ghidra formed no body (LAB_10049120/not_in_procedure, inter-function gap); 256B byte decode (flags store, old read, callback store, RETN-12 pair) + mafia-re I3d_scene.cpp:185-194 + store/return tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_b80832f94e + complete walk both branches (null vs store callback + RET 0xc); pin tests scene_ownership 39 pass"
     },
     {
       "binary": "LS3DF.dll",
