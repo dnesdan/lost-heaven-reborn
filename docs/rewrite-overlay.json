@@ -8804,8 +8804,8 @@
       "va": "0x46c770",
       "name": "C_program::Compile",
       "symbol": "lhr_engine::program_compiler::compile",
-      "tier": "contract",
-      "evidence": "Compile intake per module header (GAME 0x46c770). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_9441230efd + Ghidra body 287 insns/53 bbs, Compile intake per module header (read_bytes anchor ev_fbb6e7575d); pin tests program_compiler 20 / compile 35 pass"
     },
     {
       "binary": "Game.exe",

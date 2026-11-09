@@ -365,8 +365,10 @@ class RewriteProgressTests(unittest.TestCase):
         # FindVect/CutsceneParticles x2/CreatedFrame x2/CamRot/Cartridges/
         # CarSound; cbFindTaxiPoints VA-form RVA fixed 0x5b6e0->0x1b6b60;
         # all STUBs held as contract).
+        # +1 program Compile differential (Ghidra body 287/53; pin tests
+        # program_compiler 20 / compile 35 pass).
         self.assertEqual(game["ported"], 149 + 596)
-        self.assertEqual(game["verified"], 149 + 498)
+        self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
