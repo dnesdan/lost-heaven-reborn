@@ -72,6 +72,12 @@ boundary and the actual retained scalar/weather/PCM observations. This
 ordered inspection deliberately runs after the separate `GameInitStart`
 script diagnostic; the two independent probes do not establish an executable
 native gameplay sequence.
+The retained mission also exposes an explicit `SceneRenderBackend` callback
+for that same first `C_game::Init` render effect. When supplied, it delegates
+through `ModelArena::scene_render_with_backend` with the live Scene identity;
+only after a completed callback does it mark the pending volume restoration
+and reach the next unavailable `stop_sounds` operation. The default CPU probe
+has no GPU renderer and continues to stop at `Scene::Render`.
 
 Historically at engine `041eed8`, INTRO's CPU probe completed source loading and
 exited 0, while MISE01's CPU probe intentionally exited 1 at unsupported car

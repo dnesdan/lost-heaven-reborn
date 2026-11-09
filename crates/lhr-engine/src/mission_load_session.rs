@@ -1199,11 +1199,38 @@ impl MissionLoadSession {
 
     /// Reached C_game::Init stores in native order (GAME RVA 0x1a0810):
     /// mission_passed=false, car_sounds=0, then live Scene weather ON/COUNT,
-    /// weather_buffer=-1. The subsequent sound SetVolume/Render pair is only
-    /// partially available in the host. Return the first unsupported effect
-    /// without claiming completion or mutating later Init state. Re-entry is
-    /// forbidden because the original Init has one ordered attempt.
+    /// weather_buffer=-1. With no caller renderer, the subsequent sound
+    /// SetVolume/Render pair stops at the unavailable render effect. Preserve
+    /// the first unsupported effect without claiming completion or mutating
+    /// later Init state. Re-entry is forbidden by the one-shot Init guard.
     pub fn reset_game_mission_state_for_init(&mut self) -> Result<(), String> {
+        self.reset_game_mission_state_inner(|_, _| {
+            Err("Init Scene::Render after sound mute unavailable".into())
+        })
+    }
+
+    /// The same one-shot native Init prefix with a caller-owned Scene render
+    /// backend. It delegates to the already reconstructed LS3DF Render entry
+    /// over the live Scene, never a second/copied scene or a generated image.
+    /// A successful render advances to the next unowned `stop_sounds` step;
+    /// it does not complete GameInit or start the game's frame scheduler.
+    pub fn reset_game_mission_state_with_render<B: crate::scene_projection::SceneRenderBackend>(
+        &mut self,
+        renderer: &mut B,
+    ) -> Result<(), String> {
+        self.reset_game_mission_state_inner(|arena, scene| {
+            let _status = arena
+                .scene_render_with_backend(scene, renderer)
+                .map_err(|error| format!("Init Scene::Render: {error:?}"))?;
+            // Source C_game::Init ignores the I3D_scene::Render return value.
+            Ok(())
+        })
+    }
+
+    fn reset_game_mission_state_inner(
+        &mut self,
+        render: impl FnOnce(&ModelArena, SceneKey) -> Result<(), String>,
+    ) -> Result<(), String> {
         self.guard_game_init_for_init()?;
         if self.game_init_reset_entered {
             return Err("mission state reset already entered".into());
@@ -1225,7 +1252,8 @@ impl MissionLoadSession {
             self.audio
                 .set_master_gain(0.0)
                 .map_err(|error| format!("Init sound volume: {error}"))?;
-            return Err("Init Scene::Render after sound mute unavailable".into());
+            render(&self.arena, scene)?;
+            self.open_restore_volume = true;
         }
         Err("Init stop_sounds owner unavailable".into())
     }

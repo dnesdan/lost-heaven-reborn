@@ -717,6 +717,79 @@ fn game_init_reset_reads_actual_scene_weather_and_stops_at_unowned_render() {
     discard(&mut session);
 }
 
+struct InitSceneRender {
+    calls: Vec<SceneKey>,
+    audio: RuntimeAudio,
+    fail: bool,
+}
+
+impl crate::scene_projection::SceneRenderBackend for InitSceneRender {
+    fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
+        assert_eq!(self.audio.master_gain().unwrap(), 0.0);
+        arena.scene(scene)?;
+        self.calls.push(scene);
+        if self.fail {
+            return Err(ModelError::Asset("injected scene render interruption".into()));
+        }
+        // The original caller ignores the numeric I3D_scene::Render status.
+        Ok(0x8000_0009)
+    }
+}
+
+#[test]
+fn game_init_render_borrows_live_scene_once_then_marks_volume_restore() {
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let scene = session.scene().unwrap().unwrap();
+    let mut renderer = InitSceneRender {
+        calls: Vec::new(),
+        audio: session.audio().clone(),
+        fail: false,
+    };
+    assert!(!session.open_restore_volume());
+    assert_eq!(
+        session.reset_game_mission_state_with_render(&mut renderer),
+        Err("Init stop_sounds owner unavailable".into()),
+    );
+    assert_eq!(renderer.calls, [scene]);
+    assert!(session.open_restore_volume());
+    assert_eq!(session.audio().master_gain().unwrap(), 0.0);
+    assert_eq!(session.game_init_reset_observation().3, -1);
+    assert_eq!(
+        session.reset_game_mission_state_with_render(&mut renderer),
+        Err("mission state reset already entered".into()),
+    );
+    assert_eq!(renderer.calls, [scene]);
+    discard(&mut session);
+}
+
+#[test]
+fn game_init_render_failure_keeps_muted_prefix_and_does_not_mark_restore() {
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let scene = session.scene().unwrap().unwrap();
+    let mut renderer = InitSceneRender {
+        calls: Vec::new(),
+        audio: session.audio().clone(),
+        fail: true,
+    };
+    let error = session
+        .reset_game_mission_state_with_render(&mut renderer)
+        .unwrap_err();
+    assert!(error.contains("Init Scene::Render"), "{error}");
+    assert_eq!(renderer.calls, [scene]);
+    assert!(!session.open_restore_volume());
+    assert_eq!(session.audio().master_gain().unwrap(), 0.0);
+    assert_eq!(
+        session.reset_game_mission_state_with_render(&mut renderer),
+        Err("mission state reset already entered".into()),
+    );
+    assert_eq!(renderer.calls, [scene]);
+    discard(&mut session);
+}
+
 #[test]
 fn mission_tick_head_restores_real_pcm_master_gain_once_after_skipped_frames() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
