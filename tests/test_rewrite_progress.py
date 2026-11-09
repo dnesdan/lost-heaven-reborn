@@ -524,8 +524,10 @@ class RewriteProgressTests(unittest.TestCase):
         # walks; pin tests reset 3 / model_loading 119 / scene_ownership 39).
         # +1 area SetSwitchFadeTime contract (outside-memory, held;
         # 11 working-name helpers uncredited).
+        # +2 AnimIsOn/GetName batch (complete walks; pin tests 1/7/1;
+        # SetName shared-helper held as contract).
         self.assertEqual(ls3df["ported"], 145 + 852)
-        self.assertEqual(ls3df["verified"], 145 + 435)
+        self.assertEqual(ls3df["verified"], 145 + 437)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

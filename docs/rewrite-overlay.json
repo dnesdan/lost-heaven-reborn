@@ -1460,8 +1460,8 @@
       "va": "0x10033a90",
       "name": "I3D_model::AnimIsOn (upstream working name)",
       "symbol": "lhr_engine::model_animation_runtime::ModelArena::original_model_animation_is_on",
-      "tier": "contract",
-      "evidence": "REA not_in_procedure ev_f2a03f17 (walk-derived 13 insn: CMP8/JC guard, null-controller false, IMUL-0x1c stride + slot+0x0c byte) + mafia-re I3d_model.cpp:240-247 + bounds/null/stop-start tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_44825d7ffd + complete walk both branches (index>=8 -> 0; else controller null/slot check + RET 8); pin test anim_is_on 1 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -7904,8 +7904,8 @@
       "va": "0x10027570",
       "name": "I3D_frame::GetName",
       "symbol": "lhr_engine::arena_frame_names::ModelArena::original_name_pointer",
-      "tier": "contract",
-      "evidence": "REA formed Ghidra FUN_10027570 (probe-verified pure-REA copy, verified) pointer-projection only (Null-vs-Offset identity, no dereference; native empty-for-null string semantics stay caller-owned, unpinned) + pointer-identity test; tier contract (partial coverage) (mafia-re ls3df/I3D/visuals/I3d_lit_object.cpp:11 note)"
+      "tier": "differential",
+      "evidence": "REA ev_a155e0e475 + complete walk 5 insns (null -> default string; else [ECX+0x100] + RET); pin tests original_name 7 / arena_frame_names 1 pass"
     },
     {
       "binary": "LS3DF.dll",
