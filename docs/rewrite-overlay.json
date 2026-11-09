@@ -1541,8 +1541,8 @@
       "va": "0x100340b0",
       "name": "I3D_model::GetInterpolators (upstream working name)",
       "symbol": "lhr_engine::animation_controller::IPolSet::interpolator_storage",
-      "tier": "contract",
-      "evidence": "REA linear walk 7 insns/2BB (null->NULL else base [ipol+0xe8], walk-derived, no body) + mafia-re I3d_model.cpp:461-468 + borrowed-view/None-vs-empty tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_de71b46381 + complete walk (null->RET; else [+0xe8] load + RET 4); pin tests animation_controller 23 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -1577,8 +1577,8 @@
       "va": "0x100342b0",
       "name": "I3D_model::SetPoseBlend (upstream working name)",
       "symbol": "lhr_engine::model_animation_runtime::ModelArena::set_original_model_pose_blend",
-      "tier": "contract",
-      "evidence": "REA linear walk 11 insns/2BB (null->0x80000006 else delegate stores-then-dirty, walk-derived, no body; NO clamp evidenced) + mafia-re I3d_model.cpp:524-532 + bit-exactness tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_d38bc3fb08 + complete walk (null->0x80000006; else delegate CALL + RET 8); pin tests pose_blend/model_animation"
     },
     {
       "binary": "LS3DF.dll",
@@ -1586,8 +1586,8 @@
       "va": "0x100342e0",
       "name": "I3D_model::SetPoseBlend(blend,set) (upstream working name)",
       "symbol": "lhr_engine::model_animation_runtime::ModelArena::set_original_model_pose_blend_set",
-      "tier": "contract",
-      "evidence": "REA linear walk 12 insns/2BB (dirty-first delegate order, walk-derived, no body) + mafia-re I3d_model.cpp:534-541 + dirty-first/miss tests; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_87a4a27592 + complete walk (null->0x80000006; else delegate CALL + RET 0xc); pin tests pose_blend"
     },
     {
       "binary": "LS3DF.dll",
@@ -1595,8 +1595,8 @@
       "va": "0x10034310",
       "name": "I3D_model::GetPoseBlend (upstream working name)",
       "symbol": "lhr_engine::model_animation_runtime::ModelArena::original_model_pose_blend",
-      "tier": "contract",
-      "evidence": "REA linear walk 8 insns/2BB (null->FLD +0.0 + first-+4!=0 read-back, walk-derived, no body) + mafia-re I3d_model.cpp:543-550 + read-back tests; tier contract per the unresolved-boundary rule. Eligibility is a host binding-flag analog of the native +4 word (see code)."
+      "tier": "differential",
+      "evidence": "REA ev_9b2904e869 + complete walk (null->0.0 via FLD const; else delegate CALL + RET 4); pin tests pose_blend"
     },
     {
       "binary": "LS3DF.dll",
