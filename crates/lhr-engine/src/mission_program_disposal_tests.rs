@@ -93,12 +93,10 @@ fn embedded_runtime_refuses_disposal_before_any_destructor_then_retires_to_zero(
             .unwrap();
         assert!(program.runtime().is_none());
         assert_eq!(program.source().unwrap().bytes, source);
-        assert!(
-            session
-                .discard_actor_program_runtimes_host()
-                .unwrap()
-                .is_empty()
-        );
+        assert!(session
+            .discard_actor_program_runtimes_host()
+            .unwrap()
+            .is_empty());
         discard(&mut session);
         assert!(session.discard_actor_program_runtimes_host().is_err());
     }

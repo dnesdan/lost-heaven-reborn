@@ -47,8 +47,16 @@ Driving opens a window: W/S accelerate and brake, A/D steer, Space applies the
 handbrake, R reloads, and Escape exits. `--mission mise01` captures an
 inspection view; it does not start authored mission progression. To capture a
 bounded window run, add `--frames 300 --capture /tmp/driving.png` to a windowed
-command. `--car-driving` cannot be combined with `--headless`. The optional Engine Lab
-needs the `engine-lab` feature and a window; F1 toggles its panel, F2 pauses,
+command. `--car-driving` cannot be combined with `--headless`.
+
+Driving keyboard presses are latched until the next actual 16 ms simulation
+step, so a press/release between redraws is not lost. A released tap applies
+to one catch-up step; held input stays continuous. Focus loss, UI capture,
+pause and reload clear pending input. This is host input behavior, with no
+original-input parity or controller/aim-assist claim.
+
+The optional Engine Lab needs the `engine-lab` feature and a window;
+F1 toggles its panel, F2 pauses,
 F3 steps and F4 reloads. It is disabled in the default build. The CPU
 `--mission-load-probe` runs before the window/audio device path and does not
 execute gameplay. Pass `--probe-model-dir Models` explicitly for model intake;

@@ -1,13 +1,13 @@
 //! Synthetic composition tests over actual scene, actor and source owners.
 use super::*;
-#[path = "mission_load_session_program_tests.rs"]
-mod program_world;
 #[path = "mission_init_presentation_tests.rs"]
 mod init_presentation;
 #[path = "session_program_runtime_tests.rs"]
 mod owned_runtime;
 #[path = "mission_program_disposal_tests.rs"]
 mod program_disposal;
+#[path = "mission_load_session_program_tests.rs"]
+mod program_world;
 use crate::frame_transform::FrameKey;
 use crate::mission_resources::ModelCachePhase;
 use crate::model_loading::{CpuSceneWorldPhase, ModelKey};

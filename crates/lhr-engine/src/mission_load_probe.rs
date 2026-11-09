@@ -296,8 +296,13 @@ pub fn run(
             writeln!(report, "GameInitStart stopped: {detail}").unwrap();
         }
     }
-    writeln!(report, "Session script state: night_mission={} anim_preload={}",
-        session.game_state().night_mission(), session.game_state().anim_preload()).unwrap();
+    writeln!(
+        report,
+        "Session script state: night_mission={} anim_preload={}",
+        session.game_state().night_mission(),
+        session.game_state().anim_preload()
+    )
+    .unwrap();
     // Independent ordered Init inspection AFTER the GameInitStart script
     // diagnostic above. It starts with the actual retained Scene, but is not
     // a continuation of that diagnostic or a successful full GameInit. In
@@ -317,8 +322,17 @@ pub fn run(
                 |snapshot| {
                     let result = capture_retained_mission_frame(snapshot, path);
                     match &result {
-                        Ok(()) => writeln!(report, "Mission GPU readback at Init render boundary written to {}", path.display()).unwrap(),
-                        Err(error) => writeln!(report, "Mission GPU readback at Init render boundary stopped: {error}").unwrap(),
+                        Ok(()) => writeln!(
+                            report,
+                            "Mission GPU readback at Init render boundary written to {}",
+                            path.display()
+                        )
+                        .unwrap(),
+                        Err(error) => writeln!(
+                            report,
+                            "Mission GPU readback at Init render boundary stopped: {error}"
+                        )
+                        .unwrap(),
                     }
                     init_capture = Some(result.clone());
                     result
@@ -342,7 +356,11 @@ pub fn run(
         )
         .unwrap();
     } else {
-        writeln!(report, "GameInit ordered inspection: skipped after stopped load").unwrap();
+        writeln!(
+            report,
+            "GameInit ordered inspection: skipped after stopped load"
+        )
+        .unwrap();
     }
     // A separate CPU presentation observation over the SAME retained Scene.
     // Requested GPU work already ran at the reached Init render boundary; do
@@ -367,11 +385,18 @@ pub fn run(
             }
         }
     } else {
-        writeln!(report, "Mission presentation snapshot: skipped after stopped load").unwrap();
+        writeln!(
+            report,
+            "Mission presentation snapshot: skipped after stopped load"
+        )
+        .unwrap();
     }
     let capture_result = if capture.is_some() {
         init_capture.unwrap_or_else(|| {
-            Err("requested GPU capture was not reached by ordered GameInit; see its first failure".into())
+            Err(
+                "requested GPU capture was not reached by ordered GameInit; see its first failure"
+                    .into(),
+            )
         })
     } else {
         Ok(())

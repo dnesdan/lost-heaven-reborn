@@ -9042,9 +9042,14 @@ mod human_owner_tests {
             program.source().unwrap().c_bytes(),
             Some(b"dim_frm 2".as_slice())
         );
-        assert!(world.discard_embedded_program_runtimes_host().unwrap().is_empty());
+        assert!(world
+            .discard_embedded_program_runtimes_host()
+            .unwrap()
+            .is_empty());
         let mut frames = Frames::new(heap.log.clone());
-        world.delete_entity(actor, 1, &mut frames, &mut heap).unwrap();
+        world
+            .delete_entity(actor, 1, &mut frames, &mut heap)
+            .unwrap();
         assert!(heap.allocations.is_empty());
     }
     fn base() -> BaseActorSeed {

@@ -7,6 +7,10 @@ use winit::keyboard::KeyCode;
 
 pub const STEP_MS: u32 = 16;
 
+#[cfg(test)]
+#[path = "driving_input_tests.rs"]
+mod input_tests;
+
 /// Refresh the retained original static scene after each 25 source units of
 /// horizontal travel, rather than rebuilding world uploads every redraw.
 pub fn world_bucket(position: [f32; 3]) -> Result<[i32; 2], String> {
@@ -86,15 +90,58 @@ pub struct Controls {
     pub steer: f32,
     pub handbrake: bool,
 }
-impl Controls {
-    pub fn from_keys(keys: &HashSet<KeyCode>) -> Self {
-        Self {
-            throttle: u8::from(keys.contains(&KeyCode::KeyW)) as f32,
-            brake: u8::from(keys.contains(&KeyCode::KeyS)) as f32,
-            steer: u8::from(keys.contains(&KeyCode::KeyD)) as f32
-                - u8::from(keys.contains(&KeyCode::KeyA)) as f32,
-            handbrake: keys.contains(&KeyCode::Space),
+
+/// Host keyboard state with a pending press latch. A short press/release
+/// between fixed simulation steps reaches exactly the next step. Holding a
+/// key remains continuous; catch-up steps do not repeat a released tap.
+/// This is an input adapter for the inspection driving mode, not reconstructed
+/// original keyboard polling or canonical gameplay semantics.
+#[derive(Default)]
+pub struct KeyboardInput {
+    held: HashSet<KeyCode>,
+    pending: HashSet<KeyCode>,
+}
+
+impl KeyboardInput {
+    pub fn press(&mut self, key: KeyCode, repeat: bool) {
+        // A repeat after focus/UI reset must not resurrect an old held action.
+        if !repeat && self.held.insert(key) {
+            self.pending.insert(key);
         }
+    }
+
+    pub fn remove(&mut self, key: &KeyCode) {
+        self.held.remove(key);
+    }
+
+    /// Camera inspection reads current held state, without consuming queued
+    /// driving presses or delaying release until another rendered frame.
+    pub fn contains(&self, key: &KeyCode) -> bool {
+        self.held.contains(key)
+    }
+
+    pub fn held_keys(&self) -> impl Iterator<Item = &KeyCode> {
+        self.held.iter()
+    }
+
+    /// Focus loss, UI capture, pause and reload retire both held and queued
+    /// input. There is no pending action to leak into a later session.
+    pub fn clear(&mut self) {
+        self.held.clear();
+        self.pending.clear();
+    }
+
+    /// Consume once per actual fixed simulation step, never per redraw.
+    pub fn take_driving_controls(&mut self) -> Controls {
+        let active = |key| self.held.contains(&key) || self.pending.contains(&key);
+        let controls = Controls {
+            throttle: u8::from(active(KeyCode::KeyW)) as f32,
+            brake: u8::from(active(KeyCode::KeyS)) as f32,
+            steer: u8::from(active(KeyCode::KeyD)) as f32 - u8::from(active(KeyCode::KeyA)) as f32,
+            handbrake: active(KeyCode::Space),
+        };
+        self.pending.clear();
+        controls
     }
 }
 
@@ -441,9 +488,12 @@ mod tests {
 
     #[test]
     fn opposite_steering_cancels_and_released_keys_produce_neutral_input() {
-        let mut keys = HashSet::from([KeyCode::KeyW, KeyCode::KeyA, KeyCode::Space]);
+        let mut keys = KeyboardInput::default();
+        for key in [KeyCode::KeyW, KeyCode::KeyA, KeyCode::Space] {
+            keys.press(key, false);
+        }
         assert_eq!(
-            Controls::from_keys(&keys),
+            keys.take_driving_controls(),
             Controls {
                 throttle: 1.,
                 brake: 0.,
@@ -451,10 +501,10 @@ mod tests {
                 handbrake: true
             }
         );
-        keys.insert(KeyCode::KeyD);
-        assert_eq!(Controls::from_keys(&keys).steer, 0.);
+        keys.press(KeyCode::KeyD, false);
+        assert_eq!(keys.take_driving_controls().steer, 0.);
         keys.clear();
-        assert_eq!(Controls::from_keys(&keys), Controls::default());
+        assert_eq!(keys.take_driving_controls(), Controls::default());
     }
 
     #[test]

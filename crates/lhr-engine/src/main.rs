@@ -28,7 +28,7 @@ use lhr_engine::menu;
 mod neighborhood;
 use glam::{Mat4, Quat, Vec3};
 use lhr_render::{Camera, Mesh, Renderer, Scene, Texture, Vertex};
-use std::{collections::HashSet, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, WindowEvent},
@@ -38,16 +38,16 @@ use winit::{
 };
 const INITIAL_CAR_VIEWPORT: [u32; 2] = [960, 640];
 
-/// The Lab must not interpret focus-restoration presses as application actions
-/// or held input. Keep every release, including synthetic releases, so existing
-/// keys are cleared. Non-Lab routing retains its previous behavior.
+/// Lab and driving input must not interpret focus-restoration presses as
+/// application actions or held input. Keep every release, including synthetic
+/// releases, so existing keys are cleared.
 fn application_key(
-    lab_enabled: bool,
+    ignore_synthetic_presses: bool,
     key: PhysicalKey,
     state: ElementState,
     is_synthetic: bool,
 ) -> Option<KeyCode> {
-    if lab_enabled && is_synthetic && state == ElementState::Pressed {
+    if ignore_synthetic_presses && is_synthetic && state == ElementState::Pressed {
         return None;
     }
     match key {
@@ -855,7 +855,7 @@ struct App {
     lab_pointer: Option<[f64; 2]>,
     lab_drag: Option<MouseButton>,
     config: Option<wgpu::SurfaceConfiguration>,
-    keys: HashSet<KeyCode>,
+    keys: driving_view::KeyboardInput,
     steering_preview_active: bool,
     driving_clock: driving_view::FixedClock,
     driving_controls: driving_view::Controls,
@@ -1115,11 +1115,6 @@ impl App {
         if ticks == 0 {
             return Ok(());
         }
-        let keyboard = driving_view::Controls::from_keys(&self.keys);
-        let controls = self
-            .lab
-            .as_ref()
-            .map_or(keyboard, |lab| lab.controls(keyboard));
         let settings = self
             .lab
             .as_ref()
@@ -1131,7 +1126,13 @@ impl App {
         let owner = self.car.as_mut().ok_or("Driving car owner absent")?;
         let mut state = None;
         let mut steering_limit_at_input = None;
+        let mut last_controls = None;
         for _ in 0..ticks {
+            let keyboard = self.keys.take_driving_controls();
+            let controls = self
+                .lab
+                .as_ref()
+                .map_or(keyboard, |lab| lab.controls(keyboard));
             steering_limit_at_input =
                 Some(owner.driving_control_feedback()?.steering_limit_radians);
             state = Some(owner.driving_step(
@@ -1143,6 +1144,7 @@ impl App {
                     handbrake: controls.handbrake,
                 },
             )?);
+            last_controls = Some(controls);
             let root = owner.model().ok_or("Driving car model absent")?.root();
             self.camera =
                 driving_view::chase_camera_with_settings(owner.arena_mut(), root, settings.chase)?;
@@ -1159,6 +1161,7 @@ impl App {
             }
         }
         let state = state.ok_or("Driving scheduler dispatched no tick")?;
+        let controls = last_controls.ok_or("Driving scheduler dispatched no input")?;
         if self.audio_capture.is_some()
             || controls != self.driving_controls
             || old_ticks / 63 != self.driving_clock.ticks / 63
@@ -1444,7 +1447,7 @@ impl ApplicationHandler for App {
                 ..
             } => {
                 if let Some(code) = application_key(
-                    self.lab.is_some(),
+                    self.lab.is_some() || self.options.car_driving,
                     event.physical_key,
                     event.state,
                     is_synthetic,
@@ -1504,7 +1507,7 @@ impl ApplicationHandler for App {
                             self.steering_preview_active = true;
                         }
                         if event.state == ElementState::Pressed {
-                            self.keys.insert(code);
+                            self.keys.press(code, event.repeat);
                         } else {
                             self.keys.remove(&code);
                         }
@@ -1675,7 +1678,7 @@ impl ApplicationHandler for App {
                     self.lab_delta_seconds * 60. * lab.settings.camera_speed
                 });
                 let mut pan = [0.; 2];
-                for key in &self.keys {
+                for key in self.keys.held_keys() {
                     match key {
                         KeyCode::ArrowLeft if !self.options.car_driving => {
                             yaw += 0.025 * motion_scale
@@ -2651,7 +2654,7 @@ fn run() -> Result<(), String> {
         lab_pointer: None,
         lab_drag: None,
         config: None,
-        keys: HashSet::new(),
+        keys: driving_view::KeyboardInput::default(),
         steering_preview_active: false,
         driving_clock: driving_view::FixedClock::default(),
         driving_controls: driving_view::Controls::default(),

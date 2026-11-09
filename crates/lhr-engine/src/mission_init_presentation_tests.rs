@@ -62,11 +62,9 @@ fn failed_presentation_retains_muted_prefix_without_restore_or_retry() {
     assert_eq!(session.game_init_reset_observation().3, -1);
     assert!(!session.open_restore_volume());
     // Even a new outer attempt cannot repeat an interrupted owner's effects.
-    assert!(
-        InitAttempt::default()
-            .run_with_presentation(&mut session, [64, 64], &mut sequence, |_| panic!("retry"))
-            .is_err()
-    );
+    assert!(InitAttempt::default()
+        .run_with_presentation(&mut session, [64, 64], &mut sequence, |_| panic!("retry"))
+        .is_err());
     assert_eq!(sequence.next_number(), Ok(2));
     discard(&mut session);
 }
@@ -118,14 +116,12 @@ fn presentation_unwind_keeps_one_shot_guards_and_actual_owners() {
     let before = session.owned_counts().unwrap();
     let mut sequence = SceneSnapshotSequence::default();
     let mut attempt = InitAttempt::default();
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| {
-                panic!("injected presentation unwind");
-            });
-        }))
-        .is_err()
-    );
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| {
+            panic!("injected presentation unwind");
+        });
+    }))
+    .is_err());
     assert_eq!(attempt.last(), Some(InitStep::ResetMissionState));
     assert_eq!(attempt.run(&mut session), Err(InitRunError::AlreadyEntered));
     assert!(!session.open_restore_volume());
