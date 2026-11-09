@@ -4646,8 +4646,8 @@
       "va": "0x100459d0",
       "name": "I3D_pose::Clear (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::clear",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref only) + mafia-re I3d_pose.cpp:43-48 (single flag store); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_ebfa94a991 + complete walk 3 insns (store 0 + RET 4); pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4655,8 +4655,8 @@
       "va": "0x100459e0",
       "name": "I3D_pose::SetRot (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_rot",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:52-59 (null preserves ROT trap); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_9b0b25325f + complete walk both branches (quat copy + flag set/clear + RET 8); pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4664,8 +4664,8 @@
       "va": "0x10045a30",
       "name": "I3D_pose::SetRotAbs (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_rot_abs",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:63-70; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_54ae674fc9 + complete walk both branches (quat copy + flag set/clear + RET 8); pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4700,8 +4700,8 @@
       "va": "0x10045b10",
       "name": "I3D_pose::SetPos (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_pos",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:102-109; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_a5126da899 + complete walk both branches (pos copy + flag set/clear + RET 8); pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4709,8 +4709,8 @@
       "va": "0x10045b50",
       "name": "I3D_pose::SetScale (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_scale",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:113-120; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_353b45905b + complete walk both branches (scale copy + flag set/clear + RET 8); pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -13774,6 +13774,132 @@
       "symbol": "lhr_engine::game_housekeeping::don_ocas_collision",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Don-ocas collision (GAME 0x44ca50). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa9c30",
+      "va": "0x4a9c30",
+      "name": "C_Vehicle::GetVelocityRef",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_velocity_ref",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Velocity ref read (GAME 0x4a9c30)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa9c40",
+      "va": "0x4a9c40",
+      "name": "C_Vehicle::IsUnknown540",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_is_unknown_540",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Unknown540 words check (GAME 0x4a9c40)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa9c70",
+      "va": "0x4a9c70",
+      "name": "C_Vehicle::GetUnknownC48",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_unknown_c48",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. UnknownC48 vector read (GAME 0x4a9c70)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa9c80",
+      "va": "0x4a9c80",
+      "name": "C_Vehicle::GetUp",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_up",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Up-axis read (GAME 0x4a9c80)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa9c90",
+      "va": "0x4a9c90",
+      "name": "C_Vehicle::GetWheel",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_get_wheel",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Wheel identity read (GAME 0x4a9c90)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e9c0",
+      "va": "0x41e9c0",
+      "name": "C_car::GetLevelsCount",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_levels_count",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Tuning level count (GAME 0x41e9c0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e9f0",
+      "va": "0x41e9f0",
+      "name": "C_car::GetActualLevel",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_actual_level",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Tuning level read (GAME 0x41e9f0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1dec0",
+      "va": "0x41dec0",
+      "name": "C_car::GetOwner",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_owner",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Seat owner read (GAME 0x41dec0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29770",
+      "va": "0x429770",
+      "name": "C_car::SetEnterProtect1",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_enter_protect1",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Enter-protect set (GAME 0x429770)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x297b0",
+      "va": "0x4297b0",
+      "name": "C_car::GetCarWheelColl",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_wheel_coll",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Wheel-coll copy (GAME 0x4297b0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29800",
+      "va": "0x429800",
+      "name": "C_car::SetCarWheelColl",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_wheel_coll",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Wheel-coll store (GAME 0x429800)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29dd0",
+      "va": "0x429dd0",
+      "name": "C_car::GetActorSpeed",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_actor_speed",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Actor speed read (GAME 0x429dd0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29e50",
+      "va": "0x429e50",
+      "name": "C_car::GetTimeParking",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_parked_duration",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Parking time read (GAME 0x429e50)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2bb90",
+      "va": "0x42bb90",
+      "name": "C_car::SetForceFeedback",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_force_feedback",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Force-feedback store (GAME 0x42bb90)."
     }
   ],
   "vm": {

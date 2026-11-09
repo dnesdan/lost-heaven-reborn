@@ -373,7 +373,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +14 traffic-generator/don_ocas STUB contracts (ctor/dtor/Duplicate/
         # SaveData/LoadData/SaveGame x3/GameInit/GameDone/AI + GameInit/
         # IsPossibleColl/Collision; all STUBs held as contract).
-        self.assertEqual(game["ported"], 149 + 624)
+        # +14 vehicle small-accessor contracts (C_Vehicle Get*/Is* + C_car
+        # levels/owner/protect/wheel-coll/speed/parking/force-feedback;
+        # marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 638)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
@@ -534,8 +537,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +7 IGraph keyboard batch (ReadCharBuffer/ClearCharBuffer/ReadChar/
         # TestKey/KeyShift/KeyCtrl/KeyAlt complete walks; pin tests 5/6;
         # ReadKey/ReadKeys/GetShiftKeys/TranslateKey loops held).
+        # +5 pose batch (Clear/SetRot/SetRotAbs/SetPos/SetScale complete
+        # walks; pin tests animation_pose 12 pass).
         self.assertEqual(ls3df["ported"], 145 + 852)
-        self.assertEqual(ls3df["verified"], 145 + 449)
+        self.assertEqual(ls3df["verified"], 145 + 454)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
