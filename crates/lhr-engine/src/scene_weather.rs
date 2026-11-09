@@ -343,6 +343,36 @@ pub fn get_weather_system_param(scene: &[u32; SCENE_WORDS], param: u32) -> u32 {
     }
 }
 
+/// Working name for the WSF_ON bit test (mafia-re ls3df/I3D/I3D.h:1355-1356).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is written by `SetWeatherSystemParam` (PC RVA 0x4bce0, already
+/// occupied) and read back through `GetWeatherSystemParam` param 0. Reports
+/// whether the scene weather system works; no state moves.
+pub fn weather_is_on(flags: u32) -> bool {
+    flags & WSF_ON != 0
+}
+/// Working name for the WSF_SECTOR_TEST bit test (mafia-re ls3df/I3D/I3D.h:1357).
+/// The reference records no LS3DF FUNCTION address for a standalone reader.
+/// Reports whether particles outside the primary sector stay hidden; no state
+/// moves.
+pub fn weather_tests_primary_sector(flags: u32) -> bool {
+    flags & WSF_SECTOR_TEST != 0
+}
+/// Working name for the WSF_DUMMY_TEST bit test (mafia-re ls3df/I3D/I3D.h:1358).
+/// The reference records no LS3DF FUNCTION address for a standalone reader.
+/// Reports whether particles inside weather dummies' boxes stay hidden; no
+/// state moves.
+pub fn weather_tests_dummy_boxes(flags: u32) -> bool {
+    flags & WSF_DUMMY_TEST != 0
+}
+/// Working name for the WSF_SNOW bit test (mafia-re ls3df/I3D/I3D.h:1359).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is read back through `GetWeatherSystemParam` param 14. Reports
+/// snow instead of rain; no state moves.
+pub fn weather_is_snow(flags: u32) -> bool {
+    flags & WSF_SNOW != 0
+}
+
 /// WE_STRUCT corner reshaping shared by SetParam(update=2) and Update alloc,
 /// RVAs 0x4bce0/0x4c660. `size/speed` are native f32 values, `angle` the
 /// native rotation angle; rotation is RotateZMatrix(angle) via the rounded
@@ -574,6 +604,32 @@ mod tests {
         assert_eq!(first[9], 500);
         assert_eq!(first[12..17], [250, 0, 250, 0, 0]);
         assert_eq!(first[20..], [0; 6]);
+    }
+    #[test]
+    fn weather_on_bit_reports_working_system() {
+        assert!(weather_is_on(WSF_ON));
+        assert!(weather_is_on(u32::MAX));
+        assert!(!weather_is_on(0));
+        assert!(!weather_is_on(WSF_SECTOR_TEST));
+    }
+    #[test]
+    fn weather_sector_test_bit_hides_outside_primary() {
+        assert!(weather_tests_primary_sector(WSF_SECTOR_TEST));
+        assert!(!weather_tests_primary_sector(WSF_ON));
+        assert!(!weather_tests_primary_sector(0));
+    }
+    #[test]
+    fn weather_dummy_test_bit_hides_inside_dummies() {
+        assert!(weather_tests_dummy_boxes(WSF_DUMMY_TEST));
+        assert!(!weather_tests_dummy_boxes(WSF_ON));
+        assert!(!weather_tests_dummy_boxes(0));
+    }
+    #[test]
+    fn weather_snow_bit_selects_snow() {
+        assert!(weather_is_snow(WSF_SNOW));
+        assert!(weather_is_snow(u32::MAX));
+        assert!(!weather_is_snow(0));
+        assert!(!weather_is_snow(WSF_ON | WSF_SECTOR_TEST | WSF_DUMMY_TEST));
     }
 }
 

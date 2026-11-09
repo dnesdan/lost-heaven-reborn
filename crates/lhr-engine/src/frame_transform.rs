@@ -302,6 +302,103 @@ pub fn visual_void_num_levels() -> i32 {
 pub fn visual_void_num_regions() -> i32 {
     0
 }
+/// Working name for the flag word written by the LS3DF-inlined
+/// `I3D_frame::SetRot` (mafia-re ls3df/I3D/I3D.h:420-437, LS3DF_EXPORTS
+/// branch). The reference records no LS3DF FUNCTION address for it (header
+/// inline compiled into LS3DF; the only out-of-line copy is Game.exe
+/// 0x43bce0, which is not claimed here). Clears HR_BOUND_W_VALID,
+/// WMAT_VALID, MAT_VALID and ROT_VALID, then sets UPDATE and QUAT_VALID.
+/// The quaternion store and the Game.exe normalization branch stay
+/// caller-owned; only the flag word is modeled.
+pub fn frame_flags_after_set_rot(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20 | 0x10 | 0x04)) | 0x4000_0000 | 0x08
+}
+/// Working name for the flag word written by the LS3DF-inlined
+/// `I3D_frame::SetPos` (mafia-re ls3df/I3D/I3D.h:447-455). The reference
+/// records no LS3DF FUNCTION address for it (header inline; the only
+/// out-of-line copy is Game.exe 0x460980, which is not claimed here).
+/// A locked frame (FRMFLAGS_LOCKED, 0x80) stores nothing and keeps its
+/// flags, reported here as `None`. Otherwise the translation store clears
+/// HR_BOUND_W_VALID and WMAT_VALID and sets UPDATE; the matrix store stays
+/// caller-owned.
+pub fn frame_flags_after_set_pos(flags: u32) -> Option<u32> {
+    if flags & 0x80 != 0 {
+        return None;
+    }
+    Some((flags & !(0x100 | 0x20)) | 0x4000_0000)
+}
+/// Working name for the flag word written by the LS3DF-inlined
+/// `I3D_frame::SetLocalMatrix` (mafia-re ls3df/I3D/I3D.h:495-503). The
+/// reference records no LS3DF FUNCTION address for it and marks no Game.exe
+/// out-of-line copy. Clears WMAT_VALID and QUAT_VALID, then sets UPDATE,
+/// MAT_VALID and ROT_VALID. The matrix store and the scale remake from its
+/// basis rows stay caller-owned.
+pub fn frame_flags_after_set_local_matrix(flags: u32) -> u32 {
+    (flags & !(0x20 | 0x08)) | 0x4000_0000 | 0x10 | 0x04
+}
+/// Working name for the flag word written by the LS3DF-inlined
+/// `I3D_frame::SetDir1` (mafia-re ls3df/I3D/I3D.h:467-475). The reference
+/// records no LS3DF FUNCTION address for it (header inline; the only
+/// out-of-line copy is Game.exe 0x4609c0, which is not claimed here).
+/// Clears HR_BOUND_W_VALID, WMAT_VALID, QUAT_VALID and ROT_VALID, then sets
+/// UPDATE and MAT_VALID. The SetDir3 matrix build stays caller-owned.
+pub fn frame_flags_after_set_dir1(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20 | 0x08 | 0x04)) | 0x4000_0000 | 0x10
+}
+/// Working name for the flag effects of the LS3DF-inlined
+/// `I3D_frame::UpdateMatrix` (mafia-re ls3df/I3D/I3D.h:382-405). The
+/// reference records LS3DF 0x1001a6e0 for the out-of-line copy, but that
+/// address is already occupied in docs/progress.json retained entries, so no
+/// RVA is claimed here. Only the flag word is modeled: a matrix-stale frame gains
+/// MAT_VALID and ROT_VALID, otherwise a rotation-stale frame gains
+/// ROT_VALID and QUAT_VALID. The SetRot3 row scaling and the Make call stay
+/// caller-owned.
+pub fn frame_flags_after_update_matrix(flags: u32) -> u32 {
+    if flags & 0x10 == 0 {
+        flags | 0x10 | 0x04
+    } else if flags & 0x04 == 0 {
+        flags | 0x04 | 0x08
+    } else {
+        flags
+    }
+}
+/// Working name for the FRMFLAGS_LOCKED bit test (mafia-re ls3df/I3D/I3D.h:265).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit only appears inside inlined stores such as `SetPos`. Reports
+/// whether the frame position is locked; no cache moves.
+pub fn frame_is_locked(flags: u32) -> bool {
+    flags & 0x80 != 0
+}
+/// Working name for the FRMFLAGS_TICK bit test (mafia-re ls3df/I3D/I3D.h:281).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is maintained by the scene tick-list setters. Reports whether the
+/// frame sits in its scene tick list; no cache moves.
+pub fn frame_is_in_tick_list(flags: u32) -> bool {
+    flags & 0x40_0000 != 0
+}
+/// Working name for the FRMFLAGS_UPDATE bit test (mafia-re ls3df/I3D/I3D.h:287).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is set by every transform setter. Reports whether the frame still
+/// needs an update; no cache moves.
+pub fn frame_update_is_pending(flags: u32) -> bool {
+    flags & 0x4000_0000 != 0
+}
+/// Working name for the FRMFLAGS_NO_CULL bit test (mafia-re ls3df/I3D/I3D.h:282-284).
+/// The reference records no LS3DF FUNCTION address for a standalone reader.
+/// Reports whether portal culling skips the frame and its children; no cache
+/// moves.
+pub fn frame_is_no_cull(flags: u32) -> bool {
+    flags & 0x0800_0000 != 0
+}
+/// Working name for the FRMFLAGS_DUPLICATE_MASK projection (mafia-re
+/// ls3df/I3D/I3D.h:289-291). The reference records no LS3DF FUNCTION address
+/// for the mask itself; it documents what `Duplicate` copies. Keeps every bit
+/// except world-matrix/bound-volume validity, list membership (target, shadow,
+/// tick, fast-find tree, weather), interpolator, sector/occluder hierarchy
+/// bits and UPDATE.
+pub fn frame_duplicate_flags(flags: u32) -> u32 {
+    flags & 0x0fa7_3e9f
+}
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
         let id = u32::try_from(self.nodes.len())
@@ -4820,5 +4917,87 @@ mod tests {
             graph.frame_world_scale_scalar(FrameKey(u32::MAX)),
             Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
         );
+    }
+    #[test]
+    fn frame_flags_after_set_rot_clears_caches_and_sets_quat_update() {
+        assert_eq!(frame_flags_after_set_rot(0), 0x4000_0000 | 0x08);
+        assert_eq!(
+            frame_flags_after_set_rot(0xffff_ffff),
+            (0xffff_ffff & !(0x100 | 0x20 | 0x10 | 0x04)) | 0x4000_0000 | 0x08
+        );
+        assert_eq!(frame_flags_after_set_rot(0x100 | 0x20 | 0x10 | 0x04), 0x4000_0000 | 0x08);
+    }
+    #[test]
+    fn frame_flags_after_set_pos_locks_and_clears_world_caches() {
+        assert_eq!(frame_flags_after_set_pos(0x80), None);
+        assert_eq!(frame_flags_after_set_pos(0x80 | 0x1234), None);
+        assert_eq!(frame_flags_after_set_pos(0), Some(0x4000_0000));
+        assert_eq!(
+            frame_flags_after_set_pos(0x100 | 0x20 | 0x5555),
+            Some((0x5555 & !(0x100 | 0x20)) | 0x4000_0000)
+        );
+    }
+    #[test]
+    fn frame_flags_after_set_local_matrix_sets_matched_caches() {
+        assert_eq!(frame_flags_after_set_local_matrix(0), 0x4000_0014);
+        assert_eq!(
+            frame_flags_after_set_local_matrix(0x20 | 0x08 | 0x7777),
+            (0x7777 & !(0x20 | 0x08)) | 0x4000_0000 | 0x10 | 0x04
+        );
+    }
+    #[test]
+    fn frame_flags_after_set_dir1_clears_rotation_caches() {
+        assert_eq!(frame_flags_after_set_dir1(0), 0x4000_0000 | 0x10);
+        assert_eq!(
+            frame_flags_after_set_dir1(0x100 | 0x20 | 0x08 | 0x04 | 0x3333),
+            (0x3333 & !(0x100 | 0x20 | 0x08 | 0x04)) | 0x4000_0000 | 0x10
+        );
+    }
+    #[test]
+    fn frame_flags_after_update_matrix_picks_the_stale_branch() {
+        assert_eq!(frame_flags_after_update_matrix(0), 0x10 | 0x04);
+        assert_eq!(frame_flags_after_update_matrix(0x10), 0x10 | 0x04 | 0x08);
+        assert_eq!(frame_flags_after_update_matrix(0x10 | 0x04), 0x10 | 0x04);
+        assert_eq!(
+            frame_flags_after_update_matrix(0x10 | 0x04 | 0x08 | 0x4000_0000),
+            0x10 | 0x04 | 0x08 | 0x4000_0000
+        );
+    }
+    #[test]
+    fn frame_locked_bit_matches_setpos_gate() {
+        assert!(frame_is_locked(0x80));
+        assert!(frame_is_locked(0xffff_ffff));
+        assert!(!frame_is_locked(0));
+        assert!(!frame_is_locked(0x7f));
+        assert_eq!(frame_flags_after_set_pos(0x80), None);
+    }
+    #[test]
+    fn frame_tick_bit_marks_scene_tick_list() {
+        assert!(frame_is_in_tick_list(0x40_0000));
+        assert!(frame_is_in_tick_list(0xffff_ffff));
+        assert!(!frame_is_in_tick_list(0));
+        assert!(!frame_is_in_tick_list(0x80));
+    }
+    #[test]
+    fn frame_update_bit_marks_pending_update() {
+        assert!(frame_update_is_pending(0x4000_0000));
+        assert!(frame_update_is_pending(0xffff_ffff));
+        assert!(!frame_update_is_pending(0));
+        assert!(!frame_update_is_pending(0x40_0000));
+    }
+    #[test]
+    fn frame_no_cull_bit_skips_portal_culling() {
+        assert!(frame_is_no_cull(0x0800_0000));
+        assert!(frame_is_no_cull(0xffff_ffff));
+        assert!(!frame_is_no_cull(0));
+        assert!(!frame_is_no_cull(0x80));
+    }
+    #[test]
+    fn frame_duplicate_flags_keep_only_the_copied_bits() {
+        assert_eq!(frame_duplicate_flags(0), 0);
+        assert_eq!(frame_duplicate_flags(0xffff_ffff), 0x0fa7_3e9f);
+        assert_eq!(frame_duplicate_flags(1), 1);
+        assert_eq!(frame_duplicate_flags(0x4000_0000), 0);
+        assert_eq!(frame_duplicate_flags(0x0fa7_3e9f), 0x0fa7_3e9f);
     }
 }
