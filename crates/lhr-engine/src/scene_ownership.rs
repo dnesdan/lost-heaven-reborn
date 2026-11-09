@@ -1237,6 +1237,41 @@ impl ModelArena {
     pub fn scene_primary_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
         Ok(self.scene(scene)?.sectors[0])
     }
+    /// Working name for the LS3DF-inlined `I3D_scene::backdrop_sector` read
+    /// (mafia-re ls3df/I3D/I3D.h:1565). No LS3DF FUNCTION address exists
+    /// for it: the member is only stored by the sector ring setup. Slot 1
+    /// of the retained primary/backdrop/omni/near order; no caches move.
+    pub fn scene_backdrop_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
+        Ok(self.scene(scene)?.sectors[1])
+    }
+    /// Working name for the LS3DF-inlined `I3D_scene::omni_sector` read
+    /// (mafia-re ls3df/I3D/I3D.h:1566). No LS3DF FUNCTION address exists
+    /// for it. Slot 2 of the retained primary/backdrop/omni/near order.
+    pub fn scene_omni_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
+        Ok(self.scene(scene)?.sectors[2])
+    }
+    /// Working name for the LS3DF-inlined `I3D_scene::near_sector` read
+    /// (mafia-re ls3df/I3D/I3D.h:1567). No LS3DF FUNCTION address exists
+    /// for it. Slot 3 of the retained primary/backdrop/omni/near order.
+    pub fn scene_near_sector(&self, scene: SceneKey) -> Result<SectorKey, ModelError> {
+        Ok(self.scene(scene)?.sectors[3])
+    }
+    /// Working name for the `occluders_changed` state-flag read at +0x275
+    /// (mafia-re ls3df/I3D/I3D.h:1581). No LS3DF FUNCTION address exists
+    /// for it: the flag is only stored, cleared by the constructor
+    /// (mafia-re ls3df/I3D/I3d_scene.cpp:109) and set by the occluder ring
+    /// joins (mafia-re ls3df/I3D/frames/I3d_occluder.cpp:125,143).
+    pub fn scene_occluders_changed(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(self.scene(scene)?.occluders_changed)
+    }
+    /// Working name for the `areas_changed` state-flag read at +0x280
+    /// (mafia-re ls3df/I3D/I3D.h:1582). No LS3DF FUNCTION address exists
+    /// for it: the flag is only stored, cleared by the constructor
+    /// (mafia-re ls3df/I3D/I3d_scene.cpp:112) and set by the area ring
+    /// joins (mafia-re ls3df/I3D/frames/I3d_area.cpp:66,83).
+    pub fn scene_areas_changed(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(self.scene(scene)?.areas_changed)
+    }
     /// Working name for the in-class empty `I3D_scene::SetOn`
     /// (mafia-re ls3df/I3D/I3D.h:1454). No LS3DF FUNCTION address exists
     /// for it and the reference marks no Game.exe out-of-line copy either;
@@ -1292,6 +1327,64 @@ impl ModelArena {
             ))
         })?;
         self.set_frame_sector_pos(scene, frame, position)
+    }
+    /// Working name for the tick-list count at scene +0x148 (mafia-re
+    /// `ls3df/I3D/I3D.h:1554`; `tick_frames` C_list). No LS3DF FUNCTION
+    /// address exists for a count getter: only `AddTickFrame` (RVA 0x49f90)
+    /// and `DeleteTickFrame` (RVA 0x4a050) have code addresses, both already
+    /// ported and not re-credited here.
+    pub fn scene_tick_frame_count(&self, scene: SceneKey) -> Result<usize, ModelError> {
+        Ok(self.scene(scene)?.tick_frames.len())
+    }
+    /// Working name for the shadow-list count at scene +0x158 (mafia-re
+    /// `ls3df/I3D/I3D.h:1555`). No LS3DF FUNCTION address exists for a count
+    /// getter: only `AddShadow` (RVA 0x4a5a0) and `DeleteShadow`
+    /// (RVA 0x4a640) have code addresses, both already ported.
+    pub fn scene_shadow_count(&self, scene: SceneKey) -> Result<usize, ModelError> {
+        Ok(self.scene(scene)?.shadows.len())
+    }
+    /// Working name for the mirror-list count at scene +0x168 (mafia-re
+    /// `ls3df/I3D/I3D.h:1556`). No LS3DF FUNCTION address exists for a count
+    /// getter: only `AddMirror` (RVA 0x4a6f0) and `DeleteMirror`
+    /// (RVA 0x4a790) have code addresses, both already ported.
+    pub fn scene_mirror_count(&self, scene: SceneKey) -> Result<usize, ModelError> {
+        Ok(self.scene(scene)?.mirrors.len())
+    }
+    /// Working name for the `num_occluders` ring count at scene +0x26c
+    /// (mafia-re `ls3df/I3D/I3D.h:1578-1579`). No LS3DF FUNCTION address
+    /// exists for a count getter: the ring is maintained by occluder
+    /// join/leave paths. Unknown scenes are an explicit host error.
+    pub fn scene_occluder_count(&self, scene: SceneKey) -> Result<u32, ModelError> {
+        Ok(self.scene(scene)?.occluder_count)
+    }
+    /// Working name for the `num_areas` ring count at scene +0x278 (mafia-re
+    /// `ls3df/I3D/I3D.h:1583-1584`). No LS3DF FUNCTION address exists for a
+    /// count getter: the ring is maintained by area join/leave paths.
+    pub fn scene_area_count(&self, scene: SceneKey) -> Result<u32, ModelError> {
+        Ok(self.scene(scene)?.area_count)
+    }
+    /// Working name for the last `SetSpace` world value applied (mafia-re
+    /// `ls3df/I3D/I3d_scene.cpp:672-676`; file-static `SetSpaceParam` at
+    /// `I3d_scene.cpp:56-60`). No LS3DF FUNCTION address exists for a
+    /// getter: only the `SetSpace` setter (RVA 0x4a8d0, already ported) has
+    /// one. The host keeps the flag per scene so two live scenes cannot
+    /// clobber each other (documented deviation from the file-static).
+    pub fn scene_world_space(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(self.scene(scene)?.world_space)
+    }
+    /// Working name for the `unknown_274` occluder-ring flag at scene +0x274
+    /// (mafia-re `ls3df/I3D/I3D.h:1580`; set when an occluder joins the ring
+    /// in `I3d_occluder.cpp`). No LS3DF FUNCTION address exists for it: the
+    /// flag is only stored, never exposed through a discrete getter.
+    pub fn scene_occluder_flag_274(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(self.scene(scene)?.occluder_flag_274)
+    }
+    /// Working name for the `ipol_set` presence read at scene +0x178
+    /// (mafia-re `ls3df/I3D/I3D.h:1557`; made by the first `SetAnimation`,
+    /// RVA 0x4b0f0, already ported). No LS3DF FUNCTION address exists for a
+    /// presence getter: the animation verbs dereference the set directly.
+    pub fn scene_has_animation_set(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(self.scene(scene)?.scene_animation.is_some())
     }
     /// AddLight (PC RVA0x4f3d0), including the native fog-light selection.
     /// These arrays contain borrowed pointers; registration acquires no refs.
@@ -1662,6 +1755,18 @@ mod tests {
         arena.release(light).unwrap();
         assert!(arena.sector(sectors[1]).unwrap().lights.is_empty());
         assert_eq!(arena.sector_lights_changed(sectors[1]), Ok(3));
+    }
+    #[test]
+    fn scene_sector_slots_and_change_flags_read_ctor_state() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sectors = arena.scene(scene).unwrap().sectors;
+        assert_eq!(arena.scene_primary_sector(scene), Ok(sectors[0]));
+        assert_eq!(arena.scene_backdrop_sector(scene), Ok(sectors[1]));
+        assert_eq!(arena.scene_omni_sector(scene), Ok(sectors[2]));
+        assert_eq!(arena.scene_near_sector(scene), Ok(sectors[3]));
+        assert_eq!(arena.scene_occluders_changed(scene), Ok(false));
+        assert_eq!(arena.scene_areas_changed(scene), Ok(false));
     }
     #[test]
     fn fog_sector_membership_selects_latest_on_light_and_releases_reciprocals() {
@@ -2421,6 +2526,103 @@ mod tests {
                 .scene_set_frame_sector(scene, FrameKey(u32::MAX))
                 .is_err());
         });
+    }
+    #[test]
+    fn working_name_tick_frame_count_tracks_add_and_delete() {
+        // Working name, no LS3DF FUNCTION: C_list count at +0x148.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_tick_frame_count(scene).unwrap(), 0);
+        let member = dummy(&mut arena, b"tick-count");
+        arena.scene_add_frame(scene, member).unwrap();
+        arena.scene_add_tick_frame(scene, member).unwrap();
+        assert_eq!(arena.scene_tick_frame_count(scene).unwrap(), 1);
+        arena.scene_delete_tick_frame(scene, member).unwrap();
+        assert_eq!(arena.scene_tick_frame_count(scene).unwrap(), 0);
+        assert!(arena
+            .scene_tick_frame_count(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
+    }
+    #[test]
+    fn working_name_shadow_count_tracks_add_and_delete() {
+        // Working name, no LS3DF FUNCTION: shadow list count at +0x158.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_shadow_count(scene).unwrap(), 0);
+        let member = dummy(&mut arena, b"shadow-count");
+        arena.scene_add_shadow(scene, member).unwrap();
+        assert_eq!(arena.scene_shadow_count(scene).unwrap(), 1);
+        arena.scene_delete_shadow(scene, member).unwrap();
+        assert_eq!(arena.scene_shadow_count(scene).unwrap(), 0);
+        assert!(arena
+            .scene_shadow_count(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
+    }
+    #[test]
+    fn working_name_mirror_count_tracks_add_and_delete() {
+        // Working name, no LS3DF FUNCTION: mirror list count at +0x168.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_mirror_count(scene).unwrap(), 0);
+        let member = dummy(&mut arena, b"mirror-count");
+        arena.scene_add_mirror(scene, member).unwrap();
+        assert_eq!(arena.scene_mirror_count(scene).unwrap(), 1);
+        arena.scene_delete_mirror(scene, member).unwrap();
+        assert_eq!(arena.scene_mirror_count(scene).unwrap(), 0);
+        assert!(arena
+            .scene_mirror_count(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
+    }
+    #[test]
+    fn working_name_occluder_count_reads_ctor_zero() {
+        // Working name, no LS3DF FUNCTION: num_occluders at +0x26c.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_occluder_count(scene).unwrap(), 0);
+        assert!(arena
+            .scene_occluder_count(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
+    }
+    #[test]
+    fn working_name_area_count_reads_ctor_zero() {
+        // Working name, no LS3DF FUNCTION: num_areas at +0x278.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_area_count(scene).unwrap(), 0);
+        assert!(arena
+            .scene_area_count(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
+    }
+    #[test]
+    fn working_name_world_space_defaults_false_and_rejects_unknown() {
+        // Working name, no LS3DF FUNCTION: per-scene projection of the
+        // file-static SetSpaceParam (only the setter has RVA 0x4a8d0).
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_world_space(scene).unwrap(), false);
+        assert!(arena
+            .scene_world_space(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
+    }
+    #[test]
+    fn working_name_occluder_flag_274_defaults_false() {
+        // Working name, no LS3DF FUNCTION: unknown_274 at +0x274.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_occluder_flag_274(scene).unwrap(), false);
+        assert!(arena
+            .scene_occluder_flag_274(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
+    }
+    #[test]
+    fn working_name_animation_set_absent_after_ctor() {
+        // Working name, no LS3DF FUNCTION: ipol_set presence at +0x178.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_has_animation_set(scene).unwrap(), false);
+        assert!(arena
+            .scene_has_animation_set(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
     }
     #[test]
     fn lifecycle_construct_tick_close_forget_transitions() {

@@ -104,6 +104,35 @@ impl PlayerState {
         self.fade_alpha = 1.0;
         self.fade_target = 1.0;
     }
+    /// GAME 0x595440 (RVA 0x195440) C_player::SetSniperMode EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_player.h:51,
+    /// game/actors/C_player.cpp:40-43: body not reconstructed, STUB): the
+    /// sniper-mode latch and its camera/aim owners do not exist here, so no
+    /// state is touched and no owner is filed; the stub exists only to pin
+    /// the address while those owners stay DEFERRED.
+    pub fn set_sniper_mode_unsupported(_on: bool) {}
+    /// GAME 0x595e10 (RVA 0x195e10) C_player::SetAlpha EXPLICIT UNSUPPORTED
+    /// STUB (mafia-re 113b5b6 game/actors/C_player.h:55,
+    /// game/actors/C_player.cpp:45-49: body not reconstructed, STUB): the
+    /// frame alpha effect belongs to the frame owner, which does not exist
+    /// here, so the staged fade words above are left untouched and no owner
+    /// is filed; the stub exists only to pin the address while that owner
+    /// stays DEFERRED.
+    pub fn set_alpha_unsupported(_alpha: f32) {}
+    /// GAME 0x5952f0 (RVA 0x1952f0) C_player::IndicatorSetAimed EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_player.h:58,
+    /// game/actors/C_player.cpp:33-37: body not reconstructed, STUB): the HUD
+    /// indicator owner does not exist here, so no state is touched and no
+    /// owner is filed; the stub exists only to pin the address while that
+    /// owner stays DEFERRED.
+    pub fn indicator_set_aimed_unsupported() {}
+    /// GAME 0x595c30 (RVA 0x195c30) C_player::SetCarDamage EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_player.h:62,
+    /// game/actors/C_player.cpp:157-161: body not reconstructed, STUB): the
+    /// car argument plus the card-damage HUD/model owners do not exist here,
+    /// so no state is touched and no owner is filed; the stub exists only to
+    /// pin the address while those owners stay DEFERRED.
+    pub fn set_car_damage_unsupported() {}
     /// Player alpha staged by FadeReset (1.0 fully visible).
     pub fn fade_alpha(&self) -> f32 {
         self.fade_alpha
@@ -189,5 +218,40 @@ mod lock_tests {
         player.fade_target = 0.0;
         player.apply_fade_reset();
         assert_eq!((player.fade_alpha(), player.fade_target()), (1.0, 1.0));
+    }
+    #[test]
+    // GAME 0x595440 (RVA 0x195440) C_player::SetSniperMode (mafia-re 113b5b6
+    // game/actors/C_player.cpp:40-43): body not reconstructed (STUB);
+    // invoking it touches no staged words.
+    fn sniper_mode_rva_195440_stub_runs_without_state() {
+        PlayerState::set_sniper_mode_unsupported(true);
+        PlayerState::set_sniper_mode_unsupported(false);
+    }
+    #[test]
+    // GAME 0x595e10 (RVA 0x195e10) C_player::SetAlpha (mafia-re 113b5b6
+    // game/actors/C_player.cpp:45-49): body not reconstructed (STUB);
+    // invoking it leaves the staged fade words untouched.
+    fn set_alpha_rva_195e10_stub_preserves_fade_words() {
+        let mut human = HumanState::construct(human_seed());
+        let mut player = PlayerState::construct(0xd7, &mut human);
+        PlayerState::set_alpha_unsupported(0.0);
+        assert_eq!((player.fade_alpha(), player.fade_target()), (1.0, 1.0));
+        player.apply_fade_reset();
+        PlayerState::set_alpha_unsupported(1.0);
+        assert_eq!((player.fade_alpha(), player.fade_target()), (1.0, 1.0));
+    }
+    #[test]
+    // GAME 0x5952f0 (RVA 0x1952f0) C_player::IndicatorSetAimed (mafia-re
+    // 113b5b6 game/actors/C_player.cpp:33-37): body not reconstructed
+    // (STUB); invoking it touches no staged words.
+    fn indicator_aimed_rva_1952f0_stub_runs_without_state() {
+        PlayerState::indicator_set_aimed_unsupported();
+    }
+    #[test]
+    // GAME 0x595c30 (RVA 0x195c30) C_player::SetCarDamage (mafia-re 113b5b6
+    // game/actors/C_player.cpp:157-161): body not reconstructed (STUB);
+    // invoking it touches no staged words.
+    fn car_damage_rva_195c30_stub_runs_without_state() {
+        PlayerState::set_car_damage_unsupported();
     }
 }
