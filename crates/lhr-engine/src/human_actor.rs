@@ -6037,6 +6037,164 @@ pub fn reload_fire_plan(
     })
 }
 
+/// Original throw-away weapon program (mafia-re 113b5b6
+/// game/actors/C_human.h:317 HUMAN_WEAPON_THROW_AWAY 1): drops the weapon
+/// instead of holstering it.
+pub const HUMAN_WEAPON_THROW_AWAY: i32 = 1;
+
+/// Working-name animation-name select of C_human::Do_ChangeWeapon (no RVA
+/// claimed: inline switch at mafia-re 113b5b6
+/// game/actors/C_human.cpp:6021-6040 inside Do_ChangeWeapon 0x57f550, with no
+/// standalone FUNCTION copy). Returns the staged animation-cache name for the
+/// take-out/throw-away program, or None where the program just changes the
+/// model. The animation-cache/model owners stay DEFERRED.
+pub fn change_weapon_anim_name(how: i32, crouching: bool) -> Option<&'static str> {
+    match how {
+        HUMAN_WEAPON_ON_OFF => {
+            if crouching {
+                Some("gun drep on off.i3d")
+            } else {
+                Some("gun stoj on off.i3d")
+            }
+        }
+        HUMAN_WEAPON_THROW_AWAY => {
+            if crouching {
+                Some("gun drep zahozeni.i3d")
+            } else {
+                Some("gun stoj zahozeni.i3d")
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Deterministic latch words staged by the C_human::Do_ChangeWeapon reset
+/// core (mafia-re 113b5b6 game/actors/C_human.cpp:5992-6013).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChangeWeaponLatchReset {
+    pub changing: bool,
+    pub aimed: bool,
+    pub fire_held: bool,
+    pub throw_swung: bool,
+    pub reloading: bool,
+    pub reload_forced: bool,
+    pub loading_shells: bool,
+    pub reload_effects: bool,
+    pub strike_anim_time: i32,
+    pub fire_step: i32,
+    pub fire_time: i32,
+}
+
+/// Working-name latch reset of C_human::Do_ChangeWeapon (no RVA claimed:
+/// inline clears at mafia-re 113b5b6 game/actors/C_human.cpp:5992-6013 inside
+/// Do_ChangeWeapon 0x57f550, with no standalone FUNCTION copy). Reports the
+/// deterministic words the core stages on foot; the random idle time, the
+/// weapon-model visibility, ResetWeaponEffects, DelExtendedAnim, fire-table
+/// select, animation-cache program, skip-frames path and camera/sound program
+/// stay DEFERRED with their owners.
+pub fn change_weapon_latch_reset() -> ChangeWeaponLatchReset {
+    ChangeWeaponLatchReset {
+        changing: true,
+        aimed: false,
+        fire_held: false,
+        throw_swung: false,
+        reloading: false,
+        reload_forced: false,
+        loading_shells: false,
+        reload_effects: false,
+        strike_anim_time: -1,
+        fire_step: 0,
+        fire_time: 0,
+    }
+}
+
+/// Latch words staged by the C_human::Do_Reload tail (mafia-re 113b5b6
+/// game/actors/C_human.cpp:7539-7549).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReloadLatchWords {
+    pub reload_forced: bool,
+    pub reload_effects: bool,
+    pub loading_shells: bool,
+    pub weapon_displaced: bool,
+}
+
+/// Working-name latch select of C_human::Do_Reload (no RVA claimed: inline
+/// writes at mafia-re 113b5b6 game/actors/C_human.cpp:7539-7549 inside
+/// Do_Reload 0x585b40, with no standalone FUNCTION copy). The forced/effects
+/// latches are always claimed; the shell-by-shell and displacement latches
+/// follow the staged shotgun verdict (`is_shotgun && can_load_one`) and the
+/// staged left-hand-target hit. The inventory/model owners stay DEFERRED.
+pub fn reload_latch_select(
+    is_shotgun: bool,
+    can_load_one: bool,
+    left_hand_present: bool,
+) -> ReloadLatchWords {
+    let shell = is_shotgun && can_load_one;
+    ReloadLatchWords {
+        reload_forced: true,
+        reload_effects: true,
+        loading_shells: shell,
+        weapon_displaced: shell && left_hand_present,
+    }
+}
+
+/// Working-name strike-index advance of C_human::Do_Shoot (no RVA claimed:
+/// inline update at mafia-re 113b5b6 game/actors/C_human.cpp:7015-7022
+/// inside Do_Shoot 0x583590, with no standalone FUNCTION copy). Advances the
+/// staged series while strikes arrive within 1200 ms, restarting at zero
+/// past the gap and wrapping past index 3. The game clock arrives staged as
+/// `dt_ms`; the weapon/animation owners stay DEFERRED.
+pub fn shoot_strike_index_next(prev_index: i32, dt_ms: u32) -> i32 {
+    let next = if dt_ms < 1200 { prev_index + 1 } else { 0 };
+    if next > 3 { 0 } else { next }
+}
+
+/// Working-name backswing-start gate of C_human::Do_Shoot (no RVA claimed:
+/// inline gate at mafia-re 113b5b6 game/actors/C_human.cpp:7025-7037 inside
+/// Do_Shoot 0x583590, with no standalone FUNCTION copy). Starts the bat
+/// backswing only past 200 ms with a bat in hand and no backswing yet. The
+/// game clock arrives staged as `dt_since_strike_ms`; the animation owner
+/// stays DEFERRED.
+pub fn shoot_backswing_gate(is_bat: bool, backswing: bool, dt_since_strike_ms: u32) -> bool {
+    dt_since_strike_ms > 200 && is_bat && !backswing
+}
+
+/// Working-name throw-hold clamp of C_human::Do_Shoot (no RVA claimed: inline
+/// window at mafia-re 113b5b6 game/actors/C_human.cpp:7053-7056 inside
+/// Do_Shoot 0x583590, with no standalone FUNCTION copy). Releases the throw
+/// past 400 ms, clamping the held time at 2000 ms for the force scale. The
+/// strength scale, direction normalize and animation owners stay DEFERRED;
+/// the game clock arrives staged as `dt_ms`.
+pub fn throw_hold_clamp(dt_ms: u32) -> Option<u32> {
+    if dt_ms > 400 {
+        Some(dt_ms.min(2000))
+    } else {
+        None
+    }
+}
+
+/// Working-name model-change verdict of C_human::Do_Holster (no RVA claimed:
+/// inline compare at mafia-re 113b5b6 game/actors/C_human.cpp:7563-7565
+/// inside Do_Holster 0x585c60, with no standalone FUNCTION copy). Reports
+/// whether the staged right-hand item id changed across the Holster call.
+/// The inventory/ChangeWeaponModel/DropOutItems owners stay DEFERRED.
+pub fn holster_needs_model_change(prev_id: u32, next_id: u32) -> bool {
+    prev_id != next_id
+}
+
+/// Working-name entry guard of C_human::DropOutItems (no RVA claimed: inline
+/// guard at mafia-re 113b5b6 game/actors/C_human.cpp:6148-6151 inside
+/// DropOutItems 0x57faa0, with no standalone FUNCTION copy). Requires both
+/// staged hand frames and at least one staged item; the frame/game-drop
+/// owners stay DEFERRED.
+pub fn drop_out_items_gate(
+    has_right_hand: bool,
+    has_left_hand: bool,
+    item_count: usize,
+) -> bool {
+    has_right_hand && has_left_hand && item_count > 0
+}
+
 /// State words cleared by C_human::Do_PlayAnim (mafia-re 113b5b6
 /// game/actors/C_human.cpp:7612-7619).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -6666,6 +6824,117 @@ mod do_small_actions_rva_tests {
         assert!(!dead_body_entry_gate(true, false, true, true));
         assert!(!dead_body_entry_gate(false, false, false, true));
         assert!(!dead_body_entry_gate(true, false, false, false));
+    }
+}
+
+#[cfg(test)]
+mod working_name_small_leaves_tests {
+    use super::*;
+
+    #[test]
+    fn change_weapon_anim_names_cover_how_and_stance() {
+        // Working names: no RVA claimed (inline switch, C_human.cpp:6021-6040).
+        assert_eq!(
+            change_weapon_anim_name(HUMAN_WEAPON_ON_OFF, false),
+            Some("gun stoj on off.i3d")
+        );
+        assert_eq!(
+            change_weapon_anim_name(HUMAN_WEAPON_ON_OFF, true),
+            Some("gun drep on off.i3d")
+        );
+        assert_eq!(
+            change_weapon_anim_name(HUMAN_WEAPON_THROW_AWAY, false),
+            Some("gun stoj zahozeni.i3d")
+        );
+        assert_eq!(
+            change_weapon_anim_name(HUMAN_WEAPON_THROW_AWAY, true),
+            Some("gun drep zahozeni.i3d")
+        );
+        assert_eq!(change_weapon_anim_name(2, false), None);
+        assert_eq!(change_weapon_anim_name(-1, true), None);
+    }
+
+    #[test]
+    fn change_weapon_latch_reset_clears_deterministic_words() {
+        // Working name: no RVA claimed (inline clears, C_human.cpp:5992-6013).
+        let reset = change_weapon_latch_reset();
+        assert!(reset.changing);
+        assert!(!reset.aimed);
+        assert!(!reset.fire_held);
+        assert!(!reset.throw_swung);
+        assert!(!reset.reloading);
+        assert!(!reset.reload_forced);
+        assert!(!reset.loading_shells);
+        assert!(!reset.reload_effects);
+        assert_eq!(reset.strike_anim_time, -1);
+        assert_eq!(reset.fire_step, 0);
+        assert_eq!(reset.fire_time, 0);
+    }
+
+    #[test]
+    fn reload_latch_select_claims_forced_and_shell_gates() {
+        // Working name: no RVA claimed (inline writes, C_human.cpp:7539-7549).
+        let plain = reload_latch_select(false, false, false);
+        assert!(plain.reload_forced);
+        assert!(plain.reload_effects);
+        assert!(!plain.loading_shells);
+        assert!(!plain.weapon_displaced);
+        let shell = reload_latch_select(true, true, false);
+        assert!(shell.loading_shells);
+        assert!(!shell.weapon_displaced);
+        let displaced = reload_latch_select(true, true, true);
+        assert!(displaced.loading_shells);
+        assert!(displaced.weapon_displaced);
+        assert!(!reload_latch_select(true, false, true).loading_shells);
+        assert!(!reload_latch_select(false, true, true).loading_shells);
+    }
+
+    #[test]
+    fn strike_index_advances_within_window_and_wraps() {
+        // Working name: no RVA claimed (inline update, C_human.cpp:7015-7022).
+        assert_eq!(shoot_strike_index_next(0, 0), 1);
+        assert_eq!(shoot_strike_index_next(2, 1199), 3);
+        assert_eq!(shoot_strike_index_next(3, 0), 0);
+        assert_eq!(shoot_strike_index_next(1, 1200), 0);
+        assert_eq!(shoot_strike_index_next(3, 5000), 0);
+        assert_eq!(shoot_strike_index_next(-1, 0), 0);
+    }
+
+    #[test]
+    fn backswing_gate_needs_bat_and_fresh_strike() {
+        // Working name: no RVA claimed (inline gate, C_human.cpp:7025-7037).
+        assert!(shoot_backswing_gate(true, false, 201));
+        assert!(!shoot_backswing_gate(true, false, 200));
+        assert!(!shoot_backswing_gate(true, true, 500));
+        assert!(!shoot_backswing_gate(false, false, 500));
+        assert!(!shoot_backswing_gate(true, false, 0));
+    }
+
+    #[test]
+    fn throw_hold_clamps_between_release_and_cap() {
+        // Working name: no RVA claimed (inline window, C_human.cpp:7053-7056).
+        assert_eq!(throw_hold_clamp(0), None);
+        assert_eq!(throw_hold_clamp(400), None);
+        assert_eq!(throw_hold_clamp(401), Some(401));
+        assert_eq!(throw_hold_clamp(2000), Some(2000));
+        assert_eq!(throw_hold_clamp(5000), Some(2000));
+    }
+
+    #[test]
+    fn holster_model_change_tracks_item_id() {
+        // Working name: no RVA claimed (inline compare, C_human.cpp:7563-7565).
+        assert!(!holster_needs_model_change(7, 7));
+        assert!(holster_needs_model_change(7, 8));
+        assert!(holster_needs_model_change(0, 1));
+    }
+
+    #[test]
+    fn drop_out_guard_needs_hands_and_items() {
+        // Working name: no RVA claimed (inline guard, C_human.cpp:6148-6151).
+        assert!(drop_out_items_gate(true, true, 1));
+        assert!(!drop_out_items_gate(false, true, 1));
+        assert!(!drop_out_items_gate(true, false, 1));
+        assert!(!drop_out_items_gate(true, true, 0));
     }
 }
 

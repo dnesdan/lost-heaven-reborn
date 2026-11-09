@@ -128,6 +128,14 @@ impl TrafficCarState {
         self.word(0x22c)
     }
 
+    /// Working-name getter for the reserved word at +0x230.
+    /// No RVA claimed: the original leaves the word untouched with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:73 unknown_230).
+    pub fn reserved_230_word(&self) -> u32 {
+        self.word(0x230)
+    }
+
     pub(crate) fn replace_elements(&mut self, elements: Vec<u8>) {
         self.elements = elements;
     }
@@ -202,6 +210,22 @@ impl TrafficTuning {
     /// game/vehicles/C_trf_c.cpp:59-64 stub context).
     pub fn set_copy_source(&mut self, value: u32) {
         self.copy_source = value;
+    }
+
+    /// Working-name getter for the Init copy source word.
+    /// No RVA claimed: the original reads the word directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:93-94 context).
+    pub fn copy_source_bits(&self) -> u32 {
+        self.copy_source
+    }
+
+    /// Working-name getter for the Init copy target word.
+    /// No RVA claimed: the original reads the word directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:93-94 context).
+    pub fn copy_target_bits(&self) -> u32 {
+        self.copy_target
     }
 }
 
@@ -454,6 +478,22 @@ impl TrafficCarLists {
     /// standalone C_traffic_car::Set* FUNCTION copy.
     pub fn clear_elems(&mut self) {
         self.elems.clear();
+    }
+
+    /// Working-name indexed read over the parked-car list (PC 0x63d834).
+    /// No RVA claimed: the original indexes the vector directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64).
+    pub fn parking_car_at(&self, index: usize) -> Option<&TrafficListSlot> {
+        self.parking.get(index)
+    }
+
+    /// Working-name indexed read over the traffic-car list (PC 0x63d844).
+    /// No RVA claimed: the original indexes the vector directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:80-87).
+    pub fn elem_car_at(&self, index: usize) -> Option<&TrafficListSlot> {
+        self.elems.get(index)
     }
 }
 
@@ -1006,6 +1046,56 @@ mod tests {
         assert_eq!(loaded.tuning_228_word(), 0x01020304);
         assert_eq!(loaded.tuning_22c_word(), 0x05060708);
         assert_eq!(loaded.speed_word(), 0x43340000);
+    }
+
+    #[test]
+    fn state_reserved_230_word_round_trips() {
+        // Working-name getter: no RVA claimed (direct word read).
+        let mut state = constructed();
+        assert_eq!(state.reserved_230_word(), 0xaaaaaaaa);
+        state.put_load_word(0x230, 0x11223344);
+        assert_eq!(state.reserved_230_word(), 0x11223344);
+        assert_eq!(state.word(0x230), state.reserved_230_word());
+        state.put_load_word(0x21c, 0xffffffff);
+        assert_eq!(state.reserved_230_word(), 0x11223344);
+    }
+
+    #[test]
+    fn tuning_copy_bits_round_trip() {
+        // Working-name getters: no RVA claimed (direct word reads).
+        let mut tuning = TrafficTuning::construction_defaults();
+        assert_eq!(tuning.copy_source_bits(), 0);
+        assert_eq!(tuning.copy_target_bits(), 0);
+        tuning.set_copy_source(0x12345678);
+        assert_eq!(tuning.copy_source_bits(), 0x12345678);
+        assert_eq!(tuning.copy_target_bits(), 0);
+        tuning.init_copy();
+        assert_eq!(tuning.copy_target_bits(), 0x12345678);
+    }
+
+    #[test]
+    fn lists_indexed_reads_match_vectors() {
+        // Working-name indexed reads: no RVA claimed (direct vector index).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.parking_car_at(0), None);
+        assert_eq!(lists.elem_car_at(0), None);
+        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 2 });
+        lists.parking_cars_mut().push(TrafficListSlot { frame: 3, car: 4 });
+        lists.elems_mut().push(TrafficListSlot { frame: 7, car: 8 });
+        assert_eq!(
+            lists.parking_car_at(0),
+            Some(&TrafficListSlot { frame: 1, car: 2 })
+        );
+        assert_eq!(
+            lists.parking_car_at(1),
+            Some(&TrafficListSlot { frame: 3, car: 4 })
+        );
+        assert_eq!(lists.parking_car_at(2), None);
+        assert_eq!(
+            lists.elem_car_at(0),
+            Some(&TrafficListSlot { frame: 7, car: 8 })
+        );
+        assert_eq!(lists.elem_car_at(1), None);
     }
 }
 
