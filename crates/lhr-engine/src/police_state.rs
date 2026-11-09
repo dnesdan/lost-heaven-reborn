@@ -700,6 +700,222 @@ impl PoliceGameInitState {
         }
     }
 
+    /// Road-block enemy availability at GAME VA 0x49e530 (RVA 0x9e530):
+    /// Ghidra procedure with a 22-instruction body (REA ev_fe2410b6ff71)
+    /// counting the `free` marks of `road_block_enemies` back to front
+    /// (`S_road_block_enemy`, 8 bytes: actor plus `free` at +0x4, mafia-re
+    /// game/ai/C_shvestky.h:130-134). Working name: no upstream symbol names
+    /// this outline.
+    pub fn count_free_road_block_enemies(&self) -> u32 {
+        self.road_block_enemies
+            .iter()
+            .filter(|entry| entry.free)
+            .count() as u32
+    }
+
+    /// Road-block policeman checkout at GAME VA 0x49e560 (RVA 0x9e560):
+    /// Ghidra procedure with a 28-instruction body (REA ev_4c9c3cd8) taking
+    /// the last free `road_block_iris` (`S_road_block_iris`, actor plus
+    /// `free` at +0x4, mafia-re game/ai/C_shvestky.h:125-129), marking it
+    /// used and returning its actor (`None` for the native null when none is
+    /// free). Working name: the PS2 `FreeTempIris`/`GetTempIris` pair
+    /// (header lines 228-231) documents the family; no PC symbol is
+    /// evidenced for this outline.
+    pub fn take_free_road_block_iris(&mut self) -> Option<PoliceActorId> {
+        let index = self.road_block_irises.iter().rposition(|entry| entry.free)?;
+        self.road_block_irises[index].free = false;
+        Some(self.road_block_irises[index].actor)
+    }
+
+    /// Road-block enemy checkout at GAME VA 0x49e610 (RVA 0x9e610):
+    /// Ghidra procedure with a 54-instruction body (REA ev_cc188f0d) counting
+    /// the free `road_block_enemies`, drawing one pick through `C_actor::rnd`
+    /// 0x408450 (nonnegative remainder of the free count, zero for a zero
+    /// count, which cannot happen here), then taking the matching free entry
+    /// from the back and marking it used (`None` for the native null when
+    /// none is free or the pick runs past the end). The host owns the random
+    /// source: `rand_mod` receives the free count (always at least 1) and
+    /// returns the pick. Working name: the PS2 `GetTempEnemy` documents the
+    /// family (mafia-re game/ai/C_shvestky.h:228-231); no PC symbol is
+    /// evidenced for this outline.
+    pub fn take_random_free_road_block_enemy(
+        &mut self,
+        rand_mod: impl FnOnce(u32) -> u32,
+    ) -> Option<PoliceActorId> {
+        let free = self.count_free_road_block_enemies();
+        if free == 0 {
+            return None;
+        }
+        let mut skip = rand_mod(free);
+        for entry in self.road_block_enemies.iter_mut().rev() {
+            if !entry.free {
+                continue;
+            }
+            if skip == 0 {
+                entry.free = false;
+                return Some(entry.actor);
+            }
+            skip -= 1;
+        }
+        None
+    }
+
+    /// Record alerted flag at GAME VA 0x49d5b0 (RVA 0x9d5b0): Ghidra
+    /// procedure with a 28-instruction body (REA ev_cf98a051) scanning the
+    /// records back to front for the human and returning that record's
+    /// `alerted` byte (`false` without a record). This matches the PS2
+    /// `ChceHoOpichatKazdyPoldaNaOkresku` ("every cop in the district
+    /// wants him") read of `alerted` (mafia-re game/ai/C_shvestky.h:91-93). Working
+    /// name: no upstream symbol is evidenced for this outline.
+    pub fn human_record_alerted(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.alerted;
+            }
+        }
+        false
+    }
+
+    /// Record road-block arm at GAME VA 0x49d2e0 (RVA 0x9d2e0): Ghidra
+    /// procedure with a 35-instruction body (REA ev_e8aed070) that does
+    /// nothing while the manager is inactive, then scans the records back to
+    /// front for the human and, when that record is `alerted` with `state`
+    /// above `SHVSTATE_ARREST`, sets `block_way`. This matches the documented
+    /// `SerSeMuDoCesty` ("get in his way") effect: the police action comes
+    /// up for such records only (mafia-re game/ai/C_shvestky.h:76-78).
+    /// Working name: no upstream symbol is evidenced for this outline.
+    pub fn apply_block_way_for_alerted_kill(&mut self, human: PoliceHumanId) {
+        if !self.active {
+            return;
+        }
+        for record in self.records.iter_mut().rev() {
+            if record.human != human {
+                continue;
+            }
+            if record.alerted && record.state > SHVSTATE_ARREST {
+                record.block_way = true;
+            }
+            return;
+        }
+    }
+
+    /// Record illegal-path arm at GAME VA 0x49cfd0 (RVA 0x9cfd0): Ghidra
+    /// procedure with a 40-instruction body (REA ev_81f4a34e) that does
+    /// nothing for a null car or while the manager is inactive, then scans
+    /// the records back to front for the car, zeroes `illegal_path_time`
+    /// unless `SHVF_ILLEGAL_PATH` is already set, and sets the bit. This
+    /// matches the documented `CarIllegalPath` effect (mafia-re
+    /// game/ai/C_shvestky.h:21).
+    /// Working name: no upstream symbol is evidenced for this outline. The
+    /// native null-car guard reads as `None` (`record.car` is `None` for the
+    /// native null).
+    pub fn apply_car_illegal_path(&mut self, car: Option<PoliceActorId>) {
+        let Some(car) = car else {
+            return;
+        };
+        if !self.active {
+            return;
+        }
+        for record in self.records.iter_mut().rev() {
+            if record.car != Some(car) {
+                continue;
+            }
+            if record.flags & SHVF_ILLEGAL_PATH == 0 {
+                record.illegal_path_time = 0;
+            }
+            record.flags |= SHVF_ILLEGAL_PATH;
+            return;
+        }
+    }
+
+    /// Record signal-mark arm at GAME VA 0x49d1a0 (RVA 0x9d1a0): Ghidra
+    /// procedure with a 45-instruction body (REA ev_a51c6c45) that does
+    /// nothing for a null human or while the manager is inactive, then scans
+    /// the records back to front for the human and raises `new_state` to 1
+    /// with `reason` 8 where lower, adds 4000 to `signal_time` clamped to
+    /// 20000, and sets `SHVF_SIGNAL_MARK`. This matches the documented
+    /// `DestroySignalMark` effect (a destroyed traffic sign, mafia-re
+    /// game/ai/C_shvestky.h:71-73 and `C_shvestky.h:25`). Working name: no upstream symbol is evidenced
+    /// for this outline.
+    pub fn apply_destroy_signal_mark(&mut self, human: PoliceHumanId) {
+        if !self.active {
+            return;
+        }
+        for record in self.records.iter_mut().rev() {
+            if record.human != human {
+                continue;
+            }
+            if record.new_state < 1 {
+                record.new_state = 1;
+                record.reason = 8;
+            }
+            // Native `ADD`/`CMP`/`JLE`: keep the wrapped raise where it
+            // tests signed `<= 20000`, else clamp.
+            let raised = record.signal_time.wrapping_add(4000);
+            record.signal_time = if raised as i32 <= 20000 { raised } else { 20000 };
+            record.flags |= SHVF_SIGNAL_MARK;
+            return;
+        }
+    }
+
+    /// Record patrolman-hit arm at GAME VA 0x4a0040 (RVA 0xa0040): Ghidra
+    /// procedure with a 44-instruction body (REA ev_8cb00a21) scanning the
+    /// records back to front for the human, setting `SHVF_HIT_POLICEMAN`,
+    /// then forcing `records_timer.time` up to `records_timer.period` where
+    /// lower. This matches the documented `DalJsemPochuzkariDoDrzky` ("I
+    /// punched the patrolman in the face") effect (`SHVSTATE_KILL`, mafia-re
+    /// game/ai/C_shvestky.h:26-27). Working name: no upstream symbol is
+    /// evidenced for this outline.
+    pub fn apply_hit_policeman(&mut self, human: PoliceHumanId) {
+        for record in self.records.iter_mut().rev() {
+            if record.human != human {
+                continue;
+            }
+            record.flags |= SHVF_HIT_POLICEMAN;
+            // Native `SUB`/`JLE` on the timer words: force `time` up to
+            // `period` only for a positive signed difference.
+            if self
+                .records_timer
+                .period_ms
+                .wrapping_sub(self.records_timer.time_ms) as i32
+                > 0
+            {
+                self.records_timer.time_ms = self.records_timer.period_ms;
+            }
+            return;
+        }
+    }
+
+    /// Record known-car refresh at GAME VA 0x4a0150 (RVA 0xa0150): Ghidra
+    /// procedure with a 45-instruction body (REA ev_5af435a2) that does
+    /// nothing while the manager is inactive, then scans the records back to
+    /// front for the human and, where the human's current car
+    /// (`C_human::car` at +0x98, mafia-re game/actors/C_human.h) still equals
+    /// the record's `known_car`, stores the caller's car and on-foot flag.
+    /// This matches the documented `ZalozSpisATahniDoRiti_Haleluja` ("open a
+    /// file") refresh (mafia-re game/ai/C_shvestky.h:96-101). Working name:
+    /// symbol is evidenced for this outline.
+    pub fn refresh_record_known_car(
+        &mut self,
+        human: PoliceHumanId,
+        human_car: Option<PoliceActorId>,
+        known_on_foot: bool,
+    ) {
+        if !self.active {
+            return;
+        }
+        for record in self.records.iter_mut().rev() {
+            if record.human != human {
+                continue;
+            }
+            if human_car == record.known_car {
+                record.known_car = human_car;
+                record.known_on_foot = known_on_foot;
+            }
+            return;
+        }
+    }
+
     /// Original `C_shvestky::~C_shvestky` 0x499c00 (GAME VA 0x499c00,
     /// RVA 0x99c00; mafia-re game/ai/C_shvestky.cpp:32-35 at pin 113b5b6):
     /// the native destructor body is empty (no stores). This owner holds no
@@ -732,6 +948,15 @@ pub const SHVF_CAR_STEAL: u32 = 0x800;
 /// `SHVF_FORCE_ARREST` 0x4000: `ForceArrest`'s bit, `SHVSTATE_ARREST`
 /// (mafia-re game/ai/C_shvestky.h:28).
 pub const SHVF_FORCE_ARREST: u32 = 0x4000;
+/// `SHVF_ILLEGAL_PATH` 0x40: `CarIllegalPath`'s bit, counted up while the car
+/// is faster than 11 (mafia-re game/ai/C_shvestky.h:21).
+pub const SHVF_ILLEGAL_PATH: u32 = 0x40;
+/// `SHVF_SIGNAL_MARK` 0x1000: `DestroySignalMark`'s bit (a destroyed traffic
+/// sign), cleared with `SHVF_RED_LIGHT` (mafia-re game/ai/C_shvestky.h:25).
+pub const SHVF_SIGNAL_MARK: u32 = 0x1000;
+/// `SHVF_HIT_POLICEMAN` 0x2000: `DalJsemPochuzkariDoDrzky`'s bit (the human
+/// punched a patrolman; `SHVSTATE_KILL`, mafia-re game/ai/C_shvestky.h:27).
+pub const SHVF_HIT_POLICEMAN: u32 = 0x2000;
 
 /// Ground-plane squared eviction distance for `TickDoRiciActors`
 /// (150 m; mafia-re game/ai/C_shvestky.cpp:869, 876, 884, 896).
@@ -802,6 +1027,12 @@ pub const TAKE_TYRES_RADIO_ENTRY: u32 = 0x49a140;
 pub const RENAME_POLICE_CAR_ENTRY: u32 = 0x4a0230;
 /// `C_shvestky::GameDone` 0x499dc0.
 pub const GAME_DONE_ENTRY: u32 = 0x499dc0;
+/// Road-block iris release at GAME VA 0x49e5a0 (RVA 0x9e5a0): frees the iris
+/// and notifies the game/radar owners.
+pub const FREE_ROAD_BLOCK_IRIS_ENTRY: u32 = 0x49e5a0;
+/// Player-pursuit predicate at GAME VA 0x4a01c0 (RVA 0xa01c0): reads the
+/// mission player through the game owner.
+pub const PLAYER_PURSUIT_ACTIVE_ENTRY: u32 = 0x4a01c0;
 
 pub fn send_police_backup(
     _human: PoliceHumanId,
@@ -872,6 +1103,35 @@ pub fn rename_police_car(_car: PoliceActorId) -> Result<(), PoliceDispatchError>
 pub fn police_game_done() -> Result<(), PoliceDispatchError> {
     Err(PoliceDispatchError::Unsupported {
         entry: GAME_DONE_ENTRY,
+    })
+}
+
+/// Road-block iris release at GAME VA 0x49e5a0 (RVA 0x9e5a0): Ghidra
+/// procedure with a 44-instruction body (REA ev_ea3337a2) scanning the
+/// road-block irises for the actor; where found, it marks the entry free and
+/// notifies the game (`STUB: GAME` callee 0x5a7d40 through the mission global)
+/// and radar (`STUB: GAME` callee 0x445bb0) owners before reporting success.
+/// Both owners stay outside this contract, so the boundary is explicit.
+/// Working name: the PS2 `FreeTempIris` documents the family (mafia-re
+/// game/ai/C_shvestky.h:228-231); no PC symbol is evidenced for this
+/// outline.
+pub fn free_road_block_iris(_actor: PoliceActorId) -> Result<bool, PoliceDispatchError> {
+    Err(PoliceDispatchError::Unsupported {
+        entry: FREE_ROAD_BLOCK_IRIS_ENTRY,
+    })
+}
+
+/// Player-pursuit predicate at GAME VA 0x4a01c0 (RVA 0xa01c0): Ghidra
+/// procedure with a 48-instruction body (REA ev_db6707a2) reading the mission
+/// player through the game owner (`STUB: GAME` global 0x63788c), reporting
+/// whether any `PocetNasranychZivych` 0x49d4b0 angry survivor exists, else
+/// whether some record is filed (`state` nonzero or `alerted`) without
+/// `nevi`. The mission player owner stays outside this contract, so the
+/// boundary is explicit. Working name: no upstream symbol is evidenced for
+/// this outline.
+pub fn player_pursuit_active() -> Result<bool, PoliceDispatchError> {
+    Err(PoliceDispatchError::Unsupported {
+        entry: PLAYER_PURSUIT_ACTIVE_ENTRY,
     })
 }
 
@@ -1071,6 +1331,18 @@ impl SledovackaState {
         self.chase_cars.len()
     }
 
+    /// Chase-membership test at GAME VA 0x4a0700 (RVA 0xa0700): Ghidra
+    /// procedure with a 37-instruction body (REA ev_2778375e) dividing the
+    /// chase-element span by `S_ELEMENT` (0x44 bytes, mafia-re
+    /// game/ai/C_sledovacka.h:38-55) and scanning back to front for the car,
+    /// reporting whether one element drives it. Working name: no upstream
+    /// symbol is evidenced for this outline; the tracked `chase_cars` stand
+    /// in for the native elements, whose drivers/paths stay outside this
+    /// contract.
+    pub fn sledovacka_has_car(&self, car: PoliceActorId) -> bool {
+        self.chase_cars.iter().rev().any(|&chase| chase == car)
+    }
+
     /// Original `C_sledovacka::Done` 0x4a0660 (GAME VA 0x4a0660,
     /// RVA 0xa0660; mafia-re game/ai/C_sledovacka.cpp:67-74 at pin 113b5b6):
     /// deletes each element's driver, then clears the elements and the
@@ -1117,6 +1389,38 @@ pub fn remove_angry_actor_everywhere(records: &mut [Vec<PoliceActorId>], actor: 
     }
 }
 
+/// Record state raise at GAME VA 0x49f7e0 (RVA 0x9f7e0): Ghidra procedure
+/// with a 47-instruction body (REA ev_7b59b75a) scanning the records back to
+/// front for the human and, where that record's angry list is non-empty with
+/// a free slot, raising `state` to 2 (`SHVSTATE_ARREST`), or to 3
+/// (`SHVSTATE_KILL`) for `use_kill`, where lower. The caller keeps each
+/// record's angry list; `angry` runs index-aligned with `records`, and pairs
+/// past the shared prefix stay unreachable (a host admission the native
+/// inline vector cannot hit). Working name: no upstream symbol is evidenced
+/// for this outline.
+pub fn raise_record_state_for_human(
+    records: &mut [PolicePursuitRecord],
+    angry: &[Vec<PoliceActorId>],
+    human: PoliceHumanId,
+    use_kill: bool,
+) {
+    let target = 2 + u32::from(use_kill);
+    let shared = records.len().min(angry.len());
+    for index in (0..shared).rev() {
+        if records[index].human != human {
+            continue;
+        }
+        let angry_list = &angry[index];
+        if angry_list.is_empty() || angry_list.capacity() <= angry_list.len() {
+            return;
+        }
+        if records[index].state < target {
+            records[index].state = target;
+        }
+        return;
+    }
+}
+
 /// Original `C_shvestky::S_shvestky::~S_shvestky` 0x49a120 (GAME VA 0x49a120,
 /// RVA 0x9a120; mafia-re game/ai/C_shvestky.cpp:141-145 at pin 113b5b6 is a
 /// log-only stub): destroys one pursuit record, whose owned subset here is
@@ -1154,8 +1458,19 @@ pub struct PolicePursuitRecord {
     pub run_over: u32,
     pub alerted: bool,
     pub nevi: bool,
+    /// The human's known car (`known_car`, mafia-re game/ai/C_shvestky.h:99):
+    /// the car `ZalozSpisATahniDoRiti_Haleluja` filed the human in. Native
+    /// null reads as `None`.
+    pub known_car: Option<PoliceActorId>,
+    /// Whether the filed human is known on foot (`known_on_foot`, mafia-re
+    /// game/ai/C_shvestky.h:100).
+    pub known_on_foot: bool,
     pub support_level: u32,
     pub rammed_car: u32,
+    /// Why the record's state went up (`reason`, `SHVREASON_*`, mafia-re
+    /// game/ai/C_shvestky.h:39-45). Upstream leaves 8 (written by the
+    /// signal-mark outline) unnamed; the raw word is kept.
+    pub reason: u32,
 }
 
 impl PolicePursuitRecord {
@@ -1182,8 +1497,11 @@ impl PolicePursuitRecord {
             run_over: 0,
             alerted: false,
             nevi: false,
+            known_car: None,
+            known_on_foot: false,
             support_level: 0,
             rammed_car: 0,
+            reason: 0,
         }
     }
 
@@ -1647,6 +1965,247 @@ mod tests {
             send_police_to_human(1, [0.0; 3], 150.0, false, false),
             Err(PoliceDispatchError::Unsupported {
                 entry: SEND_POLICE_TO_HUMAN_ENTRY
+            })
+        );
+    }
+
+    #[test]
+    fn rva_9e530_count_free_road_block_enemies_counts_back_to_front() {
+        // GAME VA 0x49e530 (RVA 0x9e530): counts nonzero `free` marks.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.count_free_road_block_enemies(), 0);
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 1,
+            free: true,
+        });
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 2,
+            free: false,
+        });
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 3,
+            free: true,
+        });
+        assert_eq!(state.count_free_road_block_enemies(), 2);
+    }
+
+    #[test]
+    fn rva_9e560_take_free_road_block_iris_takes_last_free() {
+        // GAME VA 0x49e560 (RVA 0x9e560): backward scan, marks used.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.take_free_road_block_iris(), None);
+        for (actor, free) in [(1, false), (2, true), (3, true)] {
+            state.road_block_irises.push(PoliceRoadBlockIris { actor, free });
+        }
+        assert_eq!(state.take_free_road_block_iris(), Some(3));
+        assert!(!state.road_block_irises[2].free);
+        assert_eq!(state.take_free_road_block_iris(), Some(2));
+        assert_eq!(state.take_free_road_block_iris(), None);
+    }
+
+    #[test]
+    fn rva_9e610_take_random_free_road_block_enemy_skips_pick() {
+        // GAME VA 0x49e610 (RVA 0x9e610): `C_actor::rnd` 0x408450 pick over
+        // the free count, second backward scan skips that many free entries.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.take_random_free_road_block_enemy(|_| 0), None);
+        for (actor, free) in [(1, true), (2, false), (3, true), (4, true)] {
+            state.road_block_enemies.push(PoliceRoadBlockEnemy { actor, free });
+        }
+        assert_eq!(state.take_random_free_road_block_enemy(|_| 0), Some(4));
+        assert_eq!(state.take_random_free_road_block_enemy(|_| 1), Some(1));
+        assert!(!state.road_block_enemies[0].free);
+        // A pick past the free end takes nothing (native falls through).
+        assert_eq!(state.take_random_free_road_block_enemy(|count| count), None);
+    }
+
+    #[test]
+    fn rva_a0700_sledovacka_has_car_matches_chase_list() {
+        // GAME VA 0x4a0700 (RVA 0xa0700): element search over the chase list.
+        let mut chases = SledovackaState::new();
+        assert!(!chases.sledovacka_has_car(7));
+        chases.chase_cars.push(7);
+        chases.chase_cars.push(9);
+        assert!(chases.sledovacka_has_car(9));
+        assert!(chases.sledovacka_has_car(7));
+        assert!(!chases.sledovacka_has_car(8));
+    }
+
+    #[test]
+    fn rva_9d5b0_human_record_alerted_reads_matched_record() {
+        // GAME VA 0x49d5b0 (RVA 0x9d5b0): backward scan, `alerted` or false.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.human_record_alerted(7));
+        let mut first = PolicePursuitRecord::new(7);
+        first.alerted = false;
+        let mut second = PolicePursuitRecord::new(9);
+        second.alerted = true;
+        state.records.push(first);
+        state.records.push(second);
+        assert!(!state.human_record_alerted(7));
+        assert!(state.human_record_alerted(9));
+        state.records[1].alerted = false;
+        assert!(!state.human_record_alerted(9));
+    }
+
+    #[test]
+    fn rva_9d2e0_block_way_arms_only_alerted_kill_records() {
+        // GAME VA 0x49d2e0 (RVA 0x9d2e0): `SerSeMuDoCesty` outline.
+        let mut state = PoliceGameInitState::default();
+        let mut record = PolicePursuitRecord::new(7);
+        record.alerted = true;
+        record.state = SHVSTATE_KILL;
+        state.records.push(record);
+        // Inactive manager stores nothing (native active guard).
+        state.apply_block_way_for_alerted_kill(7);
+        assert!(!state.records[0].block_way);
+        state.active = true;
+        state.apply_block_way_for_alerted_kill(99);
+        assert!(!state.records[0].block_way);
+        state.apply_block_way_for_alerted_kill(7);
+        assert!(state.records[0].block_way);
+        // Arrest state (2) does not arm (`JBE` over the state word).
+        let mut low = PolicePursuitRecord::new(8);
+        low.alerted = true;
+        low.state = SHVSTATE_ARREST;
+        state.records.push(low);
+        state.apply_block_way_for_alerted_kill(8);
+        assert!(!state.records[1].block_way);
+    }
+
+    #[test]
+    fn rva_9cfd0_car_illegal_path_sets_flag_and_clears_timer() {
+        // GAME VA 0x49cfd0 (RVA 0x9cfd0): `CarIllegalPath` outline.
+        let mut state = PoliceGameInitState::default();
+        state.active = true;
+        let mut record = PolicePursuitRecord::new(7);
+        record.car = Some(11);
+        record.illegal_path_time = 1200;
+        state.records.push(record);
+        state.apply_car_illegal_path(None);
+        assert_eq!(state.records[0].flags & SHVF_ILLEGAL_PATH, 0);
+        state.apply_car_illegal_path(Some(12));
+        assert_eq!(state.records[0].flags & SHVF_ILLEGAL_PATH, 0);
+        state.apply_car_illegal_path(Some(11));
+        assert_ne!(state.records[0].flags & SHVF_ILLEGAL_PATH, 0);
+        assert_eq!(state.records[0].illegal_path_time, 0);
+        // A set bit keeps the running timer (no clear arm).
+        state.records[0].illegal_path_time = 800;
+        state.apply_car_illegal_path(Some(11));
+        assert_eq!(state.records[0].illegal_path_time, 800);
+    }
+
+    #[test]
+    fn rva_9d1a0_destroy_signal_mark_latches_time_and_reason() {
+        // GAME VA 0x49d1a0 (RVA 0x9d1a0): `DestroySignalMark` outline.
+        let mut state = PoliceGameInitState::default();
+        let mut record = PolicePursuitRecord::new(7);
+        record.signal_time = 15000;
+        state.records.push(record);
+        state.apply_destroy_signal_mark(7);
+        assert_eq!(state.records[0].signal_time, 15000);
+        state.active = true;
+        state.apply_destroy_signal_mark(99);
+        assert_eq!(state.records[0].signal_time, 15000);
+        state.apply_destroy_signal_mark(7);
+        assert_eq!(state.records[0].new_state, 1);
+        assert_eq!(state.records[0].reason, 8);
+        assert_eq!(state.records[0].signal_time, 19000);
+        assert_ne!(state.records[0].flags & SHVF_SIGNAL_MARK, 0);
+        // The 4000 ms raise clamps at 20000 and keeps a raised state.
+        state.records[0].signal_time = 19000;
+        state.records[0].new_state = 2;
+        state.apply_destroy_signal_mark(7);
+        assert_eq!(state.records[0].signal_time, 20000);
+        assert_eq!(state.records[0].new_state, 2);
+    }
+
+    #[test]
+    fn rva_a0040_hit_policeman_sets_flag_and_expires_timer() {
+        // GAME VA 0x4a0040 (RVA 0xa0040): `DalJsemPochuzkariDoDrzky` outline.
+        let mut state = PoliceGameInitState::default();
+        state.records.push(PolicePursuitRecord::new(7));
+        state.apply_hit_policeman(99);
+        assert_eq!(state.records[0].flags & SHVF_HIT_POLICEMAN, 0);
+        state.apply_hit_policeman(7);
+        assert_ne!(state.records[0].flags & SHVF_HIT_POLICEMAN, 0);
+        // `records_timer.time` climbs to `period` only where lower.
+        assert_eq!(
+            (state.records_timer.time_ms(), state.records_timer.period_ms()),
+            (200, 200)
+        );
+        state.records_timer.reset(500);
+        state.records_timer.tick(100);
+        state.apply_hit_policeman(7);
+        assert_eq!(state.records_timer.time_ms(), 500);
+        // A non-positive signed difference leaves the timer alone.
+        state.records_timer.time_ms = 600;
+        state.apply_hit_policeman(7);
+        assert_eq!(state.records_timer.time_ms(), 600);
+    }
+
+    #[test]
+    fn rva_a0150_refresh_record_known_car_updates_matching_file() {
+        // GAME VA 0x4a0150 (RVA 0xa0150): `ZalozSpisATahniDoRiti_Haleluja`
+        // refresh; the caller reads `C_human::car` (+0x98).
+        let mut state = PoliceGameInitState::default();
+        let mut record = PolicePursuitRecord::new(7);
+        record.known_car = Some(11);
+        state.records.push(record);
+        state.refresh_record_known_car(7, Some(11), true);
+        assert_eq!(state.records[0].known_car, Some(11));
+        state.active = true;
+        state.refresh_record_known_car(7, Some(12), true);
+        assert_eq!(state.records[0].known_car, Some(11));
+        assert!(!state.records[0].known_on_foot);
+        state.refresh_record_known_car(7, Some(11), true);
+        assert_eq!(state.records[0].known_car, Some(11));
+        assert!(state.records[0].known_on_foot);
+        state.refresh_record_known_car(99, Some(11), false);
+        assert!(state.records[0].known_on_foot);
+    }
+
+    #[test]
+    fn rva_9f7e0_raise_record_state_needs_angry_room() {
+        // GAME VA 0x49f7e0 (RVA 0x9f7e0): raises `state` to 2/3 where lower
+        // with a non-empty angry list that still has a free slot.
+        let mut records = vec![PolicePursuitRecord::new(7)];
+        let mut angry = vec![Vec::<PoliceActorId>::with_capacity(4)];
+        raise_record_state_for_human(&mut records, &angry, 99, false);
+        assert_eq!(records[0].state, SHVSTATE_NONE);
+        raise_record_state_for_human(&mut records, &angry, 7, false);
+        assert_eq!(records[0].state, SHVSTATE_NONE);
+        angry[0].push(3);
+        raise_record_state_for_human(&mut records, &angry, 7, false);
+        assert_eq!(records[0].state, SHVSTATE_ARREST);
+        raise_record_state_for_human(&mut records, &angry, 7, true);
+        assert_eq!(records[0].state, SHVSTATE_KILL);
+        raise_record_state_for_human(&mut records, &angry, 7, false);
+        assert_eq!(records[0].state, SHVSTATE_KILL);
+    }
+
+    #[test]
+    fn rva_9e5a0_free_road_block_iris_reports_unsupported() {
+        // GAME VA 0x49e5a0 (RVA 0x9e5a0): the game/radar notify owners stay
+        // outside this contract.
+        assert_eq!(FREE_ROAD_BLOCK_IRIS_ENTRY, 0x49e5a0);
+        assert_eq!(
+            free_road_block_iris(5),
+            Err(PoliceDispatchError::Unsupported {
+                entry: FREE_ROAD_BLOCK_IRIS_ENTRY
+            })
+        );
+    }
+
+    #[test]
+    fn rva_a01c0_player_pursuit_active_reports_unsupported() {
+        // GAME VA 0x4a01c0 (RVA 0xa01c0): the mission player owner stays
+        // outside this contract.
+        assert_eq!(PLAYER_PURSUIT_ACTIVE_ENTRY, 0x4a01c0);
+        assert_eq!(
+            player_pursuit_active(),
+            Err(PoliceDispatchError::Unsupported {
+                entry: PLAYER_PURSUIT_ACTIVE_ENTRY
             })
         );
     }

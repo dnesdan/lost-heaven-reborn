@@ -14845,6 +14845,123 @@
       "symbol": "lhr_engine::render_core::landpatch_render_stub",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. STUB: gLandVB/D3D deferred (LS3DF 0x1001fac0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9e530",
+      "va": "0x49e530",
+      "name": "C_shvestky road-block enemies (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::count_free_road_block_enemies",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9e560",
+      "va": "0x49e560",
+      "name": "C_shvestky road-block iris take (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::take_free_road_block_iris",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9e610",
+      "va": "0x49e610",
+      "name": "C_shvestky random road-block enemy (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::take_random_free_road_block_enemy",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9d5b0",
+      "va": "0x49d5b0",
+      "name": "C_shvestky alerted record (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::human_record_alerted",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9d2e0",
+      "va": "0x49d2e0",
+      "name": "C_shvestky block-way kill (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_block_way_for_alerted_kill",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9cfd0",
+      "va": "0x49cfd0",
+      "name": "C_shvestky illegal path (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_car_illegal_path",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9d1a0",
+      "va": "0x49d1a0",
+      "name": "C_shvestky destroy signal (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_destroy_signal_mark",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0040",
+      "va": "0x4a0040",
+      "name": "C_shvestky hit policeman (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_hit_policeman",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0150",
+      "va": "0x4a0150",
+      "name": "C_shvestky known car (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::refresh_record_known_car",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9e5a0",
+      "va": "0x49e5a0",
+      "name": "C_shvestky free iris STUB",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::free_road_block_iris",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa01c0",
+      "va": "0x4a01c0",
+      "name": "C_shvestky pursuit STUB",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::player_pursuit_active",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0700",
+      "va": "0x4a0700",
+      "name": "C_sledovacka has car (working name)",
+      "symbol": "lhr_engine::police_state::SledovackaState::sledovacka_has_car",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9f7e0",
+      "va": "0x49f7e0",
+      "name": "C_shvestky raise state (working name)",
+      "symbol": "lhr_engine::police_state::raise_record_state_for_human",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
     }
   ],
   "vm": {

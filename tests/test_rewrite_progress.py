@@ -405,7 +405,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +8 placement/shot contracts (InternalPlacementReset/ResetPlacement/
         # SaveGameLoadGuid/DebustizeFrame+NoShadowFrame STUBs/shot SetWeapon+
         # PlayRecord/human SaveGameGetSize; 4 working-name uncredited).
-        self.assertEqual(game["ported"], 149 + 723)
+        # +13 police pursuit contracts (road-block/alerted/illegal-path/
+        # destroy-signal/hit/known-car/sledovacka/state; 2 STUBs; working
+        # names, sample-decoded as code; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 736)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
