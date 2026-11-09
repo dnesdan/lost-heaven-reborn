@@ -60,6 +60,19 @@ pub fn sync_runtime_audio_frames(
     Ok(())
 }
 
+/// LS3DF RVA 0x58540, VA 0x10058540. `I3D_sound::m_UpdateSound` (mafia-re pin
+/// 113b5b6 `ls3df/I3D/frames/I3d_sound.cpp:453`; LS3DF11 RVA 0x55c00).
+/// Explicit unsupported boundary: grades the voice volume for the camera
+/// distance and spot direction, applies range/cone fading, pauses the voice
+/// out of range and resumes it on return. Needs the DSound voice, the
+/// current camera and the sector listener; none has a host carrier, so the
+/// host executes nothing.
+pub fn update_sound_stub() -> Result<(), AudioError> {
+    Err(AudioError(
+        "I3D_sound::m_UpdateSound needs the voice and camera device owners".into(),
+    ))
+}
+
 fn failure<E>(error: AudioError) -> VehicleFrameError<E> {
     VehicleFrameError::Audio(error.to_string())
 }
@@ -625,5 +638,13 @@ mod tests {
             [4.0, 5.0, 6.0]
         );
         assert_eq!(audio.sound(later_address).unwrap().position, [0.0; 3]);
+    }
+    #[test]
+    fn update_sound_0x58540_stays_explicitly_unsupported() {
+        let error = update_sound_stub().unwrap_err();
+        assert!(
+            error.0.contains("m_UpdateSound"),
+            "stub must name the native entry: {error:?}"
+        );
     }
 }

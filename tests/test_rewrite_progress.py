@@ -575,7 +575,10 @@ class RewriteProgressTests(unittest.TestCase):
         # 14 working-name helpers uncredited; marker-only, tests green).
         # +4 pose SetDir/GetFrameName differential (complete walks; port
         # flag words 0x4/0x8 match native; pin tests animation_pose 12).
-        self.assertEqual(ls3df["ported"], 145 + 865)
+        # +7 collision/driver STUB contracts (enumSubtree/TestColGeo/
+        # TestColSphere/CTPFirst/CullThruPortal/UpdateSound/landpatch Render;
+        # phase slices + device STUBs; marker-only, tests green).
+        self.assertEqual(ls3df["ported"], 145 + 872)
         self.assertEqual(ls3df["verified"], 145 + 458)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):

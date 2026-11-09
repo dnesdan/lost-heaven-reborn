@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 //! I3D_scene ray/sphere-vs-visual tests (PC LS3DF.dll e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
-//! RVAs 0xe370-0x153b0: 8 contract).
+//! RVAs 0xe370-0x153b0: 8 contract, plus the TestColGeo setup/distance words
+//! (RVA 0xdec0) and the TestColSphere sweep-box/exclusion words (RVA 0x11d60).
 //!
 //! Names (testSubtree, sphTestSubtree, TestColGeo1, …) are PS2/mafia-re
 //! (I3D/i3d_collision.cpp) working names, NEVER original symbols. Only
@@ -479,6 +480,79 @@ pub fn test_collision_sphere_hierarchy_note() -> ColHit {
 /// test (caller-side `visual_kinds_ok` gate, as in the walker above).
 pub fn test_collision_sphere_visual_note() -> ColHit {
     ColHit::default()
+}
+
+/// LS3DF RVA 0xdec0, VA 0x1000dec0. `I3D_scene::TestColGeo` ray setup
+/// (mafia-re pin 113b5b6 `ls3df/I3D/i3d_collision.cpp:835-875`;
+/// LS3DF11 RVA 0xda60; marker at `ls3df/I3D/I3D.h:1669`). Covers the entry
+/// prefix only: `breakTests` cleared, `lineBase` stored, `lineDir` run
+/// through `SetNormalized` (RVA 0x14970, `vector_set_normalized`), `lineSize2`
+/// as the plain `(x*x + y*y) + z*z` association of the source spelling and
+/// `lineSize` its f32 square root, plus the neutral hit record
+/// (`vzdalenost2` 1e16, no nearest, ACCEPT). Callback words, the texel
+/// callback selection, the LOD/exclusion wiring (`wire_collision`) and the
+/// sector sweeps stay caller-side. Tier contract (wave policy: reviewed
+/// upstream source plus Rust tests, no Ghidra body claimed).
+pub fn test_collision_geo_setup(from: [f32; 3], dir: [f32; 3], flags: u32) -> RayState {
+    let len2 = (dir[0] * dir[0] + dir[1] * dir[1]) + dir[2] * dir[2];
+    RayState {
+        base: from,
+        dir: crate::native_transform::vector_set_normalized(dir),
+        len: len2.sqrt(),
+        len2,
+        flags,
+        best2: 1e16,
+        nearest: None,
+        break_tests: false,
+        cb_result: COLL_ACCEPT,
+        normal: [0.0; 3],
+        v: [0; 3],
+    }
+}
+
+/// LS3DF RVA 0xdec0, VA 0x1000dec0. `I3D_scene::TestColGeo` distance word
+/// (mafia-re pin 113b5b6 `ls3df/I3D/i3d_collision.cpp:881-884`). `None`
+/// without a nearest visual (the native `dist` out-param is left untouched
+/// then); otherwise `sqrt(best2)`. The normal fill needs the hit visual's
+/// world matrix and stays caller-side. Tier contract (wave policy: reviewed
+/// upstream source plus Rust tests, no Ghidra body claimed).
+pub fn test_collision_geo_distance(state: &RayState) -> Option<f32> {
+    state.nearest.map(|_| state.best2.sqrt())
+}
+
+/// LS3DF RVA 0x11d60, VA 0x10011d60. `I3D_scene::TestColSphere` sweep box
+/// (mafia-re pin 113b5b6 `ls3df/I3D/i3d_collision.cpp:1419-1432`;
+/// LS3DF11 RVA 0x11880; marker at `ls3df/I3D/I3D.h:1677`). The move box:
+/// `lineDest = from + dir` with the UN-normalized direction, `sphBox`
+/// spanning `from`/`lineDest` (`Absorb` is the componentwise min/max, exact
+/// here for two points), then expanded by `radius` on every axis. Unlike the
+/// hierarchy/visual variants this spelling does not pre-shift the corners by
+/// `lineDir * radius`. Tier contract (wave policy: reviewed upstream source
+/// plus Rust tests, no Ghidra body claimed).
+pub fn sphere_sweep_box(from: [f32; 3], dir: [f32; 3], radius: f32) -> [[f32; 3]; 2] {
+    let dest = [from[0] + dir[0], from[1] + dir[1], from[2] + dir[2]];
+    let mut lo = [0.0; 3];
+    let mut hi = [0.0; 3];
+    for axis in 0..3 {
+        lo[axis] = from[axis].min(dest[axis]) - radius;
+        hi[axis] = from[axis].max(dest[axis]) + radius;
+    }
+    [lo, hi]
+}
+
+/// LS3DF RVA 0x11d60, VA 0x10011d60. `I3D_scene::TestColSphere` exclusion
+/// wiring (mafia-re pin 113b5b6 `ls3df/I3D/i3d_collision.cpp:1441-1446`).
+/// `COLF_EXCLUDE_SUBTREE` names the excluded subtree, every other flag word
+/// (notably including `COLF_FRAME_LOD`, which has no branch here unlike
+/// `wire_collision`) names the excluded frame. Returns
+/// `(excluded_subtree, excluded_frame)`. Tier contract (wave policy:
+/// reviewed upstream source plus Rust tests, no Ghidra body claimed).
+pub fn wire_sphere_exclusion(flags: u32, frm: Option<usize>) -> (Option<usize>, Option<usize>) {
+    if flags & COLF_EXCLUDE_SUBTREE != 0 {
+        (frm, None)
+    } else {
+        (None, frm)
+    }
 }
 
 /// C8 SphereToSphereD (:1543-1570, x87 block). d1=to1-from1; d2=to2-from2;
@@ -980,5 +1054,54 @@ mod collision_scene_tests {
             [0.0, 0.0, 0.0],
             1.0
         ));
+    }
+    #[test]
+    fn geo_setup_0xdec0_normalizes_scales_and_keeps_neutral_hit() {
+        let st = test_collision_geo_setup([1.0, 2.0, 3.0], [2.0, 0.0, 0.0], COLF_BOX);
+        assert_eq!(st.base, [1.0, 2.0, 3.0]);
+        assert_eq!(st.dir, [1.0, 0.0, 0.0]);
+        assert_eq!(st.len2, 4.0);
+        assert_eq!(st.len, 2.0);
+        assert_eq!(st.flags, COLF_BOX);
+        assert_eq!(st.best2, 1e16);
+        assert_eq!(st.nearest, None);
+    }
+    #[test]
+    fn geo_setup_0xdec0_zero_dir_takes_axis_fallback() {
+        // SetNormalized (RVA 0x14970): zero square takes the axis fallback,
+        // preserving lanes, so the ray keeps a unit fallback direction.
+        let st = test_collision_geo_setup([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0);
+        assert_eq!(st.dir, [0.0, 1.0, 0.0]);
+        assert_eq!(st.len2, 0.0);
+        assert_eq!(st.len, 0.0);
+    }
+    #[test]
+    fn geo_distance_0xdec0_reports_sqrt_only_on_hit() {
+        let mut st = ray();
+        assert_eq!(test_collision_geo_distance(&st), None);
+        st.nearest = Some(4);
+        st.best2 = 25.0;
+        assert_eq!(test_collision_geo_distance(&st), Some(5.0));
+    }
+    #[test]
+    fn sweep_box_0x11d60_spans_from_to_dest_then_expands() {
+        // dest = from + dir with the un-normalized dir: [1,2,3]+[4,-1,0].
+        let [lo, hi] = sphere_sweep_box([1.0, 2.0, 3.0], [4.0, -1.0, 0.0], 0.5);
+        assert_eq!(lo, [0.5, 0.5, 2.5]);
+        assert_eq!(hi, [5.5, 2.5, 3.5]);
+    }
+    #[test]
+    fn sphere_wiring_0x11d60_has_no_frame_lod_branch() {
+        assert_eq!(
+            wire_sphere_exclusion(COLF_EXCLUDE_SUBTREE, Some(3)),
+            (Some(3), None)
+        );
+        // COLF_FRAME_LOD falls into the plain else arm (unlike wire_collision,
+        // which gives it a single_frame branch).
+        assert_eq!(
+            wire_sphere_exclusion(COLF_FRAME_LOD, Some(3)),
+            (None, Some(3))
+        );
+        assert_eq!(wire_sphere_exclusion(0, Some(3)), (None, Some(3)));
     }
 }

@@ -322,6 +322,31 @@ pub fn test_visibility_sphere(
     Ok(true)
 }
 
+/// LS3DF RVA 0x41df0, VA 0x10041df0. `CTP_EnumProcFirst` (mafia-re pin
+/// 113b5b6 `ls3df/I3D/frames/I3d_portal.cpp:211`; LS3DF11 RVA 0x3fe70).
+/// Explicit unsupported boundary: clears `FRMFLAGS_CLIP`/`FRMFLAGS_IN_VIEW`
+/// across the subtree, culls each on frame against `CTP_Near`/`CTP_Far` and
+/// the portal frustum globals, and stamps `sort_dist` on visuals. Needs the
+/// renderer's CTP clip-plane globals, live hierarchy world volumes and the
+/// D3D device; none has a host carrier, so the host executes nothing.
+pub fn ctp_enum_proc_first_stub() -> Result<()> {
+    Err(SceneVisibilityError::Unsupported(
+        "CTP_EnumProcFirst needs the CTP clip globals and the render device",
+    ))
+}
+
+/// LS3DF RVA 0x437f0, VA 0x100437f0. `CullThruPortal` (mafia-re pin 113b5b6
+/// `ls3df/I3D/frames/I3d_portal.cpp:1240`; LS3DF11 RVA 0x41870). Explicit
+/// unsupported boundary: builds the portal frustum from the current camera
+/// (`view_inv`/`frustums`, backdrop/near/view branch) and culls the frame
+/// subtree through it. Needs the live camera matrices and the CTP globals;
+/// none has a host carrier, so the host executes nothing.
+pub fn cull_thru_portal_stub() -> Result<()> {
+    Err(SceneVisibilityError::Unsupported(
+        "CullThruPortal needs the live camera matrices and the CTP globals",
+    ))
+}
+
 /// Source sphere rejection followed by the eight-corner AABB refinement for
 /// spheres crossing side planes. Side sphere equality rejects; box equality
 /// survives, including both signed zero representations.
@@ -1140,5 +1165,17 @@ mod tests {
                 "fixture must expose the inverse-view reconstruction error"
             );
         });
+    }
+
+    #[test]
+    fn portal_culling_0x41df0_and_0x437f0_stay_explicitly_unsupported() {
+        assert!(matches!(
+            ctp_enum_proc_first_stub(),
+            Err(SceneVisibilityError::Unsupported(_))
+        ));
+        assert!(matches!(
+            cull_thru_portal_stub(),
+            Err(SceneVisibilityError::Unsupported(_))
+        ));
     }
 }

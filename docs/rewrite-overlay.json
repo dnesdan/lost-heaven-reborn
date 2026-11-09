@@ -14782,6 +14782,69 @@
       "symbol": "lhr_engine::human_actor::human_savegame_size",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. Human savegame size (GAME 0x56f9e0)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1a050",
+      "va": "0x1001a050",
+      "name": "I3D_driver::EnumFFTree enumSubtree",
+      "symbol": "lhr_engine::frame_fast_lookup::I3dFastFrameTree::enum_fft_subtree",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Recursive FF-tree helper (LS3DF 0x1001a050)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xdec0",
+      "va": "0x1000dec0",
+      "name": "I3D_scene::TestColGeo",
+      "symbol": "lhr_engine::collision_scene::test_collision_geo_setup",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Ray setup words (LS3DF 0x1000dec0); distance-word helper alongside."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x11d60",
+      "va": "0x10011d60",
+      "name": "I3D_scene::TestColSphere",
+      "symbol": "lhr_engine::collision_scene::sphere_sweep_box",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Sweep-box words (LS3DF 0x10011d60); exclusion helper alongside."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x41df0",
+      "va": "0x10041df0",
+      "name": "CTP_EnumProcFirst",
+      "symbol": "lhr_engine::scene_visibility::ctp_enum_proc_first_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: CTP globals/D3D deferred (LS3DF 0x10041df0)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x437f0",
+      "va": "0x100437f0",
+      "name": "CullThruPortal",
+      "symbol": "lhr_engine::scene_visibility::cull_thru_portal_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: D3D deferred (LS3DF 0x100437f0)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x58540",
+      "va": "0x10058540",
+      "name": "ISND m_UpdateSound",
+      "symbol": "lhr_engine::vehicle_frame_backend::update_sound_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: DSound voice deferred (LS3DF 0x10058540)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1fac0",
+      "va": "0x1001fac0",
+      "name": "I3D_landpatch::Render",
+      "symbol": "lhr_engine::render_core::landpatch_render_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: gLandVB/D3D deferred (LS3DF 0x1001fac0)."
     }
   ],
   "vm": {

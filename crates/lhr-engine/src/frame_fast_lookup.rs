@@ -484,7 +484,7 @@ impl I3dFastFrameTree {
     /// I3d_driver.cpp:1715-1745. A null root returns OK without calling the
     /// callback; otherwise frames are visited in-order (left, self, right) and
     /// the first non-zero callback word stops the walk with CANCELED. The
-    /// 0x1a050 enumSubtree helper is folded inline with no separate credit;
+    /// 0x1a050 enumSubtree helper has its own named port (`enum_fft_subtree`);
     /// its quirk is preserved (any non-zero word aborts, SKIPCHILDREN is not
     /// distinguished). The right edge is reread after each mutating callback.
     pub fn enum_ff_tree(
@@ -517,6 +517,57 @@ impl I3dFastFrameTree {
             if let Some(right) = self.frame(frame)?.right {
                 stack.push((right, false));
             }
+        }
+        Ok(FF_OK)
+    }
+
+    /// LS3DF RVA 0x1a050, VA 0x1001a050. `I3D_driver::EnumFFTree` in-order
+    /// helper `enumSubtree` (mafia-re pin 113b5b6
+    /// `ls3df/I3D/I3d_driver.cpp:1718-1734`; LS3DF11 RVA 0x19b70). Recursive
+    /// left, self, right exactly as the source spells it: the left edge is
+    /// followed first, then the callback runs, then the right edge. Any
+    /// nonzero callback word aborts the whole walk with that word (the quirk
+    /// `enum_ff_tree` also keeps: SKIPCHILDREN-style words are not
+    /// distinguished, everything nonzero maps to the CANCELED contract).
+    /// Recursion is bounded by the live frame count so a hostile cycle
+    /// reports `Cycle` instead of overflowing the host stack; the native walk
+    /// has no such guard (disclosed). Tier contract (wave policy: reviewed
+    /// upstream source plus Rust tests, no Ghidra body claimed).
+    pub fn enum_fft_subtree(
+        &self,
+        proc: &mut impl FnMut(FrameKey, u32) -> u32,
+        context: u32,
+        root: FrameKey,
+    ) -> Result<u32, FastFrameError> {
+        self.enum_fft_subtree_depth(proc, context, root, 0)
+    }
+
+    fn enum_fft_subtree_depth(
+        &self,
+        proc: &mut impl FnMut(FrameKey, u32) -> u32,
+        context: u32,
+        frame: FrameKey,
+        depth: usize,
+    ) -> Result<u32, FastFrameError> {
+        if depth > self.frames.len() {
+            return Err(FastFrameError::Cycle);
+        }
+        let (left, right) = {
+            let storage = self.frame(frame)?;
+            (storage.left, storage.right)
+        };
+        if let Some(left) = left {
+            let word = self.enum_fft_subtree_depth(proc, context, left, depth + 1)?;
+            if word != FF_OK {
+                return Ok(word);
+            }
+        }
+        let word = proc(frame, context);
+        if word != FF_OK {
+            return Ok(word);
+        }
+        if let Some(right) = right {
+            return self.enum_fft_subtree_depth(proc, context, right, depth + 1);
         }
         Ok(FF_OK)
     }
@@ -1199,5 +1250,51 @@ mod offd_tests {
         tree.frame_storage_mut(FrameKey(1)).unwrap().left = Some(FrameKey(1));
         let mut probe = |_frame: FrameKey, _context: u32| 0;
         assert_eq!(tree.enum_ff_tree(&mut probe, 0), Err(FastFrameError::Cycle));
+    }
+
+    #[test]
+    fn fft_subtree_0x1a050_walks_in_order_and_aborts_on_any_word() {
+        let mut tree = I3dFastFrameTree::new(true);
+        for (id, name) in [(1u32, &b"b"[..]), (2, b"a"), (3, b"c")] {
+            tree.import_frame(named(id, name)).unwrap();
+            tree.add_to_ff_tree(FrameKey(id)).unwrap();
+        }
+        let root = tree.root.unwrap();
+        let mut order = Vec::new();
+        let mut collect = |frame: FrameKey, context: u32| {
+            assert_eq!(context, 9);
+            order.push(frame.0);
+            0
+        };
+        assert_eq!(tree.enum_fft_subtree(&mut collect, 9, root), Ok(FF_OK));
+        assert_eq!(order, vec![2, 1, 3]);
+        // Any nonzero word (SKIPCHILDREN-style included) aborts the walk.
+        let mut visited = 0usize;
+        let mut cancel_after_two = |_frame: FrameKey, _context: u32| {
+            visited += 1;
+            if visited == 2 {
+                0x8000_000d
+            } else {
+                0
+            }
+        };
+        assert_eq!(
+            tree.enum_fft_subtree(&mut cancel_after_two, 0, root),
+            Ok(0x8000_000d)
+        );
+        assert_eq!(visited, 2);
+    }
+
+    #[test]
+    fn fft_subtree_0x1a050_cycle_is_explicit() {
+        let mut tree = I3dFastFrameTree::new(true);
+        tree.import_frame(named(1, b"a")).unwrap();
+        tree.add_to_ff_tree(FrameKey(1)).unwrap();
+        tree.frame_storage_mut(FrameKey(1)).unwrap().left = Some(FrameKey(1));
+        let mut probe = |_frame: FrameKey, _context: u32| 0;
+        assert_eq!(
+            tree.enum_fft_subtree(&mut probe, 0, FrameKey(1)),
+            Err(FastFrameError::Cycle)
+        );
     }
 }
