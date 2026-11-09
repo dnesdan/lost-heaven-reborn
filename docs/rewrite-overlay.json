@@ -4646,8 +4646,8 @@
       "va": "0x100459d0",
       "name": "I3D_pose::Clear (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::clear",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref only) + mafia-re I3d_pose.cpp:43-48 (single flag store); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_ebfa94a991 + complete walk 3 insns (store 0 + RET 4); pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4655,8 +4655,8 @@
       "va": "0x100459e0",
       "name": "I3D_pose::SetRot (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_rot",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:52-59 (null preserves ROT trap); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_9b0b25325f + complete walk both branches (quat copy + flag set/clear + RET 8); pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4664,8 +4664,8 @@
       "va": "0x10045a30",
       "name": "I3D_pose::SetRotAbs (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_rot_abs",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:63-70; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_54ae674fc9 + complete walk both branches (quat copy + flag set/clear + RET 8); pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4700,8 +4700,8 @@
       "va": "0x10045b10",
       "name": "I3D_pose::SetPos (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_pos",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:102-109; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_a5126da899 + complete walk both branches (pos copy + flag set/clear + RET 8); pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4709,8 +4709,8 @@
       "va": "0x10045b50",
       "name": "I3D_pose::SetScale (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_scale",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:113-120; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_353b45905b + complete walk both branches (scale copy + flag set/clear + RET 8); pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
