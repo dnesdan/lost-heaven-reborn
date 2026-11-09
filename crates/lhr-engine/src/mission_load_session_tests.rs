@@ -2,6 +2,8 @@
 use super::*;
 #[path = "mission_load_session_program_tests.rs"]
 mod program_world;
+#[path = "mission_init_presentation_tests.rs"]
+mod init_presentation;
 use crate::frame_transform::FrameKey;
 use crate::mission_resources::ModelCachePhase;
 use crate::model_loading::{CpuSceneWorldPhase, ModelKey};

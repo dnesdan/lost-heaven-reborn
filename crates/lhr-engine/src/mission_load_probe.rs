@@ -324,9 +324,28 @@ pub fn run(
     // this command separately exercises that script with counting effects.
     // Keep the first failure and reached owner state visible without changing
     // whether an otherwise complete source-load probe exits successfully.
+    let mut init_capture = None;
+    let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
     if load.is_ok() {
         let mut attempt = InitAttempt::default();
-        let result = attempt.run(&mut session);
+        let result = if let Some(path) = capture {
+            attempt.run_with_presentation(
+                &mut session,
+                PROBE_RENDER_SIZE,
+                &mut sequence,
+                |snapshot| {
+                    let result = capture_retained_mission_frame(snapshot, path);
+                    match &result {
+                        Ok(()) => writeln!(report, "Mission GPU readback at Init render boundary written to {}", path.display()).unwrap(),
+                        Err(error) => writeln!(report, "Mission GPU readback at Init render boundary stopped: {error}").unwrap(),
+                    }
+                    init_capture = Some(result.clone());
+                    result
+                },
+            )
+        } else {
+            attempt.run(&mut session)
+        };
         let status = match result {
             // SessionInitError already carries the reached InitStep prefix.
             Err(InitRunError::Callback(failure)) => format!("stopped: {}", failure.error),
@@ -344,11 +363,10 @@ pub fn run(
     } else {
         writeln!(report, "GameInit ordered inspection: skipped after stopped load").unwrap();
     }
-    // A separate presentation probe over the SAME retained mission Scene and
-    // its active camera. Optional GPU readback uses the generated scene frame
-    // without creating a second load owner or starting gameplay.
-    let capture_result = if load.is_ok() {
-        let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
+    // A separate CPU presentation observation over the SAME retained Scene.
+    // Requested GPU work already ran at the reached Init render boundary; do
+    // not retry a failed presentation or bypass an earlier Init failure here.
+    if load.is_ok() {
         match session.snapshot_loaded_scene(PROBE_RENDER_SIZE, &mut sequence) {
             Ok(snapshot) => {
                 writeln!(
@@ -362,28 +380,19 @@ pub fn run(
                     snapshot.frame.viewport,
                 )
                 .unwrap();
-                if let Some(path) = capture {
-                    let result = capture_retained_mission_frame(&snapshot, path);
-                    match &result {
-                        Ok(()) => writeln!(report, "Mission GPU readback written to {}", path.display()).unwrap(),
-                        Err(error) => writeln!(report, "Mission GPU readback stopped: {error}").unwrap(),
-                    }
-                    result
-                } else {
-                    Ok(())
-                }
             }
             Err(error) => {
                 writeln!(report, "Mission presentation snapshot unavailable: {error}").unwrap();
-                if capture.is_some() {
-                    Err(format!("mission snapshot unavailable for requested GPU capture: {error}"))
-                } else {
-                    Ok(())
-                }
             }
         }
     } else {
         writeln!(report, "Mission presentation snapshot: skipped after stopped load").unwrap();
+    }
+    let capture_result = if capture.is_some() {
+        init_capture.unwrap_or_else(|| {
+            Err("requested GPU capture was not reached by ordered GameInit; see its first failure".into())
+        })
+    } else {
         Ok(())
     };
     writeln!(

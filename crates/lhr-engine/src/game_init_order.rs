@@ -154,6 +154,32 @@ pub struct InitAttempt {
 }
 
 impl InitAttempt {
+    /// Run the same ordered initialization with host presentation at the
+    /// reached sound-mute/render boundary. The frame is built from the live
+    /// session only when that operation is reached. A failed capture/upload
+    /// preserves the muted prefix and never marks volume restoration.
+    ///
+    /// This is integration of existing Rust owners, not a reconstruction of
+    /// the original device virtual. Later unavailable Init owners still stop
+    /// the attempt; producing a frame does not establish playable startup.
+    pub fn run_with_presentation<F>(
+        &mut self,
+        session: &mut crate::mission_load_session::MissionLoadSession,
+        target: [u32; 2],
+        sequence: &mut crate::scene_render::SceneSnapshotSequence,
+        present: F,
+    ) -> Result<(), InitRunError<SessionInitError>>
+    where
+        F: FnMut(&crate::scene_render::CanonicalSceneSnapshot) -> Result<(), String>,
+    {
+        self.run(&mut PresentedSessionInit {
+            session,
+            target,
+            sequence,
+            present,
+        })
+    }
+
     pub fn last(&self) -> Option<InitStep> {
         self.last
     }
@@ -198,6 +224,34 @@ impl std::fmt::Display for SessionInitError {
 }
 
 impl std::error::Error for SessionInitError {}
+
+struct PresentedSessionInit<'a, F> {
+    session: &'a mut crate::mission_load_session::MissionLoadSession,
+    target: [u32; 2],
+    sequence: &'a mut crate::scene_render::SceneSnapshotSequence,
+    present: F,
+}
+
+impl<F> InitOperations for PresentedSessionInit<'_, F>
+where
+    F: FnMut(&crate::scene_render::CanonicalSceneSnapshot) -> Result<(), String>,
+{
+    type Error = SessionInitError;
+
+    fn execute(&mut self, step: InitStep) -> Result<(), Self::Error> {
+        match step {
+            InitStep::ResetMissionState => self
+                .session
+                .reset_game_mission_state_with_presentation(
+                    self.target,
+                    self.sequence,
+                    &mut self.present,
+                )
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            _ => self.session.execute(step),
+        }
+    }
+}
 
 /// Production wiring of the driver over the live session owners. Owned:
 /// the `Init` guard (live initialized flag + open prefix), police init,

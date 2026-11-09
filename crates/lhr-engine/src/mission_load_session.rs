@@ -1271,8 +1271,9 @@ impl MissionLoadSession {
         &mut self,
         renderer: &mut B,
     ) -> Result<(), String> {
-        self.reset_game_mission_state_inner(|arena, scene| {
-            let _status = arena
+        self.reset_game_mission_state_inner(|session, scene| {
+            let _status = session
+                .arena
                 .scene_render_with_backend(scene, renderer)
                 .map_err(|error| format!("Init Scene::Render: {error:?}"))?;
             // Source C_game::Init ignores the I3D_scene::Render return value.
@@ -1280,9 +1281,27 @@ impl MissionLoadSession {
         })
     }
 
+    /// Host presentation bridge for the ordered Init driver. Camera/visibility
+    /// preparation borrows the same retained Scene at the reached render call,
+    /// after weather reads and audio mute. The callback receives presentation
+    /// data only; it never becomes a second gameplay owner.
+    pub(crate) fn reset_game_mission_state_with_presentation(
+        &mut self,
+        target: [u32; 2],
+        sequence: &mut crate::scene_render::SceneSnapshotSequence,
+        present: &mut impl FnMut(&crate::scene_render::CanonicalSceneSnapshot) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.reset_game_mission_state_inner(|session, _scene| {
+            let snapshot = session
+                .snapshot_loaded_scene(target, sequence)
+                .map_err(|error| format!("Init presentation snapshot: {error}"))?;
+            present(&snapshot).map_err(|error| format!("Init presentation: {error}"))
+        })
+    }
+
     fn reset_game_mission_state_inner(
         &mut self,
-        render: impl FnOnce(&ModelArena, SceneKey) -> Result<(), String>,
+        render: impl FnOnce(&mut Self, SceneKey) -> Result<(), String>,
     ) -> Result<(), String> {
         self.guard_game_init_for_init()?;
         if self.game_init_reset_entered {
@@ -1305,7 +1324,7 @@ impl MissionLoadSession {
             self.audio
                 .set_master_gain(0.0)
                 .map_err(|error| format!("Init sound volume: {error}"))?;
-            render(&self.arena, scene)?;
+            render(self, scene)?;
             self.open_restore_volume = true;
         }
         Err("Init stop_sounds owner unavailable".into())

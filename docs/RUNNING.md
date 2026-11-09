@@ -85,7 +85,11 @@ before terminal disposal. This is not a GPU readback or a playable frame.
 To verify the *same* Scene on the GPU, add `--probe-render-capture FILE.png`
 to `--mission-load-probe`. This explicitly requests an offscreen 800x600
 readback with the source mesh lighting, and reports GPU errors separately
-from input and disposal failures. Store captures outside the source tree;
+from input and disposal failures. The capture now runs at the reached render
+boundary of the ordered Init inspection, after the live audio mute. A failed
+or unreached presentation is not retried outside that order. Successful
+presentation advances to the still-unavailable `stop_sounds` owner; it does
+not complete GameInit. Store captures outside the source tree;
 the source textures and original game data are not redistributable.
 
 Historically at engine `041eed8`, INTRO's CPU probe completed source loading and
