@@ -56,6 +56,119 @@ pub fn enum_scope_wildmask(flags: u32) -> bool {
 pub fn enum_scope_case_sensitive(flags: u32) -> bool {
     flags & 0x20000 != 0
 }
+/// Working name for the `ENUMF_VISUAL` kind gate (mafia-re ls3df/I3D/I3D.h:211
+/// at pin 113b5b6: match visual frames by name). The reference records no
+/// LS3DF FUNCTION address for a standalone reader: the bit is consumed inline
+/// by `EnumSubtree` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:631-651; PC RVA
+/// 0x1c020, already occupied, not claimed here), which keeps only the frame
+/// type's own bit and clears the rest. Exact bit test on the caller-supplied
+/// flags word; no owner or cache is consulted.
+pub fn enum_wants_visual(flags: u32) -> bool {
+    flags & 0x1 != 0
+}
+/// Working name for the `ENUMF_LIGHT` kind gate (mafia-re ls3df/I3D/I3D.h:212
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn enum_wants_light(flags: u32) -> bool {
+    flags & 0x2 != 0
+}
+/// Working name for the `ENUMF_CAMERA` kind gate (mafia-re ls3df/I3D/I3D.h:213
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn enum_wants_camera(flags: u32) -> bool {
+    flags & 0x4 != 0
+}
+/// Working name for the `ENUMF_SOUND` kind gate (mafia-re ls3df/I3D/I3D.h:214
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn enum_wants_sound(flags: u32) -> bool {
+    flags & 0x8 != 0
+}
+/// Working name for the `ENUMF_SECTOR` kind gate (mafia-re ls3df/I3D/I3D.h:215
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn enum_wants_sector(flags: u32) -> bool {
+    flags & 0x10 != 0
+}
+/// Working name for the `ENUMF_DUMMY` kind gate (mafia-re ls3df/I3D/I3D.h:216
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn enum_wants_dummy(flags: u32) -> bool {
+    flags & 0x20 != 0
+}
+/// Working name for the `ENUMF_TARGET` kind gate (mafia-re ls3df/I3D/I3D.h:217
+/// at pin 113b5b6: the value is a guess). Same inline-only status as
+/// `enum_wants_visual`: no standalone LS3DF FUNCTION entry exists, so no RVA
+/// is claimed here. Exact bit test; no state moves.
+pub fn enum_wants_target(flags: u32) -> bool {
+    flags & 0x40 != 0
+}
+/// Working name for the `ENUMF_MODEL` kind gate (mafia-re ls3df/I3D/I3D.h:218
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn enum_wants_model(flags: u32) -> bool {
+    flags & 0x80 != 0
+}
+/// Working name for the `ENUMF_USER` kind gate (mafia-re ls3df/I3D/I3D.h:219
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn enum_wants_user(flags: u32) -> bool {
+    flags & 0x100 != 0
+}
+/// Working name for the `ENUMF_VOLUME` kind gate (mafia-re ls3df/I3D/I3D.h:220
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn enum_wants_volume(flags: u32) -> bool {
+    flags & 0x200 != 0
+}
+/// Working name for the `ENUMF_JOINT` kind gate (mafia-re ls3df/I3D/I3D.h:221
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn enum_wants_joint(flags: u32) -> bool {
+    flags & 0x400 != 0
+}
+/// Working name for the `ENUMF_OCCLUDER` kind gate (mafia-re ls3df/I3D/I3D.h:222
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`, with one
+/// disclosed asymmetry: the native `EnumSubtree` switch has no occluder arm,
+/// so an occluder frame never matches a partial mask (like the scene,
+/// landscape and emitter kinds, it falls into `default: type_flags = 0`).
+/// This gate only reports whether the caller asked for occluders; the
+/// never-match rule stays with the walker. Exact bit test; no state moves.
+pub fn enum_wants_occluder(flags: u32) -> bool {
+    flags & 0x800 != 0
+}
+/// Working name for the `ENUMF_AREA` kind gate (mafia-re ls3df/I3D/I3D.h:223
+/// at pin 113b5b6). Same inline-only status as `enum_wants_visual`: no
+/// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here. Exact
+/// bit test; no state moves.
+pub fn enum_wants_area(flags: u32) -> bool {
+    flags & 0x1000 != 0
+}
+/// Working name for the `ENUMF_SHADOW` kind gate (mafia-re ls3df/I3D/I3D.h:224
+/// at pin 113b5b6: the value is a guess). Same inline-only status as
+/// `enum_wants_visual`: no standalone LS3DF FUNCTION entry exists, so no RVA
+/// is claimed here. Exact bit test; no state moves.
+pub fn enum_wants_shadow(flags: u32) -> bool {
+    flags & 0x2000 != 0
+}
+/// Working name for the `ENUMF_ALL` bypass (mafia-re ls3df/I3D/I3D.h:225 at
+/// pin 113b5b6: match every frame type). Same inline-only status as
+/// `enum_wants_visual`: no standalone LS3DF FUNCTION entry exists, so no RVA
+/// is claimed here. Models the native `type_flags != ENUMF_ALL` branch
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:631-632): only a full low word
+/// skips the per-kind switch. Exact word test; no state moves.
+pub fn enum_matches_all_kinds(flags: u32) -> bool {
+    flags & 0xffff == 0xffff
+}
 /// 0x1c310 projection (LS3DF.dll e211c850…). Upstream working name
 /// FindChildCallBack (mafia-re I3d_frame.cpp:717-721), not an evidenced
 /// original symbol. No Ghidra body in session -> tier contract per the
@@ -1150,5 +1263,161 @@ mod tests {
         assert!(enum_scope_includes_near(u32::MAX));
         assert!(enum_scope_wildmask(u32::MAX));
         assert!(enum_scope_case_sensitive(u32::MAX));
+    }
+    #[test]
+    fn enum_wants_visual_reports_only_its_bit() {
+        // Working name for the ENUMF_VISUAL gate (I3D.h:211): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_visual(0x1));
+        assert!(enum_wants_visual(0xffff));
+        assert!(enum_wants_visual(u32::MAX));
+        assert!(!enum_wants_visual(0));
+        assert!(!enum_wants_visual(0x2));
+        assert!(!enum_wants_visual(u32::MAX & !0x1));
+    }
+    #[test]
+    fn enum_wants_light_reports_only_its_bit() {
+        // Working name for the ENUMF_LIGHT gate (I3D.h:212): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_light(0x2));
+        assert!(enum_wants_light(0xffff));
+        assert!(!enum_wants_light(0));
+        assert!(!enum_wants_light(0x1));
+        assert!(!enum_wants_light(u32::MAX & !0x2));
+    }
+    #[test]
+    fn enum_wants_camera_reports_only_its_bit() {
+        // Working name for the ENUMF_CAMERA gate (I3D.h:213): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_camera(0x4));
+        assert!(enum_wants_camera(0xffff));
+        assert!(!enum_wants_camera(0));
+        assert!(!enum_wants_camera(0x8));
+        assert!(!enum_wants_camera(u32::MAX & !0x4));
+    }
+    #[test]
+    fn enum_wants_sound_reports_only_its_bit() {
+        // Working name for the ENUMF_SOUND gate (I3D.h:214): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_sound(0x8));
+        assert!(enum_wants_sound(0xffff));
+        assert!(!enum_wants_sound(0));
+        assert!(!enum_wants_sound(0x4));
+        assert!(!enum_wants_sound(u32::MAX & !0x8));
+    }
+    #[test]
+    fn enum_wants_sector_reports_only_its_bit() {
+        // Working name for the ENUMF_SECTOR gate (I3D.h:215): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_sector(0x10));
+        assert!(enum_wants_sector(0xffff));
+        assert!(!enum_wants_sector(0));
+        assert!(!enum_wants_sector(0x20));
+        assert!(!enum_wants_sector(u32::MAX & !0x10));
+    }
+    #[test]
+    fn enum_wants_dummy_reports_only_its_bit() {
+        // Working name for the ENUMF_DUMMY gate (I3D.h:216): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_dummy(0x20));
+        assert!(enum_wants_dummy(0xffff));
+        assert!(!enum_wants_dummy(0));
+        assert!(!enum_wants_dummy(0x10));
+        assert!(!enum_wants_dummy(u32::MAX & !0x20));
+    }
+    #[test]
+    fn enum_wants_target_reports_only_its_bit() {
+        // Working name for the ENUMF_TARGET gate (I3D.h:217, value a guess):
+        // no LS3DF FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_target(0x40));
+        assert!(enum_wants_target(0xffff));
+        assert!(!enum_wants_target(0));
+        assert!(!enum_wants_target(0x80));
+        assert!(!enum_wants_target(u32::MAX & !0x40));
+    }
+    #[test]
+    fn enum_wants_model_reports_only_its_bit() {
+        // Working name for the ENUMF_MODEL gate (I3D.h:218): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_model(0x80));
+        assert!(enum_wants_model(0xffff));
+        assert!(!enum_wants_model(0));
+        assert!(!enum_wants_model(0x40));
+        assert!(!enum_wants_model(u32::MAX & !0x80));
+    }
+    #[test]
+    fn enum_wants_user_reports_only_its_bit() {
+        // Working name for the ENUMF_USER gate (I3D.h:219): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_user(0x100));
+        assert!(enum_wants_user(0xffff));
+        assert!(!enum_wants_user(0));
+        assert!(!enum_wants_user(0x200));
+        assert!(!enum_wants_user(u32::MAX & !0x100));
+    }
+    #[test]
+    fn enum_wants_volume_reports_only_its_bit() {
+        // Working name for the ENUMF_VOLUME gate (I3D.h:220): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_volume(0x200));
+        assert!(enum_wants_volume(0xffff));
+        assert!(!enum_wants_volume(0));
+        assert!(!enum_wants_volume(0x100));
+        assert!(!enum_wants_volume(u32::MAX & !0x200));
+    }
+    #[test]
+    fn enum_wants_joint_reports_only_its_bit() {
+        // Working name for the ENUMF_JOINT gate (I3D.h:221): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_joint(0x400));
+        assert!(enum_wants_joint(0xffff));
+        assert!(!enum_wants_joint(0));
+        assert!(!enum_wants_joint(0x800));
+        assert!(!enum_wants_joint(u32::MAX & !0x400));
+    }
+    #[test]
+    fn enum_wants_occluder_reports_only_its_bit() {
+        // Working name for the ENUMF_OCCLUDER gate (I3D.h:222): no LS3DF
+        // FUNCTION address exists for a standalone reader. The gate only
+        // reports the request bit; the native never-match rule for partial
+        // masks stays with the walker (disclosed in the function docs).
+        assert!(enum_wants_occluder(0x800));
+        assert!(enum_wants_occluder(0xffff));
+        assert!(!enum_wants_occluder(0));
+        assert!(!enum_wants_occluder(0x400));
+        assert!(!enum_wants_occluder(u32::MAX & !0x800));
+    }
+    #[test]
+    fn enum_wants_area_reports_only_its_bit() {
+        // Working name for the ENUMF_AREA gate (I3D.h:223): no LS3DF
+        // FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_area(0x1000));
+        assert!(enum_wants_area(0xffff));
+        assert!(!enum_wants_area(0));
+        assert!(!enum_wants_area(0x2000));
+        assert!(!enum_wants_area(u32::MAX & !0x1000));
+    }
+    #[test]
+    fn enum_wants_shadow_reports_only_its_bit() {
+        // Working name for the ENUMF_SHADOW gate (I3D.h:224, value a guess):
+        // no LS3DF FUNCTION address exists for a standalone reader.
+        assert!(enum_wants_shadow(0x2000));
+        assert!(enum_wants_shadow(0xffff));
+        assert!(!enum_wants_shadow(0));
+        assert!(!enum_wants_shadow(0x1000));
+        assert!(!enum_wants_shadow(u32::MAX & !0x2000));
+    }
+    #[test]
+    fn enum_matches_all_kinds_reports_only_the_full_low_word() {
+        // Working name for the ENUMF_ALL bypass (I3D.h:225): no LS3DF
+        // FUNCTION address exists for a standalone reader. Only a full low
+        // word skips the native per-kind switch; scope bits above it never
+        // affect the bypass.
+        assert!(enum_matches_all_kinds(0xffff));
+        assert!(enum_matches_all_kinds(u32::MAX));
+        assert!(!enum_matches_all_kinds(0));
+        assert!(!enum_matches_all_kinds(0xfffe));
+        assert!(!enum_matches_all_kinds(0x1ffff & !0x8000));
+        assert!(!enum_matches_all_kinds(u32::MAX & !0x4000));
     }
 }
