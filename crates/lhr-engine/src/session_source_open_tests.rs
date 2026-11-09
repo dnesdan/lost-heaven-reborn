@@ -394,7 +394,57 @@ fn ordered_source_open_navigation_or_roads_failure_precedes_render_and_scene2() 
         assert_eq!(session.scene2_byte_count(), None);
         assert!(!session.open_muted());
         assert_blocked(&mut session);
-        discard(&mut session);
+        let first_failure = format!("{:?}", session.failure().unwrap());
+        if step == OpenStep::LoadNavigation {
+            // The native navigation component was constructed before its
+            // short read. Its existing interrupted destructor refuses; keep
+            // that owner and the subsequent Scene instead of forcing cleanup.
+            let before = session.owned_counts().unwrap();
+            assert!(session.navigation().live_allocations() > 0);
+            let scene = session.scene().unwrap().unwrap();
+            assert_eq!(
+                session.discard_terminal(),
+                Err(MissionDiscardCallError::Stopped)
+            );
+            assert_eq!(
+                session.discard_progress().phase,
+                MissionDiscardPhase::Navigation
+            );
+            assert!(matches!(
+                session.discard_failure().unwrap().cause,
+                MissionDiscardCause::Navigation(SessionNavigationCause::Component(
+                    crate::mission_components::ComponentError::Interrupted
+                ))
+            ));
+            assert_eq!(session.owned_counts().unwrap(), before);
+            assert!(session.arena().scene(scene).is_ok());
+            assert!(!session.discard_progress().scene_release_executed);
+            let cleanup_failure = format!("{:?}", session.discard_failure().unwrap());
+            assert_eq!(
+                session.discard_terminal(),
+                Err(MissionDiscardCallError::AlreadyEntered)
+            );
+            assert_eq!(
+                open(&mut session, &mut render),
+                Err(MissionSourceOpenError::Admission(
+                    MissionLoadCallError::TerminalDiscardEntered
+                ))
+            );
+            assert_eq!(
+                load(&mut session, &[]),
+                Err(MissionLoadCallError::TerminalDiscardEntered)
+            );
+            assert_eq!(session.owned_counts().unwrap(), before);
+            assert_eq!(
+                format!("{:?}", session.discard_failure().unwrap()),
+                cleanup_failure
+            );
+        } else {
+            // The road parser publishes no owner on failure; its normal
+            // terminal cleanup still has to release every retained resource.
+            discard(&mut session);
+        }
+        assert_eq!(format!("{:?}", session.failure().unwrap()), first_failure);
     }
 }
 
