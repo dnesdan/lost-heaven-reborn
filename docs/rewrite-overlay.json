@@ -4673,8 +4673,8 @@
       "va": "0x10045a80",
       "name": "I3D_pose::SetDir pointer overload (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_dir_ptr",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:74-81 (null never calls backend); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_c37c4c213a + complete walk both branches (null -> clear 0x4|0x8 + RET 0xc; else quat CALL + set 0x4 + RET 0xc); port flag words 0x4/0x8 match native; pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4682,8 +4682,8 @@
       "va": "0x10045ac0",
       "name": "I3D_pose::SetDir reference overload (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_dir",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:86-90 (ROT bit preserved); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_8e5c8d5dfe + complete walk (quat CALL + OR 0x4 + RET 0xc, flags otherwise kept); port flag words 0x4/0x8 match native; pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4691,8 +4691,8 @@
       "va": "0x10045ae0",
       "name": "I3D_pose::SetDirAbs (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_dir_abs",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:94-98; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_d44d7f9c53 + complete walk (quat CALL + clear 0x4/set 0x8 + RET 0xc); port flag words 0x4/0x8 match native; pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4745,8 +4745,8 @@
       "va": "0x10045c80",
       "name": "I3D_pose_set::GetFrameName (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPoseSet::frame_name",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:171-176 (empty fallback); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_efde124d3f + complete walk all branches (bounds/null -> default string; else slot load + RET 8); port flag words 0x4/0x8 match native; pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",

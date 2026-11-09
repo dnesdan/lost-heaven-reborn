@@ -567,8 +567,10 @@ class RewriteProgressTests(unittest.TestCase):
         # device owners deferred; marker-only, tests green).
         # +1 area LoadImage STUB contract (folded with sound-LoadImage;
         # 14 working-name helpers uncredited; marker-only, tests green).
+        # +4 pose SetDir/GetFrameName differential (complete walks; port
+        # flag words 0x4/0x8 match native; pin tests animation_pose 12).
         self.assertEqual(ls3df["ported"], 145 + 865)
-        self.assertEqual(ls3df["verified"], 145 + 454)
+        self.assertEqual(ls3df["verified"], 145 + 458)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()
