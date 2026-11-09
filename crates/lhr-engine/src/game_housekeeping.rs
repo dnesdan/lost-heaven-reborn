@@ -265,7 +265,7 @@ pub fn score_set(state: &mut ScoreState, value: i32, hud: &mut impl HudBonusBack
     }
 }
 
-/// FUNCTION: GAME 0x5f9a0 (`game.cpp:3958`, `C_game::ScoreSetOn`).
+/// FUNCTION: GAME RVA 0x1b9fa0, VA 0x5b9fa0 (`game.cpp:3958`, `C_game::ScoreSetOn`).
 /// Flips the switch; the HUD bonus counter shows the score, or `0x7fffffff`
 /// (nothing) while off.
 pub fn score_set_on(state: &mut ScoreState, on: bool, hud: &mut impl HudBonusBackend) {
@@ -282,6 +282,16 @@ impl ScoreState {
     /// `C_game::GetScore`): reads the stored score.
     pub fn get_score(&self) -> i32 {
         self.score
+    }
+
+    /// Working name (no outline RVA; flag read, `game.h:522`,
+    /// `C_game::score_on`): whether the HUD bonus counter follows the
+    /// score. No outline getter exists in the reference; `ScoreSetOn`
+    /// (`game.cpp:3958-3965`) and `ScoreSet` (`game.cpp:3969-3974`) are the
+    /// writers, so no Game.exe function entry is claimed. The HUD update
+    /// stays with the indicators owner behind `HudBonusBackend`.
+    pub fn is_score_on(&self) -> bool {
+        self.score_on
     }
 }
 
@@ -673,6 +683,10 @@ pub struct GameInlineState {
     /// offset 0x2ee0). `None` is the native NULL; the register itself stays
     /// with the script owner. Written by [`GameInlineState::set_race6_result`].
     race6_result: Option<u32>,
+    /// Player-failure latch (`game.h:404`, offset 0x2ad8). `C_human` sets it,
+    /// `C_car` clears it; `Tick` runs the failure menu once the screen has
+    /// faded out. Written by [`GameInlineState::set_game_failed`].
+    game_failed: bool,
 }
 
 impl GameInlineState {
@@ -1174,6 +1188,22 @@ impl GameInlineState {
     /// Reads the handle stored by [`GameInlineState::set_race6_result`].
     pub fn race6_result(&self) -> Option<u32> {
         self.race6_result
+    }
+
+    /// Working name (no outline RVA; flag read, `game.h:404`,
+    /// `C_game::game_failed`): whether the player failed. No outline
+    /// accessor exists in the reference; `C_human` sets the latch,
+    /// `C_car` clears it and `Tick` consumes it, so no Game.exe function
+    /// entry is claimed.
+    pub fn is_game_failed(&self) -> bool {
+        self.game_failed
+    }
+
+    /// Working name (no outline RVA; flag write, `game.h:404`): stages the
+    /// failure latch `Tick` consumes. The failure-menu sequencing itself
+    /// stays with the menu owner.
+    pub fn set_game_failed(&mut self, failed: bool) {
+        self.game_failed = failed;
     }
 }
 
@@ -4516,5 +4546,41 @@ mod tests {
             don_ocas_collision(5),
             Err(UnwrittenGameEntry::Unsupported { entry: 0x44ca50 })
         );
+    }
+
+    #[test]
+    fn score_on_working_name_tracks_hud_switch() {
+        // C_game::score_on flag (game.h:522); no outline getter.
+        let mut state = ScoreState {
+            score: 7,
+            score_on: false,
+        };
+        assert!(!state.is_score_on());
+        struct BonusLog {
+            counts: Vec<i32>,
+        }
+        impl HudBonusBackend for BonusLog {
+            fn bonus_set_count(&mut self, count: i32) {
+                self.counts.push(count);
+            }
+        }
+        let mut hud = BonusLog { counts: Vec::new() };
+        score_set_on(&mut state, true, &mut hud);
+        assert!(state.is_score_on());
+        assert_eq!(hud.counts, vec![7]);
+        score_set_on(&mut state, false, &mut hud);
+        assert!(!state.is_score_on());
+        assert_eq!(hud.counts, vec![7, 0x7fffffff]);
+    }
+
+    #[test]
+    fn game_failed_working_name_tracks_failure_latch() {
+        // C_game::game_failed flag (game.h:404); no outline accessor.
+        let mut state = GameInlineState::default();
+        assert!(!state.is_game_failed());
+        state.set_game_failed(true);
+        assert!(state.is_game_failed());
+        state.set_game_failed(false);
+        assert!(!state.is_game_failed());
     }
 }

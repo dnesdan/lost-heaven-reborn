@@ -296,6 +296,26 @@ pub fn find_actor_by_name<'a>(
     None
 }
 
+/// Opaque effects-manager handle. Native `C_effects*` identity is the
+/// caller's concern; `None` is the native NULL.
+pub type EffectsHandle = u32;
+
+/// FUNCTION: GAME RVA 0x7ae40, VA 0x47ae40 (mafia-re
+/// `game/mission/Mission.h:224-228`, `C_mission::GetActors`): reads the
+/// mission's actor list. The native body returns the owned vector reference;
+/// only list membership participates here.
+pub fn get_actors(actors: &[ActorId]) -> &[ActorId] {
+    actors
+}
+
+/// FUNCTION: GAME RVA 0x7ae60, VA 0x47ae60 (mafia-re
+/// `game/mission/Mission.h:234-238`, `C_mission::GetEffects`): reads the
+/// staged effects-manager handle. The effects object stays with its owner
+/// (DEFERRED); `None` is the native NULL.
+pub fn get_effects(effects: Option<EffectsHandle>) -> Option<EffectsHandle> {
+    effects
+}
+
 /// Cutscene flag bits of `C_actor::act_flags` (mafia-re pin 113b5b6,
 /// `game/actors/C_actor.h:81-84`).
 pub const ACTF_CUTSCENE_PLAYED: i32 = 0x1;
@@ -576,6 +596,62 @@ impl MissionCounterState {
     /// written by [`MissionCounterState::set_skip_frames`].
     pub fn get_skip_frames(&self) -> i32 {
         self.skip_frames
+    }
+
+    /// Working name (no outline RVA; inline, mafia-re
+    /// `game/mission/Mission.h:290-294`, `C_mission::ResetMissionNumbers`):
+    /// clears both the pending and the current mission number. `main` runs
+    /// this for each main-menu choice; the native body is inlined, so no
+    /// Game.exe function entry is claimed.
+    pub fn reset_mission_numbers(&mut self) {
+        self.next_mission_number = 0;
+        self.mission_number = 0;
+    }
+}
+
+/// Presence flag behind `C_mission::opened` (mafia-re
+/// `game/mission/Mission.h:119-122`). The scene, actors, scripts and game
+/// objects stay with their owners; only the flag `Open` sets and `Close`
+/// checks-then-clears (`Mission.cpp:512-513`) is owned here.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MissionPresenceState {
+    opened: bool,
+    mission_name: Option<String>,
+}
+
+impl MissionPresenceState {
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:122`): whether a mission is open. No outline
+    /// accessor exists in the reference; `Close` early-outs while this is
+    /// clear, so no Game.exe function entry is claimed.
+    pub fn is_opened(&self) -> bool {
+        self.opened
+    }
+
+    /// Working name (no outline RVA; flag write, mafia-re
+    /// `game/mission/Mission.h:122`): stages the flag `Open` sets and `Close`
+    /// clears. The open/close sequencing itself stays with the mission
+    /// owner.
+    pub fn set_opened(&mut self, opened: bool) {
+        self.opened = opened;
+    }
+
+    /// Working name (no outline RVA; name read, mafia-re
+    /// `game/mission/Mission.h:275-277`, `C_mission::GetMissionName`): the
+    /// open mission's name. The reference marks `FUNCTION: GAME 0x47afb0
+    /// FOLDED`: the body is shared with `C_actor::GetFrame` (already ported
+    /// at RVA 0x7afb0), so no unique Game.exe function entry is claimed
+    /// here. `None` is the native NULL. `Open` (`Mission.cpp:638-639`)
+    /// stores a copy of the name, `UnInit` (`Mission.cpp:152-156`) deletes
+    /// it; allocation stays with the caller staging the value.
+    pub fn mission_name(&self) -> Option<&str> {
+        self.mission_name.as_deref()
+    }
+
+    /// Staging for [`MissionPresenceState::mission_name`]; the `Open`
+    /// copy and the `UnInit` delete stay with the mission owner.
+    pub fn stage_mission_name(&mut self, name: Option<String>) {
+        self.mission_name = name;
     }
 }
 
@@ -1028,5 +1104,57 @@ mod tests {
         assert_eq!(state.get_skip_frames(), 2);
         state.set_skip_frames(0);
         assert_eq!(state.get_skip_frames(), 0);
+    }
+
+    #[test]
+    fn get_actors_rva_7ae40_reads_actor_list() {
+        // C_mission::GetActors GAME RVA 0x7ae40 (VA 0x47ae40).
+        let actors = vec![1, 2, 3];
+        assert_eq!(get_actors(&actors), &[1, 2, 3]);
+        let empty: Vec<ActorId> = Vec::new();
+        assert!(get_actors(&empty).is_empty());
+    }
+
+    #[test]
+    fn get_effects_rva_7ae60_reads_staged_handle() {
+        // C_mission::GetEffects GAME RVA 0x7ae60 (VA 0x47ae60).
+        assert_eq!(get_effects(Some(9)), Some(9));
+        assert_eq!(get_effects(None), None);
+    }
+
+    #[test]
+    fn reset_mission_numbers_working_name_clears_both_numbers() {
+        // Inline C_mission::ResetMissionNumbers (Mission.h:290-294); no
+        // outline RVA is claimed.
+        let mut state = MissionCounterState::default();
+        state.set_mission_number(4);
+        state.keep_mission_number();
+        assert_eq!(state.get_mission_number(), 4);
+        state.reset_mission_numbers();
+        assert_eq!(state.get_mission_number(), 0);
+        assert_eq!(state.next_mission_number(), 0);
+    }
+
+    #[test]
+    fn presence_working_name_tracks_open_flag() {
+        // C_mission::opened flag (Mission.h:122); no outline accessor.
+        let mut presence = MissionPresenceState::default();
+        assert!(!presence.is_opened());
+        presence.set_opened(true);
+        assert!(presence.is_opened());
+        presence.set_opened(false);
+        assert!(!presence.is_opened());
+    }
+
+    #[test]
+    fn presence_working_name_stages_mission_name() {
+        // C_mission::GetMissionName (Mission.h:275-277) is FOLDED with
+        // C_actor::GetFrame at RVA 0x7afb0; no unique entry is claimed.
+        let mut presence = MissionPresenceState::default();
+        assert_eq!(presence.mission_name(), None);
+        presence.stage_mission_name(Some("mise01".to_owned()));
+        assert_eq!(presence.mission_name(), Some("mise01"));
+        presence.stage_mission_name(None);
+        assert_eq!(presence.mission_name(), None);
     }
 }

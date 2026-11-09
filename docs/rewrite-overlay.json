@@ -10447,12 +10447,12 @@
     },
     {
       "binary": "Game.exe",
-      "rva": "0x5f9a0",
-      "va": "0x45f9a0",
+      "rva": "0x1b9fa0",
+      "va": "0x5b9fa0",
       "name": "C_game::ScoreSetOn",
       "symbol": "lhr_engine::game_housekeeping::score_set_on",
       "tier": "contract",
-      "evidence": "Score flag store (GAME 0x5f9a0). Marker-only contract; tests green on this tree."
+      "evidence": "Wrong-address remediation: reference FUNCTION GAME 0x5b9fa0 (was misfiled as 0x5f9a0). Score flag store (GAME 0x5b9fa0). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -14161,6 +14161,33 @@
       "symbol": "lhr_engine::human_actor::HumanState::add_to_cutscene",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. Cutscene add (GAME 0x56b180)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ae30",
+      "va": "0x47ae30",
+      "name": "S_mission_options::GetParticles",
+      "symbol": "lhr_engine::mission_options::MissionOptions::get_particles",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Particles getter (GAME 0x47ae30)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ae40",
+      "va": "0x47ae40",
+      "name": "C_mission::GetActors",
+      "symbol": "lhr_engine::mission_actor_lists::get_actors",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Actors getter (GAME 0x47ae40)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ae60",
+      "va": "0x47ae60",
+      "name": "C_mission::GetEffects",
+      "symbol": "lhr_engine::mission_actor_lists::get_effects",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Effects getter (GAME 0x47ae60)."
     }
   ],
   "vm": {
