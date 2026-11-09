@@ -561,6 +561,31 @@ fn load_map_preserves_non_utf8_names_and_continues_to_the_camera() {
 }
 
 #[test]
+fn loaded_mission_presentation_reuses_live_scene_camera_and_disposes_normally() {
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    let mut sequence = crate::scene_render::SceneSnapshotSequence::default();
+    assert!(session.snapshot_loaded_scene([64, 64], &mut sequence).is_err());
+    load(&mut session, &[]).unwrap();
+    let scene = session.scene().unwrap().unwrap();
+    let camera = session.arena().scene_active_camera(scene).unwrap().unwrap();
+    assert_eq!(session.loader().unwrap().camera, Some(camera));
+    assert_eq!(session.resources().construction(scene).unwrap().viewport, [0, 0, 800, 600]);
+    assert!(session.snapshot_loaded_scene([0, 64], &mut sequence).is_err());
+    assert_eq!(session.resources().construction(scene).unwrap().viewport, [0, 0, 800, 600]);
+    let snapshot = session.snapshot_loaded_scene([64, 64], &mut sequence).unwrap();
+    assert_eq!(snapshot.frame.viewport, [0, 0, 64, 64]);
+    assert_eq!(session.scene().unwrap(), Some(scene));
+    assert_eq!(session.arena().scene_active_camera(scene).unwrap(), Some(camera));
+    assert!(snapshot.scene.meshes.is_empty());
+    let next = session.snapshot_loaded_scene([128, 64], &mut sequence).unwrap();
+    assert_eq!(next.frame.viewport, [0, 0, 128, 64]);
+    assert_eq!(session.resources().construction(scene).unwrap().viewport, [0, 0, 128, 64]);
+    discard(&mut session);
+    assert!(session.snapshot_loaded_scene([64, 64], &mut sequence).is_err());
+}
+
+#[test]
 fn failed_world_geometry_uses_actual_staging_disposal_before_scene_release() {
     let fixture = Fixture::new(Some(&world(&[sector()])), Some(&scene2(&[])), None);
     let mut session = fixture.session();

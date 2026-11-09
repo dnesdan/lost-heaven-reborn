@@ -24,6 +24,7 @@ use std::{fmt::Write as _, path::Path};
 /// Deliberate diagnostic inputs, not recovered GameInit globals. A caller that
 /// needs a different original prestate should use MissionLoadSession directly.
 const PROBE_SIZE: [i32; 2] = [800, 600];
+const PROBE_RENDER_SIZE: [u32; 2] = [PROBE_SIZE[0] as u32, PROBE_SIZE[1] as u32];
 /// Bounded dispatch budget for the single `GameInitStart` run. The VM loop
 /// always terminates within it or reports budget exhaustion; nothing here
 /// depends on the exact count, only on its finiteness.
@@ -175,7 +176,41 @@ pub(super) fn validate_inputs(mission: &str, model_directories: &[String]) -> Re
     Ok(())
 }
 
-pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(), String> {
+fn capture_retained_mission_frame(
+    snapshot: &lhr_engine::scene_render::CanonicalSceneSnapshot,
+    path: &Path,
+) -> Result<(), String> {
+    let instance = lhr_render::instance();
+    let mut renderer = pollster::block_on(lhr_render::Renderer::new(
+        &instance,
+        None,
+        &snapshot.scene,
+        wgpu::TextureFormat::Rgba8Unorm,
+        false,
+    ))?;
+    for (index, lighting) in snapshot.lighting.iter().enumerate() {
+        if let Some(lighting) = lighting {
+            renderer.set_mesh_lighting(index, lighting)?;
+        } else {
+            renderer.clear_mesh_lighting(index)?;
+        }
+    }
+    let capture = renderer.capture_scene_frame(
+        PROBE_RENDER_SIZE[0],
+        PROBE_RENDER_SIZE[1],
+        &snapshot.frame,
+        path,
+    );
+    renderer.device.poll(wgpu::Maintain::Wait);
+    capture
+}
+
+pub fn run(
+    root: &Path,
+    mission: &str,
+    model_directories: &[String],
+    capture: Option<&Path>,
+) -> Result<(), String> {
     // Keep this validation at the command boundary even if a future caller
     // bypasses the main option parser. Mission paths cannot escape their root.
     validate_inputs(mission, model_directories)?;
@@ -309,6 +344,48 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
     } else {
         writeln!(report, "GameInit ordered inspection: skipped after stopped load").unwrap();
     }
+    // A separate presentation probe over the SAME retained mission Scene and
+    // its active camera. Optional GPU readback uses the generated scene frame
+    // without creating a second load owner or starting gameplay.
+    let capture_result = if load.is_ok() {
+        let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
+        match session.snapshot_loaded_scene(PROBE_RENDER_SIZE, &mut sequence) {
+            Ok(snapshot) => {
+                writeln!(
+                    report,
+                    "Mission presentation snapshot: scene meshes={} source frames={} main/backdrop/near draws={}/{}/{} viewport={:?} (CPU only)",
+                    snapshot.scene.meshes.len(),
+                    snapshot.draw_frames.len(),
+                    snapshot.frame.main.draws.len(),
+                    snapshot.frame.backdrop.draws.len(),
+                    snapshot.frame.near.draws.len(),
+                    snapshot.frame.viewport,
+                )
+                .unwrap();
+                if let Some(path) = capture {
+                    let result = capture_retained_mission_frame(&snapshot, path);
+                    match &result {
+                        Ok(()) => writeln!(report, "Mission GPU readback written to {}", path.display()).unwrap(),
+                        Err(error) => writeln!(report, "Mission GPU readback stopped: {error}").unwrap(),
+                    }
+                    result
+                } else {
+                    Ok(())
+                }
+            }
+            Err(error) => {
+                writeln!(report, "Mission presentation snapshot unavailable: {error}").unwrap();
+                if capture.is_some() {
+                    Err(format!("mission snapshot unavailable for requested GPU capture: {error}"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    } else {
+        writeln!(report, "Mission presentation snapshot: skipped after stopped load").unwrap();
+        Ok(())
+    };
     writeln!(
         report,
         "Owners before terminal disposal: {:?}",
@@ -349,14 +426,15 @@ pub fn run(root: &Path, mission: &str, model_directories: &[String]) -> Result<(
             .write_all(report.as_bytes())
             .map_err(|error| format!("Could not write mission probe report: {error}"))?;
     }
-    match (load, game_init, scripts, discard) {
+    let result = match (load, game_init, scripts, discard) {
         (Ok(()), Ok(()), Ok(_), Ok(())) => Ok(()),
         (Err(_), _, _, Ok(())) => Err("Mission load probe stopped at the reported load boundary; terminal disposal completed".into()),
         (Ok(()), _, _, Err(_)) => Err("Mission prefix completed, but terminal disposal stopped at the reported ownership boundary".into()),
         (Err(_), _, _, Err(_)) => Err("Mission load and terminal disposal both stopped; their first failures are reported separately".into()),
         (Ok(()), Err(_), _, Ok(())) => Err("Mission prefix completed, but the GameInit prefix stopped at the reported boundary; terminal disposal completed".into()),
         (Ok(()), Ok(()), Err(_), Ok(())) => Err("Mission prefix and GameInit scalars completed, but GameInitStart stopped at the reported boundary; terminal disposal completed".into()),
-    }
+    };
+    result.and(capture_result)
 }
 
 fn append_navigation_report(report: &mut String, session: &MissionLoadSession) {

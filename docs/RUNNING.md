@@ -78,6 +78,15 @@ through `ModelArena::scene_render_with_backend` with the live Scene identity;
 only after a completed callback does it mark the pending volume restoration
 and reach the next unavailable `stop_sounds` operation. The default CPU probe
 has no GPU renderer and continues to stop at `Scene::Render`.
+The load probe also attempts one CPU presentation snapshot from the same
+retained `MissionLoadSession` Scene, camera and visibility owner. It reports
+the resulting mesh and pass counts, or the first missing render dependency,
+before terminal disposal. This is not a GPU readback or a playable frame.
+To verify the *same* Scene on the GPU, add `--probe-render-capture FILE.png`
+to `--mission-load-probe`. This explicitly requests an offscreen 800x600
+readback with the source mesh lighting, and reports GPU errors separately
+from input and disposal failures. Store captures outside the source tree;
+the source textures and original game data are not redistributable.
 
 Historically at engine `041eed8`, INTRO's CPU probe completed source loading and
 exited 0, while MISE01's CPU probe intentionally exited 1 at unsupported car

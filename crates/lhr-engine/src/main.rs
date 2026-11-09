@@ -72,6 +72,7 @@ fn menu_navigation(code: KeyCode, shift: bool) -> Option<menu::Navigation> {
 struct Options {
     mission_load_probe: bool,
     probe_model_directories: Vec<String>,
+    probe_render_capture: Option<PathBuf>,
     root: Option<PathBuf>,
     model: Option<String>,
     animation: Option<String>,
@@ -101,6 +102,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
     let mut result = Options {
         mission_load_probe: false,
         probe_model_directories: Vec::new(),
+        probe_render_capture: None,
         root: None,
         model: None,
         animation: None,
@@ -130,6 +132,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         match arg.as_str() {
             "--mission-load-probe" => result.mission_load_probe = true,
             "--probe-model-dir" => result.probe_model_directories.push(args.next().ok_or("Missing probe model directory")?),
+            "--probe-render-capture" => result.probe_render_capture = Some(args.next().ok_or("Missing probe GPU capture output")?.into()),
             "--textures" => result.textures = args.next().ok_or("Missing textures argument")?,
             "--root" => result.root = Some(args.next().ok_or("Missing root argument")?.into()),
             "--sample-animation-ms" => result.sample_animation_ms = Some(args.next().ok_or("Missing animation sample time")?.parse().map_err(|_| "Invalid animation sample time")?),
@@ -168,7 +171,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS [--animation RELATIVE_5DS] | --mission NAME]] ",
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
                 "--lab requires --features engine-lab and a native window. It opens scenes/models, environment previews, camera and model tools, presets and actual driving input. F1 panel, F2 pause, F3 16 ms step, F4 reload. --synthetic --lab starts the public gallery; --root may also supply its asset browser. --lab-scene gallery|courtyard|primitives|lights selects a public --synthetic scene, including headless captures. --lab-preset FILE.lhr-lab loads presentation settings for --lab or --headless. --capture omits the Lab overlay. ",
-                "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] runs the shared CPU load-session diagnostic without a window; it excludes all presentation and playback flags. It does not execute gameplay. ",
+                "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] [--probe-render-capture PNG] runs the shared CPU load-session diagnostic without a window. Optional GPU capture renders the actual retained mission Scene, and does not execute gameplay. Other presentation and playback flags are excluded. ",
                 "--audio-capture WAV records the actual mixed driving audio and requires --car-driving. ",
                 "--car-driving requires --root and --model and opens the original MISE01 driving world. W accelerates, S brakes, A/D steer, Space applies the handbrake; R reloads and Escape exits. The chase camera is a host view. ",
                 "--car-inspection requires --root and --model; constructs and initializes the CPU car, then renders that same live arena's camera-selected owned LOD and source distance fade, with unlit materials. A/D previews the original wheel-steering update; arrows/W/S control the camera. R explicitly reloads the car and resets live input. Lighting, other material effects, body simulation, driving and mission execution are unavailable. ",
@@ -186,7 +189,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         for option in &provided_options {
             if !matches!(
                 option.as_str(),
-                "--mission-load-probe" | "--root" | "--mission" | "--probe-model-dir"
+                "--mission-load-probe" | "--root" | "--mission" | "--probe-model-dir" | "--probe-render-capture"
             ) {
                 return Err(format!(
                     "{option} is not used by --mission-load-probe; omit it"
@@ -204,6 +207,9 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
     }
     if !result.probe_model_directories.is_empty() {
         return Err("--probe-model-dir requires --mission-load-probe".into());
+    }
+    if result.probe_render_capture.is_some() {
+        return Err("--probe-render-capture requires --mission-load-probe".into());
     }
     if result.skeletal_animation
         && (result.animation.is_none() || result.sample_animation_ms.is_some())
@@ -2240,6 +2246,7 @@ fn run() -> Result<(), String> {
             options.root.as_deref().unwrap(),
             options.mission.as_deref().unwrap(),
             &options.probe_model_directories,
+            options.probe_render_capture.as_deref(),
         );
     }
     // These optional startup files are read once, before any Scene/source owner.
@@ -3096,6 +3103,7 @@ mod mission_probe_option_tests {
         let options = parse(&base).unwrap();
         assert!(options.mission_load_probe);
         assert!(options.probe_model_directories.is_empty());
+        assert!(options.probe_render_capture.is_none());
         let mut args = base.to_vec();
         args.extend([
             "--probe-model-dir",
@@ -3107,6 +3115,12 @@ mod mission_probe_option_tests {
             parse(&args).unwrap().probe_model_directories,
             ["models/first", "models/second"]
         );
+        args.extend(["--probe-render-capture", "mission.png"]);
+        assert_eq!(
+            parse(&args).unwrap().probe_render_capture,
+            Some(PathBuf::from("mission.png"))
+        );
+        assert!(parse(&["--probe-render-capture", "mission.png"]).is_err());
     }
 
     #[test]
