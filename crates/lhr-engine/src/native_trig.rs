@@ -520,6 +520,47 @@ mod tests {
         assert!(atan2_positive(-0., 1.).is_err());
     }
     #[test]
+    fn rounding_boundary_requires_owner_and_restores_precision() {
+        use crate::native_precision::{current_precision, Pc24PrecisionState};
+
+        assert_eq!(current_precision(), None);
+        // Exact dyadic midpoints 1 + 2^-24 and 1 + 3*2^-24. The even
+        // binary32 significands lie below the first and above the second.
+        for (midpoint_bits, expected_bits) in [
+            (0x3ff0_0000_1000_0000_u64, 0x3f80_0000_u32),
+            (0x3ff0_0000_3000_0000_u64, 0x3f80_0002_u32),
+        ] {
+            let midpoint = f64::from_bits(midpoint_bits);
+            let boundary = Interval::bounds(midpoint.next_down(), midpoint.next_up());
+            assert_eq!(boundary.rounded(), Err(MakeUnavailable::RoundingUncertain));
+            assert_eq!(current_precision(), None);
+            for initial_precision in [false, true] {
+                let mut owner = Pc24PrecisionState::new(initial_precision);
+                let result = owner.run(|| {
+                    assert_eq!(current_precision(), Some(initial_precision));
+                    let result = boundary.rounded();
+                    assert_eq!(current_precision(), Some(true));
+                    result
+                });
+                assert_eq!(result.map(f32::to_bits), Ok(expected_bits));
+                assert!(owner.precision_raised());
+                assert_eq!(current_precision(), None);
+            }
+        }
+
+        let wider = Interval::bounds(1., f64::from(f32::from_bits(0x3f80_0002)));
+        let mut owner = Pc24PrecisionState::new(false);
+        let result = owner.run(|| {
+            assert_eq!(current_precision(), Some(false));
+            let result = wider.rounded();
+            assert_eq!(current_precision(), Some(false));
+            result
+        });
+        assert_eq!(result, Err(MakeUnavailable::RoundingUncertain));
+        assert!(!owner.precision_raised());
+        assert_eq!(current_precision(), None);
+    }
+    #[test]
     fn pc24_guard_is_sticky_across_extended_exponent_edges() {
         let arithmetic = Arithmetic::new();
         let a = arithmetic.input(f32::MIN_POSITIVE);
