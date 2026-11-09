@@ -648,6 +648,62 @@ impl ModelArena {
     pub fn camera_ortho_scale(&self, key: CameraKey) -> Result<Option<f32>, ModelError> {
         Ok(self.camera(key)?.scalar(0x160))
     }
+    /// Working name for the `last_update_count` read at +0x3fc (mafia-re
+    /// ls3df/I3D/I3D.h:2021; the frame's `m_UpdateCount` as of the last
+    /// render that found it moved). The reference records no LS3DF FUNCTION
+    /// address for a standalone reader; the word is stored by the
+    /// constructor (I3d_camera.cpp:22), `Duplicate` (I3d_camera.cpp:68, RVA
+    /// 0xb290 already occupied, not claimed here) and the render/update
+    /// owners. `None` is an unwritten constructor word.
+    pub fn camera_last_update_count(
+        &self,
+        key: CameraKey,
+    ) -> Result<Option<u32>, ModelError> {
+        Ok(self.camera(key)?.word(0x3fc))
+    }
+    /// Working name for the `last_sector_update_count` read at +0x400
+    /// (mafia-re ls3df/I3D/I3D.h:2022; the sector's `m_UpdateCount` as of
+    /// the same render). Same provenance as `camera_last_update_count`:
+    /// no LS3DF getter body exists; the constructor stores 0
+    /// (I3d_camera.cpp:23) and `Duplicate` re-zeroes it (I3d_camera.cpp:69).
+    pub fn camera_last_sector_update_count(
+        &self,
+        key: CameraKey,
+    ) -> Result<Option<u32>, ModelError> {
+        Ok(self.camera(key)?.word(0x400))
+    }
+    /// Working name for the `ncp_x`/`ncp_y` pair read at +0x3e4 (mafia-re
+    /// ls3df/I3D/I3D.h:2017; half the near clipping plane's width/height).
+    /// The reference records no LS3DF FUNCTION address for a standalone
+    /// reader; the pair is written by the constructor (I3d_camera.cpp:24-25),
+    /// `Duplicate` (I3d_camera.cpp:70-71, RVA 0xb290 already occupied) and
+    /// `UpdateProjMatrix` (I3d_camera.cpp:128-129, RVA 0xb400 already
+    /// occupied). Native order is kept.
+    pub fn camera_ncp_half_extents(
+        &self,
+        key: CameraKey,
+    ) -> Result<Option<[f32; 2]>, ModelError> {
+        let frame = self.camera(key)?;
+        Ok(match (frame.scalar(0x3e4), frame.scalar(0x3e8)) {
+            (Some(x), Some(y)) => Some([x, y]),
+            _ => None,
+        })
+    }
+    /// Working name for the `near_ncp_x`/`near_ncp_y` pair read at +0x3ec
+    /// (mafia-re ls3df/I3D/I3D.h:2018; the near projection's halves). Same
+    /// provenance as `camera_ncp_half_extents`: constructor
+    /// (I3d_camera.cpp:26-27), `Duplicate` (I3d_camera.cpp:72-73) and
+    /// `UpdateProjMatrix` (I3d_camera.cpp:150-151) stores, no getter body.
+    pub fn camera_near_ncp_half_extents(
+        &self,
+        key: CameraKey,
+    ) -> Result<Option<[f32; 2]>, ModelError> {
+        let frame = self.camera(key)?;
+        Ok(match (frame.scalar(0x3ec), frame.scalar(0x3f0)) {
+            (Some(x), Some(y)) => Some([x, y]),
+            _ => None,
+        })
+    }
     /// Working name for the `I3D_camera::sector` link at +0x3f8 refreshed
     /// by `UpdateSector` (mafia-re ls3df/I3D/frames/I3d_camera.cpp:247-256,
     /// RVA 0xb9d0 already occupied): the hint sector, cleared when the
@@ -1332,6 +1388,94 @@ mod tests {
             assert_eq!(world.arena.camera_scene(camera).unwrap(), None);
             assert_eq!(world.arena.camera_sector(camera).unwrap(), None);
             world.arena.release(camera.frame()).unwrap();
+            world.destroy_scene();
+        });
+    }
+    #[test]
+    fn camera_update_counts_read_ctor_zero_words() {
+        // Working names for the `last_update_count` (+0x3fc) and
+        // `last_sector_update_count` (+0x400) reads (I3D.h:2021-2022): no
+        // LS3DF FUNCTION addresses exist for standalone readers.
+        Pc24PrecisionState::default().run(|| {
+            let mut world = World::new();
+            let camera = world.camera();
+            assert_eq!(
+                world.arena.camera_last_update_count(camera).unwrap(),
+                Some(0)
+            );
+            assert_eq!(
+                world.arena.camera_last_sector_update_count(camera).unwrap(),
+                Some(0)
+            );
+            world.arena.release(camera.frame()).unwrap();
+            assert!(world.arena.camera_last_update_count(camera).is_err());
+            assert!(world
+                .arena
+                .camera_last_sector_update_count(camera)
+                .is_err());
+            world.destroy_scene();
+        });
+    }
+    #[test]
+    fn camera_ncp_half_extents_read_ctor_pairs() {
+        // Working names for the `ncp_x`/`ncp_y` (+0x3e4) and
+        // `near_ncp_x`/`near_ncp_y` (+0x3ec) reads (I3D.h:2017-2018): no
+        // LS3DF FUNCTION addresses exist for standalone readers. The
+        // constructor seeds unit pairs and `UpdateProjMatrix` recomputes
+        // them from the live field of view and aspect (taken RVAs 0xb690 /
+        // 0xb400), so the test pins the offsets by round-trip and the live
+        // 800x600 shape only structurally (x halves exceed y halves).
+        Pc24PrecisionState::default().run(|| {
+            let mut world = World::new();
+            let camera = world.camera();
+            let live = world.arena.camera_ncp_half_extents(camera).unwrap();
+            assert!(live.is_some());
+            let live = live.unwrap();
+            assert!(live[0] > live[1] && live[1] > 0.);
+            let live_near = world
+                .arena
+                .camera_near_ncp_half_extents(camera)
+                .unwrap();
+            assert!(live_near.is_some());
+            let live_near = live_near.unwrap();
+            assert!(live_near[0] > live_near[1] && live_near[1] > 0.);
+            world
+                .arena
+                .camera_mut(camera)
+                .unwrap()
+                .put(0x3e4, 1.5);
+            world
+                .arena
+                .camera_mut(camera)
+                .unwrap()
+                .put(0x3e8, 2.5);
+            world
+                .arena
+                .camera_mut(camera)
+                .unwrap()
+                .put(0x3ec, 0.25);
+            world
+                .arena
+                .camera_mut(camera)
+                .unwrap()
+                .put(0x3f0, 0.125);
+            assert_eq!(
+                world.arena.camera_ncp_half_extents(camera).unwrap(),
+                Some([1.5, 2.5])
+            );
+            assert_eq!(
+                world
+                    .arena
+                    .camera_near_ncp_half_extents(camera)
+                    .unwrap(),
+                Some([0.25, 0.125])
+            );
+            world.arena.release(camera.frame()).unwrap();
+            assert!(world.arena.camera_ncp_half_extents(camera).is_err());
+            assert!(world
+                .arena
+                .camera_near_ncp_half_extents(camera)
+                .is_err());
             world.destroy_scene();
         });
     }

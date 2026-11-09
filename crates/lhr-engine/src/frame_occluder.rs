@@ -328,6 +328,83 @@ impl ModelArena {
     pub fn occluder(&self, key: OccluderKey) -> Result<&OccluderFrame, ModelError> {
         Ok(&self.occluders[self.occluder_index(key)?])
     }
+    /// Working name for the `occl_flags` word read at +0x5c4 (mafia-re
+    /// ls3df/I3D/I3D.h:2400, `OCCLF_*`). The reference records no LS3DF
+    /// FUNCTION address for a standalone reader; the word is stored by
+    /// `Build`/`UpdateV`/`UpdateShadow` (RVAs already occupied, not claimed
+    /// here). Reports the stored word with no backend effects.
+    pub fn occluder_occl_flags_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<u32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x5c4))
+    }
+    /// Working name for the `center` read at +0x5cc (mafia-re
+    /// ls3df/I3D/I3D.h:2402; the vertices' box center in world space).
+    /// Same provenance as `occluder_occl_flags_of`: no getter body exists;
+    /// the words are stored by the taken update path. Native order is kept.
+    pub fn occluder_center_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<[f32; 3]>, ModelError> {
+        let frame = self.occluder(key)?;
+        Ok(match (frame.word(0x5cc), frame.word(0x5d0), frame.word(0x5d4)) {
+            (Some(x), Some(y), Some(z)) => Some([
+                f32::from_bits(x),
+                f32::from_bits(y),
+                f32::from_bits(z),
+            ]),
+            _ => None,
+        })
+    }
+    /// Working name for the `radius` read at +0x5d8 (mafia-re
+    /// ls3df/I3D/I3D.h:2403; of the sphere around the occluder; `Build`
+    /// sets 1, 0 means never built). Same provenance as
+    /// `occluder_occl_flags_of`.
+    pub fn occluder_radius_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<f32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x5d8).map(f32::from_bits))
+    }
+    /// Working name for the `radius_2` read at +0x5dc (mafia-re
+    /// ls3df/I3D/I3D.h:2404; the squared radius). Same provenance as
+    /// `occluder_radius_of`.
+    pub fn occluder_radius_squared_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<f32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x5dc).map(f32::from_bits))
+    }
+    /// Working name for the `dist` read at +0x5e8 (mafia-re
+    /// ls3df/I3D/I3D.h:2407; from the camera, nearer occluders first in
+    /// `CullOcclsEachOther`). Same provenance as
+    /// `occluder_occl_flags_of`.
+    pub fn occluder_dist_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<f32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x5e8).map(f32::from_bits))
+    }
+    /// Working name for the `num_side_planes` read at +0x39c (mafia-re
+    /// ls3df/I3D/I3D.h:2396). Same provenance as
+    /// `occluder_occl_flags_of`; the count is stored by the taken
+    /// `UpdateShadow` path.
+    pub fn occluder_num_side_planes_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<i32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x39c).map(|v| v as i32))
+    }
+    /// Working name for the `num_face_planes` read at +0x5b0 (mafia-re
+    /// ls3df/I3D/I3D.h:2398). Same provenance as
+    /// `occluder_num_side_planes_of`.
+    pub fn occluder_num_face_planes_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<i32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x5b0).map(|v| v as i32))
+    }
     pub fn occluder_update_v(&mut self, key: OccluderKey) -> Result<(), ModelError> {
         let index = self.occluder_index(key)?;
         update_occluder_v(
@@ -1292,6 +1369,73 @@ mod tests {
             .iter()
             .map(|v| u32::from_le_bytes(*v))
             .collect()
+    }
+    #[test]
+    fn occluder_state_words_read_ctor_zeroed_members() {
+        // Working names for the `occl_flags` (+0x5c4), `center` (+0x5cc),
+        // `radius` (+0x5d8), `radius_2` (+0x5dc), `dist` (+0x5e8),
+        // `num_side_planes` (+0x39c) and `num_face_planes` (+0x5b0) reads
+        // (I3D.h:2397-2408): no LS3DF FUNCTION addresses exist for
+        // standalone readers; the constructor zeroes them and the taken
+        // Build/UpdateV/UpdateShadow path stores them.
+        let mut arena = ModelArena::default();
+        let key = arena.create_occluder().unwrap();
+        assert_eq!(arena.occluder_occl_flags_of(key).unwrap(), Some(0));
+        assert_eq!(
+            arena.occluder_center_of(key).unwrap(),
+            Some([0., 0., 0.])
+        );
+        assert_eq!(arena.occluder_radius_of(key).unwrap(), Some(0.));
+        assert_eq!(arena.occluder_radius_squared_of(key).unwrap(), Some(0.));
+        assert_eq!(arena.occluder_dist_of(key).unwrap(), Some(0.));
+        assert_eq!(arena.occluder_num_side_planes_of(key).unwrap(), Some(0));
+        assert_eq!(arena.occluder_num_face_planes_of(key).unwrap(), Some(0));
+        arena.release(key.frame()).unwrap();
+        assert!(arena.occluder_occl_flags_of(key).is_err());
+        assert!(arena.occluder_center_of(key).is_err());
+        assert!(arena.occluder_radius_of(key).is_err());
+        assert!(arena.occluder_radius_squared_of(key).is_err());
+        assert!(arena.occluder_dist_of(key).is_err());
+        assert!(arena.occluder_num_side_planes_of(key).is_err());
+        assert!(arena.occluder_num_face_planes_of(key).is_err());
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn occluder_radius_words_follow_build_preset_then_update_v() {
+        // `Build` presets `radius` to 1.0 (I3d_occluder.cpp, taken RVA
+        // family); `UpdateV` replaces `radius`/`radius_2` with the exact
+        // sphere (words 0x3f3504f3/0x3effffff for the V/F triangle). The
+        // other state words keep their constructor zeros.
+        let mut arena = ModelArena::default();
+        let key = arena.create_occluder().unwrap();
+        assert_eq!(arena.occluder_build(key, &V, &F).unwrap(), 0);
+        assert_eq!(arena.occluder_radius_of(key).unwrap(), Some(1.));
+        assert_eq!(arena.occluder_radius_squared_of(key).unwrap(), Some(0.));
+        arena.occluder_update_v(key).unwrap();
+        assert_eq!(
+            arena.occluder(key).unwrap().word(0x5d8),
+            Some(0x3f3504f3)
+        );
+        assert_eq!(
+            arena.occluder_radius_of(key).unwrap(),
+            Some(f32::from_bits(0x3f3504f3))
+        );
+        assert_eq!(
+            arena.occluder(key).unwrap().word(0x5dc),
+            Some(0x3effffff)
+        );
+        assert_eq!(
+            arena.occluder_radius_squared_of(key).unwrap(),
+            Some(f32::from_bits(0x3effffff))
+        );
+        assert_eq!(
+            arena.occluder_center_of(key).unwrap(),
+            Some([0.5, 0.5, 0.])
+        );
+        assert_eq!(arena.occluder_dist_of(key).unwrap(), Some(0.));
+        assert_eq!(arena.occluder_occl_flags_of(key).unwrap(), Some(0));
+        arena.release(key.frame()).unwrap();
+        assert_eq!(arena.occluder_storage().live_allocations(), 0);
     }
     #[test]
     fn genuine_driver_scene_ownership_close_and_last_release_return_cpu_baseline() {

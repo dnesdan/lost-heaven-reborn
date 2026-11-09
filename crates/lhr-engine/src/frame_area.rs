@@ -467,6 +467,20 @@ impl crate::model_loading::ModelArena {
             .find(|a| a.key == key)
             .ok_or_else(|| AreaError::UnknownArea(key.frame()).into())
     }
+    /// Working name for the `last_update_count` read at +0x164 (mafia-re
+    /// ls3df/I3D/I3D.h:2477; `-1` while the sounds changed, per the
+    /// member comment). The reference records no LS3DF FUNCTION address for
+    /// a standalone reader; the word is stored by the constructor
+    /// (`I3D_area::I3D_area`, mafia-re ls3df/I3D/frames/I3d_area.cpp:32) and
+    /// by `AddSound`/`DeleteSound` (I3d_area.cpp:201/214, RVAs 0x5a30/0x5b90
+    /// already occupied, not claimed here). Reports the stored word with no
+    /// backend effects. Same availability guard as `area`.
+    pub fn area_last_update_count(
+        &self,
+        key: AreaKey,
+    ) -> Result<i32, crate::model_loading::ModelError> {
+        Ok(self.area(key)?.unknown_164)
+    }
     /// Working name for the direct `scene` link read on `I3D_area`
     /// (mafia-re ls3df/I3D/I3D.h:2476 `I3D_scene *scene` at +0x160; the
     /// scene's area-ring member, set by `AddToRemoveFromSceneRing`, PC RVA
@@ -858,6 +872,18 @@ mod tests {
         arena.release(key.frame()).unwrap();
         assert_eq!(arena.area_storage().live_allocations(), 0);
         assert_eq!(arena.area_storage().live_bytes(), 0);
+    }
+    #[test]
+    fn area_last_update_count_reads_ctor_zero_word() {
+        // Working name for the `last_update_count` read at +0x164
+        // (I3D.h:2477): no LS3DF FUNCTION address exists for a
+        // standalone reader; only the constructor (0) and AddSound /
+        // DeleteSound (-1) store it.
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        assert_eq!(arena.area_last_update_count(key).unwrap(), 0);
+        arena.release(key.frame()).unwrap();
+        assert!(arena.area_last_update_count(key).is_err());
     }
     #[test]
     fn area_scene_reader_reports_ring_membership() {
