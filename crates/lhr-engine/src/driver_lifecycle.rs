@@ -345,6 +345,67 @@ pub fn driver_get_stats(
     }
 }
 
+/// Working name for the `init_flags` member read at driver +0x04
+/// (mafia-re `ls3df/I3D/I3D.h:4405`). No LS3DF FUNCTION address exists
+/// for it: the word is only stored by `Init` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:183-241`) and never exposed through a discrete
+/// getter; no Game.exe out-of-line copy is claimed here.
+pub fn driver_init_flags(state: &DriverLifecycle) -> u32 {
+    state.init_flags
+}
+
+/// Working name for the `I3DIsInit` state read (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:68-70`). No LS3DF FUNCTION address exists
+/// for it: the byte is set by `Init` and cleared by `Close` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:183-262`); the destructor only observes it
+/// for the diagnostic. No Game.exe copy is claimed here.
+pub fn driver_is_init(state: &DriverLifecycle) -> bool {
+    state.is_init
+}
+
+/// Working name for the `next_emitor_id` member peek at driver +0x58
+/// (mafia-re `ls3df/I3D/I3D.h:4411-4412`; ctor at `I3d_driver.cpp:153-158`
+/// zeroes it). No LS3DF FUNCTION address exists for a peek: the member is
+/// only advanced by emitter creation elsewhere. No Game.exe copy is claimed.
+pub fn driver_next_emitor_id(state: &DriverLifecycle) -> u16 {
+    state.next_emitor_id
+}
+
+/// Working name for the `RS_FAST_FIND` state-flag read
+/// (`renderState[49] != 0`; mafia-re `ls3df/I3D/I3D.h:169`, defaults set in
+/// `I3d_driver.cpp:183-241`). No LS3DF FUNCTION address exists for the
+/// single-flag projection: the discrete `GetState` dispatcher
+/// (LS3DF 0x15e50, retained in `progress.json` and not re-credited here)
+/// reads the same word. No Game.exe copy is claimed.
+pub fn driver_fast_find_enabled(state: &DriverLifecycle) -> bool {
+    state.render_state[RS_FAST_FIND] != 0
+}
+
+/// Working name for the `RS_DRAWVISUALS` state-flag read
+/// (`renderState[18] != 0`; mafia-re `ls3df/I3D/I3D.h:128-131`, defaults in
+/// `I3d_driver.cpp:183-241`). Same no-discrete-FUNCTION reason as
+/// `driver_fast_find_enabled`: projection of the retained `GetState`
+/// dispatcher without claiming it.
+pub fn driver_draw_visuals_enabled(state: &DriverLifecycle) -> bool {
+    state.render_state[RS_DRAWVISUALS] != 0
+}
+
+/// Working name for the `RS_USESHADOWS` state-flag read
+/// (`renderState[43] != 0`; mafia-re `ls3df/I3D/I3D.h:162`). Same
+/// no-discrete-FUNCTION reason: single-word projection of the retained
+/// `GetState` dispatcher.
+pub fn driver_use_shadows_enabled(state: &DriverLifecycle) -> bool {
+    state.render_state[RS_USESHADOWS] != 0
+}
+
+/// Working name for the `RS_USEPROJECTORS` state-flag read
+/// (`renderState[51] != 0`; mafia-re `ls3df/I3D/I3D.h:170`). Same
+/// no-discrete-FUNCTION reason: single-word projection of the retained
+/// `GetState` dispatcher.
+pub fn driver_use_projectors_enabled(state: &DriverLifecycle) -> bool {
+    state.render_state[RS_USEPROJECTORS] != 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -609,5 +670,91 @@ mod tests {
         driver_destroy(&dirty, &mut backend);
         assert_eq!(backend.events, vec!["warn_init", "free_clip"]);
         assert!(dirty.is_init, "destroy leaves the gone object alone");
+    }
+
+    #[test]
+    fn working_name_init_flags_reads_ctor_and_init_store() {
+        // Working name, no LS3DF FUNCTION: member at +0x04 (I3D.h:4405).
+        let mut state = DriverLifecycle::default();
+        assert_eq!(driver_init_flags(&state), 0);
+        let mut backend = TestBackend::default();
+        driver_init(&mut state, 0x11, 0, 0, &mut backend);
+        assert_eq!(driver_init_flags(&state), 0x11);
+        driver_close(&mut state, &mut backend);
+        assert_eq!(driver_init_flags(&state), 0x11);
+    }
+
+    #[test]
+    fn working_name_is_init_tracks_init_and_close() {
+        // Working name, no LS3DF FUNCTION: I3DIsInit projection
+        // (I3d_driver.cpp:68-70, set/cleared by Init/Close).
+        let mut state = DriverLifecycle::default();
+        assert!(!driver_is_init(&state));
+        let mut backend = TestBackend::default();
+        driver_init(&mut state, 0, 0, 0, &mut backend);
+        assert!(driver_is_init(&state));
+        driver_close(&mut state, &mut backend);
+        assert!(!driver_is_init(&state));
+    }
+
+    #[test]
+    fn working_name_next_emitor_id_peeks_without_advancing() {
+        // Working name, no LS3DF FUNCTION: peek at +0x58 (I3D.h:4411-4412).
+        let state = DriverLifecycle {
+            next_emitor_id: 41,
+            ..Default::default()
+        };
+        assert_eq!(driver_next_emitor_id(&state), 41);
+        assert_eq!(driver_next_emitor_id(&state), 41);
+        assert_eq!(driver_create().next_emitor_id, 0);
+    }
+
+    #[test]
+    fn working_name_fast_find_flag_reads_render_state_word() {
+        // Working name, no LS3DF FUNCTION: renderState[49] projection of the
+        // retained GetState dispatcher (0x15e50, not re-credited).
+        let mut state = DriverLifecycle::default();
+        assert!(!driver_fast_find_enabled(&state));
+        let mut backend = TestBackend::default();
+        driver_init(&mut state, 0, 0, 0, &mut backend);
+        assert!(driver_fast_find_enabled(&state));
+        state.render_state[RS_FAST_FIND] = 0;
+        assert!(!driver_fast_find_enabled(&state));
+    }
+
+    #[test]
+    fn working_name_draw_visuals_flag_reads_render_state_word() {
+        // Working name, no LS3DF FUNCTION: renderState[18] projection.
+        let mut state = DriverLifecycle::default();
+        assert!(!driver_draw_visuals_enabled(&state));
+        let mut backend = TestBackend::default();
+        driver_init(&mut state, 0, 0, 0, &mut backend);
+        assert!(driver_draw_visuals_enabled(&state));
+        state.render_state[RS_DRAWVISUALS] = 0;
+        assert!(!driver_draw_visuals_enabled(&state));
+    }
+
+    #[test]
+    fn working_name_use_shadows_flag_reads_render_state_word() {
+        // Working name, no LS3DF FUNCTION: renderState[43] projection.
+        let mut state = DriverLifecycle::default();
+        assert!(!driver_use_shadows_enabled(&state));
+        let mut backend = TestBackend::default();
+        driver_init(&mut state, 0, 0, 0, &mut backend);
+        assert!(driver_use_shadows_enabled(&state));
+        state.render_state[RS_USESHADOWS] = 0;
+        assert!(!driver_use_shadows_enabled(&state));
+    }
+
+    #[test]
+    fn working_name_use_projectors_flag_reads_render_state_word() {
+        // Working name, no LS3DF FUNCTION: renderState[51] projection.
+        let mut state = DriverLifecycle::default();
+        assert!(!driver_use_projectors_enabled(&state));
+        let mut backend = TestBackend::default();
+        driver_init(&mut state, 0, 0, 0, &mut backend);
+        assert!(driver_use_projectors_enabled(&state));
+        state.render_state[RS_USEPROJECTORS] = 0;
+        assert!(!driver_use_projectors_enabled(&state));
     }
 }

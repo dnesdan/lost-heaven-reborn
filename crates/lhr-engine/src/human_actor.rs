@@ -311,6 +311,223 @@ pub(crate) fn truncate_item_ammo(
     }
 }
 
+/// GAME 0x58d270 (RVA 0x18d270) C_human::BezZasobnikuWeaponEffect (mafia-re
+/// 113b5b6 game/actors/C_human.h:667, game/actors/C_human.cpp:9658-9667;
+/// `BezZasobniku` is the upstream working name for the magazine-less effect,
+/// NOT original): hide the weapon's "clip" frame when an effect step with id
+/// 9 or 10 runs on a visual clip. The 9..=10 gate is the original literal.
+/// The caller stages `clip_present` (the FindChildFrame("clip") hit) and
+/// `clip_is_visual` (the FRAME_VISUAL type gate) because the model/frame
+/// owner stays DEFERRED. Returns whether the clip is hidden by this leaf.
+pub fn clip_hidden_without_mag(
+    item_id: i32,
+    clip_present: bool,
+    clip_is_visual: bool,
+) -> bool {
+    (9..=10).contains(&item_id) && clip_present && clip_is_visual
+}
+
+/// Original Colt 1911 game-item id (mafia-re 113b5b6 game/g_material.h:127:
+/// GAMEITEM_COLT_1911 9, "Colt 1911").
+pub const GAMEITEM_COLT_1911: i32 = 9;
+
+/// Slide travel of the Colt 1911 dry-fire effect (mafia-re 113b5b6
+/// game/actors/C_human.cpp:10068: `z->SetPos(0.0f, 0.0f, -.04f)`).
+pub const COLT_SLIDE_RECOIL_OFFSET_Z: f32 = -0.04;
+
+/// GAME 0x58e210 (RVA 0x18e210) C_human::FakeWeaponEffect (mafia-re 113b5b6
+/// game/actors/C_human.h:671, game/actors/C_human.cpp:10059-10071): for a
+/// Colt 1911 the leaf slides the "zaver1" child back and updates it; any
+/// other item id leaves the frame alone, and the trailing bool is unread.
+/// The caller stages `slide_present` (the FindChildFrame("zaver1",
+/// ENUMF_ALL) hit) because the model/frame owner stays DEFERRED. Returns the
+/// new local slide position when the leaf applies, None otherwise.
+pub fn colt_slide_recoil_shift(item_id: i32, slide_present: bool) -> Option<[f32; 3]> {
+    if item_id == GAMEITEM_COLT_1911 && slide_present {
+        Some([0.0, 0.0, COLT_SLIDE_RECOIL_OFFSET_Z])
+    } else {
+        None
+    }
+}
+
+/// Door-placement geometry of C_human::Do_ThrowCocotFromCar (mafia-re 113b5b6
+/// game/actors/C_human.h:631): the normalized side vector plus the selected
+/// door offset, both in car-local space before the frame matrix runs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CocotDoorPlacement {
+    pub side: [f32; 3],
+    pub offset: [f32; 3],
+}
+
+/// GAME 0x587d70 (RVA 0x187d70) C_human::Do_ThrowCocotFromCar door-placement
+/// core (mafia-re 113b5b6 game/actors/C_human.cpp:8199-8228): the side vector
+/// from the car's world direction, negated on the seat-side flag and
+/// normalized, plus the door offset selected by the door flag and the seat.
+/// `seat_left_flag` (b1) and `door_flag` (b2) ride the car seat-property
+/// owner, and the matrix/frame/animation/police/entity effects after the
+/// placement stay DEFERRED; this leaf is pure caller-staged geometry.
+pub fn throw_cocot_door_placement(
+    car_dir: [f32; 3],
+    seat_left_flag: bool,
+    door_flag: bool,
+    seat: i32,
+) -> CocotDoorPlacement {
+    let mut side = [car_dir[2], 0.0, -car_dir[0]];
+    if seat_left_flag {
+        side = [-side[0], -side[1], -side[2]];
+    }
+    let offset = match (door_flag, seat) {
+        (true, 1) | (true, 3) => [1.581, 0.0, 0.251],
+        (true, _) => [-1.2517, 0.0, -0.6723],
+        (false, 1) | (false, 3) => [1.343, 0.0, 1.148],
+        (false, _) => [-1.364, 0.0, 0.231],
+    };
+    CocotDoorPlacement {
+        side: normalize_strafe_vector(side),
+        offset,
+    }
+}
+
+/// Caller-staged bridge projection for the high-bridge scan: the world
+/// position plus the kind word (mafia-re 113b5b6
+/// game/actors/C_human.cpp:6271: `unknown_144`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BridgeCandidate {
+    pub position: [f32; 3],
+    pub kind: i32,
+}
+
+/// Squared search radius of the high-bridge scan (mafia-re 113b5b6
+/// game/actors/C_human.cpp:6271: `d.x * d.x + d.y * d.y + d.z * d.z < 10000.0f`,
+/// i.e. 100 world units).
+pub const HIGH_BRIDGE_RANGE_SQUARED: f32 = 10000.0;
+/// Accepted bridge-kind window of the high-bridge scan (mafia-re 113b5b6
+/// game/actors/C_human.cpp:6271: `unknown_144 >= 3 && unknown_144 <= 5`).
+pub const HIGH_BRIDGE_KIND_MIN: i32 = 3;
+/// Accepted bridge-kind window upper bound (see [`HIGH_BRIDGE_KIND_MIN`]).
+pub const HIGH_BRIDGE_KIND_MAX: i32 = 5;
+
+/// GAME 0x5801f0 (RVA 0x1801f0) high-bridge scan (mafia-re 113b5b6
+/// game/actors/C_human.h:584, game/actors/C_human.cpp:6259-6277; the
+/// upstream working name `TozNaselJsemTenNejvyssiMost` is a researcher joke,
+/// NOT original): while seated in the target car, return the reverse-scan
+/// first bridge within range whose kind sits in 3..=5. The in-car and
+/// car-type gates arrive staged as `in_target_car`, and the global-actor type
+/// filter as the pre-filtered `candidates` (frame/matrix owners stay
+/// DEFERRED). Returns the winning candidate index in slice order.
+pub fn find_nearby_high_bridge(
+    own_pos: [f32; 3],
+    in_target_car: bool,
+    candidates: &[BridgeCandidate],
+) -> Option<usize> {
+    if !in_target_car {
+        return None;
+    }
+    candidates.iter().enumerate().rev().find_map(|(index, candidate)| {
+        let dx = own_pos[0] - candidate.position[0];
+        let dy = own_pos[1] - candidate.position[1];
+        let dz = own_pos[2] - candidate.position[2];
+        let in_range = dx * dx + dy * dy + dz * dz < HIGH_BRIDGE_RANGE_SQUARED;
+        let kind_ok = (HIGH_BRIDGE_KIND_MIN..=HIGH_BRIDGE_KIND_MAX).contains(&candidate.kind);
+        if in_range && kind_ok {
+            Some(index)
+        } else {
+            None
+        }
+    })
+}
+
+/// One staged move-animation slot for [`replace_move_anim`]: the table id
+/// plus the replacement name (mafia-re 113b5b6 game/actors/C_human.h:696:
+/// the `anims` vector of `S_anim_info` at 0x7c).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MoveAnimSlot {
+    pub id: i32,
+    pub name: String,
+}
+
+/// GAME 0x57dd00 (RVA 0x17dd00) C_human::ChangeAnim (mafia-re 113b5b6
+/// game/actors/C_human.h:565, game/actors/C_human.cpp:5509-5537): look the
+/// table id up by case-insensitive name (ASCII, like `_strcmpi`), swap-remove
+/// the staged slot carrying that id, stage the replacement name under the
+/// same id, and zero the current animation id. The global animation-info
+/// table arrives as `table`; the animation-cache/model owners stay DEFERRED.
+pub fn replace_move_anim(
+    table: &[(i32, &str)],
+    slots: &mut Vec<MoveAnimSlot>,
+    old_name: &str,
+    new_name: Option<&str>,
+    anim_id: &mut i32,
+) {
+    if let Some((id, _)) = table
+        .iter()
+        .find(|(_, name)| name.eq_ignore_ascii_case(old_name))
+    {
+        let id = *id;
+        if let Some(position) = slots.iter().position(|slot| slot.id == id) {
+            slots.swap_remove(position);
+        }
+        if let Some(new_name) = new_name {
+            slots.push(MoveAnimSlot {
+                id,
+                name: new_name.to_string(),
+            });
+        }
+    }
+    *anim_id = 0;
+}
+
+/// Guard verdict of the C_human::RepairWeaponPosition prefix (mafia-re 113b5b6
+/// game/actors/C_human.h:573).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RepairWeaponGate {
+    LoadingShells,
+    FireBusy,
+    Settled,
+    Proceed,
+}
+
+/// GAME 0x57e980 (RVA 0x17e980) C_human::RepairWeaponPosition guard chain
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:5719-5731): while shells load,
+/// while the fire table runs past its end off the ready/aimed/on-off tables,
+/// or while the weapon sits undisplaced, the leaf returns before touching the
+/// model. The caller stages `fire_settled` for the table gate; the surviving
+/// arm clears the displaced latch and continues into the rifle/smg/hand/frame
+/// owners, which stay DEFERRED. This leaf only reports the selected arm.
+pub fn repair_weapon_position_gate(
+    loading_shells: bool,
+    fire_settled: bool,
+    weapon_displaced: bool,
+) -> RepairWeaponGate {
+    if loading_shells {
+        RepairWeaponGate::LoadingShells
+    } else if !fire_settled {
+        RepairWeaponGate::FireBusy
+    } else if !weapon_displaced {
+        RepairWeaponGate::Settled
+    } else {
+        RepairWeaponGate::Proceed
+    }
+}
+
+/// Selected arm of the C_human::Do_WeaponDrop carry gate (mafia-re 113b5b6
+/// game/actors/C_human.cpp:7583-7592).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WeaponDropCarry {
+    CarryBoxDrop,
+    CarryDeadBodyDrop,
+    Inventory,
+}
+
+/// Selected arm of the C_human::Do_FuckingBoxDrop cancel gate (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:9245-9250).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BoxDropNext {
+    NoBox,
+    Cancelled,
+    StageSceneDrop,
+}
+
 /// Replication of S_vector::Normalize for the diagonal Go_* strafe blends
 /// (mafia-re 113b5b6 ls3df/I3D/I3d_math.h:153-171, inlined at the call sites
 /// with no out-of-line copy, so it carries no GAME address of its own):
@@ -3160,6 +3377,58 @@ impl HumanState {
     /// state is touched and no owner is filed; the stub exists only to pin
     /// the address while that owner stays DEFERRED.
     pub fn done_ff_effects_unsupported() {}
+    /// GAME 0x578ee0 (RVA 0x178ee0) C_human::PoseInterpolate EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.h:537,
+    /// game/actors/C_human.cpp:4557-4622): the body eases the three staged
+    /// pose frames (back1, back2, neck) toward their target directions by
+    /// `time / 1000 * PI` radians (at least 0.03) and detaches them once a
+    /// dead human settles. Every read and write belongs to the pose/frame
+    /// owners, which do not exist here, so no state is touched and no owner
+    /// is filed; the stub exists only to pin the address while those owners
+    /// stay DEFERRED.
+    pub fn pose_interpolate_unsupported(_time: u32) {}
+    /// GAME 0x585c60 (RVA 0x185c60) C_human::Do_Holster carry guard
+    /// (mafia-re 113b5b6 game/actors/C_human.h:610,
+    /// game/actors/C_human.cpp:7557-7561): a carried box or dead body diverts
+    /// to the box drop first. The inventory Holster/ChangeWeaponModel/
+    /// DropOutItems program past the guard stays DEFERRED with the weapon
+    /// owner; this leaf only reports whether the carry must be dropped first.
+    pub fn holster_requires_carry_drop(&self) -> bool {
+        self.carrying_box || self.carrying_dead_body
+    }
+    /// GAME 0x585d90 (RVA 0x185d90) C_human::Do_WeaponDrop carry gate
+    /// (mafia-re 113b5b6 game/actors/C_human.h:611,
+    /// game/actors/C_human.cpp:7583-7592): a carried box diverts to the box
+    /// drop, a carried dead body to the dead-body drop; otherwise the
+    /// inventory Remove/DropOutItems/ChangeWeaponModel program runs, whose
+    /// owners stay DEFERRED. This leaf only reports the selected arm.
+    pub fn weapon_drop_carry_action(&self) -> WeaponDropCarry {
+        if self.carrying_box {
+            WeaponDropCarry::CarryBoxDrop
+        } else if self.carrying_dead_body {
+            WeaponDropCarry::CarryDeadBodyDrop
+        } else {
+            WeaponDropCarry::Inventory
+        }
+    }
+    /// GAME 0x58b690 (RVA 0x18b690) C_human::Do_FuckingBoxDrop cancel gate
+    /// (mafia-re 113b5b6 game/actors/C_human.h:655,
+    /// game/actors/C_human.cpp:9245-9250; `FuckingBox` is the upstream
+    /// working-name family for the carried box, NOT original): without a box
+    /// the leaf ends at once; a successful box cancel ends it too. The
+    /// scene/physics owners of the remaining arm (sector link,
+    /// C_drop_in_weapon placement, temporary-actor filing) and the trailing
+    /// box-release call stay DEFERRED; this leaf only reports the selected
+    /// arm for the staged `cancel_succeeded` verdict.
+    pub fn box_drop_after_cancel(&self, cancel_succeeded: bool) -> BoxDropNext {
+        if !self.carrying_box {
+            BoxDropNext::NoBox
+        } else if cancel_succeeded {
+            BoxDropNext::Cancelled
+        } else {
+            BoxDropNext::StageSceneDrop
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -4861,5 +5130,221 @@ mod human_state_flags_tests {
     // device owner; invoking it touches no staged words.
     fn done_ff_effects_rva_187880_stub_runs_without_state() {
         HumanState::done_ff_effects_unsupported();
+    }
+    #[test]
+    // GAME 0x578ee0 (RVA 0x178ee0) C_human::PoseInterpolate (mafia-re 113b5b6
+    // game/actors/C_human.cpp:4557-4562): explicit unsupported stub,
+    // pose/frame owners; invoking it touches no staged words.
+    fn pose_interpolate_rva_178ee0_stub_runs_without_state() {
+        HumanState::pose_interpolate_unsupported(0);
+        HumanState::pose_interpolate_unsupported(1000);
+    }
+    #[test]
+    // GAME 0x58d270 (RVA 0x18d270) C_human::BezZasobnikuWeaponEffect (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:9660): only ids 9-10 hide a present
+    // visual clip; missing or non-visual clips stay untouched.
+    fn clip_gate_rva_18d270_hides_only_ranged_visual_clip() {
+        assert!(clip_hidden_without_mag(9, true, true));
+        assert!(clip_hidden_without_mag(10, true, true));
+        assert!(!clip_hidden_without_mag(8, true, true));
+        assert!(!clip_hidden_without_mag(11, true, true));
+        assert!(!clip_hidden_without_mag(9, false, true));
+        assert!(!clip_hidden_without_mag(9, true, false));
+        assert!(!clip_hidden_without_mag(0, false, false));
+    }
+    #[test]
+    // GAME 0x58e210 (RVA 0x18e210) C_human::FakeWeaponEffect (mafia-re 113b5b6
+    // game/actors/C_human.cpp:10061-10070): only the Colt 1911 (id 9) with a
+    // present slide repositions it to (0, 0, -0.04); other ids, a missing
+    // slide and the trailing bool leave the frame alone.
+    fn colt_slide_rva_18e210_shifts_only_present_colt_slide() {
+        assert_eq!(
+            colt_slide_recoil_shift(GAMEITEM_COLT_1911, true),
+            Some([0.0, 0.0, -0.04])
+        );
+        assert_eq!(colt_slide_recoil_shift(GAMEITEM_COLT_1911, false), None);
+        assert_eq!(colt_slide_recoil_shift(10, true), None);
+        assert_eq!(colt_slide_recoil_shift(0, false), None);
+    }
+    #[test]
+    // GAME 0x587d70 (RVA 0x187d70) C_human::Do_ThrowCocotFromCar (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:8199-8228): the side vector from the car
+    // direction (negated on the seat-side flag, normalized) plus the door
+    // offset table over (door flag, seat).
+    fn cocot_door_rva_187d70_selects_side_and_offset() {
+        let front = throw_cocot_door_placement([0.0, 0.0, 1.0], false, true, 1);
+        assert_eq!(front.side, [1.0, 0.0, 0.0]);
+        assert_eq!(front.offset, [1.581, 0.0, 0.251]);
+        let flipped = throw_cocot_door_placement([0.0, 0.0, 1.0], true, true, 3);
+        assert_eq!(flipped.side, [-1.0, 0.0, 0.0]);
+        assert_eq!(flipped.offset, [1.581, 0.0, 0.251]);
+        let rear = throw_cocot_door_placement([1.0, 0.0, 0.0], false, true, 2);
+        assert_eq!(rear.side, [0.0, 0.0, -1.0]);
+        assert_eq!(rear.offset, [-1.2517, 0.0, -0.6723]);
+        let plain = throw_cocot_door_placement([0.0, 0.0, 1.0], false, false, 1);
+        assert_eq!(plain.offset, [1.343, 0.0, 1.148]);
+        let other = throw_cocot_door_placement([0.0, 0.0, 1.0], true, false, 0);
+        assert_eq!(other.side, [-1.0, 0.0, 0.0]);
+        assert_eq!(other.offset, [-1.364, 0.0, 0.231]);
+    }
+    #[test]
+    // GAME 0x5801f0 (RVA 0x1801f0) high-bridge scan (mafia-re 113b5b6
+    // game/actors/C_human.cpp:6261-6276): outside the car nothing matches; in
+    // the car the reverse-scan first bridge within 100 units of kind 3-5 wins.
+    fn high_bridge_rva_1801f0_matches_reverse_in_range_kind() {
+        let near = BridgeCandidate {
+            position: [3.0, 0.0, 4.0],
+            kind: 4,
+        };
+        let far = BridgeCandidate {
+            position: [1000.0, 0.0, 0.0],
+            kind: 4,
+        };
+        let wrong_kind = BridgeCandidate {
+            position: [3.0, 0.0, 4.0],
+            kind: 6,
+        };
+        assert_eq!(find_nearby_high_bridge([0.0, 0.0, 0.0], false, &[near]), None);
+        assert_eq!(
+            find_nearby_high_bridge([0.0, 0.0, 0.0], true, &[far, wrong_kind]),
+            None
+        );
+        assert_eq!(
+            find_nearby_high_bridge([0.0, 0.0, 0.0], true, &[near, far]),
+            Some(0)
+        );
+        // Reverse scan: the later slice entry wins over the earlier one.
+        assert_eq!(
+            find_nearby_high_bridge([0.0, 0.0, 0.0], true, &[near, near]),
+            Some(1)
+        );
+        // Squared distance is strict: exactly 100 units out is no match.
+        let edge = BridgeCandidate {
+            position: [100.0, 0.0, 0.0],
+            kind: 3,
+        };
+        assert_eq!(find_nearby_high_bridge([0.0, 0.0, 0.0], true, &[edge]), None);
+    }
+    #[test]
+    // GAME 0x57dd00 (RVA 0x17dd00) C_human::ChangeAnim (mafia-re 113b5b6
+    // game/actors/C_human.cpp:5509-5537): case-insensitive table lookup,
+    // swap-remove of the matching slot, optional replacement staging, and the
+    // animation id zeroed in every arm.
+    fn change_anim_rva_17dd00_replaces_case_insensitive_slot() {
+        let table = [(5, "walk1.i3d"), (6, "run1.i3d")];
+        let mut slots = vec![
+            MoveAnimSlot {
+                id: 5,
+                name: "old".to_string(),
+            },
+            MoveAnimSlot {
+                id: 7,
+                name: "keep".to_string(),
+            },
+        ];
+        let mut anim_id = 42;
+        replace_move_anim(&table, &mut slots, "WALK1.I3D", Some("walk2.i3d"), &mut anim_id);
+        assert_eq!(anim_id, 0);
+        assert_eq!(
+            slots,
+            vec![
+                MoveAnimSlot {
+                    id: 7,
+                    name: "keep".to_string(),
+                },
+                MoveAnimSlot {
+                    id: 5,
+                    name: "walk2.i3d".to_string(),
+                },
+            ]
+        );
+        // Unknown name: no slot touched, id still zeroed.
+        replace_move_anim(&table, &mut slots, "nope.i3d", Some("x.i3d"), &mut anim_id);
+        assert_eq!(slots.len(), 2);
+        // No replacement: the slot is removed without a push.
+        let mut anim_id = 9;
+        replace_move_anim(&table, &mut slots, "run1.i3d", None, &mut anim_id);
+        assert_eq!(anim_id, 0);
+        assert_eq!(
+            slots,
+            vec![
+                MoveAnimSlot {
+                    id: 7,
+                    name: "keep".to_string(),
+                },
+                MoveAnimSlot {
+                    id: 5,
+                    name: "walk2.i3d".to_string(),
+                },
+            ]
+        );
+    }
+    #[test]
+    // GAME 0x57e980 (RVA 0x17e980) C_human::RepairWeaponPosition (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:5719-5731): the guard chain order is
+    // shells, then the fire-table gate, then the displaced latch.
+    fn repair_gate_rva_17e980_orders_shells_fire_and_latch() {
+        assert_eq!(
+            repair_weapon_position_gate(true, true, true),
+            RepairWeaponGate::LoadingShells
+        );
+        assert_eq!(
+            repair_weapon_position_gate(false, false, true),
+            RepairWeaponGate::FireBusy
+        );
+        assert_eq!(
+            repair_weapon_position_gate(false, true, false),
+            RepairWeaponGate::Settled
+        );
+        assert_eq!(
+            repair_weapon_position_gate(false, true, true),
+            RepairWeaponGate::Proceed
+        );
+    }
+    #[test]
+    // GAME 0x585c60 (RVA 0x185c60) C_human::Do_Holster (mafia-re 113b5b6
+    // game/actors/C_human.cpp:7557-7561): a carried box or dead body diverts
+    // to the box drop first; free hands run the inventory program.
+    fn holster_rva_185c60_diverts_only_while_carrying() {
+        let mut human = HumanState::construct(seed());
+        assert!(!human.holster_requires_carry_drop());
+        human.carrying_box = true;
+        assert!(human.holster_requires_carry_drop());
+        human.carrying_box = false;
+        human.carrying_dead_body = true;
+        assert!(human.holster_requires_carry_drop());
+    }
+    #[test]
+    // GAME 0x585d90 (RVA 0x185d90) C_human::Do_WeaponDrop (mafia-re 113b5b6
+    // game/actors/C_human.cpp:7583-7592): the box arm wins over the dead-body
+    // arm; free hands run the inventory program.
+    fn weapon_drop_rva_185d90_selects_carry_arm_in_order() {
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.weapon_drop_carry_action(), WeaponDropCarry::Inventory);
+        human.carrying_dead_body = true;
+        assert_eq!(
+            human.weapon_drop_carry_action(),
+            WeaponDropCarry::CarryDeadBodyDrop
+        );
+        human.carrying_box = true;
+        assert_eq!(
+            human.weapon_drop_carry_action(),
+            WeaponDropCarry::CarryBoxDrop
+        );
+    }
+    #[test]
+    // GAME 0x58b690 (RVA 0x18b690) C_human::Do_FuckingBoxDrop (mafia-re 113b5b6
+    // game/actors/C_human.cpp:9245-9250): without a box the leaf ends at
+    // once; otherwise the staged box-cancel verdict selects the arm.
+    fn box_drop_rva_18b690_gates_box_then_cancel() {
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.box_drop_after_cancel(false), BoxDropNext::NoBox);
+        assert_eq!(human.box_drop_after_cancel(true), BoxDropNext::NoBox);
+        human.carrying_box = true;
+        assert_eq!(human.box_drop_after_cancel(true), BoxDropNext::Cancelled);
+        assert_eq!(
+            human.box_drop_after_cancel(false),
+            BoxDropNext::StageSceneDrop
+        );
     }
 }

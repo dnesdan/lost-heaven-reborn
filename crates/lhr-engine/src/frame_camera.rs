@@ -589,6 +589,79 @@ impl ModelArena {
     pub fn scene_active_camera(&self, scene: SceneKey) -> Result<Option<CameraKey>, ModelError> {
         Ok(self.scene(scene)?.current_camera)
     }
+    /// Working name for the game-side inline `I3D_camera::GetFOV` read of
+    /// `fov_a` at +0x140 (mafia-re ls3df/I3D/I3D.h:1997-2000). No LS3DF
+    /// FUNCTION address exists for it: the reference declares it as the
+    /// game's file-end inline with no out-of-line LS3DF body, and the
+    /// matching setter `SetFOV` (RVA 0xb690) is already occupied. `None`
+    /// is an unwritten constructor word, never an invented default.
+    pub fn camera_fov(&self, key: CameraKey) -> Result<Option<f32>, ModelError> {
+        Ok(self.camera(key)?.scalar(0x140))
+    }
+    /// Working name for the `ncp`/`fcp` pair at +0x144/+0x148 written by
+    /// `I3D_camera::SetRange` (mafia-re ls3df/I3D/frames/I3d_camera.cpp:187-197,
+    /// RVA 0xb7b0 already occupied). No LS3DF getter body exists; the pair
+    /// is read in native order. A half-unwritten pair yields `None`.
+    pub fn camera_clip_range(&self, key: CameraKey) -> Result<Option<[f32; 2]>, ModelError> {
+        let frame = self.camera(key)?;
+        Ok(match (frame.scalar(0x144), frame.scalar(0x148)) {
+            (Some(near), Some(far)) => Some([near, far]),
+            _ => None,
+        })
+    }
+    /// Working name for the `near_fov_a` read at +0x14c written by
+    /// `I3D_camera::SetNearFOV` (mafia-re ls3df/I3D/frames/I3d_camera.cpp:174-183,
+    /// RVA 0xb720 already occupied). No LS3DF getter body exists.
+    pub fn camera_near_fov(&self, key: CameraKey) -> Result<Option<f32>, ModelError> {
+        Ok(self.camera(key)?.scalar(0x14c))
+    }
+    /// Working name for the `near_ncp`/`near_fcp` pair at +0x150/+0x154
+    /// written by `I3D_camera::SetNearRange` (mafia-re
+    /// ls3df/I3D/frames/I3d_camera.cpp:201-211, RVA 0xb840 already
+    /// occupied). No LS3DF getter body exists; native order is kept.
+    pub fn camera_near_clip_range(&self, key: CameraKey) -> Result<Option<[f32; 2]>, ModelError> {
+        let frame = self.camera(key)?;
+        Ok(match (frame.scalar(0x150), frame.scalar(0x154)) {
+            (Some(near), Some(far)) => Some([near, far]),
+            _ => None,
+        })
+    }
+    /// Working name for the `aspect_ratio` read at +0x158 written by
+    /// `I3D_camera::SetAspectRatio` (mafia-re
+    /// ls3df/I3D/frames/I3d_camera.cpp:234-243, RVA 0xb950 already
+    /// occupied). No LS3DF getter body exists.
+    pub fn camera_aspect_ratio(&self, key: CameraKey) -> Result<Option<f32>, ModelError> {
+        Ok(self.camera(key)?.scalar(0x158))
+    }
+    /// Working name for the `orthogonal` byte read at +0x15c written by
+    /// `I3D_camera::SetOrthogonal` (mafia-re
+    /// ls3df/I3D/frames/I3d_camera.cpp:226-230, RVA 0xb930 already
+    /// occupied). No LS3DF getter body exists. `None` is an unavailable
+    /// constructor byte, matching `orthographic_byte_if_available`.
+    pub fn camera_is_orthogonal(&self, key: CameraKey) -> Result<Option<bool>, ModelError> {
+        Ok(self.camera(key)?.orthographic_byte_if_available().map(|byte| byte != 0))
+    }
+    /// Working name for the `ortho_scale` read at +0x160 written by
+    /// `I3D_camera::SetOrthoScale` (mafia-re
+    /// ls3df/I3D/frames/I3d_camera.cpp:215-222, RVA 0xb8d0 already
+    /// occupied). No LS3DF getter body exists.
+    pub fn camera_ortho_scale(&self, key: CameraKey) -> Result<Option<f32>, ModelError> {
+        Ok(self.camera(key)?.scalar(0x160))
+    }
+    /// Working name for the `I3D_camera::sector` link at +0x3f8 refreshed
+    /// by `UpdateSector` (mafia-re ls3df/I3D/frames/I3d_camera.cpp:247-256,
+    /// RVA 0xb9d0 already occupied): the hint sector, cleared when the
+    /// camera has no scene. No LS3DF getter body exists.
+    pub fn camera_sector(&self, key: CameraKey) -> Result<Option<SectorKey>, ModelError> {
+        Ok(self.camera(key)?.sector)
+    }
+    /// Working name for the `I3D_camera::scene` link at +0x3f4 stored by
+    /// `I3D_scene::SetActiveCamera` (mafia-re ls3df/I3D/I3d_scene.cpp:371-386;
+    /// its RVAs are already occupied) and cleared with the sector on
+    /// deactivation. No LS3DF getter body exists.
+    pub fn camera_scene(&self, key: CameraKey) -> Result<Option<SceneKey>, ModelError> {
+        Ok(self.camera(key)?.scene)
+    }
     pub fn scene_set_active_camera(
         &mut self,
         scene: SceneKey,
@@ -1181,6 +1254,83 @@ mod tests {
             );
             world.arena.scene_set_zero_field_220(world.scene).unwrap();
             assert_eq!(world.arena.scene_field_220(world.scene).unwrap(), [0; 3]);
+            world.arena.release(camera.frame()).unwrap();
+            world.destroy_scene();
+        });
+    }
+    #[test]
+    fn camera_scalar_getters_read_ctor_words_and_follow_their_setters() {
+        Pc24PrecisionState::default().run(|| {
+            let mut world = World::new();
+            let camera = world.camera();
+            assert_eq!(
+                world.arena.camera_fov(camera).unwrap(),
+                Some(f32::from_bits(0x3f490fdb))
+            );
+            assert_eq!(
+                world.arena.camera_clip_range(camera).unwrap(),
+                Some([1., 1000.])
+            );
+            assert_eq!(
+                world.arena.camera_near_fov(camera).unwrap(),
+                Some(f32::from_bits(0x3f490fdb))
+            );
+            assert_eq!(
+                world.arena.camera_near_clip_range(camera).unwrap(),
+                Some([f32::from_bits(0x3c23d70a), 20.])
+            );
+            assert!(world.arena.camera_aspect_ratio(camera).unwrap().is_some());
+            assert_eq!(
+                world.arena.camera_is_orthogonal(camera).unwrap(),
+                Some(false)
+            );
+            assert_eq!(
+                world.arena.camera_ortho_scale(camera).unwrap(),
+                Some(1.)
+            );
+            assert_eq!(world.arena.camera_scene(camera).unwrap(), None);
+            assert_eq!(world.arena.camera_sector(camera).unwrap(), None);
+            world.arena.camera_set_fov(camera, 1.).unwrap();
+            world.arena.camera_set_range(camera, 0.5, 500.).unwrap();
+            world.arena.camera_set_near_fov(camera, 1.5).unwrap();
+            world.arena.camera_set_near_range(camera, 0.25, 100.).unwrap();
+            world.arena.camera_set_aspect_ratio(camera, 2.).unwrap();
+            world.arena.camera_set_orthographic(camera, true).unwrap();
+            world.arena.camera_set_ortho_scale(camera, 3.5).unwrap();
+            assert_eq!(world.arena.camera_fov(camera).unwrap(), Some(1.));
+            assert_eq!(
+                world.arena.camera_clip_range(camera).unwrap(),
+                Some([0.5, 500.])
+            );
+            assert_eq!(world.arena.camera_near_fov(camera).unwrap(), Some(1.5));
+            assert_eq!(
+                world.arena.camera_near_clip_range(camera).unwrap(),
+                Some([0.25, 100.])
+            );
+            assert_eq!(
+                world.arena.camera_aspect_ratio(camera).unwrap(),
+                Some(2.)
+            );
+            assert_eq!(world.arena.camera_is_orthogonal(camera).unwrap(), Some(true));
+            assert_eq!(
+                world.arena.camera_ortho_scale(camera).unwrap(),
+                Some(3.5)
+            );
+            world
+                .arena
+                .scene_set_active_camera(world.scene, Some(camera))
+                .unwrap();
+            assert_eq!(
+                world.arena.camera_scene(camera).unwrap(),
+                Some(world.scene)
+            );
+            assert!(world.arena.camera_sector(camera).unwrap().is_some());
+            world
+                .arena
+                .scene_set_active_camera(world.scene, None)
+                .unwrap();
+            assert_eq!(world.arena.camera_scene(camera).unwrap(), None);
+            assert_eq!(world.arena.camera_sector(camera).unwrap(), None);
             world.arena.release(camera.frame()).unwrap();
             world.destroy_scene();
         });
