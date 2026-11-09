@@ -13648,6 +13648,132 @@
       "symbol": "lhr_engine::frame_area::AreaFrame::set_switch_fade_time",
       "tier": "contract",
       "evidence": "Switch fade time store with min-1 clamp (LS3DF 0x10005250). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4d410",
+      "va": "0x44d410",
+      "name": "C_traffic_generator::C_traffic_generator",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_ctor",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Traffic-generator ctor (GAME 0x44d410). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4d4a0",
+      "va": "0x44d4a0",
+      "name": "C_traffic_generator::~C_traffic_generator",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_dtor",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Traffic-generator dtor (GAME 0x44d4a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4d510",
+      "va": "0x44d510",
+      "name": "C_traffic_generator::DuplicateFrom",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_duplicate_from",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Traffic-generator dup (GAME 0x44d510). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4d670",
+      "va": "0x44d670",
+      "name": "C_traffic_generator::SaveData",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_save_data",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Traffic-generator SaveData (GAME 0x44d670). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4d820",
+      "va": "0x44d820",
+      "name": "C_traffic_generator::LoadData",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_load_data",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Traffic-generator LoadData (GAME 0x44d820). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4de00",
+      "va": "0x44de00",
+      "name": "C_traffic_generator::SaveGameGetSize",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_save_game_get_size",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). SaveGame size (GAME 0x44de00). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4de20",
+      "va": "0x44de20",
+      "name": "C_traffic_generator::SaveGameSave",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_save_game_save",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). SaveGame save (GAME 0x44de20). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4e120",
+      "va": "0x44e120",
+      "name": "C_traffic_generator::SaveGameLoad",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_save_game_load",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). SaveGame load (GAME 0x44e120). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4e500",
+      "va": "0x44e500",
+      "name": "C_traffic_generator::GameInit",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_game_init",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Traffic-generator GameInit (GAME 0x44e500). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4e7f0",
+      "va": "0x44e7f0",
+      "name": "C_traffic_generator::GameDone",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_game_done",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Traffic-generator GameDone (GAME 0x44e7f0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4edb0",
+      "va": "0x44edb0",
+      "name": "C_traffic_generator::AI",
+      "symbol": "lhr_engine::game_housekeeping::traffic_generator_ai",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Traffic-generator AI (GAME 0x44edb0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4c690",
+      "va": "0x44c690",
+      "name": "C_don_ocas::GameInit",
+      "symbol": "lhr_engine::game_housekeeping::don_ocas_game_init",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Don-ocas GameInit (GAME 0x44c690). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4c6a0",
+      "va": "0x44c6a0",
+      "name": "C_don_ocas::IsPossibleColl",
+      "symbol": "lhr_engine::game_housekeeping::don_ocas_is_possible_coll",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Don-ocas coll check (GAME 0x44c6a0). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4ca50",
+      "va": "0x44ca50",
+      "name": "C_don_ocas::Collision",
+      "symbol": "lhr_engine::game_housekeeping::don_ocas_collision",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor/chunk owners deferred). Don-ocas collision (GAME 0x44ca50). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

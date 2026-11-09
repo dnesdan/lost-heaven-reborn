@@ -370,7 +370,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +14 traffic-car/housekeeping STUB contracts (ctor/dtor/Init/
         # ChangeState/GameInit/GameDone + 8 scene stubs; all STUBs held
         # as contract).
-        self.assertEqual(game["ported"], 149 + 610)
+        # +14 traffic-generator/don_ocas STUB contracts (ctor/dtor/Duplicate/
+        # SaveData/LoadData/SaveGame x3/GameInit/GameDone/AI + GameInit/
+        # IsPossibleColl/Collision; all STUBs held as contract).
+        self.assertEqual(game["ported"], 149 + 624)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

@@ -2312,6 +2312,293 @@ pub fn traffic_car_game_done() -> Result<(), UnwrittenGameEntry> {
     })
 }
 
+/// STUB: GAME RVA 0x4d410, VA 0x44d410 (`game/ai/C_person_traffic.cpp:62-66`
+/// at pin 113b5b6, `C_traffic_generator::C_traffic_generator`): unwritten
+/// upstream (`StubLog` only). Pedestrian-generator construction stays with
+/// the actor owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// (PC range `0x44c520-0x459e8c` per `docs/game-files.md`) and the marker is
+/// `// STUB: GAME 0x44d410` (code, not a data offset and not another
+/// binary). RVA `0x4d410` = `0x44d410 - 0x400000`; VA
+/// `0x400000 + 0x4d410` = `0x44d410`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_CTOR_ENTRY: u32 = 0x44d410;
+
+/// Original `C_traffic_generator::C_traffic_generator` stub: always reports
+/// the boundary instead of inventing generator ownership.
+pub fn traffic_generator_ctor() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_CTOR_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4d4a0, VA 0x44d4a0 (`game/ai/C_person_traffic.cpp:352-356`
+/// at pin 113b5b6, `C_traffic_generator::~C_traffic_generator`): unwritten
+/// upstream (`StubLog` only). Pedestrian-generator destruction stays with
+/// the actor owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44d4a0` (code, not a data offset and
+/// not another binary). RVA `0x4d4a0` = `0x44d4a0 - 0x400000`; VA
+/// `0x400000 + 0x4d4a0` = `0x44d4a0`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_DTOR_ENTRY: u32 = 0x44d4a0;
+
+/// Original `C_traffic_generator::~C_traffic_generator` stub: always reports
+/// the boundary instead of inventing generator ownership.
+pub fn traffic_generator_dtor() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_DTOR_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4d510, VA 0x44d510 (`game/ai/C_person_traffic.cpp:366-371`
+/// at pin 113b5b6, `C_traffic_generator::DuplicateFrom`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::DuplicateFrom` base call). The actor
+/// owner stays with its owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44d510` (code, not a data offset and
+/// not another binary). RVA `0x4d510` = `0x44d510 - 0x400000`; VA
+/// `0x400000 + 0x4d510` = `0x44d510`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_DUPLICATE_FROM_ENTRY: u32 = 0x44d510;
+
+/// Original `C_traffic_generator::DuplicateFrom` stub: always reports the
+/// boundary instead of inventing actor duplication.
+pub fn traffic_generator_duplicate_from(_actor: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_DUPLICATE_FROM_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4d670, VA 0x44d670 (`game/ai/C_person_traffic.cpp:373-378`
+/// at pin 113b5b6, `C_traffic_generator::SaveData`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::SaveData` base call). The chunk and
+/// actor owners stay with their owners (DEFERRED). Explicit unsupported
+/// boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44d670` (code, not a data offset and
+/// not another binary). RVA `0x4d670` = `0x44d670 - 0x400000`; VA
+/// `0x400000 + 0x4d670` = `0x44d670`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_SAVE_DATA_ENTRY: u32 = 0x44d670;
+
+/// Original `C_traffic_generator::SaveData` stub: always reports the boundary
+/// instead of inventing chunk/actor ownership.
+pub fn traffic_generator_save_data(_chunk: u32) -> Result<bool, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_SAVE_DATA_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4d820, VA 0x44d820 (`game/ai/C_person_traffic.cpp:380-385`
+/// at pin 113b5b6, `C_traffic_generator::LoadData`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::LoadData` base call). The chunk and
+/// actor owners stay with their owners (DEFERRED). Explicit unsupported
+/// boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44d820` (code, not a data offset and
+/// not another binary). RVA `0x4d820` = `0x44d820 - 0x400000`; VA
+/// `0x400000 + 0x4d820` = `0x44d820`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_LOAD_DATA_ENTRY: u32 = 0x44d820;
+
+/// Original `C_traffic_generator::LoadData` stub: always reports the boundary
+/// instead of inventing chunk/actor ownership.
+pub fn traffic_generator_load_data(_chunk: u32) -> Result<bool, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_LOAD_DATA_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4de00, VA 0x44de00 (`game/ai/C_person_traffic.cpp:387-392`
+/// at pin 113b5b6, `C_traffic_generator::SaveGameGetSize`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::SaveGameGetSize` base call). The actor
+/// owner stays with its owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44de00` (code, not a data offset and
+/// not another binary). RVA `0x4de00` = `0x44de00 - 0x400000`; VA
+/// `0x400000 + 0x4de00` = `0x44de00`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_SAVE_GAME_GET_SIZE_ENTRY: u32 = 0x44de00;
+
+/// Original `C_traffic_generator::SaveGameGetSize` stub: always reports the
+/// boundary instead of inventing save-size ownership.
+pub fn traffic_generator_save_game_get_size() -> Result<i32, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_SAVE_GAME_GET_SIZE_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4de20, VA 0x44de20 (`game/ai/C_person_traffic.cpp:394-399`
+/// at pin 113b5b6, `C_traffic_generator::SaveGameSave`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::SaveGameSave` base call). The buffer
+/// and actor owners stay with their owners (DEFERRED). Explicit unsupported
+/// boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44de20` (code, not a data offset and
+/// not another binary). RVA `0x4de20` = `0x44de20 - 0x400000`; VA
+/// `0x400000 + 0x4de20` = `0x44de20`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_SAVE_GAME_SAVE_ENTRY: u32 = 0x44de20;
+
+/// Original `C_traffic_generator::SaveGameSave` stub: always reports the
+/// boundary instead of inventing buffer ownership.
+pub fn traffic_generator_save_game_save() -> Result<bool, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_SAVE_GAME_SAVE_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4e120, VA 0x44e120 (`game/ai/C_person_traffic.cpp:401-406`
+/// at pin 113b5b6, `C_traffic_generator::SaveGameLoad`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::SaveGameLoad` base call). The buffer
+/// and actor owners stay with their owners (DEFERRED). Explicit unsupported
+/// boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44e120` (code, not a data offset and
+/// not another binary). RVA `0x4e120` = `0x44e120 - 0x400000`; VA
+/// `0x400000 + 0x4e120` = `0x44e120`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_SAVE_GAME_LOAD_ENTRY: u32 = 0x44e120;
+
+/// Original `C_traffic_generator::SaveGameLoad` stub: always reports the
+/// boundary instead of inventing buffer ownership.
+pub fn traffic_generator_save_game_load() -> Result<bool, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_SAVE_GAME_LOAD_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4e500, VA 0x44e500 (`game/ai/C_person_traffic.cpp:408-413`
+/// at pin 113b5b6, `C_traffic_generator::GameInit`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::GameInit` base call). The actor owner
+/// stays with its owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44e500` (code, not a data offset and
+/// not another binary). RVA `0x4e500` = `0x44e500 - 0x400000`; VA
+/// `0x400000 + 0x4e500` = `0x44e500`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_GAME_INIT_ENTRY: u32 = 0x44e500;
+
+/// Original `C_traffic_generator::GameInit` stub: always reports the boundary
+/// instead of inventing actor ownership.
+pub fn traffic_generator_game_init() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_GAME_INIT_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4e7f0, VA 0x44e7f0 (`game/ai/C_person_traffic.cpp:415-420`
+/// at pin 113b5b6, `C_traffic_generator::GameDone`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::GameDone` base call). The actor owner
+/// stays with its owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44e7f0` (code, not a data offset and
+/// not another binary). RVA `0x4e7f0` = `0x44e7f0 - 0x400000`; VA
+/// `0x400000 + 0x4e7f0` = `0x44e7f0`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_GAME_DONE_ENTRY: u32 = 0x44e7f0;
+
+/// Original `C_traffic_generator::GameDone` stub: always reports the boundary
+/// instead of inventing actor ownership.
+pub fn traffic_generator_game_done() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_GAME_DONE_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4edb0, VA 0x44edb0 (`game/ai/C_person_traffic.cpp:422-427`
+/// at pin 113b5b6, `C_traffic_generator::AI`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::AI` base call). The actor owner stays
+/// with its owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44edb0` (code, not a data offset and
+/// not another binary). RVA `0x4edb0` = `0x44edb0 - 0x400000`; VA
+/// `0x400000 + 0x4edb0` = `0x44edb0`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const TRAFFIC_GENERATOR_AI_ENTRY: u32 = 0x44edb0;
+
+/// Original `C_traffic_generator::AI` stub: always reports the boundary
+/// instead of inventing actor ownership.
+pub fn traffic_generator_ai(_time: u32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: TRAFFIC_GENERATOR_AI_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4c690, VA 0x44c690 (`game/ai/C_person_traffic.cpp:439-444`
+/// at pin 113b5b6, `C_don_ocas::GameInit`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::GameInit` base call). The actor owner
+/// stays with its owner (DEFERRED). Explicit unsupported boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44c690` (code, not a data offset and
+/// not another binary). RVA `0x4c690` = `0x44c690 - 0x400000`; VA
+/// `0x400000 + 0x4c690` = `0x44c690`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const DON_OCAS_GAME_INIT_ENTRY: u32 = 0x44c690;
+
+/// Original `C_don_ocas::GameInit` stub: always reports the boundary instead
+/// of inventing actor ownership.
+pub fn don_ocas_game_init() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DON_OCAS_GAME_INIT_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4c6a0, VA 0x44c6a0 (`game/ai/C_person_traffic.cpp:446-451`
+/// at pin 113b5b6, `C_don_ocas::IsPossibleColl`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::IsPossibleColl` base call). The actor
+/// and collision owners stay with their owners (DEFERRED). Explicit
+/// unsupported boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44c6a0` (code, not a data offset and
+/// not another binary). RVA `0x4c6a0` = `0x44c6a0 - 0x400000`; VA
+/// `0x400000 + 0x4c6a0` = `0x44c6a0`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const DON_OCAS_IS_POSSIBLE_COLL_ENTRY: u32 = 0x44c6a0;
+
+/// Original `C_don_ocas::IsPossibleColl` stub: always reports the boundary
+/// instead of inventing collision ownership.
+pub fn don_ocas_is_possible_coll(_actor: ActorId) -> Result<bool, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DON_OCAS_IS_POSSIBLE_COLL_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x4ca50, VA 0x44ca50 (`game/ai/C_person_traffic.cpp:453-459`
+/// at pin 113b5b6, `C_don_ocas::Collision`): unwritten upstream
+/// (`StubLog` only, then the `C_actor::Collision` base call). The actor and
+/// collision owners stay with their owners (DEFERRED). Explicit unsupported
+/// boundary.
+///
+/// Verified in reference: `game/ai/C_person_traffic.cpp` belongs to Game.exe
+/// and the marker is `// STUB: GAME 0x44ca50` (code, not a data offset and
+/// not another binary). RVA `0x4ca50` = `0x44ca50 - 0x400000`; VA
+/// `0x400000 + 0x4ca50` = `0x44ca50`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`.
+pub const DON_OCAS_COLLISION_ENTRY: u32 = 0x44ca50;
+
+/// Original `C_don_ocas::Collision` stub: always reports the boundary instead
+/// of inventing collision ownership.
+pub fn don_ocas_collision(_actor: ActorId) -> Result<bool, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DON_OCAS_COLLISION_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4088,6 +4375,146 @@ mod tests {
         assert_eq!(
             traffic_car_game_done(),
             Err(UnwrittenGameEntry::Unsupported { entry: 0x4b8010 })
+        );
+    }
+
+    #[test]
+    fn rva_4d410_traffic_generator_ctor_reports_unsupported() {
+        // C_traffic_generator::C_traffic_generator GAME RVA 0x4d410 (VA 0x44d410): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_CTOR_ENTRY, 0x44d410);
+        assert_eq!(
+            traffic_generator_ctor(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44d410 })
+        );
+    }
+
+    #[test]
+    fn rva_4d4a0_traffic_generator_dtor_reports_unsupported() {
+        // C_traffic_generator::~C_traffic_generator GAME RVA 0x4d4a0 (VA 0x44d4a0): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_DTOR_ENTRY, 0x44d4a0);
+        assert_eq!(
+            traffic_generator_dtor(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44d4a0 })
+        );
+    }
+
+    #[test]
+    fn rva_4d510_traffic_generator_duplicate_from_reports_unsupported() {
+        // C_traffic_generator::DuplicateFrom GAME RVA 0x4d510 (VA 0x44d510): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_DUPLICATE_FROM_ENTRY, 0x44d510);
+        assert_eq!(
+            traffic_generator_duplicate_from(7),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44d510 })
+        );
+    }
+
+    #[test]
+    fn rva_4d670_traffic_generator_save_data_reports_unsupported() {
+        // C_traffic_generator::SaveData GAME RVA 0x4d670 (VA 0x44d670): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_SAVE_DATA_ENTRY, 0x44d670);
+        assert_eq!(
+            traffic_generator_save_data(3),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44d670 })
+        );
+    }
+
+    #[test]
+    fn rva_4d820_traffic_generator_load_data_reports_unsupported() {
+        // C_traffic_generator::LoadData GAME RVA 0x4d820 (VA 0x44d820): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_LOAD_DATA_ENTRY, 0x44d820);
+        assert_eq!(
+            traffic_generator_load_data(3),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44d820 })
+        );
+    }
+
+    #[test]
+    fn rva_4de00_traffic_generator_save_game_get_size_reports_unsupported() {
+        // C_traffic_generator::SaveGameGetSize GAME RVA 0x4de00 (VA 0x44de00): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_SAVE_GAME_GET_SIZE_ENTRY, 0x44de00);
+        assert_eq!(
+            traffic_generator_save_game_get_size(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44de00 })
+        );
+    }
+
+    #[test]
+    fn rva_4de20_traffic_generator_save_game_save_reports_unsupported() {
+        // C_traffic_generator::SaveGameSave GAME RVA 0x4de20 (VA 0x44de20): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_SAVE_GAME_SAVE_ENTRY, 0x44de20);
+        assert_eq!(
+            traffic_generator_save_game_save(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44de20 })
+        );
+    }
+
+    #[test]
+    fn rva_4e120_traffic_generator_save_game_load_reports_unsupported() {
+        // C_traffic_generator::SaveGameLoad GAME RVA 0x4e120 (VA 0x44e120): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_SAVE_GAME_LOAD_ENTRY, 0x44e120);
+        assert_eq!(
+            traffic_generator_save_game_load(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44e120 })
+        );
+    }
+
+    #[test]
+    fn rva_4e500_traffic_generator_game_init_reports_unsupported() {
+        // C_traffic_generator::GameInit GAME RVA 0x4e500 (VA 0x44e500): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_GAME_INIT_ENTRY, 0x44e500);
+        assert_eq!(
+            traffic_generator_game_init(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44e500 })
+        );
+    }
+
+    #[test]
+    fn rva_4e7f0_traffic_generator_game_done_reports_unsupported() {
+        // C_traffic_generator::GameDone GAME RVA 0x4e7f0 (VA 0x44e7f0): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_GAME_DONE_ENTRY, 0x44e7f0);
+        assert_eq!(
+            traffic_generator_game_done(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44e7f0 })
+        );
+    }
+
+    #[test]
+    fn rva_4edb0_traffic_generator_ai_reports_unsupported() {
+        // C_traffic_generator::AI GAME RVA 0x4edb0 (VA 0x44edb0): STUB.
+        assert_eq!(TRAFFIC_GENERATOR_AI_ENTRY, 0x44edb0);
+        assert_eq!(
+            traffic_generator_ai(16),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44edb0 })
+        );
+    }
+
+    #[test]
+    fn rva_4c690_don_ocas_game_init_reports_unsupported() {
+        // C_don_ocas::GameInit GAME RVA 0x4c690 (VA 0x44c690): STUB.
+        assert_eq!(DON_OCAS_GAME_INIT_ENTRY, 0x44c690);
+        assert_eq!(
+            don_ocas_game_init(),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44c690 })
+        );
+    }
+
+    #[test]
+    fn rva_4c6a0_don_ocas_is_possible_coll_reports_unsupported() {
+        // C_don_ocas::IsPossibleColl GAME RVA 0x4c6a0 (VA 0x44c6a0): STUB.
+        assert_eq!(DON_OCAS_IS_POSSIBLE_COLL_ENTRY, 0x44c6a0);
+        assert_eq!(
+            don_ocas_is_possible_coll(5),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44c6a0 })
+        );
+    }
+
+    #[test]
+    fn rva_4ca50_don_ocas_collision_reports_unsupported() {
+        // C_don_ocas::Collision GAME RVA 0x4ca50 (VA 0x44ca50): STUB.
+        assert_eq!(DON_OCAS_COLLISION_ENTRY, 0x44ca50);
+        assert_eq!(
+            don_ocas_collision(5),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x44ca50 })
         );
     }
 }
