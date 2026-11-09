@@ -5596,6 +5596,78 @@ pub fn climb_entry_gate(carrying_box: bool, carrying_dead_body: bool) -> bool {
     !carrying_box && !carrying_dead_body
 }
 
+/// Waiting action-state value staged by the SetWaitAnim select (mafia-re
+/// 113b5b6 game/actors/C_human.h:141 HUMAN_ACTION_WAIT 5).
+pub const HUMAN_ACTION_WAIT: i32 = 5;
+
+/// Outcome of the inline C_human::SetWaitAnim select (working name, no RVA
+/// claimed: mafia-re 113b5b6 game/actors/C_human.h:1158-1172 keeps no
+/// standalone copy of this inline body): the wait words staged when the
+/// produced animation runs past 250 ms, else no write. The PersonAnim
+/// handoff and the GetActiveAnimTime length producer stay DEFERRED with
+/// the animation owner; `length` is the staged active length.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WaitAnimWords {
+    pub action_time: u32,
+    pub last_velocity: [f32; 3],
+    pub velocity_ramp: f32,
+    pub action_state: i32,
+}
+
+/// Inline C_human::SetWaitAnim select (working name, no RVA claimed: no
+/// standalone copy exists, see WaitAnimWords): stage the wait words past a
+/// 250 ms active length, else keep the action word untouched.
+pub fn set_wait_anim_select(length: u32) -> Option<WaitAnimWords> {
+    if length > 250 {
+        Some(WaitAnimWords {
+            action_time: length - 250,
+            last_velocity: [0.0, 0.0, 0.0],
+            velocity_ramp: 0.0,
+            action_state: HUMAN_ACTION_WAIT,
+        })
+    } else {
+        None
+    }
+}
+
+/// Inline C_human::SetFreeBoxingAnim (working name, no RVA claimed: no
+/// standalone copy exists, mafia-re 113b5b6 game/actors/C_human.h:606 and
+/// game/actors/C_human.cpp:7260-7276) EXPLICIT UNSUPPORTED STUB: the
+/// strike-animation lookup and extended-anim handoff need the
+/// animation-cache/model owners, so no strike time is staged and no guard
+/// latch changes.
+pub fn set_free_boxing_anim_unsupported() {}
+
+/// Inline C_human::ShootingInCar (working name, no RVA claimed: no
+/// standalone copy exists, mafia-re 113b5b6 game/actors/C_human.h:608 and
+/// game/actors/C_human.cpp:7279-7293) EXPLICIT UNSUPPORTED STUB: the
+/// seat-side throw-direction select needs the car, frame, shot-frame and
+/// collision owners, so no throw direction is staged.
+pub fn shooting_in_car_unsupported() {}
+
+/// Inline C_human::TestShotCollision (working name, no RVA claimed: no
+/// standalone copy exists, mafia-re 113b5b6 game/actors/C_human.h:683-688)
+/// EXPLICIT UNSUPPORTED STUB: the bone-line test needs the shot-skeleton
+/// owner, so no hit verdict is staged.
+pub fn test_shot_collision_unsupported() {}
+
+/// GAME 0x56f9e0 (RVA 0x16f9e0) C_human::SaveGameGetSize staged sum
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:1417-1425): the staged base
+/// size plus sizeof(S_human_savegame) (0x17e per
+/// game/actors/C_human.h:332-385, packed) plus the staged car and
+/// using-car actor-reference sizes (C_actor::Actor_SaveGameGetSize cores)
+/// plus the staged inventory size. The car/inventory owners stay DEFERRED;
+/// the caller stages the four words.
+pub fn human_savegame_size(
+    base_size: u32,
+    car_ref: u32,
+    using_car_ref: u32,
+    inventory_size: u32,
+) -> u32 {
+    const HUMAN_SAVEGAME_WORDS: u32 = 0x17e;
+    base_size + HUMAN_SAVEGAME_WORDS + car_ref + using_car_ref + inventory_size
+}
+
 /// Signed atan2 difference wrapped into -PI..PI, replicating the game
 /// C_actor.cpp AngleTo2 helper (mafia-re 113b5b6 game/actors/C_actor.cpp:1748-1760).
 fn angle_to_2d(a: [f32; 2], b: [f32; 2]) -> f32 {
@@ -5923,6 +5995,59 @@ mod do_small_actions_rva_tests {
         assert!(climb_entry_gate(false, false));
         assert!(!climb_entry_gate(true, false));
         assert!(!climb_entry_gate(false, true));
+    }
+
+    #[test]
+    fn set_wait_anim_inline_select_stages_wait_past_250ms() {
+        // Inline C_human::SetWaitAnim (mafia-re 113b5b6
+        // game/actors/C_human.h:1158-1172, working name, no RVA): only a
+        // length past 250 ms stages the wait words.
+        assert_eq!(set_wait_anim_select(250), None);
+        assert_eq!(set_wait_anim_select(0), None);
+        assert_eq!(
+            set_wait_anim_select(251),
+            Some(WaitAnimWords {
+                action_time: 1,
+                last_velocity: [0.0, 0.0, 0.0],
+                velocity_ramp: 0.0,
+                action_state: HUMAN_ACTION_WAIT,
+            })
+        );
+        assert_eq!(
+            set_wait_anim_select(1000),
+            Some(WaitAnimWords {
+                action_time: 750,
+                last_velocity: [0.0, 0.0, 0.0],
+                velocity_ramp: 0.0,
+                action_state: HUMAN_ACTION_WAIT,
+            })
+        );
+        assert_eq!(HUMAN_ACTION_WAIT, 5);
+    }
+
+    #[test]
+    fn inline_strike_car_shot_stubs_pin_working_names() {
+        // Inline C_human::SetFreeBoxingAnim, C_human::ShootingInCar and
+        // C_human::TestShotCollision (mafia-re 113b5b6
+        // game/actors/C_human.h:606-608 and :683-688, working names, no
+        // RVA): explicit unsupported stubs while the animation-cache,
+        // car/frame/shot and shot-skeleton owners stay DEFERRED.
+        set_free_boxing_anim_unsupported();
+        shooting_in_car_unsupported();
+        test_shot_collision_unsupported();
+    }
+
+    #[test]
+    fn human_savegame_rva_16f9e0_sums_staged_words() {
+        // GAME 0x56f9e0 (RVA 0x16f9e0) C_human::SaveGameGetSize (mafia-re
+        // 113b5b6 game/actors/C_human.cpp:1417-1425): base + 0x17e human
+        // words + staged car/using-car/inventory words.
+        assert_eq!(human_savegame_size(13, 8, 8, 0), 13 + 0x17e + 16);
+        assert_eq!(human_savegame_size(0, 0, 0, 0), 0x17e);
+        assert_eq!(
+            human_savegame_size(100, 9, 10, 11),
+            100 + 0x17e + 9 + 10 + 11
+        );
     }
 
     #[test]

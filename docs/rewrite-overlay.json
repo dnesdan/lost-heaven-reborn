@@ -14710,6 +14710,78 @@
       "symbol": "lhr_engine::actor_shot::ActorShotState::add_to_cutscene",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. Shot cutscene add (GAME 0x404e20)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x167430",
+      "va": "0x567430",
+      "name": "C_actor_shot::SetWeapon",
+      "symbol": "lhr_engine::actor_shot::set_weapon_marker",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. SetWeapon marker (GAME 0x567430)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4e40",
+      "va": "0x404e40",
+      "name": "C_actor_shot::PlayRecord",
+      "symbol": "lhr_engine::actor_shot::apply_shot_record_flags",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. PlayRecord flag tail (GAME 0x404e40)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5e60",
+      "va": "0x405e60",
+      "name": "C_actor::InternalPlacementReset",
+      "symbol": "lhr_engine::actor_world::snapshot_placement_for_reset",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Placement snapshot (GAME 0x405e60)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5ee0",
+      "va": "0x405ee0",
+      "name": "C_actor::ResetPlacement",
+      "symbol": "lhr_engine::actor_world::restored_placement_flags",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Placement flags (GAME 0x405ee0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6d80",
+      "va": "0x406d80",
+      "name": "C_actor::SaveGameLoadGuid",
+      "symbol": "lhr_engine::actor_world::load_guid_number_for_version",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Guid number (GAME 0x406d80)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7cd0",
+      "va": "0x407cd0",
+      "name": "C_actor::DebustizeFrame",
+      "symbol": "lhr_engine::actor_world::debustize_frame_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: frame owner deferred (GAME 0x407cd0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7d10",
+      "va": "0x407d10",
+      "name": "C_actor::NoShadowFrame",
+      "symbol": "lhr_engine::actor_world::no_shadow_frame_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: frame owner deferred (GAME 0x407d10)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f9e0",
+      "va": "0x56f9e0",
+      "name": "C_human::SaveGameGetSize",
+      "symbol": "lhr_engine::human_actor::human_savegame_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Human savegame size (GAME 0x56f9e0)."
     }
   ],
   "vm": {

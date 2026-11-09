@@ -401,6 +401,62 @@ pub fn set_frame_actor_unsupported() {}
 /// the frame user data as the actor-pointer slot. The frame owner does not
 /// exist here, so no pointer is returned.
 pub fn get_frame_actor_unsupported() {}
+/// Staged live-frame placement words read by C_actor::InternalPlacementReset
+/// (mafia-re 113b5b6 game/actors/C_actor.h:350-354: 0x3c saved_pos,
+/// 0x48 saved_rot, 0x58 saved_parent). The rotation is x/y/z/s like S_quat
+/// (vector, then scalar), matching StagedActorRecord. The frame/matrix owner
+/// stays DEFERRED; the caller stages the live words.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LiveFramePlacement {
+    pub pos: [f32; 3],
+    pub rot: [f32; 4],
+    pub parent: Option<FrameReferenceId>,
+}
+/// GAME 0x405e60 (RVA 0x5e60) C_actor::InternalPlacementReset snapshot core
+/// (mafia-re 113b5b6 game/actors/C_actor.cpp:960-968): without a frame the
+/// native returns early and keeps nothing; a staged frame's pos/rot/parent
+/// words pass through as the saved words. The in-actor saved_* stores stay
+/// DEFERRED with the actor owner; the caller keeps the returned words. The
+/// GameInit saved_on writer is a separate producer and is not staged here.
+pub fn snapshot_placement_for_reset(frame: Option<LiveFramePlacement>) -> Option<LiveFramePlacement> {
+    frame
+}
+/// GAME 0x405ee0 (RVA 0x5ee0) C_actor::ResetPlacement frame-flag core
+/// (mafia-re 113b5b6 game/actors/C_actor.cpp:971-986): clear
+/// FRMFLAGS_HR_BOUND_W_VALID (0x100), FRMFLAGS_WMAT_VALID (0x20),
+/// FRMFLAGS_MAT_VALID (0x10) and FRMFLAGS_ROT_VALID (0x4), then set
+/// FRMFLAGS_UPDATE (0x40000000) and FRMFLAGS_QUAT_VALID (0x8), exactly the
+/// native mask surgery (mafia-re 113b5b6 LS3DF/I3D/I3D.h:259-267). The
+/// LinkTo/SetPos/SetRot/Update/SetOn frame writes and the saved-rotation
+/// Normalize (LS3DF math owner) stay DEFERRED with the frame owner; the
+/// caller stages the current flags and applies the returned word with the
+/// staged saved pos/rot/parent/on words.
+pub fn restored_placement_flags(current_flags: u32) -> u32 {
+    const CLEAR: u32 = 0x100 | 0x20 | 0x10 | 0x4;
+    const SET: u32 = 0x4000_0000 | 0x8;
+    (current_flags & !CLEAR) | SET
+}
+/// GAME 0x406d80 (RVA 0x6d80) C_actor::SaveGameLoadGuid number core
+/// (mafia-re 113b5b6 game/actors/C_actor.cpp:1343-1349): the staged savegame
+/// version/number words (S_actor_savegame 0x0 version, 0x2 number per
+/// game/actors/C_actor.h:138-148); the actor number is taken only for
+/// ACTOR_SAVEGAME_VERSION (3), else left alone. The buffer cursor and the
+/// in-actor number store stay DEFERRED; the caller applies the returned word.
+pub fn load_guid_number_for_version(version: u8, number: i32) -> Option<i32> {
+    const ACTOR_SAVEGAME_VERSION: u8 = 3;
+    (version == ACTOR_SAVEGAME_VERSION).then_some(number)
+}
+/// GAME 0x407cd0 (RVA 0x7cd0) C_actor::DebustizeFrame EXPLICIT
+/// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_actor.cpp:1613-1624):
+/// clear the projector mode on the frame's visuals, the frame's and its
+/// children's, from the last child. The frame/visual owners do not exist
+/// here, so no mode is cleared.
+pub fn debustize_frame_unsupported() {}
+/// GAME 0x407d10 (RVA 0x7d10) C_actor::NoShadowFrame EXPLICIT
+/// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_actor.cpp:1626-1637):
+/// the same walk for the shadow mode. The frame/visual owners do not exist
+/// here, so no mode is cleared.
+pub fn no_shadow_frame_unsupported() {}
 /// Byte offset of the 0x24 pos triplet inside the staged 0x21 window.
 const POS_WINDOW_OFFSET: usize = 0x24 - 0x21;
 /// Byte offset of the 0x30 dir triplet inside the staged 0x21 window.
@@ -6965,6 +7021,68 @@ mod tests {
     fn frame_actor_rva_147130_204d90_stubs_pin_addresses() {
         set_frame_actor_unsupported();
         get_frame_actor_unsupported();
+    }
+    #[test]
+    // GAME 0x405e60 (RVA 0x5e60) C_actor::InternalPlacementReset (mafia-re
+    // 113b5b6 game/actors/C_actor.cpp:960-968): without a frame nothing is
+    // kept; a staged frame's pos/rot/parent words pass through as saved.
+    fn placement_snapshot_rva_5e60_none_keeps_nothing() {
+        assert_eq!(snapshot_placement_for_reset(None), None);
+        let frame = LiveFramePlacement {
+            pos: [1.0, 2.0, 3.0],
+            rot: [0.0, 0.0, 0.0, 1.0],
+            parent: Some(FrameReferenceId::from_existing(4)),
+        };
+        assert_eq!(snapshot_placement_for_reset(Some(frame)), Some(frame));
+        let parentless = LiveFramePlacement {
+            pos: [-0.5, 0.25, 8.0],
+            rot: [0.5, -0.5, 0.5, 0.5],
+            parent: None,
+        };
+        assert_eq!(
+            snapshot_placement_for_reset(Some(parentless)),
+            Some(parentless)
+        );
+    }
+    #[test]
+    // GAME 0x405ee0 (RVA 0x5ee0) C_actor::ResetPlacement flag core (mafia-re
+    // 113b5b6 game/actors/C_actor.cpp:971-986 with LS3DF/I3D/I3D.h:259-267):
+    // the four validity bits clear while UPDATE and QUAT_VALID set; other
+    // bits (incl. ON) survive.
+    fn restored_flags_rva_5ee0_surgery_keeps_unrelated_bits() {
+        assert_eq!(restored_placement_flags(0), 0x4000_0000 | 0x8);
+        assert_eq!(
+            restored_placement_flags(0xffff_ffff),
+            0xffff_ffff & !(0x100 | 0x20 | 0x10 | 0x4) | (0x4000_0000 | 0x8)
+        );
+        assert_eq!(
+            restored_placement_flags(0x1 | 0x4 | 0x10 | 0x20 | 0x100),
+            0x1 | 0x4000_0000 | 0x8
+        );
+        assert_eq!(
+            restored_placement_flags(0x4000_0000 | 0x8),
+            0x4000_0000 | 0x8
+        );
+    }
+    #[test]
+    // GAME 0x406d80 (RVA 0x6d80) C_actor::SaveGameLoadGuid (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:1343-1349, ACTOR_SAVEGAME_VERSION 3 per
+    // game/actors/C_actor.h:138-153): only version 3 takes the number.
+    fn load_guid_rva_6d80_only_version_3_takes_number() {
+        assert_eq!(load_guid_number_for_version(3, 41), Some(41));
+        assert_eq!(load_guid_number_for_version(3, -7), Some(-7));
+        assert_eq!(load_guid_number_for_version(2, 41), None);
+        assert_eq!(load_guid_number_for_version(4, 41), None);
+        assert_eq!(load_guid_number_for_version(0, 0), None);
+    }
+    #[test]
+    // GAME 0x407cd0 (RVA 0x7cd0) C_actor::DebustizeFrame and GAME 0x407d10
+    // (RVA 0x7d10) C_actor::NoShadowFrame (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:1613-1637): explicit unsupported stubs pin the
+    // addresses while the frame/visual owners stay DEFERRED.
+    fn frame_walk_rva_7cd0_7d10_stubs_pin_addresses() {
+        debustize_frame_unsupported();
+        no_shadow_frame_unsupported();
     }
 }
 
