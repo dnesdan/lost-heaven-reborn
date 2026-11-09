@@ -1598,6 +1598,57 @@ pub struct HumanState {
     /// copy and gates the +500 player-kill score inline at the Hit/HitInCar
     /// death paths. Those owners stay DEFERRED. Starts clear.
     score_bonus: bool,
+    /// Strike-animation time left (mafia-re 113b5b6
+    /// game/actors/C_human.h:798-800: 0x234 strike_anim_time; the name is
+    /// ours). Working name, no RVA claimed: the word has no standalone
+    /// FUNCTION copy and is written inline by SetFreeBoxingAnim
+    /// (game/actors/C_human.cpp:7269) with Update counting it down while it
+    /// stays at or above zero (:2345-2346). Those owners stay DEFERRED.
+    /// Starts at -1 (none), matching the GameInit clear (:3238).
+    strike_anim_time: i32,
+    /// Agony-animation selector (mafia-re 113b5b6 game/actors/C_human.h:863-
+    /// 865: 0x458 agony_anim, 0 to 12 by 4, -1 for none; the name is ours).
+    /// Working name, no RVA claimed: the word has no standalone FUNCTION
+    /// copy and is written inline by HitAgony (game/actors/C_human.cpp:4099-
+    /// 4105) with Hit reading it back (:3747). Those owners stay DEFERRED.
+    /// Starts at -1 (none), matching the GameInit clear (:3194).
+    agony_anim: i32,
+    /// Agonies remaining after this one (mafia-re 113b5b6
+    /// game/actors/C_human.h:866-868: 0x45c agony_count; the name is ours).
+    /// Working name, no RVA claimed: the word has no standalone FUNCTION
+    /// copy; HitAgony writes 5 to 12 (game/actors/C_human.cpp:4099) and
+    /// Movement plays another while it counts down. Those owners stay
+    /// DEFERRED. Starts at 0 (working deterministic default; the native
+    /// constructor leaves the word untouched).
+    agony_count: i32,
+    /// Jump-fall latch (mafia-re 113b5b6 game/actors/C_human.h:835-837: 0x41c
+    /// jump_fall; the name is ours). Working name, no RVA claimed: the word
+    /// has no standalone FUNCTION copy; MovementIntern writes whether the
+    /// fall started in a jump (:5261) and the landing-damage gate reads it
+    /// (:5193-5194). Those owners stay DEFERRED. Starts clear.
+    jump_fall: bool,
+    /// Vehicle-use selector (mafia-re 113b5b6 game/actors/C_human.h:827-829:
+    /// 0x410 vehicle_action, HUMAN_VEHICLE_*; the name is ours). Working
+    /// name, no RVA claimed: the word has no standalone FUNCTION copy;
+    /// Update and the car-function writers set it with Update dispatching on
+    /// it (game/actors/C_human.cpp:2443, :3793). Those owners stay DEFERRED.
+    /// Starts at 0 (nothing), matching the GameInit clear (:3177).
+    vehicle_action: i32,
+    /// Shot-death latch (mafia-re 113b5b6 game/actors/C_human.h:861: 0x454
+    /// killed_by_shot; the name is ours). Working name, no RVA claimed: the
+    /// word has no standalone FUNCTION copy; Hit sets it for a HIT_SHOT
+    /// death (game/actors/C_human.cpp:3987-3988) and Movement reads it for
+    /// the death-camera path (:4840). Those owners stay DEFERRED. Starts
+    /// clear, matching the GameInit/Activate clears (:3223, :9113).
+    killed_by_shot: bool,
+    /// Rail-wagon selector (mafia-re 113b5b6 game/actors/C_human.h:909-913:
+    /// 0x584 wagon, from 1, 0 for the vehicle itself; the name is ours).
+    /// Working name, no RVA claimed: the word has no standalone FUNCTION
+    /// copy; Intern_UseRailway reads it to pick the wagon frame
+    /// (game/actors/C_human.cpp:2166, :2172) while the Use_Actor rail writer
+    /// stays DEFERRED. The savegame persists it (:1471, :1565). Starts at 0
+    /// (the vehicle itself).
+    wagon: i32,
 }
 impl HumanState {
     pub(crate) fn construct(seed: HumanSeed) -> Self {
@@ -1678,6 +1729,13 @@ impl HumanState {
             tilt: 0.0,
             speed_limiter: false,
             score_bonus: false,
+            strike_anim_time: -1,
+            agony_anim: -1,
+            agony_count: 0,
+            jump_fall: false,
+            vehicle_action: 0,
+            killed_by_shot: false,
+            wagon: 0,
         }
     }
     pub fn human_type_mask(&self) -> u32 {
@@ -2090,6 +2148,82 @@ impl HumanState {
     /// +500 player-kill score gate reads it; those owners stay DEFERRED).
     pub fn set_score_bonus(&mut self, bonus: bool) {
         self.score_bonus = bonus;
+    }
+    /// Working-name reader for the 0x234 strike-animation time staged by
+    /// set_strike_anim_time (no standalone FUNCTION copy, so no RVA is
+    /// claimed).
+    pub fn strike_anim_time(&self) -> i32 {
+        self.strike_anim_time
+    }
+    /// Working-name writer for the 0x234 strike-animation time (the
+    /// SetFreeBoxingAnim end-time write and the Update countdown read it;
+    /// those owners stay DEFERRED).
+    pub fn set_strike_anim_time(&mut self, time: i32) {
+        self.strike_anim_time = time;
+    }
+    /// Working-name reader for the 0x458 agony-animation selector staged by
+    /// set_agony_anim (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn agony_anim(&self) -> i32 {
+        self.agony_anim
+    }
+    /// Working-name writer for the 0x458 agony-animation selector (the
+    /// HitAgony write and the Hit read-back stay DEFERRED).
+    pub fn set_agony_anim(&mut self, anim: i32) {
+        self.agony_anim = anim;
+    }
+    /// Working-name reader for the 0x45c agony counter staged by
+    /// set_agony_count (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn agony_count(&self) -> i32 {
+        self.agony_count
+    }
+    /// Working-name writer for the 0x45c agony counter (the HitAgony write
+    /// and the Movement countdown read stay DEFERRED).
+    pub fn set_agony_count(&mut self, count: i32) {
+        self.agony_count = count;
+    }
+    /// Working-name reader for the 0x41c jump-fall latch staged by
+    /// set_jump_fall (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn jump_fall(&self) -> bool {
+        self.jump_fall
+    }
+    /// Working-name writer for the 0x41c jump-fall latch (the MovementIntern
+    /// write and the landing-damage read stay DEFERRED).
+    pub fn set_jump_fall(&mut self, jump_fall: bool) {
+        self.jump_fall = jump_fall;
+    }
+    /// Working-name reader for the 0x410 vehicle-use selector staged by
+    /// set_vehicle_action (no standalone FUNCTION copy, so no RVA is
+    /// claimed).
+    pub fn vehicle_action(&self) -> i32 {
+        self.vehicle_action
+    }
+    /// Working-name writer for the 0x410 vehicle-use selector (the Update
+    /// and car-function writers plus the Update dispatch read stay
+    /// DEFERRED).
+    pub fn set_vehicle_action(&mut self, action: i32) {
+        self.vehicle_action = action;
+    }
+    /// Working-name reader for the 0x454 shot-death latch staged by
+    /// set_killed_by_shot (no standalone FUNCTION copy, so no RVA is
+    /// claimed).
+    pub fn killed_by_shot(&self) -> bool {
+        self.killed_by_shot
+    }
+    /// Working-name writer for the 0x454 shot-death latch (the Hit write and
+    /// the Movement death-camera read stay DEFERRED).
+    pub fn set_killed_by_shot(&mut self, killed: bool) {
+        self.killed_by_shot = killed;
+    }
+    /// Working-name reader for the 0x584 rail-wagon selector staged by
+    /// set_wagon (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn wagon(&self) -> i32 {
+        self.wagon
+    }
+    /// Working-name writer for the 0x584 rail-wagon selector (the Use_Actor
+    /// rail writer stays DEFERRED; the savegame persistence is staged by the
+    /// caller-supplied word).
+    pub fn set_wagon(&mut self, wagon: i32) {
+        self.wagon = wagon;
     }
     pub fn collection_is_empty(&self, slot: HumanResourceSlot) -> bool {
         match slot {
@@ -3897,6 +4031,147 @@ mod tests {
         assert!(!human.no_anim_hit());
         assert!(!human.idle_anims());
         assert!(!human.shut_up());
+    }
+    #[test]
+    // Working-name 0x234 strike-animation time: starts at -1 (GameInit
+    // clear) and round-trips through the setter.
+    fn strike_anim_time_working_name_defaults_and_round_trips() {
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.strike_anim_time(), -1);
+        human.set_strike_anim_time(120);
+        assert_eq!(human.strike_anim_time(), 120);
+        human.set_strike_anim_time(-1);
+        assert_eq!(human.strike_anim_time(), -1);
+    }
+    #[test]
+    // Working-name 0x234 strike-animation time: the setter stores the exact
+    // staged word without touching neighbours.
+    fn set_strike_anim_time_working_name_stores_word() {
+        let mut human = HumanState::construct(seed());
+        human.set_strike_anim_time(0);
+        assert_eq!(human.strike_anim_time(), 0);
+        assert_eq!(human.agony_anim(), -1);
+    }
+    #[test]
+    // Working-name 0x458 agony-animation selector: starts at -1 (GameInit
+    // clear) and round-trips through the setter.
+    fn agony_anim_working_name_defaults_and_round_trips() {
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.agony_anim(), -1);
+        human.set_agony_anim(8);
+        assert_eq!(human.agony_anim(), 8);
+        human.set_agony_anim(-1);
+        assert_eq!(human.agony_anim(), -1);
+    }
+    #[test]
+    // Working-name 0x458 agony-animation selector: the setter stores the
+    // exact staged word (a HitAgony 12/8/4/0 pick) without touching
+    // neighbours.
+    fn set_agony_anim_working_name_stores_word() {
+        let mut human = HumanState::construct(seed());
+        human.set_agony_anim(12);
+        assert_eq!(human.agony_anim(), 12);
+        assert_eq!(human.agony_count(), 0);
+    }
+    #[test]
+    // Working-name 0x45c agony counter: starts at 0 and round-trips through
+    // the setter.
+    fn agony_count_working_name_defaults_and_round_trips() {
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.agony_count(), 0);
+        human.set_agony_count(9);
+        assert_eq!(human.agony_count(), 9);
+        human.set_agony_count(0);
+        assert_eq!(human.agony_count(), 0);
+    }
+    #[test]
+    // Working-name 0x45c agony counter: the setter stores the exact staged
+    // word (a HitAgony 5..12 pick) without touching neighbours.
+    fn set_agony_count_working_name_stores_word() {
+        let mut human = HumanState::construct(seed());
+        human.set_agony_count(5);
+        assert_eq!(human.agony_count(), 5);
+        assert_eq!(human.agony_anim(), -1);
+    }
+    #[test]
+    // Working-name 0x41c jump-fall latch: starts clear and round-trips
+    // through the setter.
+    fn jump_fall_working_name_defaults_and_round_trips() {
+        let mut human = HumanState::construct(seed());
+        assert!(!human.jump_fall());
+        human.set_jump_fall(true);
+        assert!(human.jump_fall());
+        human.set_jump_fall(false);
+        assert!(!human.jump_fall());
+    }
+    #[test]
+    // Working-name 0x41c jump-fall latch: the setter stores the exact staged
+    // latch without touching neighbours.
+    fn set_jump_fall_working_name_stores_word() {
+        let mut human = HumanState::construct(seed());
+        human.set_jump_fall(true);
+        assert!(human.jump_fall());
+        assert_eq!(human.vehicle_action(), 0);
+    }
+    #[test]
+    // Working-name 0x410 vehicle-use selector: starts at 0 (GameInit clear)
+    // and round-trips through the setter.
+    fn vehicle_action_working_name_defaults_and_round_trips() {
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.vehicle_action(), 0);
+        human.set_vehicle_action(3);
+        assert_eq!(human.vehicle_action(), 3);
+        human.set_vehicle_action(0);
+        assert_eq!(human.vehicle_action(), 0);
+    }
+    #[test]
+    // Working-name 0x410 vehicle-use selector: the setter stores the exact
+    // staged word without touching neighbours.
+    fn set_vehicle_action_working_name_stores_word() {
+        let mut human = HumanState::construct(seed());
+        human.set_vehicle_action(1);
+        assert_eq!(human.vehicle_action(), 1);
+        assert!(!human.jump_fall());
+    }
+    #[test]
+    // Working-name 0x454 shot-death latch: starts clear (GameInit clear) and
+    // round-trips through the setter.
+    fn killed_by_shot_working_name_defaults_and_round_trips() {
+        let mut human = HumanState::construct(seed());
+        assert!(!human.killed_by_shot());
+        human.set_killed_by_shot(true);
+        assert!(human.killed_by_shot());
+        human.set_killed_by_shot(false);
+        assert!(!human.killed_by_shot());
+    }
+    #[test]
+    // Working-name 0x454 shot-death latch: the setter stores the exact staged
+    // latch without touching neighbours.
+    fn set_killed_by_shot_working_name_stores_word() {
+        let mut human = HumanState::construct(seed());
+        human.set_killed_by_shot(true);
+        assert!(human.killed_by_shot());
+        assert_eq!(human.wagon(), 0);
+    }
+    #[test]
+    // Working-name 0x584 rail-wagon selector: starts at 0 (the vehicle
+    // itself) and round-trips through the setter.
+    fn wagon_working_name_defaults_and_round_trips() {
+        let mut human = HumanState::construct(seed());
+        assert_eq!(human.wagon(), 0);
+        human.set_wagon(2);
+        assert_eq!(human.wagon(), 2);
+        human.set_wagon(0);
+        assert_eq!(human.wagon(), 0);
+    }
+    #[test]
+    // Working-name 0x584 rail-wagon selector: the setter stores the exact
+    // staged word without touching neighbours.
+    fn set_wagon_working_name_stores_word() {
+        let mut human = HumanState::construct(seed());
+        human.set_wagon(1);
+        assert_eq!(human.wagon(), 1);
+        assert!(!human.killed_by_shot());
     }
     #[test]
     // Predates the GameInit prefix (construct now also sets the car latches
