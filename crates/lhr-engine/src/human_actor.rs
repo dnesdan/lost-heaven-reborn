@@ -22,8 +22,10 @@
 //! the Do_Crouched latch slice, Turn_Turn, the Do_CornerBreath/View selects,
 //! Do_ShockUp/Stumble, the Do_DeadBodyDrop anim slice, Force_CanWorking and
 //! InventoryTruncate) is owned here as marker-only leaves over the velocity,
-//! turn_speed, dir, crouch/box/dead-body latches, aim/guard/change latches
-//! and carried-weapon ammo words staged in this file; the PersonAnim,
+//! turn_speed, dir, crouch/box/dead-body latches, aim/guard/change latches,
+//! note-fire/reload/displaced/effects, sniper/ground/drown/backswing/strike/
+//! tilt and limiter/bonus latches and carried-weapon ammo words staged in
+//! this file; the PersonAnim,
 //! ChangeWeaponModel and DelExtendedAnim invocations inside them are recorded
 //! as call markers, and collision, animation-machine, frame, tick, table and
 //! car/seat owner-lifecycle effects stay DEFERRED.
@@ -1508,6 +1510,94 @@ pub struct HumanState {
     /// Holster/Insert placement writers stay DEFERRED. Starts at 0 (no
     /// Thompson select).
     right_hand_fire_anim: u32,
+    /// Note-held fire latch (mafia-re 113b5b6 game/actors/C_human.h:739-741:
+    /// 0x1ed note_fire; the field name is ours per the upstream comment).
+    /// Working name, no RVA claimed: the word has no standalone FUNCTION
+    /// copy and is set/cleared inline at the animation-note call sites
+    /// (NOTE_UNKNOWN_1A/1B); Shooting reads it inline. The note and shot
+    /// owners stay DEFERRED. Starts clear.
+    note_fire: bool,
+    /// Reload-under-way latch (mafia-re 113b5b6 game/actors/C_human.h:748
+    /// -750: 0x1fc reloading; the name is ours). Working name, no RVA
+    /// claimed: the word has no standalone FUNCTION copy and is set/cleared
+    /// inline by the AI fire-step and fire-end paths. Those owners stay
+    /// DEFERRED. Starts clear.
+    reloading: bool,
+    /// Forced-reload latch (mafia-re 113b5b6 game/actors/C_human.h:751-753:
+    /// 0x1fd reload_forced; the name is ours). Working name, no RVA
+    /// claimed: the word has no standalone FUNCTION copy and is set inline
+    /// by Do_Reload and cleared inline at the fire end and by a shot. Those
+    /// owners stay DEFERRED. Starts clear.
+    reload_forced: bool,
+    /// Shell-by-shell load latch (mafia-re 113b5b6
+    /// game/actors/C_human.h:754-757: 0x1fe loading_shells; the name is
+    /// ours). Working name, no RVA claimed: the word has no standalone
+    /// FUNCTION copy and is set inline by Do_Reload/Shooting with the AI
+    /// re-aim loop reading it. Those owners stay DEFERRED. Starts clear.
+    loading_shells: bool,
+    /// Displaced-weapon latch (mafia-re 113b5b6 game/actors/C_human.h:800
+    /// -803: 0x580 weapon_displaced; the name is ours). Working name, no
+    /// RVA claimed: the word has no standalone FUNCTION copy and is set
+    /// inline by the reload notes with RepairWeaponPosition reading it. The
+    /// weapon-frame owners stay DEFERRED. Starts clear (weapon seated).
+    weapon_displaced: bool,
+    /// Reload-effects latch (mafia-re 113b5b6 game/actors/C_human.h:905-908:
+    /// 0x581 reload_effects; the name is ours). Working name, no RVA
+    /// claimed: the word has no standalone FUNCTION copy and is set inline
+    /// by Do_Reload/Shooting with the reload-effect notes reading it. The
+    /// effect owners stay DEFERRED. Starts clear.
+    reload_effects: bool,
+    /// Sniper-mode latch (mafia-re 113b5b6 game/actors/C_human.h:784-786:
+    /// 0x22d sniper_mode; the name is ours). Working name, no RVA claimed:
+    /// the word has no standalone FUNCTION copy and is written inline by
+    /// C_player::SetSniperMode with Shooting reading it. Those owners stay
+    /// DEFERRED. Starts clear. Distinct from the C_player set-alpha/
+    /// indicator stubs, which stage no human word.
+    sniper_mode: bool,
+    /// Ground-retest latch (mafia-re 113b5b6 game/actors/C_human.h:787-790:
+    /// 0x22e test_ground, PS2 0x3ce; the name is ours). Working name, no
+    /// RVA claimed: the word has no standalone FUNCTION copy and is
+    /// set/cleared inline by the MovementIntern ground probes with Update
+    /// and GameInit writing it. Those owners stay DEFERRED. Starts clear.
+    test_ground: bool,
+    /// Drowned latch (mafia-re 113b5b6 game/actors/C_human.h:791-793: 0x22f
+    /// drowned, PS2 0x3cf; the name is ours). Working name, no RVA claimed:
+    /// the word has no standalone FUNCTION copy and is set inline by the
+    /// MovementIntern water-death path with GameInit clearing it. Those
+    /// owners stay DEFERRED. Starts clear.
+    drowned: bool,
+    /// Bat-backswing latch (mafia-re 113b5b6 game/actors/C_human.h:773-775:
+    /// 0x224 backswing; the name is ours). Working name, no RVA claimed:
+    /// the word has no standalone FUNCTION copy and is set inline by
+    /// Do_Shoot past the 200 ms hold with the strike path reading it. Those
+    /// owners stay DEFERRED. Starts clear.
+    backswing: bool,
+    /// Strike-series index (mafia-re 113b5b6 game/actors/C_human.h:777-779:
+    /// 0x228 strike_index, 0 to 3 with -1 past the series; the name is
+    /// ours). Working name, no RVA claimed: the word has no standalone
+    /// FUNCTION copy and is written inline by the Do_Shoot strike series
+    /// with the AI damage-doubling read. Those owners stay DEFERRED. Starts
+    /// at 0 (working deterministic default; the native constructor leaves
+    /// the word untouched).
+    strike_index: i32,
+    /// Look tilt (mafia-re 113b5b6 game/actors/C_human.h:801-803: 0x238
+    /// tilt, PS2 0x3d8; the name is ours, after the camera's). Working name,
+    /// no RVA claimed: the word has no standalone FUNCTION copy and is moved
+    /// inline by the player walk/AI paths with the camera tilt read. Those
+    /// owners stay DEFERRED. Starts at 0.0.
+    tilt: f32,
+    /// Car speed-limiter latch (mafia-re 113b5b6
+    /// game/actors/C_human.h:1077-1078: 0xa78 speed_limiter; the name is
+    /// ours). Working name, no RVA claimed: the word has no standalone
+    /// FUNCTION copy and selects the 16/1000 limit inline at the seat path.
+    /// The car owner stays DEFERRED. Starts clear (no limit).
+    speed_limiter: bool,
+    /// Score-bonus latch (mafia-re 113b5b6 game/actors/C_human.h:1080-1081:
+    /// 0xa79 score_bonus; the name is a guess per the upstream comment).
+    /// Working name, no RVA claimed: the word has no standalone FUNCTION
+    /// copy and gates the +500 player-kill score inline at the Hit/HitInCar
+    /// death paths. Those owners stay DEFERRED. Starts clear.
+    score_bonus: bool,
 }
 impl HumanState {
     pub(crate) fn construct(seed: HumanSeed) -> Self {
@@ -1574,6 +1664,20 @@ impl HumanState {
             cutscene_link: None,
             weapon_kind: WEAPON_KIND_FISTS,
             right_hand_fire_anim: 0,
+            note_fire: false,
+            reloading: false,
+            reload_forced: false,
+            loading_shells: false,
+            weapon_displaced: false,
+            reload_effects: false,
+            sniper_mode: false,
+            test_ground: false,
+            drowned: false,
+            backswing: false,
+            strike_index: 0,
+            tilt: 0.0,
+            speed_limiter: false,
+            score_bonus: false,
         }
     }
     pub fn human_type_mask(&self) -> u32 {
@@ -1828,6 +1932,164 @@ impl HumanState {
     /// selects.
     pub fn right_hand_fire_anim(&self) -> u32 {
         self.right_hand_fire_anim
+    }
+    /// Working-name reader for the 0x1ed note-fire latch staged by
+    /// set_note_fire (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn note_fire(&self) -> bool {
+        self.note_fire
+    }
+    /// Working-name writer for the 0x1ed note-fire latch (NOTE_UNKNOWN_1A
+    /// sets it with the held shot, NOTE_UNKNOWN_1B clears both; Shooting
+    /// reads it; those owners stay DEFERRED).
+    pub fn set_note_fire(&mut self, held: bool) {
+        self.note_fire = held;
+    }
+    /// Working-name reader for the 0x1fc reload-under-way latch staged by
+    /// set_reloading (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn reloading(&self) -> bool {
+        self.reloading
+    }
+    /// Working-name writer for the 0x1fc reload-under-way latch (AI sets it
+    /// at the fire's FIRE_ACTION_RELOAD step and clears it at the fire end;
+    /// those owners stay DEFERRED).
+    pub fn set_reloading(&mut self, reloading: bool) {
+        self.reloading = reloading;
+    }
+    /// Working-name reader for the 0x1fd forced-reload latch staged by
+    /// set_reload_forced (no standalone FUNCTION copy, so no RVA is
+    /// claimed).
+    pub fn reload_forced(&self) -> bool {
+        self.reload_forced
+    }
+    /// Working-name writer for the 0x1fd forced-reload latch (Do_Reload asks
+    /// for it; cleared at the fire end and by a shot; those owners stay
+    /// DEFERRED).
+    pub fn set_reload_forced(&mut self, forced: bool) {
+        self.reload_forced = forced;
+    }
+    /// Working-name reader for the 0x1fe shell-by-shell latch staged by
+    /// set_loading_shells (no standalone FUNCTION copy, so no RVA is
+    /// claimed).
+    pub fn loading_shells(&self) -> bool {
+        self.loading_shells
+    }
+    /// Working-name writer for the 0x1fe shell-by-shell latch (Do_Reload and
+    /// Shooting set it; a shot or a started strike ends it; the AI re-aim
+    /// loop reads it; those owners stay DEFERRED).
+    pub fn set_loading_shells(&mut self, loading: bool) {
+        self.loading_shells = loading;
+    }
+    /// Working-name reader for the 0x580 displaced-weapon latch staged by
+    /// set_weapon_displaced (no standalone FUNCTION copy, so no RVA is
+    /// claimed).
+    pub fn weapon_displaced(&self) -> bool {
+        self.weapon_displaced
+    }
+    /// Working-name writer for the 0x580 displaced-weapon latch (reload
+    /// notes take the weapon out; RepairWeaponPosition puts it back; those
+    /// owners stay DEFERRED).
+    pub fn set_weapon_displaced(&mut self, displaced: bool) {
+        self.weapon_displaced = displaced;
+    }
+    /// Working-name reader for the 0x581 reload-effects latch staged by
+    /// set_reload_effects (no standalone FUNCTION copy, so no RVA is
+    /// claimed).
+    pub fn reload_effects(&self) -> bool {
+        self.reload_effects
+    }
+    /// Working-name writer for the 0x581 reload-effects latch (Do_Reload
+    /// sets it; the fire end and ResetWeaponEffects clear it; the weapon
+    /// notes read it; those owners stay DEFERRED).
+    pub fn set_reload_effects(&mut self, effects: bool) {
+        self.reload_effects = effects;
+    }
+    /// Working-name reader for the 0x22d sniper-mode latch staged by
+    /// set_sniper_mode (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn sniper_mode(&self) -> bool {
+        self.sniper_mode
+    }
+    /// Working-name writer for the 0x22d sniper-mode latch
+    /// (C_player::SetSniperMode writes it; Shooting reads it; those owners
+    /// stay DEFERRED). Distinct from the C_player set-alpha/indicator
+    /// stubs, which stage no human word.
+    pub fn set_sniper_mode(&mut self, on: bool) {
+        self.sniper_mode = on;
+    }
+    /// Working-name reader for the 0x22e ground-retest latch staged by
+    /// set_test_ground (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn test_ground(&self) -> bool {
+        self.test_ground
+    }
+    /// Working-name writer for the 0x22e ground-retest latch (MovementIntern
+    /// probes write it; Update/GameInit write it; those owners stay
+    /// DEFERRED).
+    pub fn set_test_ground(&mut self, test: bool) {
+        self.test_ground = test;
+    }
+    /// Working-name reader for the 0x22f drowned latch staged by
+    /// set_drowned (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn drowned(&self) -> bool {
+        self.drowned
+    }
+    /// Working-name writer for the 0x22f drowned latch (MovementIntern sets
+    /// it on the MAT_WATER_DEATH path; GameInit clears it; those owners
+    /// stay DEFERRED).
+    pub fn set_drowned(&mut self, drowned: bool) {
+        self.drowned = drowned;
+    }
+    /// Working-name reader for the 0x224 bat-backswing latch staged by
+    /// set_backswing (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn backswing(&self) -> bool {
+        self.backswing
+    }
+    /// Working-name writer for the 0x224 bat-backswing latch (Do_Shoot sets
+    /// it past the 200 ms hold; the strike path reads it; those owners stay
+    /// DEFERRED).
+    pub fn set_backswing(&mut self, backswing: bool) {
+        self.backswing = backswing;
+    }
+    /// Working-name reader for the 0x228 strike-series index staged by
+    /// set_strike_index (no standalone FUNCTION copy, so no RVA is
+    /// claimed).
+    pub fn strike_index(&self) -> i32 {
+        self.strike_index
+    }
+    /// Working-name writer for the 0x228 strike-series index (0 to 3, -1
+    /// past the series; the AI damage-doubling read stays DEFERRED).
+    pub fn set_strike_index(&mut self, index: i32) {
+        self.strike_index = index;
+    }
+    /// Working-name reader for the 0x238 look-tilt word staged by set_tilt
+    /// (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn tilt(&self) -> f32 {
+        self.tilt
+    }
+    /// Working-name writer for the 0x238 look-tilt word (player walk/AI
+    /// writers and the camera tilt read stay DEFERRED).
+    pub fn set_tilt(&mut self, tilt: f32) {
+        self.tilt = tilt;
+    }
+    /// Working-name reader for the 0xa78 speed-limiter latch staged by
+    /// set_speed_limiter (no standalone FUNCTION copy, so no RVA is
+    /// claimed).
+    pub fn speed_limiter(&self) -> bool {
+        self.speed_limiter
+    }
+    /// Working-name writer for the 0xa78 speed-limiter latch (the seat path
+    /// selects the 16/1000 car limit through it; the car owner stays
+    /// DEFERRED).
+    pub fn set_speed_limiter(&mut self, limit: bool) {
+        self.speed_limiter = limit;
+    }
+    /// Working-name reader for the 0xa79 score-bonus latch staged by
+    /// set_score_bonus (no standalone FUNCTION copy, so no RVA is claimed).
+    pub fn score_bonus(&self) -> bool {
+        self.score_bonus
+    }
+    /// Working-name writer for the 0xa79 score-bonus latch (the Hit/HitInCar
+    /// +500 player-kill score gate reads it; those owners stay DEFERRED).
+    pub fn set_score_bonus(&mut self, bonus: bool) {
+        self.score_bonus = bonus;
     }
     pub fn collection_is_empty(&self, slot: HumanResourceSlot) -> bool {
         match slot {
@@ -4770,6 +5032,103 @@ mod human_state_flags_tests {
     fn can_drop_free_null_guard_working_name_needs_car() {
         assert!(HumanState::can_drop_free_null_guard(true));
         assert!(!HumanState::can_drop_free_null_guard(false));
+    }
+    #[test]
+    // Working-name fire-latch staging (mafia-re 113b5b6
+    // game/actors/C_human.h:739-741 0x1ed note_fire, :748-750 0x1fc
+    // reloading, :751-753 0x1fd reload_forced, :754-757 0x1fe
+    // loading_shells, :800-803 0x580 weapon_displaced, :905-908 0x581
+    // reload_effects; inline words, no RVA claimed): all start clear and
+    // round-trip through their setters.
+    fn fire_latches_working_name_start_clear_and_round_trip() {
+        let mut human = HumanState::construct(seed());
+        assert!(!human.note_fire());
+        assert!(!human.reloading());
+        assert!(!human.reload_forced());
+        assert!(!human.loading_shells());
+        assert!(!human.weapon_displaced());
+        assert!(!human.reload_effects());
+        human.set_note_fire(true);
+        human.set_reloading(true);
+        human.set_reload_forced(true);
+        human.set_loading_shells(true);
+        human.set_weapon_displaced(true);
+        human.set_reload_effects(true);
+        assert!(human.note_fire());
+        assert!(human.reloading());
+        assert!(human.reload_forced());
+        assert!(human.loading_shells());
+        assert!(human.weapon_displaced());
+        assert!(human.reload_effects());
+        human.set_note_fire(false);
+        human.set_reloading(false);
+        human.set_reload_forced(false);
+        human.set_loading_shells(false);
+        human.set_weapon_displaced(false);
+        human.set_reload_effects(false);
+        assert!(!human.note_fire());
+        assert!(!human.reloading());
+        assert!(!human.reload_forced());
+        assert!(!human.loading_shells());
+        assert!(!human.weapon_displaced());
+        assert!(!human.reload_effects());
+    }
+    #[test]
+    // Working-name stance-latch staging (mafia-re 113b5b6
+    // game/actors/C_human.h:784-786 0x22d sniper_mode, :787-790 0x22e
+    // test_ground, :791-793 0x22f drowned, :773-775 0x224 backswing,
+    // :777-779 0x228 strike_index, :801-803 0x238 tilt; inline words, no
+    // RVA claimed): flags start clear, words at 0/0.0, and all round-trip.
+    fn stance_latches_working_name_start_clear_and_round_trip() {
+        let mut human = HumanState::construct(seed());
+        assert!(!human.sniper_mode());
+        assert!(!human.test_ground());
+        assert!(!human.drowned());
+        assert!(!human.backswing());
+        assert_eq!(human.strike_index(), 0);
+        assert_eq!(human.tilt(), 0.0);
+        human.set_sniper_mode(true);
+        human.set_test_ground(true);
+        human.set_drowned(true);
+        human.set_backswing(true);
+        human.set_strike_index(2);
+        human.set_tilt(-0.25);
+        assert!(human.sniper_mode());
+        assert!(human.test_ground());
+        assert!(human.drowned());
+        assert!(human.backswing());
+        assert_eq!(human.strike_index(), 2);
+        assert_eq!(human.tilt(), -0.25);
+        human.set_sniper_mode(false);
+        human.set_test_ground(false);
+        human.set_drowned(false);
+        human.set_backswing(false);
+        human.set_strike_index(-1);
+        human.set_tilt(0.5);
+        assert!(!human.sniper_mode());
+        assert!(!human.test_ground());
+        assert!(!human.drowned());
+        assert!(!human.backswing());
+        assert_eq!(human.strike_index(), -1);
+        assert_eq!(human.tilt(), 0.5);
+    }
+    #[test]
+    // Working-name limiter/bonus staging (mafia-re 113b5b6
+    // game/actors/C_human.h:1077-1078 0xa78 speed_limiter, :1080-1081 0xa79
+    // score_bonus; inline words, no RVA claimed): both start clear and
+    // round-trip through their setters.
+    fn limiter_bonus_working_name_start_clear_and_round_trip() {
+        let mut human = HumanState::construct(seed());
+        assert!(!human.speed_limiter());
+        assert!(!human.score_bonus());
+        human.set_speed_limiter(true);
+        human.set_score_bonus(true);
+        assert!(human.speed_limiter());
+        assert!(human.score_bonus());
+        human.set_speed_limiter(false);
+        human.set_score_bonus(false);
+        assert!(!human.speed_limiter());
+        assert!(!human.score_bonus());
     }
     #[test]
     // GAME 0x58cfb0 (RVA 0x18cfb0) C_human::IsThisCarStealing (mafia-re
