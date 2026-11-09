@@ -1377,6 +1377,29 @@ impl ModelArena {
     pub fn scene_mirror_count(&self, scene: SceneKey) -> Result<usize, ModelError> {
         Ok(self.scene(scene)?.mirrors.len())
     }
+    /// Working name for the owned-frame count of the scene `C_list` at
+    /// +0x22c (mafia-re `ls3df/I3D/I3D.h:1569`). No LS3DF FUNCTION address
+    /// exists for a count getter: only `AddFrame` (RVA 0x49290) and
+    /// `DeleteFrame` (RVA 0x49400) have code addresses, both already ported.
+    /// Unknown scenes are an explicit host error.
+    pub fn scene_owned_frame_count(&self, scene: SceneKey) -> Result<usize, ModelError> {
+        Ok(self.scene(scene)?.frames.len())
+    }
+    /// Working name for the owned-frame list capacity word kept next to the
+    /// +0x22c list (same `C_list` capacity discipline as the tick list at
+    /// +0x148, whose capacity/growth readers already exist). The reference
+    /// records no LS3DF FUNCTION address for a standalone reader. Reports
+    /// the live capacity; unknown scenes are an explicit host error.
+    pub fn scene_owned_capacity_of(&self, scene: SceneKey) -> Result<usize, ModelError> {
+        Ok(self.scene(scene)?.native_capacity)
+    }
+    /// Working name for the owned-frame list growth step kept next to the
+    /// +0x22c list (same discipline as `tick_growth`). The reference records
+    /// no LS3DF FUNCTION address for a standalone reader. Reports the live
+    /// step; unknown scenes are an explicit host error.
+    pub fn scene_owned_growth_of(&self, scene: SceneKey) -> Result<usize, ModelError> {
+        Ok(self.scene(scene)?.growth)
+    }
     /// Working name for the `num_occluders` ring count at scene +0x26c
     /// (mafia-re `ls3df/I3D/I3D.h:1578-1579`). No LS3DF FUNCTION address
     /// exists for a count getter: the ring is maintained by occluder
@@ -1884,6 +1907,28 @@ mod tests {
         assert_eq!(arena.scene_near_sector(scene), Ok(sectors[3]));
         assert_eq!(arena.scene_occluders_changed(scene), Ok(false));
         assert_eq!(arena.scene_areas_changed(scene), Ok(false));
+    }
+    #[test]
+    fn scene_owned_list_words_read_ctor_state_and_add_prefix() {
+        // Working names for the +0x22c owned-frame C_list words
+        // (mafia-re ls3df/I3D/I3D.h:1569): no LS3DF FUNCTION addresses
+        // exist for standalone readers; only AddFrame/DeleteFrame do.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_owned_frame_count(scene), Ok(0));
+        assert_eq!(arena.scene_owned_capacity_of(scene), Ok(0));
+        assert_eq!(arena.scene_owned_growth_of(scene), Ok(32));
+        let frame = arena
+            .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        arena.scene_add_frame(scene, frame).unwrap();
+        assert_eq!(arena.scene_owned_frame_count(scene), Ok(1));
+        assert_eq!(arena.scene_owned_capacity_of(scene), Ok(32));
+        assert_eq!(arena.scene_owned_growth_of(scene), Ok(32));
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_owned_frame_count(bad).is_err());
+        assert!(arena.scene_owned_capacity_of(bad).is_err());
+        assert!(arena.scene_owned_growth_of(bad).is_err());
     }
     #[test]
     fn scene_empty_vfunc_66_and_sector_head_read_ctor_state() {

@@ -1,7 +1,8 @@
 //! Original loaded I3D_sector CPU ownership, LS3DF e211c850...178a6.
 //! RVAs4ed30/505c0/4f260/4ee80; preparation/math methods follow separately.
+use crate::frame_occluder::OccluderKey;
 use crate::frame_portal::{PortalError, PortalKey};
-use crate::frame_transform::{FrameKind, I3dFrameState};
+use crate::frame_transform::{FrameKey, FrameKind, I3dFrameState};
 use crate::model_loading::{ModelArena, ModelError};
 use crate::scene_ownership::{SceneKey, SectorFrame, SectorKey};
 #[path = "frame_sector_math.rs"]
@@ -221,6 +222,76 @@ impl ModelArena {
     /// `AddLight`/fog-select paths. Reports the live word; no state moves.
     pub fn sector_num_fog_lights(&self, key: SectorKey) -> Result<u32, ModelError> {
         Ok(self.sector(key)?.num_fog_lights)
+    }
+    /// Working name for the sector-to-scene link at +0x214 (mafia-re
+    /// ls3df/I3D/I3D.h:978). The reference records no LS3DF FUNCTION address
+    /// for a standalone reader: only `AddToRemoveFromSceneRing` and the
+    /// constructor store it. Reports the owning scene, if any.
+    pub fn sector_scene_of(&self, key: SectorKey) -> Result<Option<SceneKey>, ModelError> {
+        Ok(self.sector(key)?.scene)
+    }
+    /// Working name for the selected fog light at +0x1f0 (mafia-re
+    /// ls3df/I3D/I3D.h:975: the fog light of the lights that is on). The
+    /// reference records no LS3DF FUNCTION address for a standalone reader:
+    /// only `AddLight`/light `UpdateV`/fog selection store it. Reports the
+    /// live light frame, if one is selected; no state moves.
+    pub fn sector_fog_light_of(&self, key: SectorKey) -> Result<Option<FrameKey>, ModelError> {
+        Ok(self.sector(key)?.fog_light)
+    }
+    /// Working name for the MakeReady-made hull occluder at +0x22c
+    /// (mafia-re ls3df/I3D/I3D.h:985). The reference records no LS3DF
+    /// FUNCTION address for a standalone reader: only `MakeReady` stores it
+    /// (with SCTF_OCCLUDER) and the destructor path clears it. Reports the
+    /// live hull occluder, if one was made; no state moves.
+    pub fn sector_hull_occluder_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<OccluderKey>, ModelError> {
+        Ok(self.sector(key)?.hull_occluder)
+    }
+    /// Working name for the head of the sector occluder list at +0x228
+    /// (mafia-re ls3df/I3D/I3D.h:983: the occluders in it, linked through
+    /// their next_in_sector). The reference records no LS3DF FUNCTION
+    /// address for a standalone reader: only `OCCL_UpdateOcclLists` links
+    /// it. Reports the live list head, if any; no state moves.
+    pub fn sector_occluder_list_head(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<OccluderKey>, ModelError> {
+        Ok(self.sector(key)?.occluder_list)
+    }
+    /// Working name for the last visual to render at +0x230 (mafia-re
+    /// ls3df/I3D/I3D.h:986: the last of its visuals to render, the sector
+    /// itself while there are none). The reference records no LS3DF FUNCTION
+    /// address for a standalone reader: the rendering maintains it. Reports
+    /// the live frame, if any; no state moves.
+    pub fn sector_next_visual_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<FrameKey>, ModelError> {
+        Ok(self.sector(key)?.next_visual)
+    }
+    /// Working name for the hierarchy bound-volume box field (mafia-re
+    /// ls3df/I3D/I3D.h:986-adjacent `SetBoundVolume` coverage notes only
+    /// primary/backdrop sectors receive bounds). The reference records no
+    /// LS3DF FUNCTION address for a standalone reader. Reports the stored
+    /// box; None is the untouched invalid constructor bounds, not a valid
+    /// empty box. No state moves.
+    pub fn sector_bounds_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<[[f32; 3]; 2]>, ModelError> {
+        Ok(self.sector(key)?.bounds)
+    }
+    /// Working name for the bound-sphere field kept next to the box (center
+    /// plus radius). The reference records no LS3DF FUNCTION address for a
+    /// standalone reader. Reports the stored sphere; None matches the
+    /// untouched bounds. No state moves.
+    pub fn sector_bounding_sphere_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<[f32; 4]>, ModelError> {
+        Ok(self.sector(key)?.bounding_sphere)
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1289,6 +1360,52 @@ mod tests {
         assert!(!sector_is_visible(SCTF_PREPARED));
         assert!(!sector_is_visible(u32::MAX & !SCTF_VISIBLE));
     }
+    #[test]
+    fn sector_link_and_visual_state_readers_report_ctor_and_stores() {
+        // Working names for the +0x214 scene link, +0x1f0 fog light, +0x22c
+        // hull occluder, +0x228 occluder list head, +0x230 last visual, and
+        // the bounds/sphere fields (mafia-re ls3df/I3D/I3D.h:975-986): no
+        // LS3DF FUNCTION addresses exist for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        assert_eq!(arena.sector_scene_of(key), Ok(None));
+        assert_eq!(arena.sector_fog_light_of(key), Ok(None));
+        assert_eq!(arena.sector_hull_occluder_of(key), Ok(None));
+        assert_eq!(arena.sector_occluder_list_head(key), Ok(None));
+        assert_eq!(arena.sector_next_visual_of(key), Ok(None));
+        assert_eq!(arena.sector_bounds_of(key), Ok(None));
+        assert_eq!(arena.sector_bounding_sphere_of(key), Ok(None));
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let light = arena.create_light().unwrap();
+        let occluder = arena.create_occluder().unwrap();
+        let si = arena.sector_index(key).unwrap();
+        arena.sectors[si].scene = Some(scene);
+        arena.sectors[si].fog_light = Some(light);
+        arena.sectors[si].hull_occluder = Some(occluder);
+        arena.sectors[si].occluder_list = Some(occluder);
+        arena.sectors[si].next_visual = Some(key.frame());
+        arena.sectors[si].bounds = Some([[-1.; 3], [1.; 3]]);
+        arena.sectors[si].bounding_sphere = Some([0., 0., 0., 2.]);
+        assert_eq!(arena.sector_scene_of(key), Ok(Some(scene)));
+        assert_eq!(arena.sector_fog_light_of(key), Ok(Some(light)));
+        assert_eq!(arena.sector_hull_occluder_of(key), Ok(Some(occluder)));
+        assert_eq!(arena.sector_occluder_list_head(key), Ok(Some(occluder)));
+        assert_eq!(arena.sector_next_visual_of(key), Ok(Some(key.frame())));
+        assert_eq!(arena.sector_bounds_of(key), Ok(Some([[-1.; 3], [1.; 3]])));
+        assert_eq!(
+            arena.sector_bounding_sphere_of(key),
+            Ok(Some([0., 0., 0., 2.]))
+        );
+        let unknown = SectorKey(FrameKey(u32::MAX));
+        assert!(arena.sector_scene_of(unknown).is_err());
+        assert!(arena.sector_fog_light_of(unknown).is_err());
+        assert!(arena.sector_hull_occluder_of(unknown).is_err());
+        assert!(arena.sector_occluder_list_head(unknown).is_err());
+        assert!(arena.sector_next_visual_of(unknown).is_err());
+        assert!(arena.sector_bounds_of(unknown).is_err());
+        assert!(arena.sector_bounding_sphere_of(unknown).is_err());
+    }
+
     #[test]
     fn sector_word_and_list_counts_read_ctor_state() {
         // Working names for the sct_flags word (+0x1d0), the light/sound

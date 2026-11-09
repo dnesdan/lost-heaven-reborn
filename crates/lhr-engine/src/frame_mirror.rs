@@ -61,6 +61,18 @@ pub fn vis_wbound_valid(visual_flags: u32) -> bool {
 pub fn vis_inv_mat_valid(visual_flags: u32) -> bool {
     visual_flags & VISF_INV_MAT_VALID != 0
 }
+/// VISF_WORLD_SPACE 0x40 (mafia-re ls3df/I3D/I3D.h:2690 at pin 113b5b6):
+/// the vertices are in world space (SetSpace); a move invalidates nothing.
+pub const VISF_WORLD_SPACE: u32 = 0x0000_0040;
+/// Working name for the VISF_WORLD_SPACE bit test (mafia-re ls3df/I3D/I3D.h:2690).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `I3D_visual::GetInvMatrix` (I3D.h:2780-2790),
+/// `I3D_visual::GetRenderMatrix` (I3D.h:2796-2801) and the world-bound update
+/// branch on it instead of the world matrix. Reports whether the visual
+/// renders from world-space vertices; no cache moves.
+pub fn visual_is_world_space(visual_flags: u32) -> bool {
+    visual_flags & VISF_WORLD_SPACE != 0
+}
 pub const MIRROR_UPDATE_CLEAR_MASK: u32 = 0x001c_0000;
 pub const MIRROR_DIRTY_TEST: u32 = 0x4000_2000;
 /// Evidenced ctor stores: 'MIRR' at +0x1d4, 100.0f at +0x2d8, residue at +0x1f0.
@@ -1149,6 +1161,22 @@ mod tests {
             base_images: Vec::new(),
             reads: Vec::new(),
         }
+    }
+
+    #[test]
+    fn world_space_reader_reports_only_bit_six() {
+        // Working name for VISF_WORLD_SPACE (I3D.h:2690): no LS3DF FUNCTION
+        // address for a standalone reader; the visual inverse/render matrix
+        // inlines branch on it.
+        assert_eq!(VISF_WORLD_SPACE, 0x40);
+        assert!(visual_is_world_space(VISF_WORLD_SPACE));
+        assert!(visual_is_world_space(
+            VISF_WORLD_SPACE | VISF_BOUND_VALID
+        ));
+        assert!(visual_is_world_space(u32::MAX));
+        assert!(!visual_is_world_space(0));
+        assert!(!visual_is_world_space(VISF_BOUND_VALID));
+        assert!(!visual_is_world_space(u32::MAX & !VISF_WORLD_SPACE));
     }
 
     #[test]
