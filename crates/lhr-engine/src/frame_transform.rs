@@ -635,6 +635,127 @@ pub fn link_discards_bounds(flags: u32) -> bool {
 pub fn link_updates_at_once(flags: u32) -> bool {
     flags & I3DLINK_UPDATE != 0
 }
+/// Working name for the `UPDATE|CHANGED` gate of `UpdateChildren`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:887 at pin 113b5b6).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the word is only tested inside the occupied `UpdateChildren` body
+/// (PC RVA 0x1c9a0, already ported, not claimed here).
+/// Reports whether the frame still needs an update traversal; no cache moves.
+pub fn frame_needs_update(flags: u32) -> bool {
+    flags & (0x4000_0000 | 0x2000) != 0
+}
+/// Working name for the `ON && (UPDATE|CHANGED)` gate of
+/// `I3D_target::UpdateV` (mafia-re ls3df/I3D/frames/I3d_target.cpp:115-119
+/// at pin 113b5b6). The reference records no LS3DF FUNCTION address for the
+/// gate itself; the queuing body (`UpdateTargetList.push_back`, PC RVA
+/// 0x59920) is already ported in `target_state`, not claimed here.
+/// Reports whether an on-frame with pending motion is queued for the
+/// post-update target pass; no cache moves.
+pub fn frame_queues_target_update(flags: u32) -> bool {
+    flags & 0x1 != 0 && frame_needs_update(flags)
+}
+/// Working name for the flag word written by `I3D_frame::SetCallback`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:225-234 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1b3c0, which is already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Only the callback-mask bits (0x1e00) of the input matter: a present
+/// callback sets them, an absent one clears them. The callback pointer
+/// store stays caller-owned; only the flag word is modeled.
+pub fn frame_flags_after_set_callback(flags: u32, has_callback: bool, input: u32) -> u32 {
+    let masked = input & 0x1e00;
+    if has_callback {
+        flags | masked
+    } else {
+        flags & !masked
+    }
+}
+/// Working name for the `TICK|SHADOW|TARGET` preservation of
+/// `I3D_frame::Duplicate` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:807-809
+/// at pin 113b5b6). The reference records the body at PC RVA 0x1c5b0,
+/// already occupied, so no RVA is claimed here. Returns the old word's
+/// registration bits that survive the duplicate-mask copy; the mask
+/// application and the unconditional `UPDATE` set stay with the caller.
+pub fn frame_duplicate_preserved_bits(old_flags: u32) -> u32 {
+    old_flags & (0x40_0000 | 0x8000 | 0x4000)
+}
+/// Working name for the hierarchy-bits extraction of `I3D_frame::LinkTo`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:503 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1b9d0, already occupied,
+/// so no RVA is claimed here. Keeps only `HR_SECTORS|HR_OCCLUDERS|HR_AREAS`;
+/// the upward propagation walk stays caller-owned.
+pub fn frame_hr_hierarchy_bits(flags: u32) -> u32 {
+    flags & (0x8_0000 | 0x10_0000 | 0x4_0000)
+}
+/// Working name for the flag word written by `AddChild` and `RemoveChild`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:561 and :604 at pin 113b5b6).
+/// Both bodies live at already-occupied PC RVAs (0x1bea0/0x1bf20, ported as
+/// graph methods), so no RVA is claimed here. Both clear the local and
+/// world hierarchy bound-volume validity; list edits stay caller-owned.
+pub fn frame_flags_after_child_list_change(flags: u32) -> u32 {
+    flags & !(0x100 | 0x40)
+}
+/// Working name for the flag word written by `I3D_frame::LinkTo` without
+/// `I3DLINK_UPDMATRIX` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:496-497
+/// at pin 113b5b6). The reference records the body at PC RVA 0x1b9d0,
+/// already occupied, so no RVA is claimed here. Clears `WMAT_VALID` and
+/// sets `UPDATE`; the hierarchy relink stays caller-owned.
+pub fn frame_flags_after_link_no_keep(flags: u32) -> u32 {
+    (flags & !0x20) | 0x4000_0000
+}
+/// Working name for the flag word written by `I3D_frame::SetBoundVolume`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:993-1003 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1ce80, already occupied,
+/// so no RVA is claimed here. Clears `HR_BOUND_W_VALID` and sets
+/// `HR_BOUND_VALID`; the box/sphere stores stay caller-owned.
+pub fn frame_flags_after_set_bound_volume(flags: u32) -> u32 {
+    (flags & !0x100) | 0x40
+}
+/// Working name for the flag word written by `I3D_frame::Update`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:907-915 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1ca60, already occupied,
+/// so no RVA is claimed here. Clears `UPDATE|CHANGED`; the visual-cache
+/// and target-list effects stay caller-owned.
+pub fn frame_flags_after_update(flags: u32) -> u32 {
+    flags & !(0x4000_0000 | 0x2000)
+}
+/// Working name for the child flag word written by `UpdateChildren`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:893-896 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1c9a0, already occupied,
+/// so no RVA is claimed here. A changed parent clears the child's world
+/// and world-bound validity and marks it changed; list walks stay
+/// caller-owned.
+pub fn frame_child_flags_after_parent_change(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20)) | 0x2000
+}
+/// Working name for the flag word written by `SetWorldDir` and the
+/// matrix half of `SetWorldPosDir` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:183-184 and :217-218 at pin 113b5b6).
+/// The `SetWorldPosDir` body lives at already-occupied PC RVA 0x1b230 and
+/// `SetWorldDir` (PC RVA 0x1b040) already has a graph projection, so no RVA
+/// is claimed here. Clears `HR_BOUND_W_VALID|WMAT_VALID|QUAT_VALID|`
+/// `ROT_VALID` and sets `UPDATE|MAT_VALID`; matrix builds stay caller-owned.
+pub fn frame_flags_after_set_world_dir(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20 | 0x08 | 0x04)) | (0x4000_0000 | 0x10)
+}
+/// Working name for the `VISF_WORLD_SPACE` bit test (mafia-re
+/// ls3df/I3D/I3D.h visual `vis_flags` 0x40; tested in
+/// ls3df/I3D/visuals/I3d_visual.cpp:32 and :40 at pin 113b5b6).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit only gates `UpdateV`/`SetSpace` (PC RVAs 0x5a390/0x5a3c0,
+/// already ported or occupied, not claimed here). Reports whether the
+/// visual lives in world space; no cache moves.
+pub fn frame_visual_in_world_space(visual_flags: u32) -> bool {
+    visual_flags & 0x40 != 0
+}
+/// Working name for the parent flag word written by `UpdateChildren`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:898-901 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1c9a0, already occupied,
+/// so no RVA is claimed here. When a child moved, the parent drops both
+/// hierarchy bound-volume validity bits and gains `CHANGED`; the descent
+/// itself stays caller-owned.
+pub fn frame_flags_after_update_children_parent(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x40)) | 0x2000
+}
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
         let id = u32::try_from(self.nodes.len())
@@ -5597,5 +5718,124 @@ mod tests {
             assert!(!frame_callback_enables(0x1e00, bit));
             assert!(!frame_callback_enables(u32::MAX, bit));
         }
+    }
+    #[test]
+    fn frame_update_gates_report_either_pending_bit() {
+        // Working names for the UPDATE|CHANGED gates (I3d_frame.cpp:887,
+        // I3d_target.cpp:117): no standalone LS3DF FUNCTION entries.
+        assert!(!frame_needs_update(0));
+        assert!(frame_needs_update(0x4000_0000));
+        assert!(frame_needs_update(0x2000));
+        assert!(frame_needs_update(0x4000_2000));
+        assert!(frame_needs_update(u32::MAX));
+        assert!(!frame_needs_update(u32::MAX & !(0x4000_0000 | 0x2000)));
+        // Target queuing additionally requires ON.
+        assert!(!frame_queues_target_update(0x4000_0000));
+        assert!(!frame_queues_target_update(0x2000));
+        assert!(frame_queues_target_update(0x1 | 0x4000_0000));
+        assert!(frame_queues_target_update(0x1 | 0x2000));
+        assert!(frame_queues_target_update(u32::MAX));
+        assert!(!frame_queues_target_update(u32::MAX & !0x1));
+    }
+    #[test]
+    fn frame_set_callback_masks_and_branches_on_presence() {
+        // Working name for SetCallback (I3d_frame.cpp:225-234): PC RVA
+        // 0x1b3c0 already occupied, not claimed here.
+        assert_eq!(frame_flags_after_set_callback(0, true, 0x1e00), 0x1e00);
+        assert_eq!(frame_flags_after_set_callback(0xffff, true, 0x200), 0xffff);
+        assert_eq!(frame_flags_after_set_callback(0xffff, false, 0x200), 0xffff & !0x200);
+        assert_eq!(frame_flags_after_set_callback(0x1e00, false, 0x1e00), 0);
+        // Bits outside 0x1e00 never pass the mask.
+        assert_eq!(frame_flags_after_set_callback(0, true, 0x8), 0);
+        assert_eq!(frame_flags_after_set_callback(0xffff, false, 0x8), 0xffff);
+        assert_eq!(frame_flags_after_set_callback(0, true, u32::MAX), 0x1e00);
+    }
+    #[test]
+    fn frame_duplicate_and_hierarchy_bits_match_native_words() {
+        // Working names for Duplicate (I3d_frame.cpp:807-809, RVA 0x1c5b0)
+        // and LinkTo hr_flags (I3d_frame.cpp:503, RVA 0x1b9d0): both
+        // occupied, neither claimed here.
+        assert_eq!(frame_duplicate_preserved_bits(0), 0);
+        assert_eq!(
+            frame_duplicate_preserved_bits(0x40_0000 | 0x8000 | 0x4000),
+            0x40_0000 | 0x8000 | 0x4000
+        );
+        assert_eq!(frame_duplicate_preserved_bits(u32::MAX), 0x40_0000 | 0x8000 | 0x4000);
+        assert_eq!(frame_hr_hierarchy_bits(0), 0);
+        assert_eq!(
+            frame_hr_hierarchy_bits(0x8_0000 | 0x10_0000 | 0x4_0000),
+            0x8_0000 | 0x10_0000 | 0x4_0000
+        );
+        assert_eq!(
+            frame_hr_hierarchy_bits(u32::MAX),
+            0x8_0000 | 0x10_0000 | 0x4_0000
+        );
+        assert_eq!(frame_hr_hierarchy_bits(0x1e00), 0);
+    }
+    #[test]
+    fn frame_child_list_and_link_words_clear_only_their_bits() {
+        // Working names for AddChild/RemoveChild (RVAs 0x1bea0/0x1bf20) and
+        // LinkTo no-keep path (RVA 0x1b9d0): all occupied, none claimed.
+        assert_eq!(frame_flags_after_child_list_change(0x100 | 0x40), 0);
+        assert_eq!(frame_flags_after_child_list_change(u32::MAX), u32::MAX & !(0x100 | 0x40));
+        assert_eq!(frame_flags_after_child_list_change(0x4000_0000), 0x4000_0000);
+        assert_eq!(frame_flags_after_link_no_keep(0x20), 0x4000_0000);
+        assert_eq!(
+            frame_flags_after_link_no_keep(0),
+            0x4000_0000
+        );
+        assert_eq!(
+            frame_flags_after_link_no_keep(u32::MAX),
+            (u32::MAX & !0x20) | 0x4000_0000
+        );
+    }
+    #[test]
+    fn frame_bound_update_and_propagation_words_match_native_stores() {
+        // Working names for SetBoundVolume (RVA 0x1ce80), Update (RVA
+        // 0x1ca60) and UpdateChildren (RVA 0x1c9a0): all occupied.
+        assert_eq!(frame_flags_after_set_bound_volume(0x100), 0x40);
+        assert_eq!(frame_flags_after_set_bound_volume(0), 0x40);
+        assert_eq!(
+            frame_flags_after_set_bound_volume(u32::MAX),
+            (u32::MAX & !0x100) | 0x40
+        );
+        assert_eq!(frame_flags_after_update(0x4000_0000 | 0x2000), 0);
+        assert_eq!(frame_flags_after_update(u32::MAX), u32::MAX & !(0x4000_0000 | 0x2000));
+        assert_eq!(
+            frame_child_flags_after_parent_change(0x100 | 0x20),
+            0x2000
+        );
+        assert_eq!(
+            frame_child_flags_after_parent_change(0),
+            0x2000
+        );
+        assert_eq!(
+            frame_flags_after_update_children_parent(0x100 | 0x40),
+            0x2000
+        );
+        assert_eq!(
+            frame_flags_after_update_children_parent(0),
+            0x2000
+        );
+    }
+    #[test]
+    fn frame_world_dir_and_world_space_words_match_native_stores() {
+        // Working names for SetWorldDir/SetWorldPosDir
+        // (I3d_frame.cpp:183-184/:217-218; RVAs 0x1b040/0x1b230 occupied or
+        // projected) and VISF_WORLD_SPACE (I3d_visual.cpp:32/:40; RVAs
+        // 0x5a390/0x5a3c0 occupied or ported): none claimed here.
+        assert_eq!(
+            frame_flags_after_set_world_dir(0x100 | 0x20 | 0x08 | 0x04),
+            0x4000_0000 | 0x10
+        );
+        assert_eq!(frame_flags_after_set_world_dir(0), 0x4000_0000 | 0x10);
+        assert_eq!(
+            frame_flags_after_set_world_dir(u32::MAX),
+            (u32::MAX & !(0x100 | 0x20 | 0x08 | 0x04)) | (0x4000_0000 | 0x10)
+        );
+        assert!(frame_visual_in_world_space(0x40));
+        assert!(frame_visual_in_world_space(u32::MAX));
+        assert!(!frame_visual_in_world_space(0));
+        assert!(!frame_visual_in_world_space(0xffffffbf));
     }
 }
