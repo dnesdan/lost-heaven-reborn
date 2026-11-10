@@ -479,8 +479,11 @@ class RewriteProgressTests(unittest.TestCase):
         # marker-only, tests green).
         # +2 vehicle leftovers (GetRotations/GetUSindex; 11 working-name
         # uncredited; marker-only, tests green).
-        self.assertEqual(game["ported"], 149 + 1009)
-        self.assertEqual(game["verified"], 149 + 515)
+        # +1 RecomputeLightCache differential (0x1b5d40 countdown-plus-cull
+        # scope; complete 99-insn REA walk + pinning tests; -1 stores in
+        # UseLightCache arm + session driver).
+        self.assertEqual(game["ported"], 149 + 1010)
+        self.assertEqual(game["verified"], 149 + 516)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

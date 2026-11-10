@@ -17554,6 +17554,15 @@
       "symbol": "lhr_engine::vehicle_engine_state::car_get_usindex_unsupported",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b5d40",
+      "va": "0x5b5d40",
+      "name": "C_game::RecomputeLightCache (LightCacheTick countdown-plus-cull scope)",
+      "symbol": "lhr_engine::mission_effects::tick_light_cache",
+      "tier": "differential",
+      "evidence": "REA complete 99-insn walk (entry ev_7f2ccb33, empty-JZ ev_bde21853, 0x7e7-store ev_a4d79286, FCOMPP ev_adc6eb9c, NaN-JP ev_741bad25, RET ev_b5098bdd/ev_d62c12a2) + mafia-re game/mission/game.cpp:1670-1692,5949-5954; pinning tests (empty/countdown/strict-boundary/reverse-order/NaN); -1 stores in UseLightCache arm + session driver; live MISE01 tick eval on/off counted"
     }
   ],
   "vm": {

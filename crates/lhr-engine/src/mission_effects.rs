@@ -739,14 +739,13 @@ pub struct LightTickOutcome {
 /// Original `C_game::LightCacheTick` countdown plus culling pass (mafia-re
 /// game/mission/game.cpp:1670-1692 at pin fe7e746; the function itself is
 /// inline, the evidenced out-of-line caller is `RecomputeLightCache`
-/// GAME 0x5b5d40): empty caches return before touching time; a positive
-/// countdown subtracts the tick and defers; otherwise time resets to 2023
-/// and every collected light, latest first, turns on exactly when
+/// GAME 0x5b5d40, filed differential as its countdown-plus-cull scope).
+/// Empty caches return before touching time; a positive countdown subtracts
+/// the tick and defers; otherwise time resets to 2023 and every collected
+/// light, latest first, turns on exactly when
 /// `(far_range + cam_range + 15.0)^2` exceeds its squared camera distance
 /// (strict `>`: NaN distances read as miss and switch off, matching the
-/// native false-compare flow; f32 host arithmetic, no epsilon). Differential
-/// filing stays deferred: the inline body has no standalone RVA and full
-/// REA ev IDs plus a Ghidra walk are still open for 0x5b5d40.
+/// native false-compare flow; f32 host arithmetic, no epsilon).
 pub fn tick_light_cache<B: LightTickBackend>(
     time: &mut i32,
     lights: &[LightFrameId],
