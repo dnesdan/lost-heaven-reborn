@@ -446,6 +446,25 @@ pub fn actor_savegame_size(frame_name: Option<&str>) -> u32 {
         _ => 8,
     }
 }
+/// Working-name guard of C_actor::SetActState (mafia-re 113b5b6
+/// game/actors/C_actor.cpp:1357-1364): the inlined early-return arms
+/// (`act_state == ACTSTATE_NONE || act_state == state`). No standalone FUNCTION
+/// copy exists for the guard alone and the parent entry is retained in the
+/// overlay as ActorWorld::set_actor_act_state, so no new RVA is claimed here.
+/// True when the store plus the game-side change notification would run; the
+/// game owner stays DEFERRED and only the verdict is staged.
+pub fn set_act_state_applies(current: u32, new_state: u32) -> bool {
+    current != ACTSTATE_NONE && current != new_state
+}
+/// Working-name select of C_actor::GetWorldPos (mafia-re 113b5b6
+/// game/actors/C_actor.cpp:1682-1688): the staged frame world position where
+/// present, else the staged 0x24 position. No new RVA is claimed here: the
+/// address is retained in the overlay under a different owner, so this leaf
+/// only stages the pure selection. The frame/matrix owner stays DEFERRED; the
+/// caller stages `frame_pos`.
+pub fn world_pos_select(frame_pos: Option<[f32; 3]>, pos: [f32; 3]) -> [f32; 3] {
+    frame_pos.unwrap_or(pos)
+}
 /// GAME 0x547130 (RVA 0x147130) C_actor::SetFrameActor EXPLICIT
 /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_actor.h:507-519): give
 /// the frame the actor-pointer slot, freeing the previous user data (and a
@@ -4130,6 +4149,53 @@ impl ActorWorld {
         let i = self.index(actor)?;
         self.actors[i].state.set_dead(dead);
         Ok(())
+    }
+    /// Working-name world projection of C_actor::GetSubtype (mafia-re 113b5b6
+    /// game/actors/C_actor.h:393-397): read the 0x14 subtype word through the
+    /// staged actor. No new RVA is claimed here: the base entry is retained in
+    /// the overlay as BaseActorState::subtype, so this wrapper only stages the
+    /// lookup. Stale actors propagate.
+    pub fn actor_subtype(&self, actor: ActorReferenceId) -> Result<u32, ActorWorldError> {
+        Ok(self.actors[self.index(actor)?].state.subtype())
+    }
+    /// Working-name world projection of C_actor::GetType (mafia-re 113b5b6
+    /// game/actors/C_actor.h:296-299): read the 0x10 type word through the
+    /// staged actor. No RVA is claimed: the read is inlined with no standalone
+    /// FUNCTION copy (VC6 left callers out of line and folded copies with
+    /// C_mission::GetScene), so this wrapper only stages the lookup. Stale
+    /// actors propagate.
+    pub fn actor_type_word(&self, actor: ActorReferenceId) -> Result<u32, ActorWorldError> {
+        Ok(self.actors[self.index(actor)?].state.actor_type())
+    }
+    /// Working-name world projection of C_actor::GetActState (mafia-re 113b5b6
+    /// game/actors/C_actor.h:283-286): read the 0x1c act-state word through
+    /// the staged actor. No RVA is claimed: the read is inlined with no
+    /// standalone FUNCTION copy (C_game::ChangeActState reads it at call
+    /// sites), so this wrapper only stages the lookup. Stale actors propagate.
+    pub fn actor_act_state_word(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<u32, ActorWorldError> {
+        Ok(self.actors[self.index(actor)?].state.act_state())
+    }
+    /// Working-name world projection of C_actor::GetActFlags (mafia-re 113b5b6
+    /// game/actors/C_actor.h:447-450): read the 0x04 act-flags word through
+    /// the staged actor. No new RVA is claimed here: the folded copy needs no
+    /// new owner and the base leaf already stages the word, so this wrapper
+    /// only stages the lookup. Stale actors propagate.
+    pub fn actor_act_flags_word(
+        &self,
+        actor: ActorReferenceId,
+    ) -> Result<u32, ActorWorldError> {
+        Ok(self.actors[self.index(actor)?].state.act_flags())
+    }
+    /// Working-name world projection of C_actor::GetAlive (mafia-re 113b5b6
+    /// game/actors/C_actor.h:427-430): read the 0x5d alive latch through the
+    /// staged actor. No new RVA is claimed here: the base entry is retained in
+    /// the overlay as BaseActorState::alive, so this wrapper only stages the
+    /// lookup. Stale actors propagate.
+    pub fn actor_alive(&self, actor: ActorReferenceId) -> Result<bool, ActorWorldError> {
+        Ok(self.actors[self.index(actor)?].state.alive())
     }
     /// Original C_human::GetCar read (mafia-re game/actors/C_human.h:1120 GAME
     /// 0x47b7b0) for HUMAN_GETOWNER. Returns None for a resolved non-human
@@ -9986,6 +10052,79 @@ mod human_owner_tests {
         assert_eq!(w.actor_dead(actor), Ok(true));
         w.set_actor_dead(actor, false).unwrap();
         assert_eq!(w.actor_dead(actor), Ok(false));
+    }
+    #[test]
+    fn set_act_state_applies_guards_none_and_identity() {
+        // Working-name guard of C_actor::SetActState (mafia-re 113b5b6
+        // game/actors/C_actor.cpp:1357-1364, inlined early-return, no RVA).
+        // ACTSTATE_INACTIVE is 1 per game/actors/C_actor.h:62.
+        assert!(!set_act_state_applies(ACTSTATE_NONE, ACTSTATE_ACTIVE));
+        assert!(!set_act_state_applies(ACTSTATE_ACTIVE, ACTSTATE_ACTIVE));
+        assert!(set_act_state_applies(ACTSTATE_ACTIVE, 1));
+        assert!(set_act_state_applies(1, ACTSTATE_ACTIVE));
+        assert!(!set_act_state_applies(ACTSTATE_NONE, ACTSTATE_NONE));
+    }
+    #[test]
+    fn world_pos_select_prefers_staged_frame() {
+        // Working-name select of C_actor::GetWorldPos (mafia-re 113b5b6
+        // game/actors/C_actor.cpp:1682-1688, inlined frame gate, no new RVA).
+        assert_eq!(
+            world_pos_select(Some([1.0, 2.0, 3.0]), [4.0, 5.0, 6.0]),
+            [1.0, 2.0, 3.0]
+        );
+        assert_eq!(world_pos_select(None, [4.0, 5.0, 6.0]), [4.0, 5.0, 6.0]);
+    }
+    #[test]
+    fn actor_subtype_projects_typed_word() {
+        // Working-name world projection of C_actor::GetSubtype (mafia-re
+        // 113b5b6 game/actors/C_actor.h:393-397, rides base entry, no new RVA).
+        let mut w = world();
+        let mut heap = Heap::default();
+        let actor = w.create_actor(27, &mut heap).unwrap().unwrap();
+        let expected = w.state(actor).unwrap().subtype();
+        assert_eq!(w.actor_subtype(actor), Ok(expected));
+    }
+    #[test]
+    fn actor_type_word_projects_typed_word() {
+        // Working-name world projection of C_actor::GetType (mafia-re 113b5b6
+        // game/actors/C_actor.h:296-299, inline folded copy, no RVA).
+        let mut w = world();
+        let mut heap = Heap::default();
+        let actor = w.create_actor(27, &mut heap).unwrap().unwrap();
+        let expected = w.state(actor).unwrap().actor_type();
+        assert_eq!(w.actor_type_word(actor), Ok(expected));
+    }
+    #[test]
+    fn actor_act_state_word_round_trips_via_setter() {
+        // Working-name world projection of C_actor::GetActState (mafia-re
+        // 113b5b6 game/actors/C_actor.h:283-286, inline read, no RVA).
+        let mut w = world();
+        let mut heap = Heap::default();
+        let actor = w.create_actor(27, &mut heap).unwrap().unwrap();
+        w.set_actor_act_state(actor, 1).unwrap();
+        assert_eq!(w.actor_act_state_word(actor), Ok(1));
+        w.set_actor_act_state(actor, ACTSTATE_ACTIVE).unwrap();
+        assert_eq!(w.actor_act_state_word(actor), Ok(ACTSTATE_ACTIVE));
+    }
+    #[test]
+    fn actor_act_flags_word_projects_staged_word() {
+        // Working-name world projection of C_actor::GetActFlags (mafia-re
+        // 113b5b6 game/actors/C_actor.h:447-450, folded copy, no new RVA).
+        let mut w = world();
+        let mut heap = Heap::default();
+        let actor = w.create_actor(27, &mut heap).unwrap().unwrap();
+        let expected = w.state(actor).unwrap().act_flags();
+        assert_eq!(w.actor_act_flags_word(actor), Ok(expected));
+    }
+    #[test]
+    fn actor_alive_projects_liveness_word() {
+        // Working-name world projection of C_actor::GetAlive (mafia-re 113b5b6
+        // game/actors/C_actor.h:427-430, rides base entry, no new RVA).
+        let mut w = world();
+        let mut heap = Heap::default();
+        let actor = w.create_actor(27, &mut heap).unwrap().unwrap();
+        let expected = w.state(actor).unwrap().alive();
+        assert_eq!(w.actor_alive(actor), Ok(expected));
     }
     #[test]
     fn record_key_is_always_minus_one() {

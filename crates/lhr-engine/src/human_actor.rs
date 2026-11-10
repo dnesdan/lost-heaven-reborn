@@ -3080,6 +3080,69 @@ impl HumanState {
     pub fn can_drop_free_null_guard(car_present: bool) -> bool {
         car_present
     }
+    /// Working-name side offset of C_human::Can_DropOutFromCar_Free (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:6291-6293: `S_vector off(2.5f, 0, 0)`
+    /// with `if (!b1) off.x *= -1.0`; no standalone FUNCTION, the vector is
+    /// inlined, so no RVA claimed). The car matrix/frame owners stay DEFERRED;
+    /// the caller rotates the staged offset.
+    pub fn drop_free_side_offset(seat_flag: bool) -> [f32; 3] {
+        [2.5 * Self::drop_side_sign(seat_flag), 0.0, 0.0]
+    }
+    /// Working-name side offset of C_human::Can_DropOutFromCar (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:6336-6338: `S_vector off(1.2f, 0, 0)`
+    /// with `if (!b1) off.x *= -1.0`; no standalone FUNCTION, the vector is
+    /// inlined, so no RVA claimed). The frame/collision owners stay DEFERRED;
+    /// the caller stages the frame-relative probe from this offset.
+    pub fn drop_side_offset(seat_flag: bool) -> [f32; 3] {
+        [1.2 * Self::drop_side_sign(seat_flag), 0.0, 0.0]
+    }
+    /// Working-name side offset of C_human::Can_EnterToCar (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6380-6382: `S_vector off(1.3f, 0, 0)` with
+    /// `if (!b1) off.x *= -1.0`; no standalone FUNCTION, the vector is
+    /// inlined, so no RVA claimed). The car matrix/frame owners stay DEFERRED;
+    /// the caller rotates the staged offset.
+    pub fn enter_side_offset(seat_flag: bool) -> [f32; 3] {
+        [1.3 * Self::drop_side_sign(seat_flag), 0.0, 0.0]
+    }
+    /// Working-name GetSeatProperty gate shared by Can_DropOutFromCar_Free,
+    /// Can_DropOutFromCar and Can_EnterToCar (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6289, :6334, :6378:
+    /// `if (!c->GetSeatProperty(...)) return false`; no standalone FUNCTION,
+    /// the gate is inlined and the car seat-property owner stays DEFERRED, so
+    /// no RVA claimed). True when the staged seat lookup succeeds.
+    pub fn can_seat_property_admits(has_property: bool) -> bool {
+        has_property
+    }
+    /// Working-name room-probe conjunction of Can_DropOutFromCar_Free and
+    /// Can_DropOutFromCar (mafia-re 113b5b6 game/actors/C_human.cpp:6308-6316,
+    /// :6355-6363: two `TestSphereB` sweeps must both miss; no standalone
+    /// FUNCTION, the conjunction is inlined and both probes stay with the
+    /// collision owner, so no RVA claimed). True when neither staged sweep
+    /// reports a block.
+    pub fn can_drop_room_clears(first_blocked: bool, second_blocked: bool) -> bool {
+        !first_blocked && !second_blocked
+    }
+    /// Working-name room-probe conjunction of C_human::Can_EnterToCar
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:6400-6408: `TestLineH` then
+    /// `TestSphereB` must both miss; no standalone FUNCTION, the conjunction
+    /// is inlined and both probes stay with the collision owner, so no RVA
+    /// claimed). True when neither staged probe reports a block.
+    pub fn enter_room_clears(line_blocked: bool, sphere_blocked: bool) -> bool {
+        !line_blocked && !sphere_blocked
+    }
+    /// Working-name test-line vector of C_human::Can_EnterToCar (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:6412-6414: `hit = frame->GetWorldPos()
+    /// + S_vector(0, 1, 0) - pos`; no standalone FUNCTION, the arithmetic is
+    /// inlined and the frame/hierarchy owners stay DEFERRED, so no RVA
+    /// claimed). The caller stages the frame world position and the exit
+    /// position (`pos + off` after the ground adjust).
+    pub fn enter_test_line_vector(frame_world: [f32; 3], exit_pos: [f32; 3]) -> [f32; 3] {
+        [
+            frame_world[0] - exit_pos[0],
+            frame_world[1] + 1.0 - exit_pos[1],
+            frame_world[2] - exit_pos[2],
+        ]
+    }
     /// GAME 0x58cfb0 (RVA 0x18cfb0) C_human::IsThisCarStealing claimant scan
     /// (mafia-re 113b5b6 game/actors/C_human.cpp:9592-9610): whether any
     /// PLAYER/ENTITY claimant holds the car as stealing_car, car or
@@ -5870,6 +5933,72 @@ mod human_state_flags_tests {
     fn can_drop_free_null_guard_working_name_needs_car() {
         assert!(HumanState::can_drop_free_null_guard(true));
         assert!(!HumanState::can_drop_free_null_guard(false));
+    }
+    #[test]
+    // Working-name side offset of C_human::Can_DropOutFromCar_Free (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6291-6293; inlined 2.5 m vector, no RVA
+    // claimed): the flag side keeps +2.5 on x, otherwise -2.5.
+    fn drop_free_side_offset_working_name_scales_flag_side() {
+        assert_eq!(HumanState::drop_free_side_offset(true), [2.5, 0.0, 0.0]);
+        assert_eq!(HumanState::drop_free_side_offset(false), [-2.5, 0.0, 0.0]);
+    }
+    #[test]
+    // Working-name side offset of C_human::Can_DropOutFromCar (mafia-re 113b5b6
+    // game/actors/C_human.cpp:6336-6338; inlined 1.2 m vector, no RVA
+    // claimed): the flag side keeps +1.2 on x, otherwise -1.2.
+    fn drop_side_offset_working_name_scales_flag_side() {
+        assert_eq!(HumanState::drop_side_offset(true), [1.2, 0.0, 0.0]);
+        assert_eq!(HumanState::drop_side_offset(false), [-1.2, 0.0, 0.0]);
+    }
+    #[test]
+    // Working-name side offset of C_human::Can_EnterToCar (mafia-re 113b5b6
+    // game/actors/C_human.cpp:6380-6382; inlined 1.3 m vector, no RVA
+    // claimed): the flag side keeps +1.3 on x, otherwise -1.3.
+    fn enter_side_offset_working_name_scales_flag_side() {
+        assert_eq!(HumanState::enter_side_offset(true), [1.3, 0.0, 0.0]);
+        assert_eq!(HumanState::enter_side_offset(false), [-1.3, 0.0, 0.0]);
+    }
+    #[test]
+    // Working-name GetSeatProperty gate shared by the drop/enter guards
+    // (mafia-re 113b5b6 game/actors/C_human.cpp:6289, :6334, :6378; inlined,
+    // no RVA claimed): admission needs a staged seat lookup hit.
+    fn can_seat_property_admits_working_name_needs_lookup_hit() {
+        assert!(HumanState::can_seat_property_admits(true));
+        assert!(!HumanState::can_seat_property_admits(false));
+    }
+    #[test]
+    // Working-name room-probe conjunction of the drop guards (mafia-re 113b5b6
+    // game/actors/C_human.cpp:6308-6316, :6355-6363; two inlined TestSphereB
+    // sweeps, no RVA claimed): both staged sweeps must miss.
+    fn can_drop_room_clears_working_name_needs_both_misses() {
+        assert!(HumanState::can_drop_room_clears(false, false));
+        assert!(!HumanState::can_drop_room_clears(true, false));
+        assert!(!HumanState::can_drop_room_clears(false, true));
+        assert!(!HumanState::can_drop_room_clears(true, true));
+    }
+    #[test]
+    // Working-name room-probe conjunction of C_human::Can_EnterToCar (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6400-6408; inlined TestLineH plus
+    // TestSphereB, no RVA claimed): both staged probes must miss.
+    fn enter_room_clears_working_name_needs_both_misses() {
+        assert!(HumanState::enter_room_clears(false, false));
+        assert!(!HumanState::enter_room_clears(true, false));
+        assert!(!HumanState::enter_room_clears(false, true));
+        assert!(!HumanState::enter_room_clears(true, true));
+    }
+    #[test]
+    // Working-name test-line vector of C_human::Can_EnterToCar (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6412-6414; inlined arithmetic, no RVA
+    // claimed): a metre above the frame world position minus the exit.
+    fn enter_test_line_vector_working_name_lifts_frame_over_exit() {
+        assert_eq!(
+            HumanState::enter_test_line_vector([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]),
+            [-3.0, -2.0, -3.0]
+        );
+        assert_eq!(
+            HumanState::enter_test_line_vector([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            [0.0, 1.0, 0.0]
+        );
     }
     #[test]
     // Working-name fire-latch staging (mafia-re 113b5b6
