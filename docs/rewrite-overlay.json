@@ -16267,6 +16267,249 @@
       "symbol": "lhr_engine::mission_actor_lists::total_records_size",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. Records size over blocks (GAME 0x5c26a0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b05d0",
+      "va": "0x5b05d0",
+      "name": "C_game::DelFramePlacement",
+      "symbol": "lhr_engine::game_housekeeping::del_frame_placement",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b0660",
+      "va": "0x5b0660",
+      "name": "C_game::Timer_TimeOut",
+      "symbol": "lhr_engine::game_housekeeping::timer_timeout",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b0680",
+      "va": "0x5b0680",
+      "name": "C_game::PFire_Fire",
+      "symbol": "lhr_engine::game_housekeeping::pfire_fire",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b06a0",
+      "va": "0x5b06a0",
+      "name": "C_game::PHorn_Horn",
+      "symbol": "lhr_engine::game_housekeeping::phorn_horn",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b06c0",
+      "va": "0x5b06c0",
+      "name": "C_game::WFall_Player",
+      "symbol": "lhr_engine::game_housekeeping::wfall_player",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b06e0",
+      "va": "0x5b06e0",
+      "name": "C_game::AddNPCKillEvent",
+      "symbol": "lhr_engine::game_housekeeping::add_npc_kill_event",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b0750",
+      "va": "0x5b0750",
+      "name": "C_game::Do_NPCKillEvent",
+      "symbol": "lhr_engine::game_housekeeping::do_npc_kill_event",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b1b60",
+      "va": "0x5b1b60",
+      "name": "C_game::GetTangents",
+      "symbol": "lhr_engine::game_housekeeping::get_tangents",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b1d50",
+      "va": "0x5b1d50",
+      "name": "C_game::NextTrackProjector",
+      "symbol": "lhr_engine::game_housekeeping::advance_track_projector",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b1d70",
+      "va": "0x5b1d70",
+      "name": "C_game::ClearProjectorsForFrame",
+      "symbol": "lhr_engine::game_housekeeping::clear_projectors_for_frame",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1afdb0",
+      "va": "0x5afdb0",
+      "name": "C_game::InvalidateColl",
+      "symbol": "lhr_engine::game_housekeeping::invalidate_coll",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ae430",
+      "va": "0x5ae430",
+      "name": "C_game::ClearFrameFromFireHole",
+      "symbol": "lhr_engine::game_housekeeping::clear_frame_from_fire_hole",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a07e0",
+      "va": "0x5a07e0",
+      "name": "C_game::SetHuman",
+      "symbol": "lhr_engine::game_housekeeping::set_human",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b0a80",
+      "va": "0x5b0a80",
+      "name": "C_game::DelDriverMan",
+      "symbol": "lhr_engine::game_housekeeping::del_driver_man",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0f01a0",
+      "va": "0x4f01a0",
+      "name": "C_controls::GetValues",
+      "symbol": "lhr_engine::game_controls::GameControls::get_values",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0f0240",
+      "va": "0x4f0240",
+      "name": "C_controls::GetValue",
+      "symbol": "lhr_engine::game_controls::GameControls::get_value",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0f05b0",
+      "va": "0x4f05b0",
+      "name": "C_controls::GetControl",
+      "symbol": "lhr_engine::game_controls::GameControls::copy_control",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x0f1180",
+      "va": "0x4f1180",
+      "name": "C_controls::SaveJoyStates",
+      "symbol": "lhr_engine::game_controls::GameControls::save_joy_states",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18f2e0",
+      "va": "0x58f2e0",
+      "name": "C_player::SaveGameGetSize",
+      "symbol": "lhr_engine::player_actor::PlayerState::savegame_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x194180",
+      "va": "0x594180",
+      "name": "C_player::GameDone",
+      "symbol": "lhr_engine::player_actor::PlayerState::take_horn_sound_for_shutdown",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1941c0",
+      "va": "0x5941c0",
+      "name": "C_player::Collision",
+      "symbol": "lhr_engine::player_actor::PlayerState::collision_blocked_by_lock",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x194210",
+      "va": "0x594210",
+      "name": "C_player::Hit",
+      "symbol": "lhr_engine::player_actor::PlayerState::player_hit_lives",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1942c0",
+      "va": "0x5942c0",
+      "name": "C_player::UpdateControls",
+      "symbol": "lhr_engine::player_actor::PlayerState::should_apply_steering_linearity",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x195390",
+      "va": "0x595390",
+      "name": "C_player::ShootDeAimed",
+      "symbol": "lhr_engine::player_actor::PlayerState::apply_shoot_recoil",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746. Shared body companions (shoot_recoil_next/shoot_accuracy/recoil/aim_time noted; one entry per RVA)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x195c60",
+      "va": "0x595c60",
+      "name": "C_player::InvalidateCarDamage",
+      "symbol": "lhr_engine::player_actor::PlayerState::invalidate_car_damage",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x195e70",
+      "va": "0x595e70",
+      "name": "C_player::ShowWeaponName",
+      "symbol": "lhr_engine::player_actor::PlayerState::poll_weapon_name",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x196090",
+      "va": "0x596090",
+      "name": "C_player::SetBoxer",
+      "symbol": "lhr_engine::player_actor::PlayerState::set_boxer_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
     }
   ],
   "vm": {

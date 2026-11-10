@@ -440,7 +440,14 @@ class RewriteProgressTests(unittest.TestCase):
         # +9 program register differential (Get/SetFloat/Frame/ActorReg,
         # InvalidateActorReg/IsEventID/SetAIPriority complete walks; pin
         # tests owned_runtime 165 pass).
-        self.assertEqual(game["ported"], 149 + 866)
+        # +14 game/housekeeping contracts (DelFramePlacement/Timer/PFire/
+        # PHorn/WFall/NPCKill x2/GetTangents/NextTrackProjector/
+        # ClearProjectors/InvalidateColl/ClearFireHole/SetHuman/DelDriverMan).
+        # +13 player/controls contracts (SaveGameGetSize/GameDone/Collision/
+        # Hit/UpdateControls/ShootDeAimed/InvalidateCarDamage/ShowWeaponName/
+        # SetBoxer + GetValues/GetValue/GetControl/SaveJoyStates;
+        # ShootDeAimed companions noted, one entry per RVA).
+        self.assertEqual(game["ported"], 149 + 893)
         self.assertEqual(game["verified"], 149 + 508)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

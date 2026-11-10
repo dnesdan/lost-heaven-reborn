@@ -2947,6 +2947,444 @@ pub fn don_ocas_collision(_actor: ActorId) -> Result<bool, UnwrittenGameEntry> {
     })
 }
 
+/// FUNCTION: GAME RVA 0x1b05d0, VA 0x5b05d0 (`game/mission/game.cpp:4507-4519`,
+/// `C_game::DelFramePlacement` at pin fe7e746): removes the single last-listed
+/// placement of `frame` (swap-remove with `break`, scanning from the back).
+/// Returns whether an entry was removed.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and the
+/// marker is `// FUNCTION: GAME 0x5b05d0` (code, not a data offset and not
+/// another binary). RVA `0x1b05d0` = `0x5b05d0 - 0x400000`; VA
+/// `0x400000 + 0x1b05d0` = `0x5b05d0`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn del_frame_placement(list: &mut Vec<FramePlacement>, frame: FrameId) -> bool {
+    for index in (0..list.len()).rev() {
+        if list[index].frame == frame {
+            list.swap_remove(index);
+            return true;
+        }
+    }
+    false
+}
+
+/// Native `C_program::SetEvent` sink for the timeout/player script events
+/// below (`Timer_TimeOut`, `PFire_Fire`, `PHorn_Horn`, `WFall_Player`).
+pub trait ScriptEventBackend {
+    fn set_event(&mut self, program: u32, event: i32);
+}
+
+impl GameInlineState {
+    /// FUNCTION: GAME RVA 0x1b0660, VA 0x5b0660 (`game/mission/game.cpp:4522-4527`,
+    /// `C_game::Timer_TimeOut` at pin fe7e746): fires the staged timeout event
+    /// where a program is staged (`0` is the native NULL). Returns whether an
+    /// event was fired.
+    ///
+    /// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+    /// the marker is `// FUNCTION: GAME 0x5b0660` (code, not a data offset and
+    /// not another binary). RVA `0x1b0660` = `0x5b0660 - 0x400000`; VA
+    /// `0x400000 + 0x1b0660` = `0x5b0660`. The RVA appears in neither
+    /// `docs/rewrite-overlay.json` nor `docs/progress.json`. No
+    /// original-runtime validation is claimed.
+    pub fn timer_timeout(&self, backend: &mut impl ScriptEventBackend) -> bool {
+        if self.timeout_program != 0 {
+            backend.set_event(self.timeout_program, self.timeout_event);
+            return true;
+        }
+        false
+    }
+
+    /// FUNCTION: GAME RVA 0x1b0680, VA 0x5b0680 (`game/mission/game.cpp:4529-4534`,
+    /// `C_game::PFire_Fire` at pin fe7e746): fires the staged player-fire event
+    /// where a program is staged. Returns whether an event was fired.
+    ///
+    /// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+    /// the marker is `// FUNCTION: GAME 0x5b0680` (code, not a data offset and
+    /// not another binary). RVA `0x1b0680` = `0x5b0680 - 0x400000`; VA
+    /// `0x400000 + 0x1b0680` = `0x5b0680`. The RVA appears in neither
+    /// `docs/rewrite-overlay.json` nor `docs/progress.json`. No
+    /// original-runtime validation is claimed.
+    pub fn pfire_fire(&self, backend: &mut impl ScriptEventBackend) -> bool {
+        if self.player_fire_program != 0 {
+            backend.set_event(self.player_fire_program, self.player_fire_event);
+            return true;
+        }
+        false
+    }
+
+    /// FUNCTION: GAME RVA 0x1b06a0, VA 0x5b06a0 (`game/mission/game.cpp:4536-4541`,
+    /// `C_game::PHorn_Horn` at pin fe7e746): fires the staged player-horn event
+    /// where a program is staged. Returns whether an event was fired.
+    ///
+    /// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+    /// the marker is `// FUNCTION: GAME 0x5b06a0` (code, not a data offset and
+    /// not another binary). RVA `0x1b06a0` = `0x5b06a0 - 0x400000`; VA
+    /// `0x400000 + 0x1b06a0` = `0x5b06a0`. The RVA appears in neither
+    /// `docs/rewrite-overlay.json` nor `docs/progress.json`. No
+    /// original-runtime validation is claimed.
+    pub fn phorn_horn(&self, backend: &mut impl ScriptEventBackend) -> bool {
+        if self.player_horn_program != 0 {
+            backend.set_event(self.player_horn_program, self.player_horn_event);
+            return true;
+        }
+        false
+    }
+
+    /// FUNCTION: GAME RVA 0x1b06c0, VA 0x5b06c0 (`game/mission/game.cpp:4543-4548`,
+    /// `C_game::WFall_Player` at pin fe7e746): fires the staged player-fall event
+    /// where a program is staged. Returns whether an event was fired.
+    ///
+    /// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and
+    /// the marker is `// FUNCTION: GAME 0x5b06c0` (code, not a data offset and
+    /// not another binary). RVA `0x1b06c0` = `0x5b06c0 - 0x400000`; VA
+    /// `0x400000 + 0x1b06c0` = `0x5b06c0`. The RVA appears in neither
+    /// `docs/rewrite-overlay.json` nor `docs/progress.json`. No
+    /// original-runtime validation is claimed.
+    pub fn wfall_player(&self, backend: &mut impl ScriptEventBackend) -> bool {
+        if self.player_wfall_program != 0 {
+            backend.set_event(self.player_wfall_program, self.player_wfall_event);
+            return true;
+        }
+        false
+    }
+}
+
+/// Marker for one NPC-kill event (`game.h:255-260`, `S_npc_kill_event` at pin
+/// fe7e746). Only the script handle, event and zero-padded 32-byte name
+/// participate here; program lifetime stays with the mission owner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NpcKillEvent {
+    pub program: u32,
+    pub event: i32,
+    pub name: [u8; 32],
+}
+
+/// Builds the zero-padded 32-byte name for [`NpcKillEvent`], mirroring the
+/// native `memset(0)` + `strcpy`. Names of 31 bytes or more are truncated to
+/// 31 bytes plus the terminator (host accommodation; the reference callers
+/// pass short frame names).
+pub fn npc_kill_name_bytes(name: &str) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    let bytes = name.as_bytes();
+    let len = bytes.len().min(31);
+    out[..len].copy_from_slice(&bytes[..len]);
+    out
+}
+
+/// FUNCTION: GAME RVA 0x1b06e0, VA 0x5b06e0 (`game/mission/game.cpp:4550-4560`,
+/// `C_game::AddNPCKillEvent` at pin fe7e746): appends the script, event and
+/// name. The native `memset` + `strcpy` pair is the zero-padded name above.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and the
+/// marker is `// FUNCTION: GAME 0x5b06e0` (code, not a data offset and not
+/// another binary). RVA `0x1b06e0` = `0x5b06e0 - 0x400000`; VA
+/// `0x400000 + 0x1b06e0` = `0x5b06e0`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn add_npc_kill_event(
+    events: &mut Vec<NpcKillEvent>,
+    program: u32,
+    event: i32,
+    name: &str,
+) {
+    events.push(NpcKillEvent {
+        program,
+        event,
+        name: npc_kill_name_bytes(name),
+    });
+}
+
+fn npc_stored_name_len(stored: &[u8; 32]) -> usize {
+    stored.iter().position(|&b| b == 0).unwrap_or(32)
+}
+
+fn npc_name_matches(stored: &[u8; 32], wanted: &str) -> bool {
+    let len = npc_stored_name_len(stored);
+    let stored_slice = &stored[..len];
+    let wanted_bytes = wanted.as_bytes();
+    if stored_slice.len() != wanted_bytes.len() {
+        return false;
+    }
+    stored_slice
+        .iter()
+        .zip(wanted_bytes.iter())
+        .all(|(&a, &b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
+}
+
+/// FUNCTION: GAME RVA 0x1b0750, VA 0x5b0750 (`game/mission/game.cpp:4562-4576`,
+/// `C_game::Do_NPCKillEvent` at pin fe7e746): fires every staged event whose
+/// name matches the basename after the last `\` (ASCII-case-insensitive,
+/// scanned from the back). Returns the number of fired events.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and the
+/// marker is `// FUNCTION: GAME 0x5b0750` (code, not a data offset and not
+/// another binary). RVA `0x1b0750` = `0x5b0750 - 0x400000`; VA
+/// `0x400000 + 0x1b0750` = `0x5b0750`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn do_npc_kill_event(
+    events: &[NpcKillEvent],
+    label: &str,
+    backend: &mut impl ScriptEventBackend,
+) -> usize {
+    let base = label.rsplit('\\').next().unwrap_or(label);
+    let mut fired = 0;
+    for entry in events.iter().rev() {
+        if npc_name_matches(&entry.name, base) {
+            backend.set_event(entry.program, entry.event);
+            fired += 1;
+        }
+    }
+    fired
+}
+
+/// Small vector helpers for [`get_tangents`].
+fn cross_vec(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+/// FUNCTION: GAME RVA 0x1b1b60, VA 0x5b1b60 (`game/mission/game.cpp:4787-4802`,
+/// `C_game::GetTangents` at pin fe7e746): the two axes perpendicular to
+/// `normal` and to each other (`u` horizontal, `v` completing them; world x/z
+/// for a vertical normal).
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and the
+/// marker is `// FUNCTION: GAME 0x5b1b60` (code, not a data offset and not
+/// another binary). RVA `0x1b1b60` = `0x5b1b60 - 0x400000`; VA
+/// `0x400000 + 0x1b1b60` = `0x5b1b60`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn get_tangents(normal: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+    const MRG_ZERO: f32 = 1e-8;
+    if normal[0].abs() < MRG_ZERO && normal[2].abs() < MRG_ZERO {
+        return ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+    }
+    let up = [0.0, 1.0, 0.0];
+    let mut u = cross_vec(normal, up);
+    let v = cross_vec(u, normal);
+    u = cross_vec(normal, v);
+    (u, v)
+}
+
+/// Number of track-projector slots (`game.h:511`, `track_projectors[100]` at
+/// pin fe7e746).
+pub const TRACK_PROJECTOR_COUNT: i32 = 100;
+
+/// FUNCTION: GAME RVA 0x1b1d50, VA 0x5b1d50 (`game/mission/game.cpp:4819-4824`,
+/// `C_game::NextTrackProjector` at pin fe7e746): advances the projector index,
+/// wrapping at 100.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and the
+/// marker is `// FUNCTION: GAME 0x5b1d50` (code, not a data offset and not
+/// another binary). RVA `0x1b1d50` = `0x5b1d50 - 0x400000`; VA
+/// `0x400000 + 0x1b1d50` = `0x5b1d50`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn advance_track_projector(next: &mut i32) {
+    *next += 1;
+    if *next >= TRACK_PROJECTOR_COUNT {
+        *next = 0;
+    }
+}
+
+/// Minimal projector slot for [`clear_projectors_for_frame`]: the projector
+/// frame (`None` is the native NULL) and the frame the track is on.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TrackProjectorSlot {
+    pub frame: Option<FrameId>,
+    pub hit_frame: Option<FrameId>,
+}
+
+/// Native projector-frame sink for [`clear_projectors_for_frame`].
+pub trait ProjectorFrameBackend {
+    fn set_frame_off(&mut self, frame: FrameId);
+}
+
+/// FUNCTION: GAME RVA 0x1b1d70, VA 0x5b1d70 (`game/mission/game.cpp:4826-4834`,
+/// `C_game::ClearProjectorsForFrame` at pin fe7e746): switches off every
+/// projector frame whose track is on `frame`, scanning from the back. Slots
+/// without a projector frame are skipped (host accommodation; the native
+/// dereference assumes one is present).
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and the
+/// marker is `// FUNCTION: GAME 0x5b1d70` (code, not a data offset and not
+/// another binary). RVA `0x1b1d70` = `0x5b1d70 - 0x400000`; VA
+/// `0x400000 + 0x1b1d70` = `0x5b1d70`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn clear_projectors_for_frame(
+    slots: &[TrackProjectorSlot],
+    frame: Option<FrameId>,
+    backend: &mut impl ProjectorFrameBackend,
+) {
+    for slot in slots.iter().rev() {
+        if slot.hit_frame == frame {
+            if let Some(projector) = slot.frame {
+                backend.set_frame_off(projector);
+            }
+        }
+    }
+}
+
+/// Actor entry for [`invalidate_coll`]: only the entity filter and the last
+/// move collision participate here; human behavior stays with the actor owner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MoveCollActor {
+    pub actor: ActorId,
+    pub is_entity: bool,
+    pub move_coll: Option<u32>,
+}
+
+/// FUNCTION: GAME RVA 0x1afdb0, VA 0x5afdb0 (`game/mission/game.cpp:4326-4342`,
+/// `C_game::InvalidateColl` at pin fe7e746): every entity of the active list,
+/// then of the inactive list, whose last move ran into `coll` forgets it.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and the
+/// marker is `// FUNCTION: GAME 0x5afdb0` (code, not a data offset and not
+/// another binary). RVA `0x1afdb0` = `0x5afdb0 - 0x400000`; VA
+/// `0x400000 + 0x1afdb0` = `0x5afdb0`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn invalidate_coll(
+    active: &mut [MoveCollActor],
+    inactive: &mut [MoveCollActor],
+    coll: u32,
+) {
+    for list in [active, inactive] {
+        for entry in list.iter_mut().rev() {
+            if entry.is_entity && entry.move_coll == Some(coll) {
+                entry.move_coll = None;
+            }
+        }
+    }
+}
+
+/// FUNCTION: GAME RVA 0x1ae430, VA 0x5ae430 (`game/mission/game.cpp:3918-3934`,
+/// `C_game::ClearFrameFromFireHole` at pin fe7e746): pure selection half.
+/// Returns the holes whose parent chain contains `target`, in slot order. The
+/// `LinkTo(NULL, 0)` unlink stays with the scene owner, which consumes the
+/// returned list.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and the
+/// marker is `// FUNCTION: GAME 0x5ae430` (code, not a data offset and not
+/// another binary). RVA `0x1ae430` = `0x5ae430 - 0x400000`; VA
+/// `0x400000 + 0x1ae430` = `0x5ae430`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn clear_frame_from_fire_hole(
+    holes: &[Option<FrameId>],
+    parent_of: &impl Fn(FrameId) -> Option<FrameId>,
+    target: FrameId,
+) -> Vec<FrameId> {
+    let mut out = Vec::new();
+    for &hole in holes.iter() {
+        let Some(start) = hole else {
+            continue;
+        };
+        let mut cursor = parent_of(start);
+        while let Some(frame) = cursor {
+            if frame == target {
+                out.push(start);
+                break;
+            }
+            cursor = parent_of(frame);
+        }
+    }
+    out
+}
+
+/// Which actor kind may be followed by [`set_human`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FollowableActorKind {
+    Player,
+    Entity,
+    Other,
+}
+
+/// Native camera sink for [`set_human`].
+pub trait CameraHumanBackend {
+    fn set_player(&mut self, human: ActorId);
+}
+
+/// FUNCTION: GAME RVA 0x1a07e0, VA 0x5a07e0 (`game/mission/game.cpp:246-254`,
+/// `C_game::SetHuman` at pin fe7e746): stages the camera human where `actor`
+/// is a player or an entity and gives him to the camera behind the backend.
+/// Returns whether the human was staged.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and the
+/// marker is `// FUNCTION: GAME 0x5a07e0` (code, not a data offset and not
+/// another binary). RVA `0x1a07e0` = `0x5a07e0 - 0x400000`; VA
+/// `0x400000 + 0x1a07e0` = `0x5a07e0`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn set_human(
+    camera_human: &mut Option<ActorId>,
+    actor: Option<ActorId>,
+    kind: FollowableActorKind,
+    backend: &mut impl CameraHumanBackend,
+) -> bool {
+    let Some(handle) = actor else {
+        return false;
+    };
+    match kind {
+        FollowableActorKind::Player | FollowableActorKind::Entity => {
+            *camera_human = Some(handle);
+            backend.set_player(handle);
+            true
+        }
+        FollowableActorKind::Other => false,
+    }
+}
+
+/// Marker for one driver model (`game.h:261-268`, `S_driver_man` at pin
+/// fe7e746). Only the compared model, car, animation and formula flag
+/// participate here; animation and leg visibility stay behind the backend.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DriverManEntry {
+    pub model: FrameId,
+    pub car: ActorId,
+    pub anim: u32,
+    pub formula: bool,
+}
+
+/// Native model sink for [`del_driver_man`].
+pub trait DriverManBackend {
+    fn stop_animation(&mut self, model: FrameId, anim: u32);
+    fn show_legs(&mut self, model: FrameId);
+}
+
+/// FUNCTION: GAME RVA 0x1b0a80, VA 0x5b0a80 (`game/mission/game.cpp:4612-4626`,
+/// `C_game::DelDriverMan` at pin fe7e746): stops the animation of the driver
+/// model, shows its legs again and takes it out with the last entry in its
+/// place. Returns whether an entry was removed.
+///
+/// Verified in reference: `game/mission/game.cpp` belongs to Game.exe and the
+/// marker is `// FUNCTION: GAME 0x5b0a80` (code, not a data offset and not
+/// another binary). RVA `0x1b0a80` = `0x5b0a80 - 0x400000`; VA
+/// `0x400000 + 0x1b0a80` = `0x5b0a80`. The RVA appears in neither
+/// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
+/// validation is claimed.
+pub fn del_driver_man(
+    men: &mut Vec<DriverManEntry>,
+    model: FrameId,
+    backend: &mut impl DriverManBackend,
+) -> bool {
+    for index in (0..men.len()).rev() {
+        if men[index].model == model {
+            let entry = men[index];
+            backend.stop_animation(entry.model, entry.anim);
+            backend.show_legs(entry.model);
+            men.swap_remove(index);
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5115,5 +5553,292 @@ mod tests {
             del_frame_for_shadow(4, 1),
             Err(UnwrittenGameEntry::Unsupported { entry: 0x5ad7c0 })
         );
+    }
+
+    struct ScriptEventLog {
+        fired: Vec<(u32, i32)>,
+    }
+
+    impl ScriptEventBackend for ScriptEventLog {
+        fn set_event(&mut self, program: u32, event: i32) {
+            self.fired.push((program, event));
+        }
+    }
+
+    #[test]
+    fn rva_1b05d0_del_frame_placement_removes_last_only() {
+        // C_game::DelFramePlacement GAME RVA 0x1b05d0 (VA 0x5b05d0).
+        let mut list = vec![placement(7), placement(9), placement(7)];
+        assert!(del_frame_placement(&mut list, 7));
+        assert_eq!(list, vec![placement(7), placement(9)]);
+        assert!(del_frame_placement(&mut list, 7));
+        assert_eq!(list, vec![placement(9)]);
+        assert!(!del_frame_placement(&mut list, 42));
+        assert_eq!(list, vec![placement(9)]);
+        let mut empty: Vec<FramePlacement> = vec![];
+        assert!(!del_frame_placement(&mut empty, 7));
+    }
+
+    #[test]
+    fn rva_1b0660_timer_timeout_fires_where_staged() {
+        // C_game::Timer_TimeOut GAME RVA 0x1b0660 (VA 0x5b0660).
+        let mut state = GameInlineState::default();
+        let mut backend = ScriptEventLog { fired: vec![] };
+        assert!(!state.timer_timeout(&mut backend));
+        assert!(backend.fired.is_empty());
+        state.set_timeout_event(11, 21);
+        assert!(state.timer_timeout(&mut backend));
+        assert_eq!(backend.fired, vec![(11, 21)]);
+    }
+
+    #[test]
+    fn rva_1b0680_pfire_fire_fires_where_staged() {
+        // C_game::PFire_Fire GAME RVA 0x1b0680 (VA 0x5b0680).
+        let mut state = GameInlineState::default();
+        let mut backend = ScriptEventLog { fired: vec![] };
+        assert!(!state.pfire_fire(&mut backend));
+        state.set_player_fire_event(5, 6);
+        assert!(state.pfire_fire(&mut backend));
+        assert_eq!(backend.fired, vec![(5, 6)]);
+    }
+
+    #[test]
+    fn rva_1b06a0_phorn_horn_fires_where_staged() {
+        // C_game::PHorn_Horn GAME RVA 0x1b06a0 (VA 0x5b06a0).
+        let mut state = GameInlineState::default();
+        let mut backend = ScriptEventLog { fired: vec![] };
+        assert!(!state.phorn_horn(&mut backend));
+        state.set_player_horn_event(7, 8);
+        assert!(state.phorn_horn(&mut backend));
+        assert_eq!(backend.fired, vec![(7, 8)]);
+    }
+
+    #[test]
+    fn rva_1b06c0_wfall_player_fires_where_staged() {
+        // C_game::WFall_Player GAME RVA 0x1b06c0 (VA 0x5b06c0).
+        let mut state = GameInlineState::default();
+        let mut backend = ScriptEventLog { fired: vec![] };
+        assert!(!state.wfall_player(&mut backend));
+        state.set_player_wfall_event(9, -3);
+        assert!(state.wfall_player(&mut backend));
+        assert_eq!(backend.fired, vec![(9, -3)]);
+    }
+
+    #[test]
+    fn rva_1b06e0_add_npc_kill_event_appends_zero_padded() {
+        // C_game::AddNPCKillEvent GAME RVA 0x1b06e0 (VA 0x5b06e0).
+        let mut events = Vec::new();
+        add_npc_kill_event(&mut events, 3, 4, "fred");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].program, 3);
+        assert_eq!(events[0].event, 4);
+        assert_eq!(&events[0].name[..5], b"fred\0");
+        assert!(events[0].name[5..].iter().all(|&b| b == 0));
+        add_npc_kill_event(&mut events, 5, 6, "a\\very\\long\\name\\that\\exceeds\\thirty\\one\\chars");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].name[31], 0);
+    }
+
+    #[test]
+    fn rva_1b0750_do_npc_kill_event_matches_basename_back_first() {
+        // C_game::Do_NPCKillEvent GAME RVA 0x1b0750 (VA 0x5b0750).
+        let mut events = Vec::new();
+        add_npc_kill_event(&mut events, 1, 10, "fred");
+        add_npc_kill_event(&mut events, 2, 20, "FRED");
+        add_npc_kill_event(&mut events, 3, 30, "bob");
+        let mut backend = ScriptEventLog { fired: vec![] };
+        let fired = do_npc_kill_event(&events, "models\\Fred", &mut backend);
+        assert_eq!(fired, 2);
+        assert_eq!(backend.fired, vec![(2, 20), (1, 10)]);
+        let mut backend = ScriptEventLog { fired: vec![] };
+        assert_eq!(do_npc_kill_event(&events, "nobody", &mut backend), 0);
+        assert!(backend.fired.is_empty());
+        let mut backend = ScriptEventLog { fired: vec![] };
+        assert_eq!(do_npc_kill_event(&[], "fred", &mut backend), 0);
+    }
+
+    #[test]
+    fn rva_1b1b60_get_tangents_vertical_and_tilted() {
+        // C_game::GetTangents GAME RVA 0x1b1b60 (VA 0x5b1b60).
+        let (u, v) = get_tangents([0.0, 1.0, 0.0]);
+        assert_eq!(u, [1.0, 0.0, 0.0]);
+        assert_eq!(v, [0.0, 0.0, 1.0]);
+        let (u, v) = get_tangents([0.0, -1.0, 0.0]);
+        assert_eq!(u, [1.0, 0.0, 0.0]);
+        assert_eq!(v, [0.0, 0.0, 1.0]);
+        // Tilted normal: u and v are perpendicular to the normal and to each other.
+        let normal = [0.0, 0.0, 1.0];
+        let (u, v) = get_tangents(normal);
+        for vec in [u, v] {
+            let dot = vec[0] * normal[0] + vec[1] * normal[1] + vec[2] * normal[2];
+            assert!(dot.abs() < 1e-6, "{vec:?} dot {dot}");
+        }
+        let dot = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+        assert!(dot.abs() < 1e-6, "{dot}");
+    }
+
+    #[test]
+    fn rva_1b1d50_advance_track_projector_wraps_at_100() {
+        // C_game::NextTrackProjector GAME RVA 0x1b1d50 (VA 0x5b1d50).
+        assert_eq!(TRACK_PROJECTOR_COUNT, 100);
+        let mut next = 0;
+        advance_track_projector(&mut next);
+        assert_eq!(next, 1);
+        let mut next = 99;
+        advance_track_projector(&mut next);
+        assert_eq!(next, 0);
+        let mut next = 98;
+        advance_track_projector(&mut next);
+        assert_eq!(next, 99);
+        advance_track_projector(&mut next);
+        assert_eq!(next, 0);
+    }
+
+    struct ProjectorLog {
+        off: Vec<FrameId>,
+    }
+
+    impl ProjectorFrameBackend for ProjectorLog {
+        fn set_frame_off(&mut self, frame: FrameId) {
+            self.off.push(frame);
+        }
+    }
+
+    #[test]
+    fn rva_1b1d70_clear_projectors_for_frame_switches_matching_off() {
+        // C_game::ClearProjectorsForFrame GAME RVA 0x1b1d70 (VA 0x5b1d70).
+        let slots = vec![
+            TrackProjectorSlot { frame: Some(1), hit_frame: Some(9) },
+            TrackProjectorSlot { frame: Some(2), hit_frame: Some(7) },
+            TrackProjectorSlot { frame: Some(3), hit_frame: Some(9) },
+            TrackProjectorSlot { frame: None, hit_frame: Some(9) },
+        ];
+        let mut backend = ProjectorLog { off: vec![] };
+        clear_projectors_for_frame(&slots, Some(9), &mut backend);
+        assert_eq!(backend.off, vec![3, 1]);
+        let mut backend = ProjectorLog { off: vec![] };
+        clear_projectors_for_frame(&slots, Some(42), &mut backend);
+        assert!(backend.off.is_empty());
+        let mut backend = ProjectorLog { off: vec![] };
+        clear_projectors_for_frame(&[], Some(9), &mut backend);
+        assert!(backend.off.is_empty());
+    }
+
+    #[test]
+    fn rva_1afdb0_invalidate_coll_clears_matching_entities() {
+        // C_game::InvalidateColl GAME RVA 0x1afdb0 (VA 0x5afdb0).
+        let mut active = vec![
+            MoveCollActor { actor: 1, is_entity: true, move_coll: Some(77) },
+            MoveCollActor { actor: 2, is_entity: false, move_coll: Some(77) },
+            MoveCollActor { actor: 3, is_entity: true, move_coll: Some(78) },
+        ];
+        let mut inactive = vec![
+            MoveCollActor { actor: 4, is_entity: true, move_coll: Some(77) },
+            MoveCollActor { actor: 5, is_entity: true, move_coll: None },
+        ];
+        invalidate_coll(&mut active, &mut inactive, 77);
+        assert_eq!(active[0].move_coll, None);
+        assert_eq!(active[1].move_coll, Some(77));
+        assert_eq!(active[2].move_coll, Some(78));
+        assert_eq!(inactive[0].move_coll, None);
+        assert_eq!(inactive[1].move_coll, None);
+        // Unrelated collision leaves everything untouched.
+        invalidate_coll(&mut active, &mut inactive, 999);
+        assert_eq!(active[1].move_coll, Some(77));
+        assert_eq!(active[2].move_coll, Some(78));
+    }
+
+    #[test]
+    fn rva_1ae430_clear_frame_from_fire_hole_selects_descendants() {
+        // C_game::ClearFrameFromFireHole GAME RVA 0x1ae430 (VA 0x5ae430).
+        let holes = vec![Some(10), Some(11), None, Some(12)];
+        let parent_of = |frame: FrameId| match frame {
+            10 => Some(20),
+            20 => Some(30),
+            11 => Some(40),
+            12 => Some(30),
+            _ => None,
+        };
+        assert_eq!(
+            clear_frame_from_fire_hole(&holes, &parent_of, 30),
+            vec![10, 12]
+        );
+        assert!(clear_frame_from_fire_hole(&holes, &parent_of, 99).is_empty());
+        assert!(clear_frame_from_fire_hole(&[], &parent_of, 30).is_empty());
+    }
+
+    struct CameraLog {
+        players: Vec<ActorId>,
+    }
+
+    impl CameraHumanBackend for CameraLog {
+        fn set_player(&mut self, human: ActorId) {
+            self.players.push(human);
+        }
+    }
+
+    #[test]
+    fn rva_1a07e0_set_human_stages_player_and_entity_only() {
+        // C_game::SetHuman GAME RVA 0x1a07e0 (VA 0x5a07e0).
+        let mut camera_human = None;
+        let mut backend = CameraLog { players: vec![] };
+        assert!(set_human(
+            &mut camera_human,
+            Some(7),
+            FollowableActorKind::Player,
+            &mut backend
+        ));
+        assert_eq!(camera_human, Some(7));
+        assert_eq!(backend.players, vec![7]);
+        assert!(set_human(
+            &mut camera_human,
+            Some(9),
+            FollowableActorKind::Entity,
+            &mut backend
+        ));
+        assert_eq!(camera_human, Some(9));
+        assert!(!set_human(
+            &mut camera_human,
+            Some(11),
+            FollowableActorKind::Other,
+            &mut backend
+        ));
+        assert_eq!(camera_human, Some(9));
+        assert!(!set_human(&mut camera_human, None, FollowableActorKind::Player, &mut backend));
+        assert_eq!(backend.players, vec![7, 9]);
+    }
+
+    struct DriverLog {
+        stopped: Vec<(FrameId, u32)>,
+        legs: Vec<FrameId>,
+    }
+
+    impl DriverManBackend for DriverLog {
+        fn stop_animation(&mut self, model: FrameId, anim: u32) {
+            self.stopped.push((model, anim));
+        }
+        fn show_legs(&mut self, model: FrameId) {
+            self.legs.push(model);
+        }
+    }
+
+    #[test]
+    fn rva_1b0a80_del_driver_man_stops_and_removes() {
+        // C_game::DelDriverMan GAME RVA 0x1b0a80 (VA 0x5b0a80).
+        let mut men = vec![
+            DriverManEntry { model: 1, car: 10, anim: 3, formula: false },
+            DriverManEntry { model: 2, car: 11, anim: 4, formula: true },
+            DriverManEntry { model: 1, car: 12, anim: 5, formula: false },
+        ];
+        let mut backend = DriverLog { stopped: vec![], legs: vec![] };
+        assert!(del_driver_man(&mut men, 1, &mut backend));
+        assert_eq!(backend.stopped, vec![(1, 5)]);
+        assert_eq!(backend.legs, vec![1]);
+        assert_eq!(men.len(), 2);
+        assert!(men.iter().all(|entry| !(entry.model == 1 && entry.car == 12)));
+        let mut backend = DriverLog { stopped: vec![], legs: vec![] };
+        assert!(!del_driver_man(&mut men, 99, &mut backend));
+        assert!(backend.stopped.is_empty() && backend.legs.is_empty());
+        assert_eq!(men.len(), 2);
     }
 }

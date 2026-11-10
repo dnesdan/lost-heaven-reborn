@@ -3,7 +3,9 @@
 //! Source: mafia-re f42a25d, game/input/controls.cpp, Game.exe entries
 //! 0x4efb40 (constructor), 0x4efbd0 (destructor), 0x4efc80 (Close),
 //! 0x4efde0 (Init), 0x4efdb0 (SetMouseScale), 0x4f00f0
-//! (ClearControls), 0x4f02b0 (SetControl). Game.exe SHA-256 in the Rust
+//! (ClearControls), 0x4f02b0 (SetControl). Follow-ups (mafia-re fe7e746):
+//! 0x4f01a0 (GetValues), 0x4f0240 (GetValue), 0x4f05b0 (GetControl),
+//! 0x4f1180 (SaveJoyStates). Game.exe SHA-256 in the Rust
 //! research ledger:
 //! 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27.
 //! `C_controls` is a PC researcher-assigned name, not a recovered PC symbol.
@@ -21,6 +23,10 @@ pub struct ControlJoystick(pub u64);
 /// four centered bytes and four button words. These bytes are only storage for
 /// the Init zero-fill; no native pointer or joystick behavior is inferred.
 pub const JOYSTICK_STATE_BYTES: usize = 68;
+
+/// C_controls::GetValues flags: the pressed list instead of the live one
+/// (mafia-re fe7e746 game/input/controls.h:59-60).
+pub const CONTROLS_PRESSED: u32 = 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnedJoystick {
@@ -68,6 +74,17 @@ pub trait ControlBindingBackend: ControlRefBackend {
         mode: u32,
         owner: &mut GameControls,
     ) -> Result<(), Self::Error>;
+}
+
+/// Ordered joystick sampling boundary for SaveJoyStates: refresh the
+/// device with the native reset update, then report the state bytes that
+/// SaveJoyStates keeps for the last-input axis measurement.
+pub trait ControlJoySampleBackend {
+    type Error;
+    fn sample_for_save(
+        &mut self,
+        joystick: ControlJoystick,
+    ) -> Result<[u8; JOYSTICK_STATE_BYTES], Self::Error>;
 }
 
 /// PC S_control, preserving its 12-byte field widths and values. The device
@@ -396,6 +413,85 @@ impl GameControls {
         backend: &mut B,
     ) -> Result<(), ControlFailure<B::Error>> {
         self.close(backend)
+    }
+
+    /// PC GetValues 0x4f01a0 (RVA 0x0f01a0, VA 0x4f01a0; mafia-re fe7e746
+    /// game/input/controls.cpp:84-98): the live value list, or the pressed
+    /// list with CONTROLS_PRESSED. `None` while that list is empty (the
+    /// native -1); otherwise the slice and its length.
+    pub fn get_values(&self, pressed: bool) -> Option<&[f32]> {
+        let list = if pressed {
+            &self.pressed
+        } else {
+            &self.values
+        };
+        if list.is_empty() {
+            None
+        } else {
+            Some(list)
+        }
+    }
+
+    /// PC GetValue 0x4f0240 (RVA 0x0f0240, VA 0x4f0240; mafia-re fe7e746
+    /// game/input/controls.cpp:102-113): one control's value, or with
+    /// CONTROLS_PRESSED its pressed value; 0.0 for an index outside the
+    /// table (negative indices read 0.0, matching the native unsigned
+    /// promotion of the bounds check).
+    pub fn get_value(&self, index: i32, pressed: bool) -> f32 {
+        if index < 0 {
+            return 0.0;
+        }
+        let list = if pressed {
+            &self.pressed
+        } else {
+            &self.values
+        };
+        list.get(index as usize).copied().unwrap_or(0.0)
+    }
+
+    /// PC GetControl 0x4f05b0 (RVA 0x0f05b0, VA 0x4f05b0; mafia-re fe7e746
+    /// game/input/controls.cpp:228-237): copies the binding of that index.
+    /// A missing destination reads false; an index outside the table leaves
+    /// the destination untouched and still reads true (the native
+    /// early-return shape, not an error).
+    pub fn copy_control(&self, index: i32, binding: Option<&mut ControlBinding>) -> bool {
+        let Some(destination) = binding else {
+            return false;
+        };
+        if index < 0 {
+            return true;
+        }
+        let Some(record) = self.controls.get(index as usize) else {
+            return true;
+        };
+        *destination = ControlBinding::from_bytes(*record);
+        true
+    }
+
+    /// PC SaveJoyStates 0x4f1180 (RVA 0x0f1180, VA 0x4f1180; mafia-re
+    /// fe7e746 game/input/controls.cpp:572-580): refreshes every joystick
+    /// and keeps its state for the last-input axis measurement, in
+    /// descending order like the native loop. A backend error stops at the
+    /// reached prefix with the completed tails kept, matching Close's
+    /// interruption policy.
+    pub fn save_joy_states<B: ControlJoySampleBackend>(
+        &mut self,
+        backend: &mut B,
+    ) -> Result<(), ControlFailure<B::Error>> {
+        if self.interrupted {
+            return Err(ControlFailure::Interrupted);
+        }
+        for index in (0..self.joys.len()).rev() {
+            let identity = self.joys[index].identity;
+            match backend.sample_for_save(identity) {
+                Ok(state) => self.joys[index].changes = state,
+                Err(error) => {
+                    self.interrupted = true;
+                    return Err(ControlFailure::Backend(error));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1113,5 +1209,144 @@ mod tests {
         assert_eq!(failed.allocation_seed().key_refs[0], 0);
         assert_eq!(failed.binding(0).unwrap().device, 0);
         assert!(failed.interrupted());
+    }
+
+    #[test]
+    fn values_rva_0f01a0_empty_reads_none_then_live_lists() {
+        // GAME 0x4f01a0 (RVA 0x0f01a0) C_controls::GetValues (mafia-re
+        // fe7e746 game/input/controls.cpp:84-98): -1 while the selected
+        // list is empty, otherwise the live list.
+        let mut controls = GameControls::construct(seed());
+        assert_eq!(controls.get_values(false), None);
+        assert_eq!(controls.get_values(true), None);
+        controls.values.push(0.25);
+        controls.values.push(0.5);
+        controls.pressed.push(1.0);
+        assert_eq!(controls.get_values(false), Some([0.25, 0.5].as_slice()));
+        assert_eq!(controls.get_values(true), Some([1.0].as_slice()));
+    }
+
+    #[test]
+    fn value_rva_0f0240_outside_table_reads_zero() {
+        // GAME 0x4f0240 (RVA 0x0f0240) C_controls::GetValue (mafia-re
+        // fe7e746 game/input/controls.cpp:102-113): the selected list's
+        // entry, 0.0 outside it.
+        let mut controls = GameControls::construct(seed());
+        controls.values.push(0.25);
+        controls.pressed.push(0.5);
+        assert_eq!(controls.get_value(0, false), 0.25);
+        assert_eq!(controls.get_value(0, true), 0.5);
+        assert_eq!(controls.get_value(1, false), 0.0);
+        assert_eq!(controls.get_value(-1, false), 0.0);
+        assert_eq!(controls.get_value(i32::MIN, true), 0.0);
+    }
+
+    #[test]
+    fn control_rva_0f05b0_null_false_and_oob_true_without_write() {
+        // GAME 0x4f05b0 (RVA 0x0f05b0) C_controls::GetControl (mafia-re
+        // fe7e746 game/input/controls.cpp:228-237): false without a
+        // destination; an outside index still reads true and writes
+        // nothing.
+        let mut controls = GameControls::construct(seed());
+        controls.controls.push([0x11; 12]);
+        assert!(!controls.copy_control(0, None));
+        let mut kept = ControlBinding {
+            half: 9,
+            device: 9,
+            code: 9,
+            joystick_index: 9,
+        };
+        assert!(controls.copy_control(4, Some(&mut kept)));
+        assert_eq!(
+            kept,
+            ControlBinding {
+                half: 9,
+                device: 9,
+                code: 9,
+                joystick_index: 9,
+            }
+        );
+        assert!(controls.copy_control(-1, Some(&mut kept)));
+        let mut found = ControlBinding {
+            half: 0,
+            device: 0,
+            code: 0,
+            joystick_index: 0,
+        };
+        assert!(controls.copy_control(0, Some(&mut found)));
+        assert_eq!(found, ControlBinding::from_bytes([0x11; 12]));
+    }
+
+    struct Saver {
+        calls: Vec<ControlJoystick>,
+        fail_at: Option<usize>,
+    }
+    impl ControlJoySampleBackend for Saver {
+        type Error = &'static str;
+        fn sample_for_save(
+            &mut self,
+            joystick: ControlJoystick,
+        ) -> Result<[u8; JOYSTICK_STATE_BYTES], Self::Error> {
+            self.calls.push(joystick);
+            if self.fail_at == Some(self.calls.len()) {
+                return Err("joystick unavailable");
+            }
+            Ok([joystick.0 as u8; JOYSTICK_STATE_BYTES])
+        }
+    }
+
+    #[test]
+    fn joy_save_rva_0f1180_descending_order_and_reached_prefix_kept() {
+        // GAME 0x4f1180 (RVA 0x0f1180) C_controls::SaveJoyStates
+        // (mafia-re fe7e746 game/input/controls.cpp:572-580): descending
+        // refresh; a failure keeps the completed tail and interrupts.
+        let mut controls = GameControls::construct(seed());
+        let mut refs = Refs::default();
+        controls
+            .init(
+                Some(ControlGraph(5)),
+                &[Some(ControlJoystick(10)), Some(ControlJoystick(20))],
+                &mut refs,
+            )
+            .unwrap();
+        let mut saver = Saver {
+            calls: Vec::new(),
+            fail_at: None,
+        };
+        controls.save_joy_states(&mut saver).unwrap();
+        assert_eq!(
+            saver.calls,
+            [ControlJoystick(20), ControlJoystick(10)]
+        );
+        assert_eq!(controls.joysticks()[0].changes, [10; JOYSTICK_STATE_BYTES]);
+        assert_eq!(controls.joysticks()[1].changes, [20; JOYSTICK_STATE_BYTES]);
+
+        let mut failed = GameControls::construct(seed());
+        failed
+            .init(
+                Some(ControlGraph(5)),
+                &[Some(ControlJoystick(10)), Some(ControlJoystick(20))],
+                &mut refs,
+            )
+            .unwrap();
+        let mut failing = Saver {
+            calls: Vec::new(),
+            fail_at: Some(2),
+        };
+        assert_eq!(
+            failed.save_joy_states(&mut failing),
+            Err(ControlFailure::Backend("joystick unavailable"))
+        );
+        assert_eq!(
+            failing.calls,
+            [ControlJoystick(20), ControlJoystick(10)]
+        );
+        assert_eq!(failed.joysticks()[1].changes, [20; JOYSTICK_STATE_BYTES]);
+        assert_eq!(failed.joysticks()[0].changes, [0; JOYSTICK_STATE_BYTES]);
+        assert!(failed.interrupted());
+        assert_eq!(
+            failed.save_joy_states(&mut failing),
+            Err(ControlFailure::Interrupted)
+        );
     }
 }
