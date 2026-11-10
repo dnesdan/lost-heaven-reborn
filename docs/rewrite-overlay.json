@@ -16437,7 +16437,7 @@
       "name": "C_player::SaveGameGetSize",
       "symbol": "lhr_engine::player_actor::PlayerState::savegame_size",
       "tier": "differential",
-      "evidence": "REA ev_90d8d68a3c + complete walk (CALL human size + ADD 0x22 S_player_savegame; RET); port ops match native (f32 cross, pin-tested); tests green on this tree"
+      "evidence": "REA ev_24e691dd97e + ev_90d8d68a3c, complete walk both sessions (CALL C_human::SaveGameGetSize 0x16f9e0 + ADD 0x22 S_player_savegame; RET); port base+0x22 exact; pin tests player_actor 17 pass"
     },
     {
       "binary": "Game.exe",
