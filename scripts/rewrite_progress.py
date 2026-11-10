@@ -16,8 +16,10 @@ Usage:
   python3 scripts/rewrite_progress.py --write   # regenerate fragment + SVGs
   python3 scripts/rewrite_progress.py --check   # verify without writes
 """
+from functools import lru_cache
 import json
 import re
+import runpy
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -115,10 +117,72 @@ def ledger_ports_by_binary(ports):
     return by_sha
 
 
+def validate_overlay_metadata(overlay):
+    """Check metadata shape, not the truth or completeness of its evidence."""
+    if not isinstance(overlay, dict) or not isinstance(overlay.get("functions"), list):
+        raise ValueError("overlay functions must be a list")
+    symbol_path = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*){2,}")
+    for index, entry in enumerate(overlay["functions"]):
+        if not isinstance(entry, dict):
+            raise ValueError(f"overlay entry {index} must be an object")
+        for field in ("binary", "rva", "tier", "symbol", "evidence"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"overlay entry {index}: {field} must be a nonempty string")
+        if not RVA_RE.fullmatch(entry["rva"].lower()):
+            raise ValueError(f"bad RVA form: {entry['rva']}")
+        if entry["tier"] not in ("differential", "contract"):
+            raise ValueError(f"bad tier: {entry['tier']}")
+        if not symbol_path.fullmatch(entry["symbol"]):
+            raise ValueError(f"bad symbol path: {entry['symbol']}")
+        if "construction_covered" in entry and not isinstance(entry["construction_covered"], bool):
+            raise ValueError(f"overlay entry {index}: construction_covered must be a boolean")
+
+
+@lru_cache(maxsize=1)
+def _rust_lexer():
+    # Load the existing standalone lexer by sibling path, including when this
+    # script itself was loaded with importlib rather than run from scripts/.
+    return runpy.run_path(str(Path(__file__).with_name("rust_boundaries.py")))
+
+
+def _qualifier_names(source):
+    """Necessary lexical names only, not Rust scope/type/method resolution.
+
+    Includes declarations and explicit import spellings; ignores comments and
+    literals. cfg, macros, glob imports and the imported targets still need
+    compiler/source review. A matching name does not prove a behavioral port.
+    """
+    lexer = _rust_lexer()
+    try:
+        stream = [token for token, _ in lexer["tokens"](source)]
+    except lexer["AuditError"] as error:
+        raise ValueError(f"cannot inspect symbol qualifiers: {error}") from error
+    names = set()
+    importing = False
+    previous = None
+    declarations = {"struct", "enum", "trait", "union", "type", "mod"}
+    for token in stream:
+        if token == "use":
+            importing = True
+        elif token == ";":
+            importing = False
+        if previous in declarations or importing:
+            name = token.removeprefix("r#")
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                names.add(name)
+        previous = token
+    return names
+
+
 def validate_overlay(overlay, libraries, ledger_ports):
     """Raise ValueError on any inconsistency a commit must not introduce."""
+    # Reject malformed/empty evidence before reading source or producing cards.
+    # A nonempty description still needs independent provenance/runtime review.
+    validate_overlay_metadata(overlay)
     sha_of = {lib["name"]: lib["binary_sha256"] for lib in libraries.values()}
     seen = set()
+    qualifier_cache = {}
     for entry in overlay["functions"]:
         name = entry["binary"]
         if name not in sha_of:
@@ -157,6 +221,7 @@ def validate_overlay(overlay, libraries, ledger_ports):
         except OSError:
             lib_body = ""
         found = None
+        module_end = None
         for i in range(len(parts) - 1, 1, -1):
             candidate = ROOT / "crates" / crate_dir / "src" / ("/".join(parts[1:i]) + ".rs")
             if candidate.exists():
@@ -166,9 +231,15 @@ def validate_overlay(overlay, libraries, ledger_ports):
                 if not re.search(r"\bmod\s+" + re.escape(parts[1]) + r"\b", lib_body):
                     continue
                 found = candidate
+                module_end = i
                 break
         body = found.read_text() if found is not None else ""
-        if found is None or not re.search(r"\b" + re.escape(parts[-1]) + r"\b", body):
+        unresolved = set()
+        if found is not None and parts[module_end:-1]:
+            if found not in qualifier_cache:
+                qualifier_cache[found] = _qualifier_names(body)
+            unresolved = set(parts[module_end:-1]) - qualifier_cache[found]
+        if found is None or unresolved or not re.search(r"\b" + re.escape(parts[-1]) + r"\b", body):
             path_targets = []
             if found is not None:
                 try:
@@ -183,6 +254,10 @@ def validate_overlay(overlay, libraries, ledger_ports):
                 except OSError:
                     path_targets = []
             for candidate in sorted(path_targets):
+                # Preserve the existing path-sibling spelling convention, but
+                # do not let a known final type hide another missing segment.
+                if unresolved - {candidate.stem}:
+                    continue
                 try:
                     text = candidate.read_text()
                 except OSError:
@@ -221,6 +296,10 @@ def validate_overlay(overlay, libraries, ledger_ports):
             else:
                 found = None
         if found is None:
+            if unresolved:
+                raise ValueError(
+                    f"unresolved symbol qualifiers {sorted(unresolved)}: {entry['symbol']}"
+                )
             raise ValueError(
                 f"missing module file: {ROOT / 'crates' / crate_dir / 'src' / (parts[1] + '.rs')}"
             )
@@ -309,7 +388,7 @@ def render_svg(card):
 <rect width="640" height="148" rx="8" fill="#f6f8fa"/>
 <text x="24" y="34" font-family="sans-serif" font-size="20" font-weight="bold" fill="#1f2328">{escape(card["name"])}</text>
 <text x="24" y="56" font-family="sans-serif" font-size="13" fill="#59636e">{escape(card["role"])}</text>
-<text x="24" y="82" font-family="sans-serif" font-size="14" fill="#1f2328">Implemented {card["ported"]}/{card["total"]}{estimate}{covered_text} · Verified {card["verified"]}</text>
+<text x="24" y="82" font-family="sans-serif" font-size="14" fill="#1f2328">Implemented {card["ported"]}/{card['total']}{estimate}{covered_text} · Verified {card['verified']}</text>
 <rect x="24" y="94" width="560" height="18" rx="4" fill="#d1d9e0"/>
 <rect x="24" y="94" width="{ported_w + covered_w:.1f}" height="18" rx="4" fill="#9ecbff"/>
 <rect x="24" y="94" width="{verified_w:.1f}" height="18" rx="4" fill="#0969da"/>
