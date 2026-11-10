@@ -321,6 +321,38 @@ pub fn scene_portal_version_is_initial(version: u32) -> bool {
     version == 0
 }
 
+/// Working name for the scene tick-list empty check (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:466-476 at pin 113b5b6: `Tick` walks
+/// `tick_frames`, `AddTickFrame`/`DeleteTickFrame` maintain it at
+/// scene +0x148). The reference records no LS3DF FUNCTION address for a
+/// standalone empty reader; only the mutating verbs have bodies (PC RVAs
+/// 0x49f90/0x4a050, already occupied, not claimed here). Reports whether the
+/// tick list holds no frames; no walk.
+pub fn scene_tick_list_is_empty(count: usize) -> bool {
+    count == 0
+}
+
+/// Working name for the scene owned-frames empty check (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:255-288 at pin 113b5b6: `AddFrame` pushes into
+/// `owned_frames` at scene +0x22c, `DeleteFrame` removes, `Close` releases).
+/// The reference records no LS3DF FUNCTION address for a standalone empty
+/// reader; only the mutating verbs have bodies (PC RVAs 0x49290/0x49400,
+/// already occupied, not claimed here). Reports whether the scene owns no
+/// frames; no walk.
+pub fn scene_owned_list_is_empty(count: usize) -> bool {
+    count == 0
+}
+
+/// Working name for the global sector-version initial check (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:105 at pin 113b5b6: the constructor stores
+/// `sector_version = 0` at scene +0x268, I3D.h:1577). The reference records
+/// no LS3DF FUNCTION address for a standalone initial reader; the word is
+/// only bumped when sectors join the ring. Reports whether the word still
+/// holds the construction value; no state moves.
+pub fn scene_global_sector_version_is_initial(version: u32) -> bool {
+    version == 0
+}
+
 /// Working name for the `I3D_MAX_ANIMS` slot count (mafia-re ls3df/I3D/I3D.h:1226
 /// at pin 113b5b6: 8 interpolator-set slots, checked as `index >= 8` by every
 /// scene/model animation verb). The reference records no LS3DF FUNCTION
@@ -1910,6 +1942,33 @@ impl ModelArena {
     /// installed; no device is consulted.
     pub fn scene_has_callback(&self, scene: SceneKey) -> Result<bool, ModelError> {
         Ok(self.scene(scene)?.callback.is_some())
+    }
+    /// Working name for the shadow-list presence at scene +0x158 (mafia-re
+    /// ls3df/I3D/I3d_scene.cpp:596-614 at pin 113b5b6: `AddShadow` pushes
+    /// unless already present, `DeleteShadow` swap-removes). The bodies live
+    /// at PC RVAs 0x4a5a0/0x4a640 (already occupied, not claimed here); no
+    /// LS3DF FUNCTION address exists for a presence reader. Reports whether
+    /// the scene holds at least one shadow; no device is consulted.
+    pub fn scene_has_shadows(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(!self.scene(scene)?.shadows.is_empty())
+    }
+    /// Working name for the mirror-list presence at scene +0x168 (mafia-re
+    /// ls3df/I3D/I3d_scene.cpp:616-636 at pin 113b5b6: `AddMirror` pushes
+    /// unless already present, `DeleteMirror` swap-removes). The bodies live
+    /// at PC RVAs 0x4a6f0/0x4a790 (already occupied, not claimed here); no
+    /// LS3DF FUNCTION address exists for a presence reader. Reports whether
+    /// the scene holds at least one mirror; no device is consulted.
+    pub fn scene_has_mirrors(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(!self.scene(scene)?.mirrors.is_empty())
+    }
+    /// Working name for the tick-list presence at scene +0x148 (mafia-re
+    /// ls3df/I3D/I3d_scene.cpp:446-461 at pin 113b5b6: `AddTickFrame`
+    /// pushes unique and sets `FRMFLAGS_TICK`, `DeleteTickFrame` removes and
+    /// clears it). The bodies live at PC RVAs 0x49f90/0x4a050 (already
+    /// occupied, not claimed here); no LS3DF FUNCTION address exists for a
+    /// presence reader. Reports whether the scene ticks at least one frame.
+    pub fn scene_has_tick_frames(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(!self.scene(scene)?.tick_frames.is_empty())
     }
     /// Working name for the callback flags word at scene +0x144
     /// (mafia-re `ls3df/I3D/I3D.h:1553` `cb_flags`; written by
@@ -4148,5 +4207,56 @@ mod scene_frame_getter_working_name_tests {
         assert_eq!(scene_viewport_half_extent_from_span(0).to_bits(), 0.0f32.to_bits());
         assert_eq!(scene_viewport_half_extent_from_span(-800).to_bits(), (-400.0f32).to_bits());
         assert_eq!(scene_viewport_half_extent_from_span(1).to_bits(), 0.5f32.to_bits());
+    }
+    #[test]
+    fn tick_and_owned_empty_reports_zero_count_only() {
+        // Working names for the tick-list (+0x148) and owned-frames (+0x22c)
+        // empty checks (I3d_scene.cpp:466-476/255-288): no LS3DF FUNCTION
+        // entries exist for standalone readers; occupied mutators unclaimed.
+        assert!(scene_tick_list_is_empty(0));
+        assert!(!scene_tick_list_is_empty(1));
+        assert!(!scene_tick_list_is_empty(usize::MAX));
+        assert!(scene_owned_list_is_empty(0));
+        assert!(!scene_owned_list_is_empty(1));
+        assert!(!scene_owned_list_is_empty(usize::MAX));
+    }
+    #[test]
+    fn global_sector_version_initial_reports_zero_only() {
+        // Working name for the sector_version ctor word (I3d_scene.cpp:105,
+        // I3D.h:1577): no standalone LS3DF FUNCTION entry exists.
+        assert!(scene_global_sector_version_is_initial(0));
+        assert!(!scene_global_sector_version_is_initial(1));
+        assert!(!scene_global_sector_version_is_initial(u32::MAX));
+        let mut arena = ModelArena::default();
+        assert!(scene_global_sector_version_is_initial(arena.global_sector_version()));
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        // Each joined sector bumps the global version (I3d_scene.cpp:105
+        // ctor word + ring-join bumps), so a live arena is past initial.
+        assert!(!scene_global_sector_version_is_initial(arena.global_sector_version()));
+        let _ = scene;
+    }
+    #[test]
+    fn shadow_mirror_and_tick_presence_reads_live_lists() {
+        // Working names for the shadow (+0x158), mirror (+0x168) and tick
+        // (+0x148) presence readers (I3d_scene.cpp:596-636/446-461):
+        // occupied Add/Delete bodies unclaimed, no standalone FUNCTIONs.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert!(!arena.scene_has_shadows(scene).unwrap());
+        assert!(!arena.scene_has_mirrors(scene).unwrap());
+        assert!(!arena.scene_has_tick_frames(scene).unwrap());
+        let frame = arena
+            .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        arena.scene_add_shadow(scene, frame).unwrap();
+        assert!(arena.scene_has_shadows(scene).unwrap());
+        assert!(!arena.scene_has_mirrors(scene).unwrap());
+        arena.scene_add_mirror(scene, frame).unwrap();
+        assert!(arena.scene_has_mirrors(scene).unwrap());
+        arena.scene_add_tick_frame(scene, frame).unwrap();
+        assert!(arena.scene_has_tick_frames(scene).unwrap());
+        assert!(arena.scene_has_shadows(SceneKey(FrameKey(u32::MAX))).is_err());
+        assert!(arena.scene_has_mirrors(SceneKey(FrameKey(u32::MAX))).is_err());
+        assert!(arena.scene_has_tick_frames(SceneKey(FrameKey(u32::MAX))).is_err());
     }
 }

@@ -1328,6 +1328,44 @@ pub fn frame_flags_after_update_hr_bound_vol_sector(flags: u32) -> u32 {
 pub fn frame_hr_bound_w_needs_local_refresh(flags: u32) -> bool {
     flags & 0x40 == 0
 }
+/// Working name for the `I3D_frame::GetHRBoundVolume` refresh gate (mafia-re
+/// ls3df/I3D/I3D.h:5011-5016 at pin 113b5b6: refresh when `HR_BOUND_VALID`
+/// is clear, then return the local hierarchy bound volume). The reference
+/// records no LS3DF FUNCTION address for a standalone gate reader; the check
+/// lives inside the occupied `UpdateHRBoundVol` body (PC RVA 0x1cc50, already
+/// ported, not claimed here). Reports whether the local bound must be
+/// recomputed; no state moves.
+pub fn frame_hr_bound_needs_update(flags: u32) -> bool {
+    flags & 0x40 == 0
+}
+/// Working name for the `I3D_frame::GetHRBoundVolumeW` refresh gate (mafia-re
+/// ls3df/I3D/I3D.h:536-541 at pin 113b5b6: refresh when `HR_BOUND_W_VALID`
+/// is clear, then return the world hierarchy bound volume). The reference
+/// records no LS3DF FUNCTION address for a standalone gate reader; the check
+/// lives inside the occupied `UpdateHRBoundVolW` body (PC RVA 0x1cf90,
+/// already ported, not claimed here). Reports whether the world bound must
+/// be recomputed; no state moves.
+pub fn frame_hr_bound_w_needs_update(flags: u32) -> bool {
+    flags & 0x100 == 0
+}
+/// Working name for the `m_RenderNumber` initial-word check (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:62 at pin 113b5b6: the constructor stores
+/// -1, observed as `u32::MAX` on the host). The reference records no LS3DF
+/// FUNCTION address for a standalone initial reader; the word is only
+/// written by the driver producer that is unimplemented here. Reports whether
+/// the frame was never rendered; no cache moves.
+pub fn frame_render_number_is_initial(render_number: u32) -> bool {
+    render_number == u32::MAX
+}
+/// Working name for the child-list empty check behind `I3D_frame::GetChild`
+/// and `NumChildren` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:608-620 and
+/// ls3df/I3D/I3D.h:602-611 at pin 113b5b6: `m_numChildren` at +0x11c, the
+/// first child at +0x124). The reference records no LS3DF FUNCTION address
+/// for a standalone empty reader; the count is only walked by the child
+/// indexer. Reports whether the frame has no children; no hierarchy walk.
+pub fn frame_child_list_is_empty(child_count: u32) -> bool {
+    child_count == 0
+}
 /// Working name for the sector early-out of
 /// `I3D_frame::DiscardHRBoundVol` (mafia-re
 /// ls3df/I3D/frames/I3d_frame.cpp:932-934 at pin 113b5b6). Same
@@ -1877,6 +1915,37 @@ impl I3dFrameGraph {
     /// ownership claim beyond that link.
     pub fn frame_parent_key(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
         Ok(self.links(key)?.parent)
+    }
+    /// Working name for the `I3D_frame::GetParent` presence gate (mafia-re
+    /// ls3df/I3D/I3D.h:5042-5046 at pin 113b5b6). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47ad10, which
+    /// is not claimed here. Reports whether the frame is linked under a
+    /// parent; no cache moves.
+    pub fn frame_has_parent(&self, key: FrameKey) -> Result<bool, FrameError> {
+        Ok(self.links(key)?.parent.is_some())
+    }
+    /// Working name for the first-child presence behind `I3D_frame::GetChild`
+    /// and `NumChildren` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:559-606 and
+    /// ls3df/I3D/I3D.h:678 at pin 113b5b6: `m_pChild` at +0x124). No LS3DF
+    /// FUNCTION address exists for a standalone presence reader; children are
+    /// only walked by the hierarchy traversals. Reports whether the frame has
+    /// at least one child; no walk.
+    pub fn frame_has_child(&self, key: FrameKey) -> Result<bool, FrameError> {
+        Ok(self.links(key)?.child.is_some())
+    }
+    /// Working name for the `m_pNext` sibling presence at +0x128 (mafia-re
+    /// ls3df/I3D/I3D.h:679 at pin 113b5b6). No LS3DF FUNCTION address exists
+    /// for it: siblings are only walked by `AddChild`/`RemoveChild` and the
+    /// enumeration helpers. Reports whether a next sibling is linked; no walk.
+    pub fn frame_has_next_sibling(&self, key: FrameKey) -> Result<bool, FrameError> {
+        Ok(self.links(key)?.next.is_some())
+    }
+    /// Working name for the `m_pPrev` sibling presence at +0x128 (mafia-re
+    /// ls3df/I3D/I3D.h:679 at pin 113b5b6). No LS3DF FUNCTION address exists
+    /// for it: same inline-only status as the next-sibling presence above.
+    /// Reports whether a previous sibling is linked; no walk.
+    pub fn frame_has_prev_sibling(&self, key: FrameKey) -> Result<bool, FrameError> {
+        Ok(self.links(key)?.previous.is_some())
     }
     /// Working name for the LS3DF-inlined `I3D_frame::NumChildren` read
     /// (mafia-re ls3df/I3D/I3D.h:602-611, LS3DF_EXPORTS by-value branch). No
@@ -7385,5 +7454,71 @@ mod tests {
             frame_update_hr_bound_vol_source_kind(false, false),
             HrBoundSource::InvalidateBox
         );
+    }
+    #[test]
+    fn hr_bound_refresh_gates_report_cleared_bits_only() {
+        // Working names for the GetHRBoundVolume/GetHRBoundVolumeW refresh
+        // gates (I3D.h:5011-5016/536-541): no LS3DF FUNCTION entries exist
+        // for standalone readers; occupied bodies 0x1cc50/0x1cf90 unclaimed.
+        assert!(frame_hr_bound_needs_update(0));
+        assert!(!frame_hr_bound_needs_update(0x40));
+        assert!(frame_hr_bound_needs_update(u32::MAX & !0x40));
+        assert!(!frame_hr_bound_needs_update(u32::MAX));
+        assert!(frame_hr_bound_w_needs_update(0));
+        assert!(!frame_hr_bound_w_needs_update(0x100));
+        assert!(frame_hr_bound_w_needs_update(u32::MAX & !0x100));
+        assert!(!frame_hr_bound_w_needs_update(u32::MAX));
+    }
+    #[test]
+    fn render_number_initial_and_child_empty_report_ctor_words() {
+        // Working names for the m_RenderNumber -1 word (I3d_frame.cpp:62)
+        // and the m_numChildren empty check (+0x11c): no LS3DF FUNCTION
+        // entries exist for standalone readers.
+        assert!(frame_render_number_is_initial(u32::MAX));
+        assert!(!frame_render_number_is_initial(0));
+        assert!(!frame_render_number_is_initial(41));
+        assert!(frame_child_list_is_empty(0));
+        assert!(!frame_child_list_is_empty(1));
+        assert!(!frame_child_list_is_empty(u32::MAX));
+    }
+    #[test]
+    fn hierarchy_presence_readers_follow_live_links() {
+        // Working names for GetParent/first-child/sibling presence
+        // (I3D.h:5042-5046/678-679): only Game.exe copies exist
+        // (0x47ad10 etc.), unclaimed here.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let child = graph.insert(I3dFrameState::model()).unwrap();
+        assert!(!graph.frame_has_parent(parent).unwrap());
+        assert!(!graph.frame_has_child(parent).unwrap());
+        assert!(!graph.frame_has_next_sibling(child).unwrap());
+        assert!(!graph.frame_has_prev_sibling(child).unwrap());
+        graph.add_child(parent, child).unwrap();
+        assert!(graph.frame_has_child(parent).unwrap());
+        assert!(graph.frame_has_parent(child).unwrap());
+        assert_eq!(graph.frame_has_next_sibling(parent), graph.frame_has_prev_sibling(parent));
+        assert_eq!(
+            graph.frame_has_parent(FrameKey(u32::MAX)).unwrap_err(),
+            FrameError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+    #[test]
+    fn sibling_presence_distinguishes_next_and_prev() {
+        // Same inline-only hierarchy links as above: prepend order puts the
+        // second child first, so next/prev are not symmetric.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let first = graph.insert(I3dFrameState::model()).unwrap();
+        let second = graph.insert(I3dFrameState::model()).unwrap();
+        graph.add_child(parent, first).unwrap();
+        graph.add_child(parent, second).unwrap();
+        let head = graph.frame_first_child_key(parent).unwrap().unwrap();
+        assert_eq!(head, second);
+        assert!(graph.frame_has_next_sibling(head).unwrap());
+        assert!(!graph.frame_has_prev_sibling(head).unwrap());
+        let tail = graph.frame_next_key(head).unwrap().unwrap();
+        assert_eq!(tail, first);
+        assert!(!graph.frame_has_next_sibling(tail).unwrap());
+        assert!(graph.frame_has_prev_sibling(tail).unwrap());
     }
 }
