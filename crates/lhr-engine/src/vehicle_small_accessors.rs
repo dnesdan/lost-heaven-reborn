@@ -512,6 +512,25 @@ pub const CAR_SHOW_CAR_ENERGY_ENTRY: u32 = 0x429450;
 pub const CAR_REPAIR_POSITION_ENTRY: u32 = 0x41e690;
 /// `C_car::GetPlacementFromTCK1` 0x41c680: place by the car and direction.
 pub const CAR_GET_PLACEMENT_FROM_TCK1_ENTRY: u32 = 0x41c680;
+/// `C_car::GetMaterialID` 0x423540: material id of a frame, base-delegating.
+pub const CAR_GET_MATERIAL_ID_ENTRY: u32 = 0x423540;
+/// `C_car::ChangeState` 0x429a80: state switch, base-delegating.
+pub const CAR_CHANGE_STATE_ENTRY: u32 = 0x429a80;
+/// `C_car::SoundsChange` 0x429df0: sound change dispatch, base-delegating.
+pub const CAR_SOUNDS_CHANGE_ENTRY: u32 = 0x429df0;
+/// `C_car::SaveGameLoad` 0x42bdc0: savegame load, base-delegating.
+pub const CAR_SAVE_GAME_LOAD_ENTRY: u32 = 0x42bdc0;
+/// `C_car::RecordKey` 0x42c010: cutscene record key, base-delegating.
+pub const CAR_RECORD_KEY_ENTRY: u32 = 0x42c010;
+/// `C_car::PlayRecord` 0x42c220: cutscene record playback, base-delegating.
+pub const CAR_PLAY_RECORD_ENTRY: u32 = 0x42c220;
+/// `C_car::PlayStep` 0x42c3e0: cutscene record step, base-delegating.
+pub const CAR_PLAY_STEP_ENTRY: u32 = 0x42c3e0;
+/// `C_car::AddToCutscene` 0x42c7b0: cutscene membership, base-delegating.
+pub const CAR_ADD_TO_CUTSCENE_ENTRY: u32 = 0x42c7b0;
+/// `C_car::GetInvModelMatrix` 0x4293e0: inverse model matrix, cached or
+/// refreshed from the model frame.
+pub const CAR_GET_INV_MODEL_MATRIX_ENTRY: u32 = 0x4293e0;
 
 /// RVA 0x1d810, VA 0x41d810 (`C_car::SetOwner`,
 /// mafia-re 113b5b6 `game/vehicles/C_car.cpp:318-323`).
@@ -716,6 +735,115 @@ pub fn car_get_placement_from_tck1_unsupported() -> Result<bool, VehicleSmallStu
     Err(VehicleSmallStubError::Unsupported {
         entry: CAR_GET_PLACEMENT_FROM_TCK1_ENTRY,
     })
+}
+
+/// RVA 0x23540, VA 0x423540 (`C_car::GetMaterialID`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:558`).
+/// STUB: the material id of `frame` (opaque identity, never dereferenced),
+/// logging and running the `C_actor` base override. The base/frame owners
+/// stay outside this contract, so the boundary is explicit; the native
+/// `int` answer is preserved in the return type.
+pub fn car_get_material_id_unsupported(_frame: u32) -> Result<i32, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_GET_MATERIAL_ID_ENTRY,
+    })
+}
+
+/// RVA 0x29a80, VA 0x429a80 (`C_car::ChangeState`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:587`).
+/// STUB: logs and runs the `C_actor` base state switch. The base/scene
+/// owners stay outside this contract, so the boundary is explicit.
+pub fn car_change_state_unsupported() -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_CHANGE_STATE_ENTRY,
+    })
+}
+
+/// RVA 0x29df0, VA 0x429df0 (`C_car::SoundsChange`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:600`).
+/// STUB: logs and runs the `C_actor` base sound change for `sound`. The
+/// base/sound owners stay outside this contract, so the boundary is
+/// explicit.
+pub fn car_sounds_change_unsupported(_sound: i32) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_SOUNDS_CHANGE_ENTRY,
+    })
+}
+
+/// RVA 0x2bdc0, VA 0x42bdc0 (`C_car::SaveGameLoad`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:635`).
+/// STUB: logs and runs the `C_actor` base savegame load, returning its
+/// answer. The chunk owner stays outside this contract, so the boundary is
+/// explicit; the native `bool` answer is preserved in the return type.
+pub fn car_save_game_load_unsupported() -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_SAVE_GAME_LOAD_ENTRY,
+    })
+}
+
+/// RVA 0x2c010, VA 0x42c010 (`C_car::RecordKey`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:642`).
+/// STUB: logs and runs the `C_actor` base record key for `key`, returning
+/// its answer. The record owner stays outside this contract, so the
+/// boundary is explicit; the native `int` answer is preserved in the return
+/// type.
+pub fn car_record_key_unsupported(_key: i32) -> Result<i32, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_RECORD_KEY_ENTRY,
+    })
+}
+
+/// RVA 0x2c220, VA 0x42c220 (`C_car::PlayRecord`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:649`).
+/// STUB: logs and runs the `C_actor` base record playback for `key`. The
+/// record owner stays outside this contract, so the boundary is explicit.
+pub fn car_play_record_unsupported(_key: i32) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_PLAY_RECORD_ENTRY,
+    })
+}
+
+/// RVA 0x2c3e0, VA 0x42c3e0 (`C_car::PlayStep`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:656`).
+/// STUB: logs and runs the `C_actor` base record step for `key`. The record
+/// owner stays outside this contract, so the boundary is explicit.
+pub fn car_play_step_unsupported(_key: i32) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_PLAY_STEP_ENTRY,
+    })
+}
+
+/// RVA 0x2c7b0, VA 0x42c7b0 (`C_car::AddToCutscene`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:663`).
+/// STUB: logs and runs the `C_actor` base cutscene membership, returning
+/// its answer. The cutscene owner stays outside this contract, so the
+/// boundary is explicit; the native `bool` answer is preserved in the return
+/// type.
+pub fn car_add_to_cutscene_unsupported() -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_ADD_TO_CUTSCENE_ENTRY,
+    })
+}
+
+/// RVA 0x293e0, VA 0x4293e0 (`C_car::GetInvModelMatrix`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:399-408`).
+/// With `update == false` the body only returns the stored inverse model
+/// matrix (`inv_model_matrix`, row-major `[[f32; 4]; 4]` like the model
+/// matrices in [`crate::car_ai_position`]). With `update == true` it copies
+/// the model frame's world matrix into `model_matrix` and inverts the copy;
+/// the frame owner and the matrix inverse stay outside this contract, so
+/// that arm reports the boundary instead of staging a value.
+pub fn car_get_inv_model_matrix(
+    stored_inv: &[[f32; 4]; 4],
+    update: bool,
+) -> Result<&[[f32; 4]; 4], VehicleSmallStubError> {
+    if update {
+        Err(VehicleSmallStubError::Unsupported {
+            entry: CAR_GET_INV_MODEL_MATRIX_ENTRY,
+        })
+    } else {
+        Ok(stored_inv)
+    }
 }
 
 #[cfg(test)]
@@ -1328,6 +1456,100 @@ mod tests {
         assert_eq!(
             car_get_placement_from_tck1_unsupported(),
             Err(VehicleSmallStubError::Unsupported { entry: 0x41c680 })
+        );
+    }
+
+    #[test]
+    fn rva_23540_get_material_id_reports_unsupported() {
+        // C_car::GetMaterialID GAME RVA 0x23540 (VA 0x423540).
+        assert_eq!(CAR_GET_MATERIAL_ID_ENTRY, 0x423540);
+        assert_eq!(
+            car_get_material_id_unsupported(0x1234),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x423540 })
+        );
+    }
+
+    #[test]
+    fn rva_29a80_change_state_reports_unsupported() {
+        // C_car::ChangeState GAME RVA 0x29a80 (VA 0x429a80).
+        assert_eq!(CAR_CHANGE_STATE_ENTRY, 0x429a80);
+        assert_eq!(
+            car_change_state_unsupported(),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x429a80 })
+        );
+    }
+
+    #[test]
+    fn rva_29df0_sounds_change_reports_unsupported() {
+        // C_car::SoundsChange GAME RVA 0x29df0 (VA 0x429df0).
+        assert_eq!(CAR_SOUNDS_CHANGE_ENTRY, 0x429df0);
+        assert_eq!(
+            car_sounds_change_unsupported(3),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x429df0 })
+        );
+    }
+
+    #[test]
+    fn rva_2bdc0_save_game_load_reports_unsupported() {
+        // C_car::SaveGameLoad GAME RVA 0x2bdc0 (VA 0x42bdc0).
+        assert_eq!(CAR_SAVE_GAME_LOAD_ENTRY, 0x42bdc0);
+        assert_eq!(
+            car_save_game_load_unsupported(),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42bdc0 })
+        );
+    }
+
+    #[test]
+    fn rva_2c010_record_key_reports_unsupported() {
+        // C_car::RecordKey GAME RVA 0x2c010 (VA 0x42c010).
+        assert_eq!(CAR_RECORD_KEY_ENTRY, 0x42c010);
+        assert_eq!(
+            car_record_key_unsupported(7),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42c010 })
+        );
+    }
+
+    #[test]
+    fn rva_2c220_play_record_reports_unsupported() {
+        // C_car::PlayRecord GAME RVA 0x2c220 (VA 0x42c220).
+        assert_eq!(CAR_PLAY_RECORD_ENTRY, 0x42c220);
+        assert_eq!(
+            car_play_record_unsupported(7),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42c220 })
+        );
+    }
+
+    #[test]
+    fn rva_2c3e0_play_step_reports_unsupported() {
+        // C_car::PlayStep GAME RVA 0x2c3e0 (VA 0x42c3e0).
+        assert_eq!(CAR_PLAY_STEP_ENTRY, 0x42c3e0);
+        assert_eq!(
+            car_play_step_unsupported(7),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42c3e0 })
+        );
+    }
+
+    #[test]
+    fn rva_2c7b0_add_to_cutscene_reports_unsupported() {
+        // C_car::AddToCutscene GAME RVA 0x2c7b0 (VA 0x42c7b0).
+        assert_eq!(CAR_ADD_TO_CUTSCENE_ENTRY, 0x42c7b0);
+        assert_eq!(
+            car_add_to_cutscene_unsupported(),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42c7b0 })
+        );
+    }
+
+    #[test]
+    fn rva_293e0_get_inv_model_matrix_cached_read_and_update_boundary() {
+        // C_car::GetInvModelMatrix GAME RVA 0x293e0 (VA 0x4293e0): the
+        // cached arm returns the stored matrix, the refresh arm needs the
+        // model-frame owner and reports the boundary.
+        assert_eq!(CAR_GET_INV_MODEL_MATRIX_ENTRY, 0x4293e0);
+        let stored = [[1.0f32, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        assert_eq!(car_get_inv_model_matrix(&stored, false), Ok(&stored));
+        assert_eq!(
+            car_get_inv_model_matrix(&stored, true),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4293e0 })
         );
     }
 }

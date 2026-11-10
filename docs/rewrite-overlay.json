@@ -15655,6 +15655,132 @@
       "symbol": "lhr_engine::collision_scene::sphere_test_visual_unsupported",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (C_VBuffer lock + mesh LOD owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16b1a0",
+      "va": "0x56b1a0",
+      "name": "C_human::RecordKey",
+      "symbol": "lhr_engine::human_actor::HumanState::record_key_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16b670",
+      "va": "0x56b670",
+      "name": "C_human::PlayRecord",
+      "symbol": "lhr_engine::human_actor::HumanState::play_record_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16bec0",
+      "va": "0x56bec0",
+      "name": "C_human::PlaceAtTime",
+      "symbol": "lhr_engine::human_actor::HumanState::place_at_time_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16c7c0",
+      "va": "0x56c7c0",
+      "name": "C_human::GetRecordPos",
+      "symbol": "lhr_engine::human_actor::HumanState::get_record_pos_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16cc70",
+      "va": "0x56cc70",
+      "name": "C_human::GetRecordRot",
+      "symbol": "lhr_engine::human_actor::HumanState::get_record_rot_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x23540",
+      "va": "0x423540",
+      "name": "C_car::GetMaterialID",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_material_id_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29a80",
+      "va": "0x429a80",
+      "name": "C_car::ChangeState",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_change_state_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29df0",
+      "va": "0x429df0",
+      "name": "C_car::SoundsChange",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_sounds_change_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2bdc0",
+      "va": "0x42bdc0",
+      "name": "C_car::SaveGameLoad",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_save_game_load_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2c010",
+      "va": "0x42c010",
+      "name": "C_car::RecordKey",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_record_key_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2c220",
+      "va": "0x42c220",
+      "name": "C_car::PlayRecord",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_play_record_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2c3e0",
+      "va": "0x42c3e0",
+      "name": "C_car::PlayStep",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_play_step_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2c7b0",
+      "va": "0x42c7b0",
+      "name": "C_car::AddToCutscene",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_add_to_cutscene_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x293e0",
+      "va": "0x4293e0",
+      "name": "C_car::GetInvModelMatrix",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_inv_model_matrix",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

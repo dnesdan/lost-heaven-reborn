@@ -4249,9 +4249,70 @@ impl HumanState {
     /// filed; the stub exists only to pin the address while those owners
     /// stay DEFERRED.
     pub fn use_actor_unsupported() {}
+    /// GAME 0x56b1a0 (RVA 0x16b1a0, VA 0x56b1a0) C_human::RecordKey EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:54): the
+    /// body decides from the record cursor, the last key time, the pose flags
+    /// and the cutscene link whether a key is due at `time`, then stages the
+    /// frame position/rotation into the record. The record store, frame and
+    /// cutscene-link owners do not exist here, so no verdict is produced and
+    /// no owner is filed; the stub exists only to pin the address while those
+    /// owners stay DEFERRED. The native `int` answer is preserved in the
+    /// return type.
+    pub fn record_key_unsupported(_time_ms: u32) -> Result<i32, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: RECORD_KEY_ENTRY,
+        })
+    }
+    /// GAME 0x56b670 (RVA 0x16b670, VA 0x56b670) C_human::PlayRecord EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:165): the
+    /// body applies the current record at `time`, selecting or resetting the
+    /// staged animation through the animation machine or a cutscene anim on
+    /// the frame. The record store, animation-machine, cutscene and frame
+    /// owners do not exist here, so no state is touched and no owner is
+    /// filed; the stub exists only to pin the address while those owners stay
+    /// DEFERRED.
+    pub fn play_record_unsupported(_time_ms: u32) {}
+    /// GAME 0x56bec0 (RVA 0x16bec0, VA 0x56bec0) C_human::PlaceAtTime EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:368): the
+    /// body seeks the record stream to `time` and places the human from the
+    /// selected record. The record store and frame owners do not exist here,
+    /// so no verdict is produced and no owner is filed; the stub exists only
+    /// to pin the address while those owners stay DEFERRED. The native
+    /// `bool` answer is preserved in the return type.
+    pub fn place_at_time_unsupported(_time_ms: u32) -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: PLACE_AT_TIME_ENTRY,
+        })
+    }
+    /// GAME 0x56c7c0 (RVA 0x16c7c0, VA 0x56c7c0) C_human::GetRecordPos
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:565): the body walks the record blocks up to
+    /// `time` and interpolates the recorded position. The record store owner
+    /// does not exist here, so no position is produced and no owner is filed;
+    /// the stub exists only to pin the address while that owner stays
+    /// DEFERRED. The native `S_vector` answer is preserved as `[f32; 3]` in
+    /// the return type.
+    pub fn get_record_pos_unsupported(_time_ms: u32) -> Result<[f32; 3], HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: GET_RECORD_POS_ENTRY,
+        })
+    }
+    /// GAME 0x56cc70 (RVA 0x16cc70, VA 0x56cc70) C_human::GetRecordRot
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:668): the body walks the record blocks up to
+    /// `time` and interpolates the recorded rotation. The record store owner
+    /// does not exist here, so no rotation is produced and no owner is filed;
+    /// the stub exists only to pin the address while that owner stays
+    /// DEFERRED. The native `S_quat` answer is preserved as `[f32; 4]` in
+    /// the return type.
+    pub fn get_record_rot_unsupported(_time_ms: u32) -> Result<[f32; 4], HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: GET_RECORD_ROT_ENTRY,
+        })
+    }
 }
 
-/// Small-probe boundary for the bool-returning C_human leaves pinned above.
+/// Small-probe boundary for the value-returning C_human leaves pinned above.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HumanSmallProbeError {
     Unsupported { entry: u32 },
@@ -4265,6 +4326,16 @@ pub const POSE_SET_POSE_AIMED_ENTRY: u32 = 0x579ea0;
 pub const DROP_OUT_ITEMS_ENTRY: u32 = 0x57faa0;
 /// `C_human::ZasrateLezeniZAuta_ve2rano` entry, GAME VA 0x580ca0.
 pub const ZASRATE_LEZENI_VE2RANO_ENTRY: u32 = 0x580ca0;
+/// `C_human::RecordKey` entry, GAME VA 0x56b1a0.
+pub const RECORD_KEY_ENTRY: u32 = 0x56b1a0;
+/// `C_human::PlayRecord` entry, GAME VA 0x56b670.
+pub const PLAY_RECORD_ENTRY: u32 = 0x56b670;
+/// `C_human::PlaceAtTime` entry, GAME VA 0x56bec0.
+pub const PLACE_AT_TIME_ENTRY: u32 = 0x56bec0;
+/// `C_human::GetRecordPos` entry, GAME VA 0x56c7c0.
+pub const GET_RECORD_POS_ENTRY: u32 = 0x56c7c0;
+/// `C_human::GetRecordRot` entry, GAME VA 0x56cc70.
+pub const GET_RECORD_ROT_ENTRY: u32 = 0x56cc70;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HumanDataError {
@@ -6503,6 +6574,58 @@ mod human_state_flags_tests {
     // staged words.
     fn rva_181220_zasrate_vybliknuti_stub_runs_without_state() {
         HumanState::zasrate_vybliknuti_ve3rano_unsupported();
+    }
+    #[test]
+    // GAME 0x56b1a0 (RVA 0x16b1a0) C_human::RecordKey (mafia-re 113b5b6
+    // game/actors/C_human.cpp:54): explicit unsupported stub, record-store/
+    // frame/cutscene-link owners; the native int verdict is preserved as Err.
+    fn rva_16b1a0_record_key_reports_unsupported() {
+        assert_eq!(RECORD_KEY_ENTRY, 0x56b1a0);
+        assert_eq!(
+            HumanState::record_key_unsupported(100),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x56b1a0 })
+        );
+    }
+    #[test]
+    // GAME 0x56b670 (RVA 0x16b670) C_human::PlayRecord (mafia-re 113b5b6
+    // game/actors/C_human.cpp:165): explicit unsupported stub, record-store/
+    // animation-machine/cutscene/frame owners; invoking it touches no staged
+    // words.
+    fn rva_16b670_play_record_stub_runs_without_state() {
+        HumanState::play_record_unsupported(100);
+    }
+    #[test]
+    // GAME 0x56bec0 (RVA 0x16bec0) C_human::PlaceAtTime (mafia-re 113b5b6
+    // game/actors/C_human.cpp:368): explicit unsupported stub, record-store/
+    // frame owners; the native bool verdict is preserved as Err.
+    fn rva_16bec0_place_at_time_reports_unsupported() {
+        assert_eq!(PLACE_AT_TIME_ENTRY, 0x56bec0);
+        assert_eq!(
+            HumanState::place_at_time_unsupported(100),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x56bec0 })
+        );
+    }
+    #[test]
+    // GAME 0x56c7c0 (RVA 0x16c7c0) C_human::GetRecordPos (mafia-re 113b5b6
+    // game/actors/C_human.cpp:565): explicit unsupported stub, record-store
+    // owner; the native S_vector verdict is preserved as Err.
+    fn rva_16c7c0_get_record_pos_reports_unsupported() {
+        assert_eq!(GET_RECORD_POS_ENTRY, 0x56c7c0);
+        assert_eq!(
+            HumanState::get_record_pos_unsupported(100),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x56c7c0 })
+        );
+    }
+    #[test]
+    // GAME 0x56cc70 (RVA 0x16cc70) C_human::GetRecordRot (mafia-re 113b5b6
+    // game/actors/C_human.cpp:668): explicit unsupported stub, record-store
+    // owner; the native S_quat verdict is preserved as Err.
+    fn rva_16cc70_get_record_rot_reports_unsupported() {
+        assert_eq!(GET_RECORD_ROT_ENTRY, 0x56cc70);
+        assert_eq!(
+            HumanState::get_record_rot_unsupported(100),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x56cc70 })
+        );
     }
     #[test]
     // GAME 0x5878d0 (RVA 0x1878d0) C_human::_intern_ForceDeath (mafia-re
