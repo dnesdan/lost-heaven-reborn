@@ -673,6 +673,36 @@ fn load(
         car: None,
     })
 }
+/// Triangle soup of one render-scene mesh for the walk probes.
+fn scene_mesh_tris(meshes: &[Mesh], index: usize) -> Option<Vec<[[f32; 3]; 3]>> {
+    let mesh = meshes.get(index)?;
+    let mut tris = Vec::new();
+    for face in mesh.indices.chunks_exact(3) {
+        let mut tri = [[0.0; 3]; 3];
+        for (slot, corner) in tri.iter_mut().zip(face.iter()) {
+            *slot = mesh.vertices.get(*corner as usize)?.position;
+        }
+        tris.push(tri);
+    }
+    if tris.is_empty() {
+        None
+    } else {
+        Some(tris)
+    }
+}
+
+/// Highest real-geometry ground under `(x, z)` in a render scene.
+fn scene_ground_at(
+    space: &lhr_engine::mission_play::MeshGroundSpace,
+    meshes: &[Mesh],
+    x: f32,
+    z: f32,
+    top_y: f32,
+    drop: f32,
+) -> Option<f32> {
+    space.ground_below(&|index| scene_mesh_tris(meshes, index), x, z, top_y, drop)
+}
+
 /// Headless end-to-end exercise of the MISE01 playable slice against the
 /// user's original data: intro cutscene lock over the real recorder state
 /// machine, on-foot walk to the staged taxi stand on REAL scene geometry,
@@ -682,7 +712,7 @@ fn load(
 fn mission_play_probe(options: &Options) -> Result<(), String> {
     use lhr_engine::mission_play::{
         mesh_aabb, CutscenePlayback, MeshGroundSpace, Mise01Progress, Mise01Stage, OnFootPlayer,
-        WalkInput, TAXI_DESTINATION_M,
+        WalkInput,
     };
     let root = options.root.as_deref().ok_or("Probe needs --root")?;
     // 1. Cutscene lock over the real recorder predicate and state machine.
@@ -752,38 +782,69 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         "probe scene: {} static meshes loaded for MISE01",
         loaded.scene.meshes.len()
     );
+    println!(
+        "probe camera: eye [{:.1}, {:.1}, {:.1}] target [{:.1}, {:.1}, {:.1}]",
+        loaded.camera.eye.x,
+        loaded.camera.eye.y,
+        loaded.camera.eye.z,
+        loaded.camera.target.x,
+        loaded.camera.target.y,
+        loaded.camera.target.z
+    );
+    {
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        let mut n = 0u64;
+        for mesh in &loaded.scene.meshes {
+            for v in &mesh.vertices {
+                for a in 0..3 {
+                    min[a] = min[a].min(v.position[a]);
+                    max[a] = max[a].max(v.position[a]);
+                }
+                n += 1;
+            }
+        }
+        println!("probe scene bounds: [{min:.1?}] [{max:.1?}] verts={n}");
+    }
     let ground = MeshGroundSpace::build(loaded.scene.meshes.len(), &|index| {
         loaded.scene.meshes.get(index).and_then(|mesh| {
             let verts: Vec<[f32; 3]> = mesh.vertices.iter().map(|v| v.position).collect();
             mesh_aabb(&verts)
         })
     });
-    let tris_of = |index: usize| {
-        loaded.scene.meshes.get(index).and_then(|mesh| {
-            let mut tris = Vec::new();
-            for face in mesh.indices.chunks_exact(3) {
-                let mut tri = [[0.0; 3]; 3];
-                for (slot, corner) in tri.iter_mut().zip(face.iter()) {
-                    *slot = mesh.vertices.get(*corner as usize)?.position;
-                }
-                tris.push(tri);
-            }
-            if tris.is_empty() {
-                None
-            } else {
-                Some(tris)
-            }
-        })
-    };
-    let focus = loaded.camera.target;
+    let tris_of = |index: usize| scene_mesh_tris(&loaded.scene.meshes, index);
+    // Real spawn positions from the MISE01 scene2 actor metadata.
+    let (player_spot, taxi_spot) =
+        lhr_engine::mission_play::mission_actor_spawn(&installation, "mise01")?;
+    println!(
+        "probe actors: player [{:.1}, {:.1}, {:.1}], taxi [{:.1}, {:.1}, {:.1}]",
+        player_spot[0], player_spot[1], player_spot[2], taxi_spot[0], taxi_spot[1], taxi_spot[2]
+    );
     let spawn_ground = ground
-        .ground_below(&tris_of, focus.x, focus.z, focus.y + 2.0, 10.0)
-        .unwrap_or(focus.y);
-    let mut player = OnFootPlayer::spawn([focus.x, spawn_ground, focus.z], 0.0);
-    if !progress.stage_taxi_stand([focus.x + 25.0, spawn_ground, focus.z], 3.0) {
+        .ground_below(
+            &tris_of,
+            player_spot[0],
+            player_spot[2],
+            player_spot[1] + 100.0,
+            200.0,
+        )
+        .or_else(|| {
+            ground.ground_below(
+                &tris_of,
+                player_spot[0],
+                player_spot[2],
+                player_spot[1] + 2.0,
+                10.0,
+            )
+        })
+        .unwrap_or(player_spot[1]);
+    // Walk toward the taxi: face it from the spawn.
+    let to_taxi = [taxi_spot[0] - player_spot[0], taxi_spot[2] - player_spot[2]];
+    let cam_yaw = to_taxi[0].atan2(to_taxi[1]);
+    let mut player = OnFootPlayer::spawn([player_spot[0], spawn_ground, player_spot[2]], cam_yaw);
+    if !progress.stage_taxi_stand([taxi_spot[0], spawn_ground, taxi_spot[2]], 3.0) {
         return Err("Taxi stand refused to stage".into());
     }
-    let cam_yaw = std::f32::consts::FRAC_PI_2;
     let mut walk_ticks = 0u32;
     let mut min_ground = f32::INFINITY;
     let mut max_ground = f32::NEG_INFINITY;
@@ -836,6 +897,51 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     );
     // Wall-sweep proof on real geometry: 200 m rays in 8 compass headings.
     let stand = player.pos();
+    // Diagnostic grid: ground heights around the stand expose whether the
+    // render scene covers the metadata spawn frame.
+    let mut grid_hits = 0u32;
+    let mut grid_min = f32::INFINITY;
+    let mut grid_max = f32::NEG_INFINITY;
+    for gx in -2..=2 {
+        for gz in -2..=2 {
+            if let Some(h) = ground.ground_below(
+                &tris_of,
+                stand[0] + gx as f32 * 5.0,
+                stand[2] + gz as f32 * 5.0,
+                stand[1] + 2.0,
+                50.0,
+            ) {
+                grid_hits += 1;
+                grid_min = grid_min.min(h);
+                grid_max = grid_max.max(h);
+            }
+        }
+    }
+    println!(
+        "probe grid: {grid_hits}/25 grounded around the stand, range [{grid_min:.2}, {grid_max:.2}]"
+    );
+    // High-ray diagnostic: is there any geometry above the metadata spawn?
+    {
+        let mut hits = 0u32;
+        let mut hi_min = f32::INFINITY;
+        let mut hi_max = f32::NEG_INFINITY;
+        for gx in -2..=2 {
+            for gz in -2..=2 {
+                if let Some(h) = ground.ground_below(
+                    &tris_of,
+                    stand[0] + gx as f32 * 5.0,
+                    stand[2] + gz as f32 * 5.0,
+                    stand[1] + 100.0,
+                    200.0,
+                ) {
+                    hits += 1;
+                    hi_min = hi_min.min(h);
+                    hi_max = hi_max.max(h);
+                }
+            }
+        }
+        println!("probe high-ray grid: {hits}/25 grounded, range [{hi_min:.2}, {hi_max:.2}]");
+    }
     let mut blocked_dirs = 0u32;
     for k in 0..8 {
         let heading = k as f32 * std::f32::consts::FRAC_PI_4;
@@ -1526,10 +1632,9 @@ impl App {
             window.set_title(self.mise01.hud_line());
         }
     }
-    /// Spawn the on-foot player at the camera focus after the MISE01 scene
-    /// loads. The taxi-stand marker is an explicit host placement 25 m ahead
-    /// of the spawn along the camera view; original stand coordinates stay
-    /// open with the mission scripts. The drivable taxi is the real
+    /// Spawn the on-foot player at the real MISE01 actor position after the
+    /// scene loads (player/taxi from scene2 metadata; the camera-focus 25 m
+    /// marker is only the degraded fallback). The drivable taxi is the real
     /// `models/taxi00.4ds` driving world for `mise01`; if it fails to open,
     /// walking and the cutscene stand-in still work and boarding reports it.
     /// Ground heights come from the loaded static scene geometry through
@@ -1549,36 +1654,68 @@ impl App {
                     lhr_engine::mission_play::mesh_aabb(&verts)
                 })
             });
-        let ground_at = |x: f32, z: f32, top_y: f32| {
-            self.walk_ground.ground_below(
-                &|index| {
-                    self.scene.meshes.get(index).and_then(|mesh| {
-                        let mut tris = Vec::new();
-                        for face in mesh.indices.chunks_exact(3) {
-                            let mut tri = [[0.0; 3]; 3];
-                            for (slot, corner) in tri.iter_mut().zip(face.iter()) {
-                                *slot = mesh.vertices.get(*corner as usize)?.position;
-                            }
-                            tris.push(tri);
-                        }
-                        if tris.is_empty() {
-                            None
-                        } else {
-                            Some(tris)
-                        }
-                    })
-                },
-                x,
-                z,
-                top_y,
+        // Real spawn positions from the MISE01 scene2 actor metadata. The
+        // camera-focus fallback only runs when the metadata is absent.
+        let (spawn_xz, stand_xz) = match self.options.root.as_deref() {
+            Some(root) => match lhr_assets::Installation::open(root)
+                .map_err(|e| e.to_string())
+                .and_then(|installation| {
+                    lhr_engine::mission_play::mission_actor_spawn(&installation, "mise01")
+                }) {
+                Ok((player, taxi)) => {
+                    println!(
+                        "MISE01 actors from scene2: player [{:.1}, {:.1}, {:.1}], taxi [{:.1}, {:.1}, {:.1}]",
+                        player[0], player[1], player[2], taxi[0], taxi[1], taxi[2]
+                    );
+                    ([player[0], player[2]], [taxi[0], taxi[2]])
+                }
+                Err(error) => {
+                    println!("MISE01 actor metadata unavailable ({error}); focus fallback");
+                    (
+                        [focus.x, focus.z],
+                        [focus.x + forward[0] * 25.0, focus.z + forward[1] * 25.0],
+                    )
+                }
+            },
+            None => (
+                [focus.x, focus.z],
+                [focus.x + forward[0] * 25.0, focus.z + forward[1] * 25.0],
+            ),
+        };
+        // The scene2 actor height can sit far below the static geometry, so
+        // the spawn snap casts a high ray once; per-frame probes keep the
+        // tight step-up window above the feet.
+        let spawn_y = scene_ground_at(
+            &self.walk_ground,
+            &self.scene.meshes,
+            spawn_xz[0],
+            spawn_xz[1],
+            focus.y + 100.0,
+            200.0,
+        )
+        .or_else(|| {
+            scene_ground_at(
+                &self.walk_ground,
+                &self.scene.meshes,
+                spawn_xz[0],
+                spawn_xz[1],
+                focus.y + 2.0,
                 10.0,
             )
-        };
-        let spawn_y = ground_at(focus.x, focus.z, focus.y + 2.0).unwrap_or(focus.y);
+        })
+        .unwrap_or(focus.y);
         self.walk_player = Some(lhr_engine::mission_play::OnFootPlayer::spawn(
-            [focus.x, spawn_y, focus.z],
+            [spawn_xz[0], spawn_y, spawn_xz[1]],
             forward[0].atan2(forward[1]),
         ));
+        // Frame the real spawn.
+        let to_player = Vec3::new(
+            spawn_xz[0] - self.camera.target.x,
+            0.0,
+            spawn_xz[1] - self.camera.target.z,
+        );
+        self.camera.target += to_player;
+        self.camera.eye += to_player;
         self.cutscene = lhr_engine::mission_play::CutscenePlayback::idle();
         self.cutscene_show = lhr_engine::cutscene_owner::CutsceneShowStart::default();
         self.recorder = lhr_engine::cutscene_owner::CutsceneOwner::constructed(
@@ -1592,14 +1729,8 @@ impl App {
         self.taxi_odometer_m = 0.0;
         self.last_drive_speed = 0.0;
         self.last_taxi_pos = [0.0; 3];
-        self.mise01.stage_taxi_stand(
-            [
-                focus.x + forward[0] * 25.0,
-                focus.y,
-                focus.z + forward[1] * 25.0,
-            ],
-            3.0,
-        );
+        self.mise01
+            .stage_taxi_stand([stand_xz[0], spawn_y, stand_xz[1]], 3.0);
         let taxi = self.options.root.as_ref().map(|root| {
             lhr_assets::Installation::open(root)
                 .map_err(|e| e.to_string())
@@ -1652,10 +1783,13 @@ impl App {
             None => {}
         }
         println!(
-            "MISE01 on foot: spawn [{:.1}, {:.1}, {:.1}]; taxi stand 25 m ahead; {}",
-            focus.x,
-            focus.y,
-            focus.z,
+            "MISE01 on foot: spawn [{:.1}, {:.1}, {:.1}]; stand [{:.1}, {:.1}, {:.1}]; {}",
+            spawn_xz[0],
+            spawn_y,
+            spawn_xz[1],
+            stand_xz[0],
+            spawn_y,
+            stand_xz[1],
             self.mise01.hud_line()
         );
         self.show_objective();
@@ -1756,29 +1890,17 @@ impl App {
             let cam_yaw = (-offset.x).atan2(-offset.z);
             let before = self.mise01.stage();
             // Real-geometry ground under the feet and wall sweep against the
-            // static scene; the void means a fall. Slides stay deferred: a
-            // blocked step ends where it touched.
-            let tris_of = |index: usize| {
-                self.scene.meshes.get(index).and_then(|mesh| {
-                    let mut tris = Vec::new();
-                    for face in mesh.indices.chunks_exact(3) {
-                        let mut tri = [[0.0; 3]; 3];
-                        for (slot, corner) in tri.iter_mut().zip(face.iter()) {
-                            *slot = mesh.vertices.get(*corner as usize)?.position;
-                        }
-                        tris.push(tri);
-                    }
-                    if tris.is_empty() {
-                        None
-                    } else {
-                        Some(tris)
-                    }
-                })
-            };
-            let ground_here = |x: f32, z: f32, top_y: f32| {
-                self.walk_ground.ground_below(&tris_of, x, z, top_y, 4.0)
-            };
+            // static scene; the void means a fall. One slide bounce; corners
+            // stop the step.
             if let Some(player) = &mut self.walk_player {
+                let ground_here = scene_ground_at(
+                    &self.walk_ground,
+                    &self.scene.meshes,
+                    player.pos()[0],
+                    player.pos()[2],
+                    player.pos()[1] + 0.6,
+                    4.0,
+                );
                 player.step(
                     elapsed_ms,
                     lhr_engine::mission_play::WalkInput {
@@ -1787,9 +1909,13 @@ impl App {
                         run,
                     },
                     cam_yaw,
-                    ground_here(player.pos()[0], player.pos()[2], player.pos()[1] + 0.6),
+                    ground_here,
                     |from, delta| {
-                        let (rest, blocked) = self.walk_ground.sweep_walls(&tris_of, from, delta);
+                        let (rest, blocked) = self.walk_ground.sweep_walls(
+                            &|index| scene_mesh_tris(&self.scene.meshes, index),
+                            from,
+                            delta,
+                        );
                         blocked.then(|| lhr_engine::human_move_coll::StepContact {
                             newpos: rest,
                             material: 0,

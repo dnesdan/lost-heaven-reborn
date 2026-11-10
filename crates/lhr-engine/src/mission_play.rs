@@ -780,6 +780,30 @@ impl MeshGroundSpace {
     }
 }
 
+/// Real player/taxi spawn positions from mission scene2 actor metadata
+/// (`TommyTAXIDRIVER` kind 2, `taxi` kind 4 with their object world
+/// positions). No coordinates are invented; both must be present.
+pub fn mission_actor_spawn(
+    installation: &lhr_assets::Installation,
+    mission: &str,
+) -> Result<([f32; 3], [f32; 3]), String> {
+    let path = format!("missions/{mission}/scene2.bin");
+    let bytes = installation
+        .read_optional(&path)
+        .map_err(|e| format!("Mission actor metadata read stopped: {e}"))?
+        .ok_or_else(|| format!("Mission actor metadata absent: {path}"))?;
+    let scene = lhr_assets::parse_scene2(&bytes)
+        .map_err(|e| format!("Mission actor metadata parse stopped: {e:?}"))?;
+    let actors = crate::mission_world_completeness::resolve_mission_actors(&scene);
+    match (actors.player_world_position, actors.taxi_world_position) {
+        (Some(player), Some(taxi)) => Ok((player, taxi)),
+        _ => Err(format!(
+            "Mission actor metadata incomplete: player_found={} taxi_found={}",
+            actors.player_found, actors.taxi_found
+        )),
+    }
+}
+
 /// Full Dijkstra distances from the node nearest `from` over `neighbors`
 /// edge weights. Returns the start node and per-node distances (`INFINITY`
 /// stays unreached). The search itself is an explicit host driver.
