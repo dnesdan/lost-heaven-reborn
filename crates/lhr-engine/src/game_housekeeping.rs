@@ -29,6 +29,10 @@ pub use game_clock::{GameClock, GameClockSource};
 mod game_random;
 pub use game_random::{GameRandom, GameRandomSource};
 
+#[cfg(test)]
+#[path = "game_tick_counters_tests.rs"]
+mod tick_counters_tests;
+
 /// Opaque frame handle. Native `I3D_frame*` identity is the caller's concern.
 pub type FrameId = u32;
 
@@ -753,6 +757,7 @@ pub struct GameInlineState {
     player: Option<ActorId>,
     clear_diff_data: bool,
     game_time: GameClock,
+    game_frames: i32,
     random: GameRandom,
     init_frames: u32,
     timeout_program: u32,
@@ -832,6 +837,23 @@ impl GameInlineState {
     /// itself stays with the game-tick owner.
     pub fn set_game_time(&mut self, game_time: i32) {
         self.game_time.set(game_time);
+    }
+
+    /// Read-only observation of the represented signed PC game-frame counter.
+    pub fn game_frame_count(&self) -> i32 {
+        self.game_frames
+    }
+
+    /// Three consecutive counter writes in C_game::Tick (RVA 0x1a51c0),
+    /// mafia-re fe7e7464 game.cpp. Weather, failure/death handling and deferred
+    /// actor resolution precede this boundary. This fragment does not perform
+    /// those dependencies or a complete Tick and claims no function credit.
+    pub(crate) fn advance_tick_counters(&mut self, delta: u32) -> i32 {
+        let time = self.get_game_time().wrapping_add(delta as i32);
+        self.set_game_time(time);
+        self.game_frames = self.game_frames.wrapping_add(1);
+        self.init_frames = self.init_frames.wrapping_add(1);
+        time
     }
 
     /// Non-owning live clock source for programs retained by this game.

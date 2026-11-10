@@ -235,3 +235,40 @@ fn owned_session_program_uses_shared_random_without_reseeding_at_init() {
     finish(&mut session);
     assert!(session.seed_owned_game_random(1).is_err());
 }
+
+#[test]
+fn explicit_tick_step_counts_once_not_once_per_program_instruction() {
+    let fixture = fixture(
+        b"commandblock 1\ndim_flt 2\ngetgametime 0\ngetgametime 1\ncommandblock 0",
+    );
+    let mut session = fixture.session();
+    assert!(session.advance_owned_game_time(7).is_err());
+    assert_eq!(session.game_state().game_frame_count(), 0);
+    load(&mut session, &[]).unwrap();
+    assert_eq!(session.advance_owned_game_time(7), Ok(7));
+    session.initialize_owned_global_programs().unwrap();
+    run(&mut session).unwrap();
+    run(&mut session).unwrap();
+    assert_eq!(session.game_state().get_game_time(), 7);
+    assert_eq!(session.game_state().game_frame_count(), 1);
+    assert_eq!(session.game_state().get_init_frames(), 1);
+    assert_eq!(
+        session.loader().unwrap().content.programs()[0]
+            .runtime()
+            .unwrap()
+            .fields
+            .floats
+            .as_ref()
+            .unwrap()
+            .as_ref(),
+        &[7.0, 7.0]
+    );
+    assert_eq!(session.advance_owned_game_time(0), Ok(7));
+    assert_eq!(session.game_state().game_frame_count(), 2);
+    assert_eq!(session.game_state().get_init_frames(), 2);
+    finish(&mut session);
+    assert!(session.advance_owned_game_time(50).is_err());
+    assert_eq!(session.game_state().get_game_time(), 7);
+    assert_eq!(session.game_state().game_frame_count(), 2);
+    assert_eq!(session.game_state().get_init_frames(), 2);
+}
