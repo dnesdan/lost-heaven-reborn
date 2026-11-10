@@ -71,6 +71,7 @@ fn menu_navigation(code: KeyCode, shift: bool) -> Option<menu::Navigation> {
 #[derive(Clone)]
 struct Options {
     mission_load_probe: bool,
+    mission_play_probe: bool,
     probe_model_directories: Vec<String>,
     probe_render_capture: Option<PathBuf>,
     root: Option<PathBuf>,
@@ -101,6 +102,7 @@ fn options() -> Result<Options, String> {
 fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut result = Options {
         mission_load_probe: false,
+        mission_play_probe: false,
         probe_model_directories: Vec::new(),
         probe_render_capture: None,
         root: None,
@@ -131,6 +133,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         provided_options.push(arg.clone());
         match arg.as_str() {
             "--mission-load-probe" => result.mission_load_probe = true,
+            "--mission-play-probe" => result.mission_play_probe = true,
             "--probe-model-dir" => result.probe_model_directories.push(args.next().ok_or("Missing probe model directory")?),
             "--probe-render-capture" => result.probe_render_capture = Some(args.next().ok_or("Missing probe GPU capture output")?.into()),
             "--textures" => result.textures = args.next().ok_or("Missing textures argument")?,
@@ -172,6 +175,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
                 "--lab requires --features engine-lab and a native window. It opens scenes/models, environment previews, camera and model tools, presets and actual driving input. F1 panel, F2 pause, F3 16 ms step, F4 reload. --synthetic --lab starts the public gallery; --root may also supply its asset browser. --lab-scene gallery|courtyard|primitives|lights selects a public --synthetic scene, including headless captures. --lab-preset FILE.lhr-lab loads presentation settings for --lab or --headless. --capture omits the Lab overlay. ",
                 "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] [--probe-render-capture PNG] runs the shared CPU load-session diagnostic without a window. Optional GPU capture renders the actual retained mission Scene, and does not execute gameplay. Other presentation and playback flags are excluded. ",
+                "--mission-play-probe --root DIRECTORY plays the MISE01 slice headless against original data without a window: intro cutscene lock, on-foot walk to the taxi stand, board the staged taxi00.4ds driving world and drive 150 m to Complete. Other presentation and playback flags are excluded. ",
                 "--audio-capture WAV records the actual mixed driving audio and requires --car-driving. ",
                 "--car-driving requires --root and --model and opens the original MISE01 driving world. W accelerates, S brakes, A/D steer, Space applies the handbrake; R reloads and Escape exits. The chase camera is a host view. ",
                 "--car-inspection requires --root and --model; constructs and initializes the CPU car, then renders that same live arena's camera-selected owned LOD and source distance fade, with unlit materials. A/D previews the original wheel-steering update; arrows/W/S control the camera. R explicitly reloads the car and resets live input. Lighting, other material effects, body simulation, driving and mission execution are unavailable. ",
@@ -184,6 +188,19 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
             ).into()),
             _ => return Err("Unknown command option".into()),
         }
+    }
+    if result.mission_play_probe {
+        for option in &provided_options {
+            if !matches!(option.as_str(), "--mission-play-probe" | "--root") {
+                return Err(format!(
+                    "{option} is not used by --mission-play-probe; omit it"
+                ));
+            }
+        }
+        if result.root.is_none() {
+            return Err("--mission-play-probe requires --root".into());
+        }
+        return Ok(result);
     }
     if result.mission_load_probe {
         for option in &provided_options {
@@ -655,6 +672,142 @@ fn load(
         animation,
         car: None,
     })
+}
+/// Headless end-to-end exercise of the MISE01 playable slice against the
+/// user's original data: intro cutscene lock, on-foot walk to the staged
+/// taxi stand, board the real `models/taxi00.4ds` driving world and drive
+/// 150 m to `Complete`. Prints every stage transition; fails loudly on the
+/// first stage that does not advance. No window or GPU is required.
+fn mission_play_probe(root: &std::path::Path) -> Result<(), String> {
+    use lhr_engine::mission_play::{
+        CutscenePlayback, Mise01Progress, Mise01Stage, OnFootPlayer, WalkInput, TAXI_DESTINATION_M,
+    };
+    // 1. Intro cutscene lock with the real `cutscene_show_start` global.
+    let mut progress = Mise01Progress::fresh();
+    let mut show = lhr_engine::cutscene_owner::CutsceneShowStart::default();
+    let mut cutscene = CutscenePlayback::idle();
+    assert_eq!(progress.stage(), Mise01Stage::WatchIntro);
+    if !cutscene.start(8000) {
+        return Err("Cutscene refused to start".into());
+    }
+    show.set_show_start(1);
+    let mut cut_ticks = 0u32;
+    while !cutscene.advance(16) {
+        cut_ticks += 1;
+        if cut_ticks > 1000 {
+            return Err("Cutscene did not finish within 1000 ticks".into());
+        }
+    }
+    show.set_show_start(0);
+    progress.cutscene_done();
+    println!(
+        "probe cutscene: locked 8000 ms, finished after {} ticks, show_start={}; stage={:?}",
+        cut_ticks + 1,
+        show.staged_ticks(),
+        progress.stage()
+    );
+    if progress.stage() != Mise01Stage::ReachTaxiStand || show.staged_ticks() != 0 {
+        return Err("Cutscene did not hand over to ReachTaxiStand".into());
+    }
+    // 2. On-foot walk 25 m east to the staged taxi stand.
+    let mut player = OnFootPlayer::spawn([0.0, 0.0, 0.0], 0.0);
+    if !progress.stage_taxi_stand([25.0, 0.0, 0.0], 3.0) {
+        return Err("Taxi stand refused to stage".into());
+    }
+    let cam_yaw = std::f32::consts::FRAC_PI_2;
+    let mut walk_ticks = 0u32;
+    while progress.stage() == Mise01Stage::ReachTaxiStand {
+        player.step(
+            16,
+            WalkInput {
+                forward: 1.0,
+                strafe: 0.0,
+                run: false,
+            },
+            cam_yaw,
+            Some(0.0),
+            |_, _| None,
+        );
+        progress.player_moved(player.pos());
+        walk_ticks += 1;
+        if walk_ticks > 3000 {
+            return Err(format!(
+                "Walker never reached the stand (pos {:?})",
+                player.pos()
+            ));
+        }
+    }
+    println!(
+        "probe walk: reached the stand after {} ticks at pos [{:.2}, {:.2}, {:.2}]; stage={:?}",
+        walk_ticks,
+        player.pos()[0],
+        player.pos()[1],
+        player.pos()[2],
+        progress.stage()
+    );
+    // 3. Board the real taxi driving world and drive to Complete.
+    let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
+    let mut patches = lhr_engine::program_patch::ProgramPatchStartup::default();
+    patches
+        .initialize(&installation)
+        .map_err(|e| format!("Startup program patches: {e:?}"))?;
+    let lease = patches
+        .lease()
+        .map_err(|e| format!("Startup patch owner: {e:?}"))?;
+    let mut taxi = lhr_engine::car_runtime::GuardedCarRuntime::open_driving_scene_with_patches(
+        installation,
+        "models/taxi00.4ds",
+        lhr_engine::car_runtime::CarRuntimeOptions {
+            material_driver_time: 0,
+            ..Default::default()
+        },
+        "mise01",
+        &lease,
+    )
+    .map_err(|e| e.to_string())?;
+    taxi.start_driving("mise01").map_err(|e| e.to_string())?;
+    progress.boarded_taxi();
+    if progress.stage() != Mise01Stage::DrivingToDestination {
+        return Err("Boarding did not hand over to DrivingToDestination".into());
+    }
+    let mut odometer = 0.0f32;
+    let mut drive_ticks = 0u32;
+    let mut last = lhr_engine::car_runtime::CarDrivingState::default();
+    while odometer < TAXI_DESTINATION_M {
+        last = taxi
+            .driving_step(
+                16,
+                lhr_engine::car_runtime::CarDrivingInput {
+                    throttle: 1.0,
+                    brake: 0.0,
+                    steer: 0.0,
+                    handbrake: false,
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        odometer += last.speed.abs() * 0.016;
+        drive_ticks += 1;
+        if drive_ticks > 20000 {
+            return Err(format!(
+                "Taxi stalled before the destination (odometer {odometer:.1} m, speed {})",
+                last.speed
+            ));
+        }
+    }
+    progress.drive_distance(odometer);
+    println!(
+        "probe drive: odometer {odometer:.1} m after {drive_ticks} ticks, speed {}, pos [{:.1}, {:.1}, {:.1}]; stage={:?}",
+        last.speed,
+        last.position[0],
+        last.position[1],
+        last.position[2],
+        progress.stage()
+    );
+    if progress.stage() != Mise01Stage::Complete {
+        return Err("Odometer did not complete the mission".into());
+    }
+    println!("MISSION PLAY PROBE COMPLETE: WatchIntro -> ReachTaxiStand -> BoardTaxi -> DrivingToDestination -> Complete");
+    Ok(())
 }
 type DrivingWorldView = ([i32; 2], u64);
 
@@ -2487,6 +2640,9 @@ fn run() -> Result<(), String> {
             &options.probe_model_directories,
             options.probe_render_capture.as_deref(),
         );
+    }
+    if options.mission_play_probe {
+        return mission_play_probe(options.root.as_deref().unwrap());
     }
     // These optional startup files are read once, before any Scene/source owner.
     // Keep their actual table across App transitions and inspection reloads.
