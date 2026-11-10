@@ -3,10 +3,12 @@
 //! source decoding only, not command execution, native allocation failure, or
 //! original-runtime equivalence.
 //!
-//! Reference: Marvisak/mafia-re d0fbd6d, game/mission/C_program.cpp
-//! DecodeParams groups for the remaining 18 commands (autosavegame etc).
-//! For minimal parity we admit 1-3 integer words as int[] with atoi, which
-//! matches the native int[1]/int[2]/int[3] groups for these commands.
+//! AUTOSAVEGAME, AUTOSAVEGAMEFULL and ZATMYSE follow DecodeParams at
+//! Marvisak/mafia-re fe7e74643f5415c358aa312dd4e7d9da5f60ddcc,
+//! game/mission/C_program.cpp (DecodeParams): two owned words, with an
+//! optional second argument defaulting to 500 after the first conversion.
+//! Other selectors retain the legacy 1-3-integer fallback. That fallback
+//! is not evidence of their original parameter layouts or execution.
 
 #![forbid(unsafe_code)]
 
@@ -95,12 +97,21 @@ impl RemainingParameterSlot {
         if !supports_remaining_opcode(opcode) {
             return Err(RemainingDecodeError::UnsupportedOpcode(opcode));
         }
-        // Remaining commands admit 1-3 words (most are 1 or 2, a few 3). We admit any 1-3.
-        if params.count < 1 || params.count > 3 {
-            return Ok(false);
-        }
+        let second_default = optional_second_default(opcode);
+        let words = if second_default.is_some() {
+            if params.count != 1 && params.count != 2 {
+                return Ok(false);
+            }
+            2
+        } else {
+            // Legacy admission for selectors whose layouts are still unaudited.
+            if params.count < 1 || params.count > 3 {
+                return Ok(false);
+            }
+            params.count
+        };
         self.parameter = backend
-            .allocate_remaining(params.count)
+            .allocate_remaining(words)
             .map_err(RemainingDecodeError::Allocation)?;
         let p = self
             .parameter
@@ -114,7 +125,21 @@ impl RemainingParameterSlot {
                 .map_err(|e| RemainingDecodeError::Conversion { index: i, error: e })?;
             p.values[i] = Some(v);
         }
+        // Do not publish the default before conversion of the first word, or
+        // before an explicit second-word conversion that can fail or unwind.
+        if params.count == 1 {
+            if let Some(default) = second_default {
+                p.values[1] = Some(default);
+            }
+        }
         Ok(true)
+    }
+}
+
+fn optional_second_default(opcode: u32) -> Option<i32> {
+    match opcode {
+        129 | 130 | 234 => Some(500),
+        _ => None,
     }
 }
 
@@ -135,8 +160,11 @@ pub fn supports_remaining_opcode(opcode: u32) -> bool {
 mod tests {
     use super::*;
     #[test]
-    fn remaining_accepts_one_to_three_ints() {
+    fn legacy_remaining_accepts_one_to_three_ints() {
         for opcode in REMAINING_OPCODE_IDS {
+            if optional_second_default(opcode).is_some() {
+                continue;
+            }
             let mut buf = b"1,2,3\0".to_vec();
             let mut slot = RemainingParameterSlot::default();
             assert_eq!(
@@ -169,3 +197,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "program_optional_pair_tests.rs"]
+mod optional_pair_tests;
