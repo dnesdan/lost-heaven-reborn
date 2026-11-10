@@ -710,6 +710,36 @@ pub trait MissionHelpDisplay {
     fn set_mission_help_time(&mut self, ms: u32);
 }
 
+/// Recorded mission-help call, in call order. Host staging for the HUD side
+/// of the objective leaves; applying it to the indicators stays deferred.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MissionHelpCall {
+    Clear,
+    Add(u32),
+    SetTime(u32),
+}
+
+/// Recording [`MissionHelpDisplay`]: every call is staged for evidence and
+/// later HUD application instead of reaching the indicator owner.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MissionHelpLog {
+    pub calls: Vec<MissionHelpCall>,
+}
+
+impl MissionHelpDisplay for MissionHelpLog {
+    fn clear_mission_help(&mut self) {
+        self.calls.push(MissionHelpCall::Clear);
+    }
+
+    fn add_mission_help(&mut self, id: u32) {
+        self.calls.push(MissionHelpCall::Add(id));
+    }
+
+    fn set_mission_help_time(&mut self, ms: u32) {
+        self.calls.push(MissionHelpCall::SetTime(ms));
+    }
+}
+
 /// FUNCTION: GAME RVA 0x20b690, VA 0x60b690 (mafia-re pin 113b5b6,
 /// `game/ui/g_loadsave.cpp:2863-2866`, `G_LoadSaveClass::ObjectivesClear`).
 /// Drops every objective id.
@@ -722,11 +752,7 @@ pub fn objectives_clear(objectives: &mut Vec<u32>) {
 /// Appends an id the list does not have yet, then relists the help and shows
 /// it for the added-objective time. A duplicate changes nothing, including the
 /// display.
-pub fn objectives_add(
-    objectives: &mut Vec<u32>,
-    display: &mut impl MissionHelpDisplay,
-    id: u32,
-) {
+pub fn objectives_add(objectives: &mut Vec<u32>, display: &mut impl MissionHelpDisplay, id: u32) {
     if objectives.iter().any(|&entry| entry == id) {
         return;
     }
@@ -779,7 +805,10 @@ pub struct LoadSaveGarage {
 impl LoadSaveGarage {
     pub fn new() -> Self {
         Self {
-            slots: [GarageSlot { car: 0, actor: None }; MAX_GARAGE_CARS],
+            slots: [GarageSlot {
+                car: 0,
+                actor: None,
+            }; MAX_GARAGE_CARS],
             shown_cars: [0; MAX_GARAGE_CARS],
         }
     }
@@ -952,7 +981,11 @@ pub fn garage_results_diff(garage: &LoadSaveGarage) -> GarageResultsDiff {
     }
     let mut index = 0;
     while index < diff.added.len() {
-        if let Some(found) = diff.removed.iter().position(|&entry| entry == diff.added[index]) {
+        if let Some(found) = diff
+            .removed
+            .iter()
+            .position(|&entry| entry == diff.added[index])
+        {
             diff.removed.remove(found);
             diff.added.remove(index);
         } else {
@@ -1053,7 +1086,11 @@ mod loadsave_gates_tests {
             0
         }
         fn index_by_model(&self, model: &str) -> u32 {
-            if model == "model" { self.0 } else { 0xffff }
+            if model == "model" {
+                self.0
+            } else {
+                0xffff
+            }
         }
     }
 
@@ -1098,7 +1135,10 @@ mod loadsave_gates_tests {
         replay.pos = REPLAY_LENGTH - 1;
         replay_put_next(&mut replay, 0x33);
         assert_eq!(replay.buffer[REPLAY_LENGTH - 1], 0x33);
-        assert_eq!((replay.pos, replay.len), (REPLAY_LENGTH - 1, REPLAY_LENGTH - 1));
+        assert_eq!(
+            (replay.pos, replay.len),
+            (REPLAY_LENGTH - 1, REPLAY_LENGTH - 1)
+        );
     }
 
     #[test]
@@ -1167,13 +1207,7 @@ mod loadsave_gates_tests {
         assert_eq!(objectives, vec![3, 5]);
         assert_eq!(
             display.events,
-            [
-                "clear",
-                "add:3",
-                "add:5",
-                "time:3000",
-                "time:5000",
-            ]
+            ["clear", "add:3", "add:5", "time:3000", "time:5000",]
         );
         display.events.clear();
         objectives_add(&mut objectives, &mut display, 3);
@@ -1200,16 +1234,21 @@ mod loadsave_gates_tests {
     #[test]
     fn garage_clear_rva_20b940_zeroes_slots_and_shown_cars() {
         let mut garage = LoadSaveGarage::new();
-        garage.slots[0] = GarageSlot { car: 9, actor: Some(2) };
-        garage.slots[24] = GarageSlot { car: 10, actor: None };
+        garage.slots[0] = GarageSlot {
+            car: 9,
+            actor: Some(2),
+        };
+        garage.slots[24] = GarageSlot {
+            car: 10,
+            actor: None,
+        };
         garage.shown_cars[0] = 4;
         garage_clear(&mut garage);
-        assert!(
-            garage
-                .slots
-                .iter()
-                .all(|slot| *slot == GarageSlot { car: 0, actor: None })
-        );
+        assert!(garage.slots.iter().all(|slot| *slot
+            == GarageSlot {
+                car: 0,
+                actor: None
+            }));
         assert!(garage.shown_cars.iter().all(|&shown| shown == 0));
     }
 
@@ -1223,7 +1262,10 @@ mod loadsave_gates_tests {
             race_lookups: std::cell::RefCell::new(Vec::new()),
         };
         let mut garage = LoadSaveGarage::new();
-        garage.slots[0] = GarageSlot { car: 1, actor: None };
+        garage.slots[0] = GarageSlot {
+            car: 1,
+            actor: None,
+        };
         let mut race_cars = 0u32;
         garage_add_car_by_idx(&mut garage, &mut race_cars, &database, 0x0007, 2, 3);
         // The database row is selected by the masked index word.
@@ -1233,7 +1275,10 @@ mod loadsave_gates_tests {
         assert_eq!(race_cars, 0x20);
         // A full garage stores nothing but still merges the race-car bits.
         for slot in garage.slots.iter_mut() {
-            *slot = GarageSlot { car: 1, actor: None };
+            *slot = GarageSlot {
+                car: 1,
+                actor: None,
+            };
         }
         race_cars = 0;
         garage_add_car_by_idx(&mut garage, &mut race_cars, &database, 0x0007, 2, 3);
@@ -1263,7 +1308,13 @@ mod loadsave_gates_tests {
             1,
             2,
         );
-        assert_eq!(garage.slots[0], GarageSlot { car: 0x0000_00c8, actor: Some(11) });
+        assert_eq!(
+            garage.slots[0],
+            GarageSlot {
+                car: 0x0000_00c8,
+                actor: Some(11)
+            }
+        );
         assert_eq!(race_cars, 0x40);
         // The enable lookup uses the stored id masked to its index word.
         assert_eq!(*database.race_lookups.borrow(), vec![0x00c8]);
@@ -1288,10 +1339,22 @@ mod loadsave_gates_tests {
         let mut garage = LoadSaveGarage::new();
         // Same index in two slots with different level bytes: only the first
         // match frees, whatever its level and variant.
-        garage.slots[0] = GarageSlot { car: 0x0001_00c8, actor: Some(4) };
-        garage.slots[1] = GarageSlot { car: 0x0002_00c8, actor: None };
+        garage.slots[0] = GarageSlot {
+            car: 0x0001_00c8,
+            actor: Some(4),
+        };
+        garage.slots[1] = GarageSlot {
+            car: 0x0002_00c8,
+            actor: None,
+        };
         garage_remove_car(&mut garage, &database, "model", 7);
-        assert_eq!(garage.slots[0], GarageSlot { car: 0, actor: None });
+        assert_eq!(
+            garage.slots[0],
+            GarageSlot {
+                car: 0,
+                actor: None
+            }
+        );
         assert_eq!(garage.slots[1].car, 0x0002_00c8);
         garage_remove_car(&mut garage, &database, "other", 7);
         assert_eq!(garage.slots[1].car, 0x0002_00c8);
@@ -1324,9 +1387,18 @@ mod loadsave_gates_tests {
         // G_LoadSaveClass::GarageShowResultsProc GAME RVA 0x20dca0
         // (VA 0x60dca0): pure diff half.
         let mut garage = LoadSaveGarage::new();
-        garage.slots[0] = GarageSlot { car: 5, actor: None };
-        garage.slots[1] = GarageSlot { car: 7, actor: None };
-        garage.slots[2] = GarageSlot { car: 9, actor: None };
+        garage.slots[0] = GarageSlot {
+            car: 5,
+            actor: None,
+        };
+        garage.slots[1] = GarageSlot {
+            car: 7,
+            actor: None,
+        };
+        garage.slots[2] = GarageSlot {
+            car: 9,
+            actor: None,
+        };
         garage.shown_cars[1] = 7;
         garage.shown_cars[2] = 9;
         garage.shown_cars[3] = 11;
@@ -1337,7 +1409,10 @@ mod loadsave_gates_tests {
         assert!(diff.needs_menu());
         // A car on both sides under the same descriptor cancels out.
         garage.shown_cars[0] = 5;
-        garage.slots[3] = GarageSlot { car: 11, actor: None };
+        garage.slots[3] = GarageSlot {
+            car: 11,
+            actor: None,
+        };
         let cancelled = garage_results_diff(&garage);
         assert!(cancelled.added.is_empty());
         assert!(cancelled.removed.is_empty());
@@ -1368,7 +1443,10 @@ mod loadsave_gates_tests {
     fn is_car_in_rva_20df60_scans_garage_actors() {
         // G_LoadSaveClass::IsCarIn GAME RVA 0x20df60 (VA 0x60df60).
         let mut garage = LoadSaveGarage::new();
-        garage.slots[2] = GarageSlot { car: 8, actor: Some(42) };
+        garage.slots[2] = GarageSlot {
+            car: 8,
+            actor: Some(42),
+        };
         assert!(is_car_in(&garage, Some(42)));
         assert!(!is_car_in(&garage, Some(43)));
         // A garage whose slots are all occupied holds no NULL.

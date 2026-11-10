@@ -76,6 +76,62 @@ struct ScriptRunReport {
     beeps: usize,
     budget_remaining: usize,
     light_cache_lights: usize,
+    schedule: ScheduleReport,
+}
+
+/// Bounded GameInit scheduling diagnostic: entity/detector program init
+/// plus five 16 ms scheduler ticks over the live session. Counts stepped
+/// programs; the first unavailable owner stops the schedule and is
+/// reported, never skipped.
+#[derive(Default)]
+struct ScheduleReport {
+    entity_init: usize,
+    detector_init: usize,
+    entity_ticks: usize,
+    detector_ticks: usize,
+    ticks_run: usize,
+    error: Option<String>,
+}
+
+fn run_schedule_ticks(
+    session: &mut MissionLoadSession,
+    budget: &mut DispatchBudget,
+    diagnostic: &mut ProbeDiagnostic,
+    locales: ProgramWorldLocales,
+) -> ScheduleReport {
+    let mut report = ScheduleReport::default();
+    match session.initialize_owned_entity_programs(diagnostic, locales) {
+        Ok(stepped) => report.entity_init = stepped,
+        Err(error) => {
+            report.error = Some(format!("entity init: {error:?}"));
+            return report;
+        }
+    }
+    match session.initialize_owned_detector_programs(diagnostic, locales) {
+        Ok(stepped) => report.detector_init = stepped,
+        Err(error) => {
+            report.error = Some(format!("detector init: {error:?}"));
+            return report;
+        }
+    }
+    for _ in 0..5 {
+        match session.tick_owned_entity_programs(16, budget, diagnostic, locales) {
+            Ok(stepped) => report.entity_ticks += stepped,
+            Err(error) => {
+                report.error = Some(format!("entity tick: {error:?}"));
+                break;
+            }
+        }
+        match session.tick_owned_detector_programs(16, budget, diagnostic, locales) {
+            Ok(stepped) => report.detector_ticks += stepped,
+            Err(error) => {
+                report.error = Some(format!("detector tick: {error:?}"));
+                break;
+            }
+        }
+        report.ticks_run += 1;
+    }
+    report
 }
 
 /// Owned program init plus the single `GameInitStart` run over the live
@@ -125,6 +181,21 @@ fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunRe
         (Err(init), _, Err(discard)) => Err(format!("{init}; runtimes discard: {discard}")),
         (Ok(()), None, _) => Err("unreachable GameInitStart admission".into()),
     }?;
+    // Scheduler ticks run only after a successful GameInitStart, against
+    // the same live owners and the shared never-replenished budget.
+    let locales = ProgramWorldLocales {
+        game_default_c_locale: true,
+        ls3df_default_c_locale: true,
+    };
+    let schedule = run_schedule_ticks(session, &mut budget, &mut diagnostic, locales);
+    // Tick runtimes back out the same way: entity/detector runtimes are
+    // retired explicitly so terminal disposal sees no retained VM state.
+    session
+        .discard_actor_program_runtimes_host()
+        .map_err(|error| format!("schedule runtimes discard: {error}"))?;
+    session
+        .discard_global_program_runtimes_host()
+        .map_err(|error| format!("schedule runtimes discard: {error:?}"))?;
     Ok(ScriptRunReport {
         outcome,
         beeps: diagnostic.beeps,
@@ -133,6 +204,7 @@ fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunRe
             .game_state()
             .light_cache()
             .map_or(0, |cache| cache.lights.len()),
+        schedule,
     })
 }
 
@@ -294,6 +366,34 @@ pub fn run(
                 report,
                 "GameInitStart: {:?} beeps={} budget_remaining={} light_cache_lights={}",
                 script.outcome, script.beeps, script.budget_remaining, script.light_cache_lights
+            )
+            .unwrap();
+            let schedule = &script.schedule;
+            match &schedule.error {
+                None => writeln!(
+                    report,
+                    "GameInit scheduling: entity_init={} detector_init={} ticks={} entity_ticks={} detector_ticks={}",
+                    schedule.entity_init,
+                    schedule.detector_init,
+                    schedule.ticks_run,
+                    schedule.entity_ticks,
+                    schedule.detector_ticks
+                ),
+                Some(detail) => writeln!(
+                    report,
+                    "GameInit scheduling stopped: {detail} after entity_init={} detector_init={} ticks={} entity_ticks={} detector_ticks={}",
+                    schedule.entity_init,
+                    schedule.detector_init,
+                    schedule.ticks_run,
+                    schedule.entity_ticks,
+                    schedule.detector_ticks
+                ),
+            }
+            .unwrap();
+            writeln!(
+                report,
+                "Mission objectives staged: {:?}",
+                session.game_state().objectives()
             )
             .unwrap();
         }

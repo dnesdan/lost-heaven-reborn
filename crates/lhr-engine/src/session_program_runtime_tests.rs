@@ -214,3 +214,24 @@ fn completed_and_stopped_sessions_do_not_share_game_or_program_state() {
         assert!(run(&mut session).is_err());
     }
 }
+
+#[test]
+fn mission_objectives_stage_ids_and_help_calls_in_order() {
+    let fixture = fixture(
+        b"commandblock 1\nmission_objectivesclear\nmission_objectives 5\nmission_objectives 5\nmission_objectivesremove 7\nmission_objectives 3\ncommandblock 0",
+    );
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    session.initialize_owned_global_programs().unwrap();
+    run(&mut session).unwrap();
+    assert_eq!(session.game_state().objectives(), &[5, 3]);
+    use crate::game_loadsave_lifecycle::MissionHelpCall;
+    let log = &session.game_state().mission_help_log().calls;
+    // Clear, add 5 (display + time), duplicate 5 (nothing), remove 7
+    // (nothing), add 3 (display + time): the native call order, recorded.
+    assert!(log.contains(&MissionHelpCall::Clear));
+    assert!(log.contains(&MissionHelpCall::Add(5)));
+    assert!(log.contains(&MissionHelpCall::Add(3)));
+    assert!(!log.contains(&MissionHelpCall::Add(7)));
+    finish(&mut session);
+}

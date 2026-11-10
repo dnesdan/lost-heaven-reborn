@@ -63,6 +63,9 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
             SetCityTrafficVisible(_) => {
                 return Err("session city-traffic visibility owner unavailable".into());
             }
+            MissionObjectivesAdd(id) => self.game.mission_objectives_add(id as u32),
+            MissionObjectivesRemove(id) => self.game.mission_objectives_remove(id as u32),
+            MissionObjectivesClear => self.game.mission_objectives_clear(),
             // Exhaustive storage-only list: adding another gameplay effect
             // requires an explicit owner decision here at compile time.
             AllocateWorkingSource(_)
