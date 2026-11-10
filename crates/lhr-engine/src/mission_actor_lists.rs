@@ -296,6 +296,116 @@ pub fn find_actor_by_name<'a>(
     None
 }
 
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:124` at pin 113b5b6, `anim_models` at
+/// +0x14): reads the staged animation-model count. The native size is read
+/// inline at each loop bound (`Mission.cpp:163,180,193,564`) with no
+/// dedicated getter, so no RVA is claimed.
+pub fn anim_model_count(models: &[AnimModel]) -> usize {
+    models.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline membership
+/// test, mafia-re `game/mission/Mission.cpp:163-166,180-183` at pin 113b5b6,
+/// `AddAnimModel`/`DelAnimModel` guards): reports whether the model is
+/// staged. The native guards scan back to front and stop at the first match,
+/// so this follows the same direction with no RVA claimed.
+pub fn has_anim_model(models: &[AnimModel], model: ModelId) -> bool {
+    for index in (0..models.len()).rev() {
+        if models[index].model == model {
+            return true;
+        }
+    }
+    false
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline flag count,
+/// mafia-re `game/mission/Mission.cpp:192-204` at pin 113b5b6,
+/// `ClearGameAnimModels` scan): counts staged entries flagged as game models.
+/// The native clear scans forward testing `game_model`; only the count is
+/// owned here, so no RVA is claimed.
+pub fn count_game_anim_models(models: &[AnimModel]) -> usize {
+    models.iter().filter(|entry| entry.game_model).count()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:129` at pin 113b5b6, `actors` at +0x34):
+/// reads the staged actor count. The native size is read inline at each loop
+/// bound (`Mission.cpp:305,333,357,391,415,442,467`) with no dedicated
+/// getter, so no RVA is claimed.
+pub fn actor_count(actors: &[ActorId]) -> usize {
+    actors.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:132` at pin 113b5b6, `not_me_actors` at
+/// +0x44): reads the staged not-me actor count. The native size is read
+/// inline (`Mission.cpp:313,361,415,447`) with no dedicated getter, so no RVA
+/// is claimed.
+pub fn not_me_actor_count(not_me_actors: &[ActorId]) -> usize {
+    not_me_actors.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline membership
+/// test, mafia-re `game/mission/Mission.cpp:303-325` at pin 113b5b6,
+/// `AddActor` guard): reports whether the actor is staged. The native guard
+/// scans back to front, so this follows the same direction with no RVA
+/// claimed.
+pub fn has_actor(actors: &[ActorId], actor: ActorId) -> bool {
+    for index in (0..actors.len()).rev() {
+        if actors[index] == actor {
+            return true;
+        }
+    }
+    false
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline membership
+/// test, mafia-re `game/mission/Mission.cpp:303-325,355-385` at pin 113b5b6,
+/// `AddActor`/`DelActor` not-me scans): reports whether the actor is staged
+/// in the not-me list. The native scans run back to front, so this follows
+/// the same direction with no RVA claimed.
+pub fn has_not_me_actor(not_me_actors: &[ActorId], actor: ActorId) -> bool {
+    for index in (0..not_me_actors.len()).rev() {
+        if not_me_actors[index] == actor {
+            return true;
+        }
+    }
+    false
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:134` at pin 113b5b6, `programs` at
+/// +0x54): reads the staged whole-game script count. The native size is read
+/// inline at each loop bound (`Mission.cpp:479,487,496`) with no dedicated
+/// getter, so no RVA is claimed.
+pub fn program_count<P>(programs: &[P]) -> usize {
+    programs.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:153` at pin 113b5b6, `t_transparent` at
+/// +0x80): reads the staged fade-object count. The native size is read
+/// inline (`Mission.cpp:568,726`) with no dedicated getter, so no RVA is
+/// claimed.
+pub fn transparent_entry_count(entries: &[TransparentEntry]) -> usize {
+    entries.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline membership
+/// test, mafia-re `game/mission/Mission.cpp:1726-1730` at pin 113b5b6,
+/// `FinishTimeTransparentObjects` scan): reports whether the object is staged
+/// for fading. The native finish scan runs back to front, so this follows the
+/// same direction with no RVA claimed.
+pub fn has_transparent_object(entries: &[TransparentEntry], object: u32) -> bool {
+    for index in (0..entries.len()).rev() {
+        if entries[index].object == object {
+            return true;
+        }
+    }
+    false
+}
+
 /// Opaque effects-manager handle. Native `C_effects*` identity is the
 /// caller's concern; `None` is the native NULL.
 pub type EffectsHandle = u32;
@@ -699,6 +809,25 @@ impl MissionCounterState {
     pub fn get_render_number(&self) -> i32 {
         self.render_number
     }
+
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:141-144`, `next_mission_number` at +0x70):
+    /// whether a next-mission number is pending (`SETMISSIONNUMBER` wrote a
+    /// nonzero value). The native pending slot is tested inline where
+    /// `KeepMissionNumber`/`CHANGE_MISSION` consumes it, with no dedicated
+    /// flag getter, so no Game.exe function entry is claimed.
+    pub fn has_pending_mission_number(&self) -> bool {
+        self.next_mission_number != 0
+    }
+
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:145-148`, `skip_frames` at +0x78): whether any
+    /// skip-frames remain. `Open` clears the count (`Mission.cpp:628`) and
+    /// `Tick` counts it down (`Mission.cpp:553`); the nonzero test is inline
+    /// with no dedicated getter, so no Game.exe function entry is claimed.
+    pub fn has_skip_frames(&self) -> bool {
+        self.skip_frames != 0
+    }
 }
 
 /// Presence flag behind `C_mission::opened` (mafia-re
@@ -764,6 +893,16 @@ impl MissionPresenceState {
     /// The mute/apply sequencing stays with the sound owner.
     pub fn set_restore_volume(&mut self, restore: bool) {
         self.restore_volume = restore;
+    }
+
+    /// Working name (no outline RVA; null check, mafia-re
+    /// `game/mission/Mission.h:137-138`, `mission_name` at +0x68): whether an
+    /// open-mission name is staged. `Open` (`Mission.cpp:638-639`) stores a
+    /// copy and `UnInit` (`Mission.cpp:152-156`) deletes a non-null name; the
+    /// null test is inline with no dedicated getter, so no Game.exe function
+    /// entry is claimed.
+    pub fn has_mission_name(&self) -> bool {
+        self.mission_name.is_some()
     }
 }
 
@@ -1341,5 +1480,202 @@ mod tests {
         // Presence flag and name staging are untouched.
         assert!(!presence.is_opened());
         assert_eq!(presence.mission_name(), None);
+    }
+
+    #[test]
+    fn anim_model_count_working_name_reports_length() {
+        // Inline anim_models size (Mission.h:124); no outline RVA is claimed.
+        let empty: Vec<AnimModel> = Vec::new();
+        assert_eq!(anim_model_count(&empty), 0);
+        let models = vec![
+            AnimModel {
+                model: 1,
+                game_model: false,
+            },
+            AnimModel {
+                model: 2,
+                game_model: true,
+            },
+        ];
+        assert_eq!(anim_model_count(&models), 2);
+    }
+
+    #[test]
+    fn has_anim_model_working_name_scans_back_to_front() {
+        // AddAnimModel/DelAnimModel guards (Mission.cpp:163-166,180-183).
+        let models = vec![
+            AnimModel {
+                model: 1,
+                game_model: false,
+            },
+            AnimModel {
+                model: 2,
+                game_model: true,
+            },
+            AnimModel {
+                model: 3,
+                game_model: false,
+            },
+        ];
+        assert!(has_anim_model(&models, 1));
+        assert!(has_anim_model(&models, 3));
+        assert!(!has_anim_model(&models, 9));
+        let empty: Vec<AnimModel> = Vec::new();
+        assert!(!has_anim_model(&empty, 1));
+    }
+
+    #[test]
+    fn count_game_anim_models_working_name_counts_flagged() {
+        // ClearGameAnimModels scan (Mission.cpp:192-204).
+        let models = vec![
+            AnimModel {
+                model: 1,
+                game_model: false,
+            },
+            AnimModel {
+                model: 2,
+                game_model: true,
+            },
+            AnimModel {
+                model: 3,
+                game_model: true,
+            },
+        ];
+        assert_eq!(count_game_anim_models(&models), 2);
+        let empty: Vec<AnimModel> = Vec::new();
+        assert_eq!(count_game_anim_models(&empty), 0);
+        assert_eq!(
+            count_game_anim_models(&models[0..1]),
+            0
+        );
+    }
+
+    #[test]
+    fn actor_count_working_name_reports_length() {
+        // Inline actors size (Mission.h:129, +0x34).
+        let actors = vec![1u32, 2, 3];
+        assert_eq!(actor_count(&actors), 3);
+        let empty: Vec<ActorId> = Vec::new();
+        assert_eq!(actor_count(&empty), 0);
+    }
+
+    #[test]
+    fn not_me_actor_count_working_name_reports_length() {
+        // Inline not_me_actors size (Mission.h:132, +0x44).
+        let not_me = vec![2u32];
+        assert_eq!(not_me_actor_count(&not_me), 1);
+        let empty: Vec<ActorId> = Vec::new();
+        assert_eq!(not_me_actor_count(&empty), 0);
+    }
+
+    #[test]
+    fn has_actor_working_name_matches_add_guard() {
+        // AddActor guard (Mission.cpp:303-325), back to front.
+        let actors = vec![4u32, 5, 6];
+        assert!(has_actor(&actors, 4));
+        assert!(has_actor(&actors, 6));
+        assert!(!has_actor(&actors, 9));
+        let empty: Vec<ActorId> = Vec::new();
+        assert!(!has_actor(&empty, 4));
+    }
+
+    #[test]
+    fn has_not_me_actor_working_name_matches_lists() {
+        // AddActor/DelActor not-me scans (Mission.cpp:303-325,355-385).
+        let not_me = vec![7u32, 8];
+        assert!(has_not_me_actor(&not_me, 7));
+        assert!(has_not_me_actor(&not_me, 8));
+        assert!(!has_not_me_actor(&not_me, 9));
+        let empty: Vec<ActorId> = Vec::new();
+        assert!(!has_not_me_actor(&empty, 7));
+    }
+
+    #[test]
+    fn program_count_working_name_reports_length() {
+        // Inline programs size (Mission.h:134; Mission.cpp:479,487,496).
+        let programs = vec![10u32, 11, 12];
+        assert_eq!(program_count(&programs), 3);
+        let empty: Vec<u32> = Vec::new();
+        assert_eq!(program_count(&empty), 0);
+    }
+
+    #[test]
+    fn transparent_entry_count_working_name_reports_length() {
+        // Inline t_transparent size (Mission.h:153; Mission.cpp:568,726).
+        let entries = vec![
+            TransparentEntry {
+                object: 21,
+                time: 0,
+                fade_time: 10,
+            },
+            TransparentEntry {
+                object: 22,
+                time: 5,
+                fade_time: 10,
+            },
+        ];
+        assert_eq!(transparent_entry_count(&entries), 2);
+        let empty: Vec<TransparentEntry> = Vec::new();
+        assert_eq!(transparent_entry_count(&empty), 0);
+    }
+
+    #[test]
+    fn has_transparent_object_working_name_scans_back_to_front() {
+        // FinishTimeTransparentObjects scan (Mission.cpp:1726-1730).
+        let entries = vec![
+            TransparentEntry {
+                object: 31,
+                time: 0,
+                fade_time: 10,
+            },
+            TransparentEntry {
+                object: 32,
+                time: 1,
+                fade_time: 10,
+            },
+        ];
+        assert!(has_transparent_object(&entries, 31));
+        assert!(has_transparent_object(&entries, 32));
+        assert!(!has_transparent_object(&entries, 99));
+        let empty: Vec<TransparentEntry> = Vec::new();
+        assert!(!has_transparent_object(&empty, 31));
+    }
+
+    #[test]
+    fn has_pending_mission_number_working_name_tracks_pending_slot() {
+        // next_mission_number at +0x70 (Mission.h:141-144).
+        let mut state = MissionCounterState::default();
+        assert!(!state.has_pending_mission_number());
+        state.set_mission_number(5);
+        assert!(state.has_pending_mission_number());
+        state.keep_mission_number();
+        assert!(!state.has_pending_mission_number());
+        assert_eq!(state.get_mission_number(), 5);
+        state.reset_mission_numbers();
+        assert!(!state.has_pending_mission_number());
+    }
+
+    #[test]
+    fn has_skip_frames_working_name_tracks_count() {
+        // skip_frames at +0x78 (Mission.h:145-148; Mission.cpp:553,628).
+        let mut state = MissionCounterState::default();
+        assert!(!state.has_skip_frames());
+        state.set_skip_frames(10);
+        assert!(state.has_skip_frames());
+        assert_eq!(state.get_skip_frames(), 10);
+        state.set_skip_frames(0);
+        assert!(!state.has_skip_frames());
+    }
+
+    #[test]
+    fn has_mission_name_working_name_tracks_staged_name() {
+        // mission_name at +0x68 (Mission.h:137-138; Mission.cpp:638-639).
+        let mut presence = MissionPresenceState::default();
+        assert!(!presence.has_mission_name());
+        presence.stage_mission_name(Some("mise01".to_owned()));
+        assert!(presence.has_mission_name());
+        assert_eq!(presence.mission_name(), Some("mise01"));
+        presence.stage_mission_name(None);
+        assert!(!presence.has_mission_name());
     }
 }
