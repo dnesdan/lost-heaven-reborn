@@ -303,3 +303,24 @@ fn mission_subtitles_stage_ids_in_call_order() {
     );
     finish(&mut session);
 }
+
+#[test]
+fn session_programs_read_the_retained_clock_without_advancing_it() {
+    let fixture = fixture(b"commandblock 1\ndim_flt 4\ngetgametime 0\ngetgametime 1\ncommandblock 0\ncommandblock 1\ngetgametime 2\ngetgametime 3\ncommandblock 0");
+    let mut session = fixture.session();
+    assert!(session.advance_owned_game_time(7).is_err());
+    load(&mut session, &[]).unwrap();
+    assert_eq!(session.advance_owned_game_time(7).unwrap(), 7);
+    session.initialize_owned_global_programs().unwrap();
+    run(&mut session).unwrap();
+    assert_eq!(session.game_state().get_game_time(), 7);
+    assert_eq!(session.advance_owned_game_time(5).unwrap(), 12);
+    run(&mut session).unwrap();
+    assert_eq!(session.game_state().get_game_time(), 12);
+    assert_eq!(session.loader().unwrap().content.programs()[0].runtime().unwrap().fields.floats.as_deref().unwrap(), &[7.0, 7.0, 12.0, 12.0]);
+    let clock = session.game_state().game_clock();
+    finish(&mut session);
+    assert!(session.advance_owned_game_time(1).is_err());
+    drop(session);
+    assert_eq!(clock.read(), None);
+}
