@@ -159,6 +159,69 @@ pub const LIGHTMODE_LIGHTNESS: u32 = 0x40;
 pub fn light_lightness_mode(mode: u32) -> bool {
     mode & LIGHTMODE_LIGHTNESS != 0
 }
+/// Working name for the `I3DLIGHT_NULL` type test (mafia-re ls3df/I3D/I3D.h:1879
+/// at pin 113b5b6). The reference records no LS3DF FUNCTION address for a
+/// standalone reader; the value is an enum word (0), tested in place by the
+/// setters and `UpdateV`. Reports whether the stored type word denotes a null
+/// light; no state moves.
+pub fn light_is_null_type(kind: u32) -> bool {
+    kind == 0
+}
+/// Working name for the `I3DLIGHT_POINT` type test (mafia-re ls3df/I3D/I3D.h:1880
+/// at pin 113b5b6). Same inline-only status as `light_is_null_type`: the enum
+/// word (1) has no LS3DF FUNCTION entry. Reports a point light; no state moves.
+pub fn light_is_point_type(kind: u32) -> bool {
+    kind == 1
+}
+/// Working name for the `I3DLIGHT_SPOT` type test (mafia-re ls3df/I3D/I3D.h:1881
+/// at pin 113b5b6). Same inline-only status as `light_is_null_type`: the enum
+/// word (2) has no LS3DF FUNCTION entry. Reports a spot light; no state moves.
+pub fn light_is_spot_type(kind: u32) -> bool {
+    kind == 2
+}
+/// Working name for the `I3DLIGHT_DIRECTIONAL` type test (mafia-re
+/// ls3df/I3D/I3D.h:1882 at pin 113b5b6). Same inline-only status as
+/// `light_is_null_type`: the enum word (3) has no LS3DF FUNCTION entry.
+/// Reports a directional light (the constructor default); no state moves.
+pub fn light_is_directional_type(kind: u32) -> bool {
+    kind == 3
+}
+/// Working name for the `I3DLIGHT_AMBIENT` type test (mafia-re ls3df/I3D/I3D.h:1883
+/// at pin 113b5b6). Same inline-only status as `light_is_null_type`: the enum
+/// word (4) has no LS3DF FUNCTION entry. Reports an ambient light; no state
+/// moves.
+pub fn light_is_ambient_type(kind: u32) -> bool {
+    kind == 4
+}
+/// Working name for the single `I3DLIGHT_FOG` type test (mafia-re
+/// ls3df/I3D/I3D.h:1884 at pin 113b5b6). Same inline-only status as
+/// `light_is_null_type`: the enum word (5) has no LS3DF FUNCTION entry. This is
+/// the single-type gate, distinct from the existing `light_is_fog_kind` range
+/// gate (5..=7) shared by the sector fog arms; no state moves.
+pub fn light_is_fog_type(kind: u32) -> bool {
+    kind == 5
+}
+/// Working name for the `I3DLIGHT_POINTAMBIENT` type test (mafia-re
+/// ls3df/I3D/I3D.h:1885 at pin 113b5b6). Same inline-only status as
+/// `light_is_null_type`: the enum word (6) has no LS3DF FUNCTION entry.
+/// Reports a point-ambient light; no state moves.
+pub fn light_is_point_ambient_type(kind: u32) -> bool {
+    kind == 6
+}
+/// Working name for the `I3DLIGHT_POINTFOG` type test (mafia-re
+/// ls3df/I3D/I3D.h:1886 at pin 113b5b6). Same inline-only status as
+/// `light_is_null_type`: the enum word (7) has no LS3DF FUNCTION entry.
+/// Reports a point-fog light; no state moves.
+pub fn light_is_point_fog_type(kind: u32) -> bool {
+    kind == 7
+}
+/// Working name for the `I3DLIGHT_UNKNOWN_8` type test (mafia-re
+/// ls3df/I3D/I3D.h:1887-1888 at pin 113b5b6). Same inline-only status as
+/// `light_is_null_type`: the enum word (8) has no LS3DF FUNCTION entry. Only
+/// the shadows treat it as a point light without direction; no state moves.
+pub fn light_is_unknown_8_type(kind: u32) -> bool {
+    kind == 8
+}
 fn numeric(_: crate::native_matrix::MatrixArithmeticUnavailable) -> FrameError {
     FrameError::NumericDomain("Light")
 }
@@ -609,6 +672,41 @@ impl ModelArena {
     ) -> Result<([f32; 3], f32), ModelError> {
         let state = self.light(key)?;
         Ok((state.sphere_center, state.sphere_radius))
+    }
+    /// Working name for the direct `outer_cos` cache read at +0x1a0 (mafia-re
+    /// ls3df/I3D/I3D.h:1941 `float outer_cos` at pin 113b5b6). The reference
+    /// records no LS3DF FUNCTION address for a standalone reader; the word is
+    /// maintained by the occupied `SetCone`/`UpdateV` bodies (PC RVAs
+    /// 0x20c30/0x20d10), not claimed here. Reports the stored spot outer
+    /// cosine; same availability guard as `light`.
+    pub fn light_outer_cos_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.light(key)?.outer_cos)
+    }
+    /// Working name for the direct `inner_cos` cache read at +0x1b0 (mafia-re
+    /// ls3df/I3D/I3D.h:1943 `float inner_cos` at pin 113b5b6). Same inline-only
+    /// status as `light_outer_cos_of`: the occupied `SetCone`/`UpdateV` bodies
+    /// are the only writers, not claimed here. Reports the stored spot inner
+    /// cosine; same availability guard as `light`.
+    pub fn light_inner_cos_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.light(key)?.inner_cos)
+    }
+    /// Working name for the direct `cone_scale` cache read at +0x1c0 (mafia-re
+    /// ls3df/I3D/I3D.h:1945 `float cone_scale` at pin 113b5b6, kept here as
+    /// `cone_reciprocal`). Same inline-only status as `light_outer_cos_of`:
+    /// no standalone LS3DF FUNCTION entry exists. Reports
+    /// `1 / (inner_cos - outer_cos)` as stored; same availability guard as
+    /// `light`.
+    pub fn light_cone_scale_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.light(key)?.cone_reciprocal)
+    }
+    /// Working name for the direct `cone_radius` cache read at +0x1dc (mafia-re
+    /// ls3df/I3D/I3D.h:1950 `float cone_radius` at pin 113b5b6). Same
+    /// inline-only status as `light_outer_cos_of`: the constructor and the
+    /// occupied spot `UpdateV` arm are the only writers, not claimed here.
+    /// Reports the stored unscaled spot-cone sphere radius; same availability
+    /// guard as `light`.
+    pub fn light_cone_radius_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.light(key)?.cone_radius)
     }
     pub fn light_random_state(&mut self) -> &mut LightCrtRandom {
         &mut self.light_random
@@ -1166,5 +1264,113 @@ mod tests {
         arena.release(first).unwrap();
         arena.release(second).unwrap();
         arena.release(plain).unwrap();
+    }
+    #[test]
+    fn light_type_predicates_cover_all_enum_words() {
+        // Working names for the I3DLIGHTTYPE enum words (mafia-re
+        // ls3df/I3D/I3D.h:1878-1888): the values are enum words (0..8), not
+        // functions, so no LS3DF RVA is claimed here.
+        assert!(light_is_null_type(0));
+        assert!(light_is_point_type(1));
+        assert!(light_is_spot_type(2));
+        assert!(light_is_directional_type(3));
+        assert!(light_is_ambient_type(4));
+        assert!(light_is_fog_type(5));
+        assert!(light_is_point_ambient_type(6));
+        assert!(light_is_point_fog_type(7));
+        assert!(light_is_unknown_8_type(8));
+        // Each word matches exactly one predicate.
+        for kind in 0..=8u32 {
+            let hits = [
+                light_is_null_type(kind),
+                light_is_point_type(kind),
+                light_is_spot_type(kind),
+                light_is_directional_type(kind),
+                light_is_ambient_type(kind),
+                light_is_fog_type(kind),
+                light_is_point_ambient_type(kind),
+                light_is_point_fog_type(kind),
+                light_is_unknown_8_type(kind),
+            ]
+            .into_iter()
+            .filter(|hit| *hit)
+            .count();
+            assert_eq!(hits, 1);
+        }
+        // Out-of-range words match none; the single-fog gate stays narrower
+        // than the existing 5..=7 fog-kind range gate.
+        for kind in [9, 42, u32::MAX] {
+            assert!(!light_is_null_type(kind));
+            assert!(!light_is_point_type(kind));
+            assert!(!light_is_spot_type(kind));
+            assert!(!light_is_directional_type(kind));
+            assert!(!light_is_ambient_type(kind));
+            assert!(!light_is_fog_type(kind));
+            assert!(!light_is_point_ambient_type(kind));
+            assert!(!light_is_point_fog_type(kind));
+            assert!(!light_is_unknown_8_type(kind));
+        }
+        assert!(!light_is_fog_type(6));
+        assert!(!light_is_fog_type(7));
+        assert!(light_is_fog_kind(5));
+        assert!(light_is_fog_kind(6));
+        assert!(light_is_fog_kind(7));
+        assert!(!light_is_fog_kind(3));
+    }
+    #[test]
+    fn light_cache_readers_report_live_stores_and_reject_unknown() {
+        // Working names for the spot cache words at +0x1a0/+0x1b0/+0x1c0/+0x1dc
+        // (mafia-re ls3df/I3D/I3D.h:1941/1943/1945/1950): no standalone LS3DF
+        // FUNCTION entries exist; the occupied SetCone/UpdateV bodies write
+        // them. Readers borrow the live arena stores verbatim.
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        let state = arena.light(key).unwrap().clone();
+        assert_eq!(arena.light_outer_cos_of(key).unwrap(), state.outer_cos);
+        assert_eq!(arena.light_inner_cos_of(key).unwrap(), state.inner_cos);
+        assert_eq!(
+            arena.light_cone_scale_of(key).unwrap(),
+            state.cone_reciprocal
+        );
+        assert_eq!(
+            arena.light_cone_radius_of(key).unwrap(),
+            state.cone_radius
+        );
+        // The constructor leaves a positive cone/sphere setup for the default
+        // spot-capable caches.
+        assert!(state.cone_reciprocal > 0.0);
+        assert!(state.cone_radius > 0.0);
+        assert!(arena.light_outer_cos_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
+        assert!(arena.light_inner_cos_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
+        assert!(arena.light_cone_scale_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
+        assert!(arena.light_cone_radius_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
+        arena.release(key).unwrap();
+    }
+    #[test]
+    fn light_cone_caches_follow_spot_setter_updates() {
+        // The occupied SetCone body (PC RVA 0x20c30) refreshes the cosine pair
+        // and the reciprocal; the spot radius follows for spot lights. Readers
+        // observe the setter-written words without moving state themselves.
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let key = arena.create_light().unwrap();
+            arena.graph.set_light_type(key, 2).unwrap();
+            arena.graph.set_light_cone(key, 0.3, 0.9).unwrap();
+            let state = arena.light(key).unwrap().clone();
+            assert_eq!(arena.light_outer_cos_of(key).unwrap(), state.outer_cos);
+            assert_eq!(arena.light_inner_cos_of(key).unwrap(), state.inner_cos);
+            assert_eq!(
+                arena.light_cone_scale_of(key).unwrap(),
+                state.cone_reciprocal
+            );
+            assert_eq!(
+                arena.light_cone_radius_of(key).unwrap(),
+                state.cone_radius
+            );
+            assert!(state.outer_cos < state.inner_cos);
+            assert!(state.cone_reciprocal > 0.0);
+            assert!(state.cone_radius > 0.0);
+            arena.release(key).unwrap();
+        });
     }
 }
