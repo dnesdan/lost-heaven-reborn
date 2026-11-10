@@ -4021,12 +4021,11 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 }
             }
             78 | 79 | 80 | 132 | 239 | 240 => {
-                // Dialogue commands: DIALOG_BEGIN (78), DIALOG_END (79),
-                // DIALOG_CAMSWITCH (80), HUMAN_TALK (132), INTRO_SUBTITLE_ADD
-                // (239), SUBTITLE_ADD (240). Decode is admitted; execution
-                // is a no-op advance for now (camera/dabing are stubs). The
-                // talk channel persistence (v[3]) is preserved in the
-                // instruction's HumanTalkParameter but not yet consumed.
+                // Dialogue, camera switching, speech and subtitles have
+                // decoded arguments but no live presentation/audio owners.
+                // Retain the PC and decoded payload instead of discarding
+                // a gameplay event through the common advance.
+                return Err(RuntimeError::UnsupportedCommand(opcode));
             }
             37 | 52 | 164 | 165 | 166 => {
                 // Mission flow: ENDOFMISSION (37), CHANGE_MISSION (52),
