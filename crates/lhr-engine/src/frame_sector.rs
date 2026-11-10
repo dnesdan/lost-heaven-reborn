@@ -325,6 +325,30 @@ impl ModelArena {
     ) -> Result<Option<[f32; 4]>, ModelError> {
         Ok(self.sector(key)?.bounding_sphere)
     }
+    /// Working name for the hull vertex count at +0x1d8 (mafia-re
+    /// ls3df/I3D/I3D.h:968: the hull's vertex count). The reference records
+    /// no LS3DF FUNCTION address for a standalone count reader: only the
+    /// loader and `Duplicate` store it. Reports the live count; no state
+    /// moves.
+    pub fn sector_vertex_count_of(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.geometry.vertex_count)
+    }
+    /// Working name for the hull face count at +0x1dc (mafia-re
+    /// ls3df/I3D/I3D.h:969: three vertex indices each). Same inline-only
+    /// status as `sector_vertex_count_of`: no standalone LS3DF getter body
+    /// exists, so no RVA is claimed here. Reports the live count; no state
+    /// moves.
+    pub fn sector_face_count_of(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.geometry.face_count)
+    }
+    /// Working name for the world-space hull plane count at +0x218
+    /// (mafia-re ls3df/I3D/I3D.h:979: the hull's planes in world space,
+    /// `UpdateCHPlanesW`). Same inline-only status as
+    /// `sector_vertex_count_of`: no standalone LS3DF getter body exists, so
+    /// no RVA is claimed here. Reports the live count; no state moves.
+    pub fn sector_plane_count_of(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.geometry.plane_count)
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SectorBufferKey {
@@ -2282,5 +2306,24 @@ mod tests {
             arena.release(key.frame()).unwrap();
             assert_eq!(arena.live_frame_count(), 0);
         });
+    }
+    #[test]
+    fn hull_count_readers_report_live_geometry_words() {
+        // Working names for the inlined hull count reads (mafia-re
+        // ls3df/I3D/I3D.h:968-969,979): no LS3DF FUNCTION addresses exist
+        // for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        assert_eq!(arena.sector_vertex_count_of(key).unwrap(), 0);
+        assert_eq!(arena.sector_face_count_of(key).unwrap(), 0);
+        assert_eq!(arena.sector_plane_count_of(key).unwrap(), 0);
+        let si = arena.sector_index(key).unwrap();
+        arena.sectors[si].geometry.vertex_count = 7;
+        arena.sectors[si].geometry.face_count = 3;
+        arena.sectors[si].geometry.plane_count = 1;
+        assert_eq!(arena.sector_vertex_count_of(key).unwrap(), 7);
+        assert_eq!(arena.sector_face_count_of(key).unwrap(), 3);
+        assert_eq!(arena.sector_plane_count_of(key).unwrap(), 1);
+        arena.release(key.frame()).unwrap();
     }
 }

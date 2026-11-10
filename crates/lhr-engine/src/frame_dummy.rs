@@ -48,6 +48,17 @@ pub fn dummy_is_center_normalized(dummy_flags: u32) -> bool {
     dummy_flags & DUMMYF_NORMALIZED_CENTER != 0
 }
 
+/// Working name for the `Normalize` mode gate (mafia-re
+/// ls3df/I3D/frames/I3d_dummy.cpp:48-71 at pin 113b5b6: center limb for
+/// mode 2, min-corner limb otherwise). The reference records no LS3DF
+/// FUNCTION address for a standalone gate reader; the CMP/mode,2/JNZ branch
+/// lives inside the occupied `Normalize` body (PC RVA 0x1a350, already
+/// ported, not claimed here). Reports whether the centered (-1,-1,-1) to
+/// (1,1,1) limb applies; no state moves.
+pub fn dummy_normalize_mode_is_center(mode: u32) -> bool {
+    mode == 2
+}
+
 impl ModelArena {
     pub fn create_dummy_frame(&mut self) -> Result<FrameKey, ModelError> {
         self.insert(
@@ -296,6 +307,16 @@ mod tests {
         assert!(!dummy_is_center_normalized(
             u32::MAX & !DUMMYF_NORMALIZED_CENTER
         ));
+    }
+    #[test]
+    fn normalize_mode_gate_reports_only_center_mode() {
+        // Working name for the Normalize mode==2 gate (I3d_dummy.cpp:48-71):
+        // no LS3DF FUNCTION address exists for a standalone reader.
+        assert!(dummy_normalize_mode_is_center(2));
+        assert!(!dummy_normalize_mode_is_center(0));
+        assert!(!dummy_normalize_mode_is_center(1));
+        assert!(!dummy_normalize_mode_is_center(99));
+        assert!(!dummy_normalize_mode_is_center(u32::MAX));
     }
     #[test]
     fn genuine_dummy_constructor_box_copy_and_last_release_share_one_owner() {

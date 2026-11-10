@@ -93,6 +93,59 @@ impl CameraFrame {
     pub fn view_inverse_matrix(&self) -> Option<SMatrix> {
         self.matrix(0x224)
     }
+    /// Working name for the `m_view` read at +0x164 (mafia-re
+    /// ls3df/I3D/I3D.h:2007: the inverse of the world matrix). The reference
+    /// records no LS3DF FUNCTION address for a standalone reader; the matrix
+    /// is stored by the constructor (I3d_camera.cpp:9-37, RVA 0xb0c0 already
+    /// occupied) and refreshed by the view/update owners. Gated by the same
+    /// view-incomplete word availability as the generic reader; no device is
+    /// consulted.
+    pub fn camera_view_matrix(&self) -> Option<SMatrix> {
+        self.matrix(0x164)
+    }
+    /// Working name for the `m_proj` read at +0x1a4 (mafia-re
+    /// ls3df/I3D/I3D.h:2008: the projection matrix). Same inline-only status
+    /// as `camera_view_matrix`: stored by the constructor and
+    /// `UpdateProjMatrix` (I3d_camera.cpp:94-154, RVA 0xb400 already
+    /// occupied), never exposed by a standalone LS3DF getter body. Gated by
+    /// the projection-complete word availability; no device is consulted.
+    pub fn camera_proj_matrix(&self) -> Option<SMatrix> {
+        self.matrix(0x1a4)
+    }
+    /// Working name for the `m_view_proj` read at +0x1e4 (mafia-re
+    /// ls3df/I3D/I3D.h:2009). Same inline-only status as
+    /// `camera_view_matrix`: stored by `UpdateProjMatrix`, never exposed by
+    /// a standalone LS3DF getter body. Gated by the view-incomplete word
+    /// availability; no device is consulted.
+    pub fn camera_view_proj_matrix(&self) -> Option<SMatrix> {
+        self.matrix(0x1e4)
+    }
+    /// Working name for the `m_bd_view` read at +0x264 (mafia-re
+    /// ls3df/I3D/I3D.h:2011: the backdrop view without translation). Same
+    /// inline-only status as `camera_view_matrix`: stored by the constructor
+    /// and `UpdateProjMatrix`, never exposed by a standalone LS3DF getter
+    /// body. Gated by the view-incomplete word availability; no device is
+    /// consulted.
+    pub fn camera_backdrop_view_matrix(&self) -> Option<SMatrix> {
+        self.matrix(0x264)
+    }
+    /// Working name for the `m_bd_view_proj` read at +0x324 (mafia-re
+    /// ls3df/I3D/I3D.h:2013). Same inline-only status as
+    /// `camera_view_matrix`: stored by `UpdateProjMatrix`, never exposed by
+    /// a standalone LS3DF getter body. Gated by the view-incomplete word
+    /// availability; no device is consulted.
+    pub fn camera_backdrop_view_proj_matrix(&self) -> Option<SMatrix> {
+        self.matrix(0x324)
+    }
+    /// Working name for the `m_near_view_proj` read at +0x3a4 (mafia-re
+    /// ls3df/I3D/I3D.h:2015: the near projection with the view). Same
+    /// inline-only status as `camera_view_matrix`: stored by
+    /// `UpdateProjMatrix`, never exposed by a standalone LS3DF getter body.
+    /// Gated by the view-incomplete word availability; no device is
+    /// consulted.
+    pub fn camera_near_view_proj_matrix(&self) -> Option<SMatrix> {
+        self.matrix(0x3a4)
+    }
     fn matrix_raw(&self, offset: usize) -> Option<SMatrix> {
         let mut out = SMatrix::identity();
         for (i, value) in out.elements.iter_mut().enumerate() {
@@ -2064,6 +2117,40 @@ mod tests {
                 .unwrap();
             world.arena.camera_update(camera).unwrap();
             assert_eq!(world.arena.camera(camera).unwrap().sector, None);
+            world.arena.release(camera.frame()).unwrap();
+            world.destroy_scene();
+        });
+    }
+    #[test]
+    fn named_matrix_readers_match_generic_offsets() {
+        // Working names for the inlined camera matrix field reads
+        // (mafia-re ls3df/I3D/I3D.h:2007-2015): no LS3DF FUNCTION addresses
+        // exist for standalone readers.
+        Pc24PrecisionState::default().run(|| {
+            let mut world = World::new();
+            let camera = world.camera();
+            let frame = world.arena.camera(camera).unwrap();
+            assert_eq!(frame.camera_view_matrix(), frame.matrix(0x164));
+            assert_eq!(frame.camera_proj_matrix(), frame.matrix(0x1a4));
+            assert_eq!(frame.camera_view_proj_matrix(), frame.matrix(0x1e4));
+            assert_eq!(
+                frame.camera_backdrop_view_matrix(),
+                frame.matrix(0x264)
+            );
+            assert_eq!(
+                frame.camera_backdrop_view_proj_matrix(),
+                frame.matrix(0x324)
+            );
+            assert_eq!(
+                frame.camera_near_view_proj_matrix(),
+                frame.matrix(0x3a4)
+            );
+            // Ready camera exposes all six; the view starts as identity.
+            assert_eq!(
+                frame.camera_view_matrix(),
+                Some(SMatrix::identity())
+            );
+            assert_ne!(frame.camera_proj_matrix(), Some(SMatrix::identity()));
             world.arena.release(camera.frame()).unwrap();
             world.destroy_scene();
         });

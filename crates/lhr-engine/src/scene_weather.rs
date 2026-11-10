@@ -390,6 +390,22 @@ pub fn weather_mode(flags: u32) -> u32 {
         0
     }
 }
+/// Working name for the WSF_MODE_1 bit test (mafia-re ls3df/I3D/I3D.h:1360).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is consumed inline by the `SetWeatherSystemParam` mode switch
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:1185-1196, PC RVA 0x4bce0 already
+/// occupied) and read back through `GetWeatherSystemParam` param 15. Exact
+/// bit test; no state moves.
+pub fn weather_mode_is_1(flags: u32) -> bool {
+    flags & WSF_MODE_1 != 0
+}
+/// Working name for the WSF_MODE_2 bit test (mafia-re ls3df/I3D/I3D.h:1361).
+/// Same inline-only status as `weather_mode_is_1`: no standalone LS3DF
+/// FUNCTION entry exists, so no RVA is claimed here. Exact bit test; no
+/// state moves.
+pub fn weather_mode_is_2(flags: u32) -> bool {
+    flags & WSF_MODE_2 != 0
+}
 /// Working name for the reset-wind snapshot read at +0x2d4 (mafia-re
 /// ls3df/I3D/I3D.h:1599 `ws_dir`, the wind when it was reset). The
 /// reference records no LS3DF FUNCTION address for a standalone reader:
@@ -903,5 +919,22 @@ mod weather_system_tests {
         assert!(cmd.snow_textured);
         assert_eq!((cmd.base_vertex, cmd.primitive_count), (48, 12));
         assert!(matches!(cmd.fog, Some(WeatherFogCmd::Linear { .. })));
+    }
+
+    #[test]
+    fn weather_mode_bits_report_only_their_bits() {
+        // Working names for the WSF_MODE_1/2 gates (I3D.h:1360-1361): no
+        // LS3DF FUNCTION addresses exist for standalone readers.
+        assert!(weather_mode_is_1(WSF_MODE_1));
+        assert!(weather_mode_is_2(WSF_MODE_2));
+        assert!(!weather_mode_is_1(0));
+        assert!(!weather_mode_is_2(0));
+        assert!(!weather_mode_is_1(WSF_MODE_2));
+        assert!(!weather_mode_is_2(WSF_MODE_1));
+        assert!(weather_mode_is_1(u32::MAX));
+        assert!(weather_mode_is_2(u32::MAX));
+        assert!(!weather_mode_is_1(u32::MAX & !WSF_MODE_1));
+        assert!(!weather_mode_is_2(u32::MAX & !WSF_MODE_2));
+        assert_eq!(weather_mode(WSF_MODE_1 | WSF_MODE_2), 1);
     }
 }

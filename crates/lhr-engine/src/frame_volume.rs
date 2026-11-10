@@ -65,6 +65,18 @@ pub fn volume_update_scale_limb(volume_type: u32, sx: f32, _sy: f32, sz: f32) ->
     }
 }
 
+/// Working name for the local bound-volume validity gate (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:993 at pin 113b5b6:
+/// `bbox.min.x <= bbox.max.x`). The reference records no LS3DF FUNCTION
+/// address for a standalone gate reader; the float compare lives inside the
+/// occupied `SetBoundVolume` body (PC RVA 0x1ce80, already ported, not
+/// claimed here). Reports whether the stored box is valid; NaN compares
+/// false on both sides, matching the native unordered branch. Pure helper,
+/// no state moves.
+pub fn volume_bbox_valid(min_x: f32, max_x: f32) -> bool {
+    min_x <= max_x
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +102,17 @@ mod tests {
         assert!(!volume_update_applies(0));
         assert!(!volume_update_applies(2));
         assert!(!volume_update_applies(u32::MAX));
+    }
+
+    #[test]
+    fn volume_bbox_valid_reports_ordered_x_extent() {
+        // Working name for the SetBoundVolume validity gate
+        // (I3d_frame.cpp:993): no LS3DF FUNCTION address exists for a
+        // standalone reader.
+        assert!(volume_bbox_valid(0.0, 1.0));
+        assert!(volume_bbox_valid(1.0, 1.0));
+        assert!(!volume_bbox_valid(1.0, 0.0));
+        assert!(!volume_bbox_valid(f32::NAN, 1.0));
+        assert!(!volume_bbox_valid(0.0, f32::NAN));
     }
 }
