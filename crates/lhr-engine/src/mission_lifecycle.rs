@@ -296,6 +296,66 @@ impl MissionLifecycle {
     pub fn unknown_4(&self) -> u32 {
         self.word(0x04)
     }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:125`, `C_mission::web_path` at
+    /// +0x2c): reads the staged web-path member word. No dedicated native
+    /// getter exists, so no RVA is claimed.
+    pub fn web_path_word(&self) -> u32 {
+        self.word(0x2c)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:127`, `C_mission::roads` at +0x30):
+    /// reads the staged roads member word. No dedicated native getter
+    /// exists, so no RVA is claimed.
+    pub fn roads_word(&self) -> u32 {
+        self.word(0x30)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:142`, `C_mission::effects` at +0x6c):
+    /// reads the staged effects member word. No dedicated native getter
+    /// exists, so no RVA is claimed.
+    pub fn effects_word(&self) -> u32 {
+        self.word(0x6c)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:144-148`, `C_mission::skip_frames`
+    /// at +0x78): reads the staged skip-frames count `Tick` counts down
+    /// without presenting. No dedicated native getter exists, so no RVA is
+    /// claimed.
+    pub fn skip_frames_word(&self) -> i32 {
+        self.word(0x78) as i32
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw store,
+    /// mafia-re `game/mission/Mission.h:144-148`, `C_mission::skip_frames`
+    /// at +0x78): stages the skip-frames count. The `Tick` countdown stays
+    /// with the mission owner. No dedicated native setter exists, so no RVA
+    /// is claimed.
+    pub fn set_skip_frames_word(&mut self, value: i32) {
+        self.put_word(0x78, value as u32);
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:140-141`, `C_mission::next_mission_number`
+    /// at +0x70): reads the staged next-mission number. The native member is
+    /// written by `SetMissionNumber` and read by `KeepMissionNumber` with no
+    /// dedicated raw getter, so no RVA is claimed.
+    pub fn next_mission_number_word(&self) -> i32 {
+        self.word(0x70) as i32
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:140-141`, `C_mission::mission_number`
+    /// at +0x74): reads the staged current mission number. The native member
+    /// is read by `GetMissionNumber` with no dedicated raw getter, so no RVA
+    /// is claimed.
+    pub fn mission_number_word(&self) -> i32 {
+        self.word(0x74) as i32
+    }
     pub fn pending_scene(&self) -> Option<SceneKey> {
         self.pending_scene
     }
@@ -2377,5 +2437,52 @@ mod tests {
         assert!(store.elems.is_empty());
         store.clear();
         assert!(store.elems.is_empty());
+    }
+
+    #[test]
+    fn staged_member_words_working_name_read_raw_handles() {
+        // Working names: C_mission web_path (+0x2c), roads (+0x30) and
+        // effects (+0x6c) member words (Mission.h:125-142); inline-only
+        // reads with no outline RVA claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.web_path_word(), 0);
+        assert_eq!(mission.roads_word(), 0);
+        assert_eq!(mission.effects_word(), 0);
+        mission.put_word(0x2c, 0x1111_1111);
+        mission.put_word(0x30, 0x2222_2222);
+        mission.put_word(0x6c, 0x3333_3333);
+        assert_eq!(mission.web_path_word(), 0x1111_1111);
+        assert_eq!(mission.roads_word(), 0x2222_2222);
+        assert_eq!(mission.effects_word(), 0x3333_3333);
+    }
+
+    #[test]
+    fn skip_frames_word_working_name_round_trips_staged_count() {
+        // Working names: C_mission::skip_frames (+0x78) raw read/store
+        // (Mission.h:144-148); inline-only with no outline RVA claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.skip_frames_word(), 0);
+        mission.set_skip_frames_word(10);
+        assert_eq!(mission.skip_frames_word(), 10);
+        mission.set_skip_frames_word(-1);
+        assert_eq!(mission.skip_frames_word(), -1);
+        assert_eq!(mission.skip_frames_word() as u32, mission.word(0x78));
+    }
+
+    #[test]
+    fn mission_number_words_working_name_read_staged_pair() {
+        // Working names: C_mission next_mission_number (+0x70) and
+        // mission_number (+0x74) raw reads (Mission.h:140-141); inline-only
+        // with no outline RVA claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.next_mission_number_word(), 0);
+        assert_eq!(mission.mission_number_word(), 0);
+        mission.put_word(0x70, 7);
+        mission.put_word(0x74, 9u32);
+        assert_eq!(mission.next_mission_number_word(), 7);
+        assert_eq!(mission.mission_number_word(), 9);
+        mission.reset_mission_numbers();
+        assert_eq!(mission.next_mission_number_word(), 0);
+        assert_eq!(mission.mission_number_word(), 0);
     }
 }

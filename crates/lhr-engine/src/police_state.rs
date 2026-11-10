@@ -484,6 +484,49 @@ impl PoliceGameInitState {
         self.temp_cars.iter().any(|&tracked| tracked == car)
     }
 
+    /// Working name (no separate native entry): reports whether any pursuit
+    /// record is filed. The native code tests `records.size()` inline at each
+    /// use (mafia-re game/ai/C_shvestky.cpp at pin 113b5b6) with no dedicated
+    /// getter, so no RVA is claimed.
+    pub fn has_any_record(&self) -> bool {
+        !self.records.is_empty()
+    }
+
+    /// Working name (no separate native entry): reads the human filed at the
+    /// given record position in stored order (`None` past the end). The native
+    /// record vector is scanned inline with no dedicated indexed getter, so
+    /// no RVA is claimed.
+    pub fn record_human_at(&self, index: usize) -> Option<PoliceHumanId> {
+        self.records.get(index).map(|record| record.human)
+    }
+
+    /// Working name (no separate native entry): reads the do_rici actor at
+    /// the given list position in stored order (`None` past the end). The
+    /// native `do_rici_actors` vector (mafia-re game/ai/C_shvestky.h:159-160)
+    /// is traversed inline with no dedicated indexed getter, so no RVA is
+    /// claimed.
+    pub fn do_rici_actor_at(&self, index: usize) -> Option<PoliceActorId> {
+        self.do_rici_actors.get(index).copied()
+    }
+
+    /// Working name (no separate native entry): reads the temp car at the
+    /// given position in stored order (`None` past the end). The native
+    /// `temp_cars` list (mafia-re game/ai/C_shvestky.h:159-160) is trimmed
+    /// from the front inline in `Tick` with no dedicated indexed getter, so
+    /// no RVA is claimed.
+    pub fn temp_car_at(&self, index: usize) -> Option<PoliceActorId> {
+        self.temp_cars.get(index).copied()
+    }
+
+    /// Working name (no separate native entry): reads the `free` mark of the
+    /// road-block car at the given position (`None` past the end). The native
+    /// `S_road_block_car` entries (mafia-re game/ai/C_shvestky.h:120-124)
+    /// are scanned inline with no dedicated indexed flag getter, so no RVA
+    /// is claimed.
+    pub fn road_block_car_free_at(&self, index: usize) -> Option<bool> {
+        self.road_block_cars.get(index).map(|entry| entry.free)
+    }
+
     /// Working name (no separate native entry): counts the `free` marks of
     /// `road_block_cars` (`S_road_block_car`, actor plus `free` at +0x4,
     /// mafia-re game/ai/C_shvestky.h:120-124). No PC outline is evidenced
@@ -1975,6 +2018,39 @@ impl SledovackaState {
     /// contract.
     pub fn sledovacka_has_car(&self, car: PoliceActorId) -> bool {
         self.chase_cars.iter().rev().any(|&chase| chase == car)
+    }
+
+    /// Working name (no separate native entry): admits the car to the tracked
+    /// chase list unless already listed (mirrors the `admit_do_rici`
+    /// duplicate-guard shape). The native chase elements (mafia-re
+    /// game/ai/C_sledovacka.h:38-55) are owned with their drivers/paths
+    /// elsewhere; only the opaque car identity is tracked here. No dedicated
+    /// native list-admit outline exists, so no RVA is claimed. Returns whether
+    /// the car was appended.
+    pub fn admit_chase_car(&mut self, car: PoliceActorId) -> bool {
+        if self.chase_cars.contains(&car) {
+            return false;
+        }
+        self.chase_cars.push(car);
+        true
+    }
+
+    /// Working name (no separate native entry): evicts the car from the
+    /// tracked chase list with swap-with-back plus pop, searched back to
+    /// front like the other registry removals here. The native element
+    /// teardown (driver deletion) stays with its owner. No dedicated native
+    /// list-evict outline exists, so no RVA is claimed. Returns whether the
+    /// car was listed.
+    pub fn evict_chase_car(&mut self, car: PoliceActorId) -> bool {
+        let Some(index) = self
+            .chase_cars
+            .iter()
+            .rposition(|&listed| listed == car)
+        else {
+            return false;
+        };
+        self.chase_cars.swap_remove(index);
+        true
     }
 
     /// Original `C_sledovacka::Done` 0x4a0660 (GAME VA 0x4a0660,
@@ -5373,5 +5449,59 @@ mod tests {
         record.reason = 9;
         record.raise_pending_for_ram_police_car(true);
         assert_eq!((record.new_state, record.reason), (SHVSTATE_KILL, 9));
+    }
+
+    #[test]
+    fn registry_presence_and_indexed_reads_use_stored_order() {
+        // Working names: inline emptiness/indexed reads; no RVA claimed.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_any_record());
+        assert_eq!(state.record_human_at(0), None);
+        assert_eq!(state.do_rici_actor_at(0), None);
+        assert_eq!(state.temp_car_at(0), None);
+        assert_eq!(state.road_block_car_free_at(0), None);
+        state.records.push(PolicePursuitRecord::new(7));
+        state.records.push(PolicePursuitRecord::new(9));
+        state.do_rici_actors.push(11);
+        state.do_rici_actors.push(13);
+        state.temp_cars.push(21);
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 31,
+            free: true,
+        });
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 33,
+            free: false,
+        });
+        assert!(state.has_any_record());
+        assert_eq!(state.record_human_at(0), Some(7));
+        assert_eq!(state.record_human_at(1), Some(9));
+        assert_eq!(state.record_human_at(2), None);
+        assert_eq!(state.do_rici_actor_at(0), Some(11));
+        assert_eq!(state.do_rici_actor_at(1), Some(13));
+        assert_eq!(state.do_rici_actor_at(2), None);
+        assert_eq!(state.temp_car_at(0), Some(21));
+        assert_eq!(state.temp_car_at(1), None);
+        assert_eq!(state.road_block_car_free_at(0), Some(true));
+        assert_eq!(state.road_block_car_free_at(1), Some(false));
+        assert_eq!(state.road_block_car_free_at(2), None);
+    }
+
+    #[test]
+    fn chase_list_admit_evict_mirrors_do_rici_guards() {
+        // Working names: tracked chase-list admit/evict; no RVA claimed.
+        let mut chases = SledovackaState::new();
+        assert!(chases.admit_chase_car(7));
+        assert!(!chases.admit_chase_car(7));
+        assert!(chases.admit_chase_car(9));
+        assert_eq!(chases.chase_car_count(), 2);
+        assert!(chases.sledovacka_has_car(7));
+        assert!(chases.evict_chase_car(7));
+        assert!(!chases.sledovacka_has_car(7));
+        assert!(!chases.evict_chase_car(7));
+        assert!(!chases.evict_chase_car(42));
+        assert_eq!(chases.chase_car_count(), 1);
+        chases.apply_done();
+        assert_eq!(chases.chase_car_count(), 0);
     }
 }
