@@ -1213,10 +1213,12 @@ mod tests {
     #[test]
     fn mise01_near_rotation_boundary_admits_under_owner() {
         // Genuine MISE01 scene matrix (animated joint with f32 composition
-        // noise): one transcendental enclosure straddles a single f32
-        // boundary. Under an active precision owner the host rounds the best
-        // point estimate and records responsibility; ownerless callers still
-        // refuse. The exact bit is not pinned: no implementation owns it.
+        // noise). Portable factor enclosures require an owner at this rounding
+        // boundary; the retained x87 factors are also available ownerless.
+        // Check each backend's admission and scoped precision state without
+        // assigning original-runtime parity to a captured quaternion value.
+        use crate::native_precision::{current_precision, Pc24PrecisionState};
+
         let matrix = SMatrix {
             elements: [
                 0.99999976,
@@ -1237,25 +1239,43 @@ mod tests {
                 1.0,
             ],
         };
-        assert_eq!(
-            SQuat::try_make_from_matrix(&matrix),
-            Err(MakeUnavailable::RoundingUncertain)
-        );
-        let mut owner = crate::native_precision::Pc24PrecisionState::new(false);
-        let quaternion = owner.run(|| SQuat::try_make_from_matrix(&matrix));
-        let quaternion = quaternion.expect("boundary straddle admits under owner");
-        assert!(owner.precision_raised());
-        let norm = quaternion
-            .wxyz
-            .iter()
-            .map(|value| f64::from(*value) * f64::from(*value))
-            .sum::<f64>()
-            .sqrt();
-        assert!((norm - 1.).abs() < 1e-6, "norm={norm}");
-        assert!(quaternion
-            .wxyz
-            .into_iter()
-            .all(|value| value == 0. || value.is_normal()));
+        assert_eq!(current_precision(), None);
+        let ownerless = SQuat::try_make_from_matrix(&matrix);
+        assert_eq!(current_precision(), None);
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let ownerless = ownerless.expect("retained x87 factors admit this matrix without an owner");
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+        assert_eq!(ownerless, Err(MakeUnavailable::RoundingUncertain));
+
+        for initial_precision in [false, true] {
+            let mut owner = Pc24PrecisionState::new(initial_precision);
+            let quaternion = owner
+                .run(|| {
+                    assert_eq!(current_precision(), Some(initial_precision));
+                    let result = SQuat::try_make_from_matrix(&matrix);
+                    assert_eq!(current_precision(), Some(true));
+                    result
+                })
+                .expect("boundary straddle admits under owner");
+            assert!(owner.precision_raised());
+            assert_eq!(current_precision(), None);
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            assert_eq!(
+                quaternion.wxyz.map(f32::to_bits),
+                ownerless.wxyz.map(f32::to_bits)
+            );
+            let norm = quaternion
+                .wxyz
+                .iter()
+                .map(|value| f64::from(*value) * f64::from(*value))
+                .sum::<f64>()
+                .sqrt();
+            assert!((norm - 1.).abs() < 1e-6, "norm={norm}");
+            assert!(quaternion
+                .wxyz
+                .into_iter()
+                .all(|value| value == 0. || value.is_normal()));
+        }
     }
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[test]

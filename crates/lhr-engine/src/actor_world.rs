@@ -775,6 +775,9 @@ struct OwnedActor {
     lifetime: ActorLifetime,
     state: BaseActorState,
     phase: ActorPhase,
+    /// Host-only scoped borrow of the embedded CProgram. Unlike a manual
+    /// take/return, callbacks cannot replace or retire this borrowed owner.
+    program_dispatch_leased: bool,
     detector: Option<DetectorState>,
     railway: Option<RailwayState>,
     bridge: Option<BridgeState>,
@@ -793,6 +796,12 @@ struct OwnedActor {
     racecam: Option<RacecamState>,
     traffic: Option<TrafficGeneratorState>,
 }
+
+#[path = "actor_program_disposal.rs"]
+mod program_disposal;
+pub use program_disposal::{ActorProgramDiscard, ActorProgramDiscardError, ActorProgramKind};
+#[path = "actor_program_dispatch.rs"]
+mod program_dispatch;
 /// Untouched native detector storage, including the embedded program seed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DetectorSeed {
@@ -1694,6 +1703,7 @@ impl ActorWorld {
             lifetime,
             state: BaseActorState::construct(seed),
             phase: ActorPhase::Constructing,
+            program_dispatch_leased: false,
             detector: None,
             railway,
             bridge: None,
@@ -4031,13 +4041,16 @@ impl ActorWorld {
     /// its identity and phase; only the program moves. The caller must return
     /// it through [`Self::return_entity_program`] on every path, including
     /// failed ticks: dropping a live program is host cleanup, never a
-    /// sanctioned native free. Callbacks during the tick must not retire the
-    /// ticking actor; no such callback exists yet.
+    /// sanctioned native free. This manual API does not provide unwind
+    /// restoration. MissionProgramWorldContext uses a host dispatch lease
+    /// instead; while that lease is active, take/return and current-owner
+    /// lifetime/source operations refuse before changing the actor.
     pub fn take_entity_program(
         &mut self,
         actor: ActorReferenceId,
     ) -> Result<Option<CProgram>, ActorWorldError> {
         let i = self.ready(actor)?;
+        self.guard_program_dispatch(actor)?;
         Ok(self.actors[i]
             .entity
             .as_mut()
@@ -4051,6 +4064,7 @@ impl ActorWorld {
         program: Option<CProgram>,
     ) -> Result<(), ActorWorldError> {
         let i = self.index(actor)?;
+        self.guard_program_dispatch(actor)?;
         self.actors[i]
             .entity
             .as_mut()
@@ -4074,6 +4088,7 @@ impl ActorWorld {
         actor: ActorReferenceId,
     ) -> Result<Option<CProgram>, ActorWorldError> {
         let i = self.ready(actor)?;
+        self.guard_program_dispatch(actor)?;
         Ok(self.actors[i]
             .detector
             .as_mut()
@@ -4087,6 +4102,7 @@ impl ActorWorld {
         program: Option<CProgram>,
     ) -> Result<(), ActorWorldError> {
         let i = self.index(actor)?;
+        self.guard_program_dispatch(actor)?;
         self.actors[i]
             .detector
             .as_mut()
@@ -4104,6 +4120,7 @@ impl ActorWorld {
         actor: ActorReferenceId,
     ) -> Result<(), ActorWorldError> {
         let i = self.ready(actor)?;
+        self.guard_program_dispatch(actor)?;
         self.actors[i]
             .detector
             .as_mut()
@@ -4119,6 +4136,7 @@ impl ActorWorld {
         actor: ActorReferenceId,
     ) -> Result<(), ActorWorldError> {
         let i = self.ready(actor)?;
+        self.guard_program_dispatch(actor)?;
         let detector = self.actors[i]
             .detector
             .as_mut()
@@ -4393,6 +4411,7 @@ impl ActorWorld {
         event_id: i32,
     ) -> Result<bool, ActorWorldError> {
         let i = self.index(actor)?;
+        self.guard_program_dispatch(actor)?;
         let is_entity = self.actors[i].entity.is_some();
         let is_detector = self.actors[i].detector.is_some();
         if !is_entity && !is_detector {
@@ -4549,6 +4568,7 @@ impl ActorWorld {
         reader: &mut ActorDataReader<'_>,
     ) -> Result<(), ActorWorldError> {
         let i = self.ready(actor)?;
+        self.guard_program_dispatch(actor)?;
         if self.actors[i].human.is_none() {
             return Err(ActorWorldError::NotHuman);
         }
@@ -4576,6 +4596,7 @@ impl ActorWorld {
         backend: &mut P,
     ) -> Result<(), ActorWorldError> {
         let i = self.ready(actor)?;
+        self.guard_program_dispatch(actor)?;
         if self.actors[i].entity.is_none() {
             return Err(ActorWorldError::NotEntity);
         }
@@ -4620,6 +4641,7 @@ impl ActorWorld {
         vtable: ActorVtable,
     ) -> Result<(), ActorWorldError> {
         let i = self.index(actor)?;
+        self.guard_program_dispatch(actor)?;
         if !matches!(
             self.actors[i].phase,
             ActorPhase::Ready
@@ -4880,6 +4902,7 @@ impl ActorWorld {
         backend: &mut B,
     ) -> Result<u16, ActorWorldError> {
         let i = self.ready(actor)?;
+        self.guard_program_dispatch(actor)?;
         if self.actors[i].state.vtable != ActorVtable::Entity {
             return Err(ActorWorldError::NotEntity);
         }
@@ -5176,6 +5199,7 @@ impl ActorWorld {
         backend: &mut B,
     ) -> Result<bool, ActorWorldError> {
         let i = self.ready(actor)?;
+        self.guard_program_dispatch(actor)?;
         if self.actors[i].car.is_some() {
             self.actors[i].phase = ActorPhase::Initializing;
             let result = backend
@@ -5528,6 +5552,7 @@ impl ActorWorld {
         backend: &mut P,
     ) -> Result<(), ActorWorldError> {
         let i = self.ready(actor)?;
+        self.guard_program_dispatch(actor)?;
         if self.actors[i].detector.is_none() {
             return Err(ActorWorldError::NotDetector);
         }
@@ -5572,6 +5597,7 @@ impl ActorWorld {
         backend: &mut P,
     ) -> Result<(), ActorWorldError> {
         let i = self.index(actor)?;
+        self.guard_program_dispatch(actor)?;
         if !matches!(
             self.actors[i].phase,
             ActorPhase::Ready
@@ -5631,6 +5657,7 @@ impl ActorWorld {
         backend: &mut P,
     ) -> Result<u16, ActorWorldError> {
         let i = self.ready(actor)?;
+        self.guard_program_dispatch(actor)?;
         if self.actors[i].detector.is_none() || self.actors[i].state.vtable != ActorVtable::Detector
         {
             return Err(ActorWorldError::NotDetector);
@@ -9749,6 +9776,59 @@ mod human_owner_tests {
     use crate::human_actor::{HumanAnimationMachineSeed, HumanAuxiliarySeed, HumanProperties};
     use crate::original_program::{ProgramAllocation, ProgramBuffer, ProgramVtable};
     use std::{cell::RefCell, collections::BTreeSet, rc::Rc};
+    #[test]
+    fn entity_program_host_disposal_preserves_source_until_actual_destructor() {
+        struct Storage;
+        impl crate::original_program::RuntimeBackend for Storage {
+            fn effect(
+                &mut self,
+                _: crate::original_program::RuntimeView<'_>,
+                _: crate::original_program::RuntimeEffect,
+                _: Option<&crate::program_parameters::ScalarParameter>,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+        }
+        let mut world = world();
+        let mut heap = Heap::default();
+        let actor = world.create_actor(27, &mut heap).unwrap().unwrap();
+        let index = world.index(actor).unwrap();
+        let program = world.actors[index]
+            .entity
+            .as_mut()
+            .unwrap()
+            .program
+            .as_mut()
+            .unwrap();
+        program
+            .set_source_code(Some(b"dim_frm 2"), &mut heap)
+            .unwrap();
+        program.init_fresh_runtime(&mut Storage).unwrap();
+        let allocations = heap.allocations.clone();
+        assert!(world.program_disposal_pending());
+        let reports = world.discard_embedded_program_runtimes_host().unwrap();
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].actor, actor);
+        assert_eq!(reports[0].kind, ActorProgramKind::Entity);
+        assert_eq!(reports[0].resources.scalar_allocations, 1);
+        assert!(!world.program_disposal_pending());
+        assert_eq!(heap.allocations, allocations);
+        let program = world.entity(actor).unwrap().program().unwrap();
+        assert!(program.runtime().is_none());
+        assert_eq!(
+            program.source().unwrap().c_bytes(),
+            Some(b"dim_frm 2".as_slice())
+        );
+        assert!(world
+            .discard_embedded_program_runtimes_host()
+            .unwrap()
+            .is_empty());
+        let mut frames = Frames::new(heap.log.clone());
+        world
+            .delete_entity(actor, 1, &mut frames, &mut heap)
+            .unwrap();
+        assert!(heap.allocations.is_empty());
+    }
     fn base() -> BaseActorSeed {
         BaseActorSeed {
             word_0e: 3,

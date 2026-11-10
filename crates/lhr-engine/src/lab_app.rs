@@ -646,7 +646,7 @@ mod tests {
             lab_pointer: None,
             lab_drag: None,
             config: None,
-            keys: HashSet::new(),
+            keys: driving_view::KeyboardInput::default(),
             steering_preview_active: false,
             driving_clock: driving_view::FixedClock::default(),
             driving_controls: driving_view::Controls::default(),

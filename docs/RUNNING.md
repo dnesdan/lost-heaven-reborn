@@ -47,8 +47,16 @@ Driving opens a window: W/S accelerate and brake, A/D steer, Space applies the
 handbrake, R reloads, and Escape exits. `--mission mise01` captures an
 inspection view; it does not start authored mission progression. To capture a
 bounded window run, add `--frames 300 --capture /tmp/driving.png` to a windowed
-command. `--car-driving` cannot be combined with `--headless`. The optional Engine Lab
-needs the `engine-lab` feature and a window; F1 toggles its panel, F2 pauses,
+command. `--car-driving` cannot be combined with `--headless`.
+
+Driving keyboard presses are latched until the next actual 16 ms simulation
+step, so a press/release between redraws is not lost. A released tap applies
+to one catch-up step; held input stays continuous. Focus loss, UI capture,
+pause and reload clear pending input. This is host input behavior, with no
+original-input parity or controller/aim-assist claim.
+
+The optional Engine Lab needs the `engine-lab` feature and a window;
+F1 toggles its panel, F2 pauses,
 F3 steps and F4 reloads. It is disabled in the default build. The CPU
 `--mission-load-probe` runs before the window/audio device path and does not
 execute gameplay. Pass `--probe-model-dir Models` explicitly for model intake;
@@ -61,6 +69,16 @@ and the first `Tick` restore-volume gate to the shared Rust PCM master gain.
 retains the already-consumed flag. This is bounded host audio behavior, not a
 complete mission Tick, native DirectSound volume curve or playable GameInit.
 
+`MissionLoadSession::open_source_in_order` loads actual world, weather,
+sector, navigation, road and scene2 owners in the represented Open order on
+a fresh session. It requires a caller renderer between audio mute and the
+scene2 read. Missing scene2 restores audio without creating a map/camera;
+present corrupt or unsupported content retains its reached loader error.
+Scripts and Init stay blocked until the entire sequence, including the final
+cache read, succeeds. It shares loading helpers with the existing probe;
+Game reset, vehicle/progress/media markers, native active Close and playable
+startup remain outside this source-loading path.
+
 The `C_game::Init` ResetMissionState prefix now executes the first scalar
 stores, reads weather ON/COUNT from the current retained Scene, and stages
 the weather-buffer reset before the host sound mute. It stops explicitly at
@@ -72,6 +90,28 @@ boundary and the actual retained scalar/weather/PCM observations. This
 ordered inspection deliberately runs after the separate `GameInitStart`
 script diagnostic; the two independent probes do not establish an executable
 native gameplay sequence.
+The script diagnostic uses the session's represented game fields for
+`game_nightmission` and `noanimpreload`. It now refuses unowned light-cache
+and city-traffic effects at their reached instruction instead of counting
+them as successful. A previously successful diagnostic can therefore stop
+earlier; its program counter and executed state remain available for review.
+For explicit host calls, `MissionLoadSession` also exposes
+`initialize_owned_entity_programs`, `initialize_owned_detector_programs`,
+`tick_owned_entity_programs` and `tick_owned_detector_programs`. They use the
+retained actors, Scene and game fields, the session precision scope and the
+caller's shared dispatch budget. A host dispatch lease restores the same
+embedded program on errors and panic; interrupted state stays blocked against
+replay. Diagnostics may mutate state and retire other actors, but current-owner
+lifetime/source changes refuse before effects. Replacing the entire borrowed
+`ActorWorld` violates the callback contract and loses restoration; it cannot
+attach the old program to a new world or mask the original panic. These calls
+do not establish GameInit or a native tick order and are not added to the probe.
+Terminal source disposal also checks embedded actor programs before entering
+any destructor. After an explicitly stopped runtime, dispose its Rust VM
+storage through `discard_actor_program_runtimes_host` (and the existing
+global-program counterpart) before terminal source cleanup. A detached
+program must first return to its actor. This is host cleanup for a fresh
+session, not original GameDone or proof of a playable mission restart.
 The retained mission also exposes an explicit `SceneRenderBackend` callback
 for that same first `C_game::Init` render effect. When supplied, it delegates
 through `ModelArena::scene_render_with_backend` with the live Scene identity;
@@ -85,7 +125,11 @@ before terminal disposal. This is not a GPU readback or a playable frame.
 To verify the *same* Scene on the GPU, add `--probe-render-capture FILE.png`
 to `--mission-load-probe`. This explicitly requests an offscreen 800x600
 readback with the source mesh lighting, and reports GPU errors separately
-from input and disposal failures. Store captures outside the source tree;
+from input and disposal failures. The capture now runs at the reached render
+boundary of the ordered Init inspection, after the live audio mute. A failed
+or unreached presentation is not retried outside that order. Successful
+presentation advances to the still-unavailable `stop_sounds` owner; it does
+not complete GameInit. Store captures outside the source tree;
 the source textures and original game data are not redistributable.
 
 Historically at engine `041eed8`, INTRO's CPU probe completed source loading and

@@ -14,8 +14,7 @@ use lhr_engine::{
     mission_world_completeness,
     model_loading::ModelArena,
     native_precision::Pc24PrecisionState,
-    original_program::{RuntimeBackend, RuntimeEffect, RuntimeView},
-    program_parameters::ScalarParameter,
+    original_program::{RuntimeBackend, RuntimeView},
     script_lookup::LookupError,
     script_scheduler::{ActorReferenceId, DispatchBudget, FrameReferenceId},
 };
@@ -29,26 +28,6 @@ const PROBE_RENDER_SIZE: [u32; 2] = [PROBE_SIZE[0] as u32, PROBE_SIZE[1] as u32]
 /// always terminates within it or reports budget exhaustion; nothing here
 /// depends on the exact count, only on its finiteness.
 const PROBE_DISPATCH_BUDGET: usize = 100_000;
-
-/// Counting accept-all script backend for the probe. Every reached effect
-/// boundary succeeds and is counted; the runtime owns all allocations.
-/// This instruments scheduling, it does not implement gameplay effects.
-#[derive(Default)]
-struct ProbeEffects {
-    calls: usize,
-}
-
-impl RuntimeBackend for ProbeEffects {
-    fn effect(
-        &mut self,
-        _: RuntimeView<'_>,
-        _: RuntimeEffect,
-        _: Option<&ScalarParameter>,
-    ) -> Result<(), String> {
-        self.calls += 1;
-        Ok(())
-    }
-}
 
 /// Headless diagnostic: counts message beeps without a listener to beep
 /// through. A nonzero count stays visible in the report instead of masking
@@ -94,17 +73,16 @@ impl<B: RuntimeBackend, D: MissionProgramDiagnostic> GameGlobalProgramWorldRunne
 
 struct ScriptRunReport {
     outcome: NamedGlobalProgramOutcome,
-    effect_calls: usize,
     beeps: usize,
     budget_remaining: usize,
 }
 
 /// Owned program init plus the single `GameInitStart` run over the live
-/// session owners, in `C_game::Init` order after the scalar prefix. Runtimes
+/// session owners as a separate dependency diagnostic. This does not bypass
+/// earlier missing Init owners in a playable startup path. Runtimes
 /// are discarded host-side afterwards so terminal disposal sees no retained
 /// program state; this is Init, not Done.
 fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunReport, String> {
-    let mut effects = ProbeEffects::default();
     let mut diagnostic = ProbeDiagnostic::default();
     let mut game = ProbeGame;
     let mut budget =
@@ -113,16 +91,15 @@ fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunRe
     // run below ends; otherwise terminal disposal refuses the retained state
     // and masks the real outcome.
     let init = session
-        .global_program_game_init(&mut effects)
+        .initialize_owned_global_programs()
         .map_err(|error| format!("{error:?}"));
     let outcome = match &init {
         Ok(()) => Some(
             session
-                .global_program_run_in_world(
+                .run_owned_global_program_in_world(
                     b"GameInitStart",
                     &mut game,
                     &mut budget,
-                    &mut effects,
                     &mut diagnostic,
                     ProgramWorldLocales {
                         game_default_c_locale: true,
@@ -140,13 +117,15 @@ fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunRe
         (Ok(()), Some(Ok(outcome)), Ok(_)) => Ok(outcome),
         (Err(error), _, Ok(_)) => Err(error),
         (Ok(()), Some(Err(error)), Ok(_)) => Err(error),
-        (Ok(()), _, Err(error)) => Err(format!("runtimes discard: {error}")),
+        (Ok(()), Some(Err(run)), Err(discard)) => {
+            Err(format!("{run}; runtimes discard: {discard}"))
+        }
+        (Ok(()), Some(Ok(_)), Err(error)) => Err(format!("runtimes discard: {error}")),
         (Err(init), _, Err(discard)) => Err(format!("{init}; runtimes discard: {discard}")),
         (Ok(()), None, _) => Err("unreachable GameInitStart admission".into()),
     }?;
     Ok(ScriptRunReport {
         outcome,
-        effect_calls: effects.calls,
         beeps: diagnostic.beeps,
         budget_remaining: budget.remaining(),
     })
@@ -273,9 +252,9 @@ pub fn run(
     } else {
         Err("skipped after stopped load".into())
     };
-    // Owned program init plus the single GameInitStart run, in Init order
-    // after the scalar prefix. Runtimes are discarded before reporting so
-    // terminal disposal starts clean.
+    // Explicit dependency diagnostic, separate from the ordered Init attempt.
+    // Game effects use represented live owners and stop on unavailable ones.
+    // Host runtime discard is not original GameDone or mission completion.
     let scripts = if matches!(game_init, Ok(())) {
         run_game_init_scripts(&mut session)
     } else {
@@ -308,8 +287,8 @@ pub fn run(
         Ok(script) => {
             writeln!(
                 report,
-                "GameInitStart: {:?} effect_calls={} beeps={} budget_remaining={}",
-                script.outcome, script.effect_calls, script.beeps, script.budget_remaining
+                "GameInitStart: {:?} beeps={} budget_remaining={}",
+                script.outcome, script.beeps, script.budget_remaining
             )
             .unwrap();
         }
@@ -317,16 +296,51 @@ pub fn run(
             writeln!(report, "GameInitStart stopped: {detail}").unwrap();
         }
     }
+    writeln!(
+        report,
+        "Session script state: night_mission={} anim_preload={}",
+        session.game_state().night_mission(),
+        session.game_state().anim_preload()
+    )
+    .unwrap();
     // Independent ordered Init inspection AFTER the GameInitStart script
     // diagnostic above. It starts with the actual retained Scene, but is not
     // a continuation of that diagnostic or a successful full GameInit. In
     // particular the true Init driver stops before GlobalProgramStart while
-    // this command separately exercises that script with counting effects.
+    // this command separately exercises that script with session-owned effects.
     // Keep the first failure and reached owner state visible without changing
     // whether an otherwise complete source-load probe exits successfully.
+    let mut init_capture = None;
+    let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
     if load.is_ok() {
         let mut attempt = InitAttempt::default();
-        let result = attempt.run(&mut session);
+        let result = if let Some(path) = capture {
+            attempt.run_with_presentation(
+                &mut session,
+                PROBE_RENDER_SIZE,
+                &mut sequence,
+                |snapshot| {
+                    let result = capture_retained_mission_frame(snapshot, path);
+                    match &result {
+                        Ok(()) => writeln!(
+                            report,
+                            "Mission GPU readback at Init render boundary written to {}",
+                            path.display()
+                        )
+                        .unwrap(),
+                        Err(error) => writeln!(
+                            report,
+                            "Mission GPU readback at Init render boundary stopped: {error}"
+                        )
+                        .unwrap(),
+                    }
+                    init_capture = Some(result.clone());
+                    result
+                },
+            )
+        } else {
+            attempt.run(&mut session)
+        };
         let status = match result {
             // SessionInitError already carries the reached InitStep prefix.
             Err(InitRunError::Callback(failure)) => format!("stopped: {}", failure.error),
@@ -342,13 +356,16 @@ pub fn run(
         )
         .unwrap();
     } else {
-        writeln!(report, "GameInit ordered inspection: skipped after stopped load").unwrap();
+        writeln!(
+            report,
+            "GameInit ordered inspection: skipped after stopped load"
+        )
+        .unwrap();
     }
-    // A separate presentation probe over the SAME retained mission Scene and
-    // its active camera. Optional GPU readback uses the generated scene frame
-    // without creating a second load owner or starting gameplay.
-    let capture_result = if load.is_ok() {
-        let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
+    // A separate CPU presentation observation over the SAME retained Scene.
+    // Requested GPU work already ran at the reached Init render boundary; do
+    // not retry a failed presentation or bypass an earlier Init failure here.
+    if load.is_ok() {
         match session.snapshot_loaded_scene(PROBE_RENDER_SIZE, &mut sequence) {
             Ok(snapshot) => {
                 writeln!(
@@ -362,28 +379,26 @@ pub fn run(
                     snapshot.frame.viewport,
                 )
                 .unwrap();
-                if let Some(path) = capture {
-                    let result = capture_retained_mission_frame(&snapshot, path);
-                    match &result {
-                        Ok(()) => writeln!(report, "Mission GPU readback written to {}", path.display()).unwrap(),
-                        Err(error) => writeln!(report, "Mission GPU readback stopped: {error}").unwrap(),
-                    }
-                    result
-                } else {
-                    Ok(())
-                }
             }
             Err(error) => {
                 writeln!(report, "Mission presentation snapshot unavailable: {error}").unwrap();
-                if capture.is_some() {
-                    Err(format!("mission snapshot unavailable for requested GPU capture: {error}"))
-                } else {
-                    Ok(())
-                }
             }
         }
     } else {
-        writeln!(report, "Mission presentation snapshot: skipped after stopped load").unwrap();
+        writeln!(
+            report,
+            "Mission presentation snapshot: skipped after stopped load"
+        )
+        .unwrap();
+    }
+    let capture_result = if capture.is_some() {
+        init_capture.unwrap_or_else(|| {
+            Err(
+                "requested GPU capture was not reached by ordered GameInit; see its first failure"
+                    .into(),
+            )
+        })
+    } else {
         Ok(())
     };
     writeln!(
