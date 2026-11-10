@@ -1838,19 +1838,29 @@ fn dialogue_commands_advance_as_noop_and_count_in_discard() {
     assert_eq!(report.human_talk_allocations, 1);
 }
 #[test]
-fn mission_flow_commands_advance_as_noop_and_count_in_discard() {
-    let mut memory = Memory::default();
-    let mut p = program(b"mission_objectives 5\nmission_objectivesclear\nendofmission 1,2\nchange_mission \"a\",\"b\",1.0", &mut memory);
-    let progress = p.init_fresh_runtime(&mut memory).unwrap();
-    assert_eq!((progress.accepted, progress.errors), (4, 0));
-    for expected in 1..=4 {
-        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
-            .unwrap();
-        assert_eq!(p.runtime().unwrap().fields.program_counter(), expected);
+fn unimplemented_mission_flow_refuses_execution_without_advancing() {
+    let cases: &[(&[u8], u32)] = &[
+        (b"mission_objectives 5", 164),
+        (b"mission_objectivesclear", 166),
+        (b"endofmission 1,2", 37),
+        (b"change_mission \"a\",\"b\",1.0", 52),
+    ];
+    for &(source, opcode) in cases {
+        let mut memory = Memory::default();
+        let mut p = program(source, &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (1, 0));
+        let before = memory.events.len();
+        assert_eq!(
+            p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory),
+            Err(RuntimeError::UnsupportedCommand(opcode))
+        );
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+        assert_eq!(memory.events.len(), before);
+        let report = p.discard_runtime_host().unwrap();
+        assert_eq!(report.end_of_mission_allocations, u32::from(opcode == 37));
+        assert_eq!(report.change_mission_allocations, u32::from(opcode == 52));
     }
-    let report = p.discard_runtime_host().unwrap();
-    assert_eq!(report.end_of_mission_allocations, 1);
-    assert_eq!(report.change_mission_allocations, 1);
 }
 #[test]
 fn get_tick_and_game_time_write_float_regs() {
