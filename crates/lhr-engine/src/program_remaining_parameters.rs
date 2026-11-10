@@ -7,6 +7,9 @@
 //! Marvisak/mafia-re fe7e74643f5415c358aa312dd4e7d9da5f60ddcc,
 //! game/mission/C_program.cpp (DecodeParams): two owned words, with an
 //! optional second argument defaulting to 500 after the first conversion.
+//! HUMAN_SETFIRETARGET defaults its second word to -1. EMITPARTICLE owns
+//! three words and publishes the third-word default (-1) after conversion
+//! of the second word, before any explicit third-word conversion.
 //! Other selectors retain the legacy 1-3-integer fallback. That fallback
 //! is not evidence of their original parameter layouts or execution.
 
@@ -98,11 +101,17 @@ impl RemainingParameterSlot {
             return Err(RemainingDecodeError::UnsupportedOpcode(opcode));
         }
         let second_default = optional_second_default(opcode);
+        let third_default = optional_third_default(opcode);
         let words = if second_default.is_some() {
             if params.count != 1 && params.count != 2 {
                 return Ok(false);
             }
             2
+        } else if third_default.is_some() {
+            if params.count != 2 && params.count != 3 {
+                return Ok(false);
+            }
+            3
         } else {
             // Legacy admission for selectors whose layouts are still unaudited.
             if params.count < 1 || params.count > 3 {
@@ -124,6 +133,13 @@ impl RemainingParameterSlot {
                 .convert_remaining(i, &source[s..s + l], p)
                 .map_err(|e| RemainingDecodeError::Conversion { index: i, error: e })?;
             p.values[i] = Some(v);
+            if i == 1 {
+                if let Some(default) = third_default {
+                    // EMITPARTICLE publishes -1 before converting its
+                    // optional third token, including when conversion fails.
+                    p.values[2] = Some(default);
+                }
+            }
         }
         // Do not publish the default before conversion of the first word, or
         // before an explicit second-word conversion that can fail or unwind.
@@ -139,6 +155,14 @@ impl RemainingParameterSlot {
 fn optional_second_default(opcode: u32) -> Option<i32> {
     match opcode {
         129 | 130 | 234 => Some(500),
+        142 => Some(-1),
+        _ => None,
+    }
+}
+
+fn optional_third_default(opcode: u32) -> Option<i32> {
+    match opcode {
+        113 => Some(-1),
         _ => None,
     }
 }
@@ -162,7 +186,9 @@ mod tests {
     #[test]
     fn legacy_remaining_accepts_one_to_three_ints() {
         for opcode in REMAINING_OPCODE_IDS {
-            if optional_second_default(opcode).is_some() {
+            if optional_second_default(opcode).is_some()
+                || optional_third_default(opcode).is_some()
+            {
                 continue;
             }
             let mut buf = b"1,2,3\0".to_vec();
