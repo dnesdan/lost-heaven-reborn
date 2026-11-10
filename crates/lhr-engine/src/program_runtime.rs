@@ -3788,13 +3788,12 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 };
                 // Native WAIT defaults to zero when the register's upper
                 // bound fails; neither backing nor operand value is read then.
-                let wait = if operand.register == -1
-                    || (*self.float_count as i32) > operand.register
-                {
-                    Self::wait_word(self.resolve_float(operand.register, operand.value)?)
-                } else {
-                    0
-                };
+                let wait =
+                    if operand.register == -1 || (*self.float_count as i32) > operand.register {
+                        Self::wait_word(self.resolve_float(operand.register, operand.value)?)
+                    } else {
+                        0
+                    };
                 if *self.command_time < wait {
                     advance = Advance::Stay;
                 }
