@@ -16249,6 +16249,24 @@
       "symbol": "lhr_engine::human_actor::HumanState::collision_unsupported",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c2650",
+      "va": "0x5c2650",
+      "name": "C_actor::GetBlockRecordsSize",
+      "symbol": "lhr_engine::mission_actor_lists::block_records_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Block records size (GAME 0x5c2650)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c26a0",
+      "va": "0x5c26a0",
+      "name": "C_actor::GetRecordsSize",
+      "symbol": "lhr_engine::mission_actor_lists::total_records_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Records size over blocks (GAME 0x5c26a0)."
     }
   ],
   "vm": {

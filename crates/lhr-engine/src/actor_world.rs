@@ -465,6 +465,37 @@ pub fn set_act_state_applies(current: u32, new_state: u32) -> bool {
 pub fn world_pos_select(frame_pos: Option<[f32; 3]>, pos: [f32; 3]) -> [f32; 3] {
     frame_pos.unwrap_or(pos)
 }
+/// Working-name select of the C_actor::GameInit plain-actor latch
+/// (mafia-re 113b5b6 game/actors/C_actor.cpp:998:
+/// `unknown_65 = type == ACTOR_ACTOR`, with ACTOR_ACTOR 1 per
+/// game/actors/C_actor.h:18). No standalone FUNCTION copy exists for the
+/// assignment alone and the latch reads stage it in place, so no RVA is
+/// claimed here. The frame owner stays DEFERRED; the caller stages the
+/// actor type word.
+pub fn game_init_unknown65_select(actor_type: u32) -> bool {
+    actor_type == 1
+}
+/// Working-name select of the C_actor::GameInit frame-actor latch
+/// (mafia-re 113b5b6 game/actors/C_actor.cpp:1007-1012: `frame_actor_set`
+/// stays false where the frame already carries a set actor slot, and is
+/// set where it does not). No standalone FUNCTION copy exists for the
+/// select alone, so no RVA is claimed here. The frame user-data owner stays
+/// DEFERRED; the caller stages whether the slot is present and set.
+pub fn game_init_frame_actor_select(slot_present_and_set: bool) -> bool {
+    !slot_present_and_set
+}
+/// Working-name release gate of C_actor::GameDone (mafia-re 113b5b6
+/// game/actors/C_actor.cpp:1082-1089: the actor pointer is taken back from
+/// the frame slot only where `frame_actor_set` holds and the slot is still
+/// present and set). No standalone FUNCTION copy exists for the gate alone,
+/// so no RVA is claimed here. The frame user-data owner stays DEFERRED; the
+/// caller stages both words.
+pub fn game_done_frame_actor_release_gate(
+    frame_actor_set: bool,
+    slot_present_and_set: bool,
+) -> bool {
+    frame_actor_set && slot_present_and_set
+}
 /// GAME 0x547130 (RVA 0x147130) C_actor::SetFrameActor EXPLICIT
 /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_actor.h:507-519): give
 /// the frame the actor-pointer slot, freeing the previous user data (and a
@@ -10073,6 +10104,37 @@ mod human_owner_tests {
             [1.0, 2.0, 3.0]
         );
         assert_eq!(world_pos_select(None, [4.0, 5.0, 6.0]), [4.0, 5.0, 6.0]);
+    }
+    #[test]
+    fn game_init_unknown65_working_name_selects_plain_actor() {
+        // Working-name select of C_actor::GameInit (mafia-re 113b5b6
+        // game/actors/C_actor.cpp:998, inlined assignment, no RVA claimed):
+        // the latch is set only for the plain ACTOR_ACTOR type (1 per
+        // game/actors/C_actor.h:18).
+        assert!(game_init_unknown65_select(1));
+        assert!(!game_init_unknown65_select(2));
+        assert!(!game_init_unknown65_select(0));
+        assert!(!game_init_unknown65_select(u32::MAX));
+    }
+    #[test]
+    fn game_init_frame_actor_working_name_selects_free_slot() {
+        // Working-name select of C_actor::GameInit (mafia-re 113b5b6
+        // game/actors/C_actor.cpp:1007-1012, inlined branch, no RVA
+        // claimed): the latch is set unless the frame slot is present and
+        // set.
+        assert!(game_init_frame_actor_select(false));
+        assert!(!game_init_frame_actor_select(true));
+    }
+    #[test]
+    fn game_done_frame_actor_working_name_gates_release() {
+        // Working-name release gate of C_actor::GameDone (mafia-re 113b5b6
+        // game/actors/C_actor.cpp:1082-1089, inlined gate, no RVA claimed):
+        // the pointer is taken back only with the latch and a present set
+        // slot.
+        assert!(game_done_frame_actor_release_gate(true, true));
+        assert!(!game_done_frame_actor_release_gate(true, false));
+        assert!(!game_done_frame_actor_release_gate(false, true));
+        assert!(!game_done_frame_actor_release_gate(false, false));
     }
     #[test]
     fn actor_subtype_projects_typed_word() {

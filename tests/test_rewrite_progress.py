@@ -435,7 +435,9 @@ class RewriteProgressTests(unittest.TestCase):
         # +12 lifecycle STUB contracts (ai_loc::Update/ctor/Init/LoadData/
         # SaveGame x2/AI/Update/PersonAnim/Hit/HitInCar/Collision;
         # all STUBs held as contract).
-        self.assertEqual(game["ported"], 149 + 864)
+        # +2 cutscene size contracts (GetBlockRecordsSize/GetRecordsSize;
+        # 11 working-name helpers uncredited; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 866)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

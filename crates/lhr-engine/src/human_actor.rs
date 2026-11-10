@@ -3143,6 +3143,86 @@ impl HumanState {
             frame_world[2] - exit_pos[2],
         ]
     }
+    /// Working-name ground-probe legs shared by Can_DropOutFromCar_Free,
+    /// Can_DropOutFromCar and Can_EnterToCar (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6303, :6350, :6395:
+    /// `pos + off + S_vector(0.0f, 1.0f, 0.0f)` probed down
+    /// `S_vector(0.0f, -2.0f, 0.0f)`; no standalone FUNCTION, the vectors
+    /// are inlined and the TestLineV probe stays with the collision owner,
+    /// so no RVA claimed). Stages the (lift, fall) pair the caller probes.
+    pub fn drop_line_probe_legs() -> ([f32; 3], [f32; 3]) {
+        ([0.0, 1.0, 0.0], [0.0, -2.0, 0.0])
+    }
+    /// Working-name sweep radius of the Can_DropOutFromCar_Free,
+    /// Can_DropOutFromCar and Can_EnterToCar room probes (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6308, :6355, :6404: `.3f`; no standalone
+    /// FUNCTION, the literal is inlined and the TestSphereB probes stay with
+    /// the collision owner, so no RVA claimed).
+    pub fn drop_sweep_radius() -> f32 {
+        0.3
+    }
+    /// Working-name exit-point shift of the Can_DropOutFromCar_Free,
+    /// Can_DropOutFromCar and Can_EnterToCar end probes (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6312, :6359, :6404: `pos + off`; no
+    /// standalone FUNCTION, the addition is inlined, so no RVA claimed).
+    /// The caller stages the ground-adjusted `pos` and the side `off`.
+    pub fn drop_exit_point(pos: [f32; 3], off: [f32; 3]) -> [f32; 3] {
+        [pos[0] + off[0], pos[1] + off[1], pos[2] + off[2]]
+    }
+    /// Working-name end-probe rise of Can_DropOutFromCar_Free and
+    /// Can_DropOutFromCar (mafia-re 113b5b6 game/actors/C_human.cpp:6312,
+    /// :6359: `S_vector(0.0f, .3f, 0.0f)`; no standalone FUNCTION, the
+    /// vector is inlined and the TestSphereB probe stays with the collision
+    /// owner, so no RVA claimed). The caller sweeps the exit point shifted
+    /// by this rise.
+    pub fn drop_end_probe_up() -> [f32; 3] {
+        [0.0, 0.3, 0.0]
+    }
+    /// Working-name end-probe rise of C_human::Can_EnterToCar (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:6404:
+    /// `S_vector(0.0f, .5f, 0.0f)`; no standalone FUNCTION, the vector is
+    /// inlined and the TestSphereB probe stays with the collision owner, so
+    /// no RVA claimed). The caller sweeps the exit point shifted by this
+    /// rise.
+    pub fn enter_end_probe_up() -> [f32; 3] {
+        [0.0, 0.5, 0.0]
+    }
+    /// Working-name head-height staging of C_human::Can_Aimed (mafia-re
+    /// 113b5b6 game/actors/C_human.cpp:8914: `pos.y += 1.5f`; no standalone
+    /// FUNCTION, the lift is inlined and the frame read plus the TestLineH
+    /// probe stay with their owners, so no RVA claimed). The caller lifts
+    /// the staged head position by this offset before the wall probe.
+    pub fn can_aimed_probe_offset() -> [f32; 3] {
+        [0.0, 1.5, 0.0]
+    }
+    /// Working-name exit-offset flattening of the Can_DropOutFromCar_Free,
+    /// Can_DropOutFromCar and Can_EnterToCar offsets (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6296, :6341, :6386: `off.y = 0.0f` after the
+    /// car/frame rotation; no standalone FUNCTION, the assignment is inlined
+    /// and the matrix rotation stays with the frame owner, so no RVA
+    /// claimed). The caller stages the rotated offset.
+    pub fn drop_offset_flatten_y(off: [f32; 3]) -> [f32; 3] {
+        [off[0], 0.0, off[2]]
+    }
+    /// Working-name exclusion-list order of the Can_DropOutFromCar_Free,
+    /// Can_DropOutFromCar and Can_EnterToCar probes (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:6298-6300, :6343-6346, :6389-6392: the
+    /// human's own collisions reversed, then the car's dynamic collision;
+    /// Free admits only the car; no standalone FUNCTION, the list build is
+    /// inlined and the DynSetNextCollOwnerMult call stays with the collision
+    /// owner, so no RVA claimed). An empty `own` stages the Free shape. The
+    /// caller owns identity storage; only the order is staged here.
+    pub fn drop_probe_owner_order(
+        own: &[HumanDynCollId],
+        car: HumanDynCollId,
+    ) -> Vec<HumanDynCollId> {
+        let mut order = Vec::with_capacity(own.len() + 1);
+        for coll in own.iter().rev() {
+            order.push(*coll);
+        }
+        order.push(car);
+        order
+    }
     /// GAME 0x58cfb0 (RVA 0x18cfb0) C_human::IsThisCarStealing claimant scan
     /// (mafia-re 113b5b6 game/actors/C_human.cpp:9592-9610): whether any
     /// PLAYER/ENTITY claimant holds the car as stealing_car, car or
@@ -5998,6 +6078,96 @@ mod human_state_flags_tests {
         assert_eq!(
             HumanState::enter_test_line_vector([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
             [0.0, 1.0, 0.0]
+        );
+    }
+    #[test]
+    // Working-name ground-probe legs shared by the drop/enter guards
+    // (mafia-re 113b5b6 game/actors/C_human.cpp:6303, :6350, :6395; inlined
+    // vectors, no RVA claimed): one metre up, two metres down.
+    fn drop_line_probe_legs_working_name_stages_lift_and_fall() {
+        assert_eq!(
+            HumanState::drop_line_probe_legs(),
+            ([0.0, 1.0, 0.0], [0.0, -2.0, 0.0])
+        );
+    }
+    #[test]
+    // Working-name sweep radius of the drop/enter room probes (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6308, :6355, :6404; inlined 0.3
+    // literal, no RVA claimed).
+    fn drop_sweep_radius_working_name_is_three_tenths() {
+        assert_eq!(HumanState::drop_sweep_radius(), 0.3);
+    }
+    #[test]
+    // Working-name exit-point shift of the drop/enter end probes (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6312, :6359, :6404; inlined addition,
+    // no RVA claimed): component-wise sum of the adjusted position and the
+    // side offset.
+    fn drop_exit_point_working_name_adds_pos_and_off() {
+        assert_eq!(
+            HumanState::drop_exit_point([1.0, 2.0, 3.0], [0.5, -1.0, 2.0]),
+            [1.5, 1.0, 5.0]
+        );
+        assert_eq!(
+            HumanState::drop_exit_point([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+            [0.0, 0.0, 0.0]
+        );
+    }
+    #[test]
+    // Working-name end-probe rise of the drop guards (mafia-re 113b5b6
+    // game/actors/C_human.cpp:6312, :6359; inlined 0.3 vector, no RVA
+    // claimed).
+    fn drop_end_probe_up_working_name_rises_three_tenths() {
+        assert_eq!(HumanState::drop_end_probe_up(), [0.0, 0.3, 0.0]);
+    }
+    #[test]
+    // Working-name end-probe rise of C_human::Can_EnterToCar (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6404; inlined 0.5 vector, no RVA
+    // claimed).
+    fn enter_end_probe_up_working_name_rises_half() {
+        assert_eq!(HumanState::enter_end_probe_up(), [0.0, 0.5, 0.0]);
+    }
+    #[test]
+    // Working-name head-height staging of C_human::Can_Aimed (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:8914; inlined 1.5 lift, no RVA
+    // claimed).
+    fn can_aimed_probe_offset_working_name_lifts_head() {
+        assert_eq!(HumanState::can_aimed_probe_offset(), [0.0, 1.5, 0.0]);
+    }
+    #[test]
+    // Working-name exit-offset flattening of the drop/enter guards (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6296, :6341, :6386; inlined y clear,
+    // no RVA claimed): the y lane is dropped, x/z pass through.
+    fn drop_offset_flatten_y_working_name_zeroes_y_lane() {
+        assert_eq!(
+            HumanState::drop_offset_flatten_y([1.0, 2.0, 3.0]),
+            [1.0, 0.0, 3.0]
+        );
+        assert_eq!(
+            HumanState::drop_offset_flatten_y([-2.5, -0.5, 0.25]),
+            [-2.5, 0.0, 0.25]
+        );
+    }
+    #[test]
+    // Working-name exclusion-list order of the drop/enter probes (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:6298-6300, :6343-6346, :6389-6392;
+    // inlined list build, no RVA claimed): own collisions reversed, then
+    // the car; empty own stages the Free car-only shape.
+    fn drop_probe_owner_order_working_name_reverses_own_then_car() {
+        let car = HumanDynCollId::from_raw(9);
+        assert_eq!(HumanState::drop_probe_owner_order(&[], car), [car]);
+        let own = [
+            HumanDynCollId::from_raw(1),
+            HumanDynCollId::from_raw(2),
+            HumanDynCollId::from_raw(3),
+        ];
+        assert_eq!(
+            HumanState::drop_probe_owner_order(&own, car),
+            [
+                HumanDynCollId::from_raw(3),
+                HumanDynCollId::from_raw(2),
+                HumanDynCollId::from_raw(1),
+                car,
+            ]
         );
     }
     #[test]

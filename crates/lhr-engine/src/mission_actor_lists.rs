@@ -609,6 +609,79 @@ pub fn update_cutscene_flags(flags: &mut i32) {
     }
 }
 
+/// End-of-block marker of the cutscene record walks (mafia-re pin 113b5b6,
+/// `game/mission/C_recorder.h:81`: `RECORDS_BLOCK_END 0xeeeeeeee`).
+pub const RECORDS_BLOCK_END: i32 = 0xeeee_eeeeu32 as i32;
+
+/// One staged cutscene record for the `C_actor::GetRecordsSize` walks
+/// (mafia-re pin 113b5b6, `game/mission/C_recorder.h:83-87`:
+/// `S_cutscene_record` with `time` at +0x0 and `type` at +0x4).
+/// `size_bytes` is the `C_cutscene_records::record_sizes[type]` entry the
+/// native walk adds per record; the table lookup itself is staged by the
+/// caller (the records owner keeps the table), so the walks below only add
+/// staged sizes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StagedCutsceneRecord {
+    pub time: i32,
+    pub size_bytes: u32,
+}
+
+/// FUNCTION: GAME RVA 0x1c2650, VA 0x5c2650 (mafia-re pin 113b5b6,
+/// `game/mission/C_cutscene_records.cpp:43-55`,
+/// `C_actor::GetBlockRecordsSize`).
+/// Byte size of one record block up to the last key, the stop entry
+/// included: walk while `time < last_key_time`, stop at the
+/// `RECORDS_BLOCK_END` marker, then add the stop entry's size to the walked
+/// bytes. The marker's staged `size_bytes` is the `record_sizes[]` word past
+/// its time stamp (uninitialized block tail in the original; the caller
+/// stages it, the raw-bytes owner stays DEFERRED). A block slice that ends
+/// before any stop entry is a staged-model boundary (the native keeps
+/// reading raw block memory); the walked bytes are returned.
+pub fn block_records_size(block: &[StagedCutsceneRecord], last_key_time: i32) -> u32 {
+    let mut bytes = 0u32;
+    let mut index = 0usize;
+    while index < block.len() && block[index].time < last_key_time {
+        bytes += block[index].size_bytes;
+        index += 1;
+        if index < block.len() && block[index].time == RECORDS_BLOCK_END {
+            break;
+        }
+    }
+    if index < block.len() {
+        bytes += block[index].size_bytes;
+    }
+    bytes
+}
+
+/// FUNCTION: GAME RVA 0x1c26a0, VA 0x5c26a0 (mafia-re pin 113b5b6,
+/// `game/mission/C_cutscene_records.cpp:57-80`, `C_actor::GetRecordsSize`).
+/// Byte size of the records up to the last key over all blocks: per block
+/// walk while `time < last_key_time`; a `RECORDS_BLOCK_END` marker closes
+/// the block without contributing (only the bytes walked so far count) and
+/// the walk continues with the next block; the first entry whose time
+/// equals the last key ends the walk with its size added. Empty input
+/// reports zero (the native `!first_block` early return). A block slice
+/// that ends before any stop entry is a staged-model boundary (see
+/// [`block_records_size`]); the walked bytes are returned.
+pub fn total_records_size(blocks: &[&[StagedCutsceneRecord]], last_key_time: i32) -> u32 {
+    let mut total = 0u32;
+    for block in blocks {
+        let mut index = 0usize;
+        while index < block.len() && block[index].time < last_key_time {
+            total += block[index].size_bytes;
+            index += 1;
+            if index < block.len() && block[index].time == RECORDS_BLOCK_END {
+                index = block.len();
+            }
+        }
+        if index < block.len() && block[index].time == last_key_time {
+            total += block[index].size_bytes;
+            return total;
+        }
+    }
+    total
+}
+
 /// Entry of `C_mission::t_transparent` (mafia-re `game/mission/Mission.h`).
 /// Only the compared `time`/`fade_time` members and the object identity
 /// participate; transparency application and release stay with the caller.
@@ -1376,6 +1449,47 @@ mod tests {
         let mut idle = 0;
         update_cutscene_flags(&mut idle);
         assert_eq!(idle, 0);
+    }
+
+    fn staged(time: i32, size_bytes: u32) -> StagedCutsceneRecord {
+        StagedCutsceneRecord { time, size_bytes }
+    }
+
+    #[test]
+    // GAME 0x5c2650 (RVA 0x1c2650) C_actor::GetBlockRecordsSize (mafia-re
+    // 113b5b6 game/mission/C_cutscene_records.cpp:43-55): walk while time
+    // is below the last key, then add the stop entry.
+    fn block_records_size_rva_1c2650_walks_to_stop_entry() {
+        // Stops at the entry whose time reaches the last key, included.
+        let block = [staged(0, 8), staged(40, 12), staged(100, 16)];
+        assert_eq!(block_records_size(&block, 100), 36);
+        // Stops at the block-end marker, adding the staged marker tail.
+        let marked = [staged(0, 8), staged(40, 12), staged(RECORDS_BLOCK_END, 4)];
+        assert_eq!(block_records_size(&marked, 100), 24);
+        // A first entry at or past the last key contributes alone.
+        let head = [staged(100, 16), staged(140, 16)];
+        assert_eq!(block_records_size(&head, 100), 16);
+        // No entries: nothing walked.
+        assert_eq!(block_records_size(&[], 100), 0);
+    }
+
+    #[test]
+    // GAME 0x5c26a0 (RVA 0x1c26a0) C_actor::GetRecordsSize (mafia-re 113b5b6
+    // game/mission/C_cutscene_records.cpp:57-80): markers close their block
+    // without contributing; the last-key entry ends the walk.
+    fn total_records_size_rva_1c26a0_sums_blocks_to_last_key() {
+        let first: &[StagedCutsceneRecord] =
+            &[staged(0, 8), staged(40, 12), staged(RECORDS_BLOCK_END, 0)];
+        let second: &[StagedCutsceneRecord] = &[staged(80, 12), staged(100, 16)];
+        assert_eq!(total_records_size(&[first, second], 100), 48);
+        // Single block ending exactly at the last key.
+        let single: &[StagedCutsceneRecord] = &[staged(0, 8), staged(100, 16)];
+        assert_eq!(total_records_size(&[single], 100), 24);
+        // No blocks: the native !first_block early zero.
+        assert_eq!(total_records_size(&[], 100), 0);
+        // Truncated staging (no last-key entry): walked bytes only.
+        let partial: &[StagedCutsceneRecord] = &[staged(0, 8), staged(40, 12)];
+        assert_eq!(total_records_size(&[partial], 100), 20);
     }
 
     #[test]
