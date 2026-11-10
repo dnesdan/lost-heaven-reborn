@@ -482,8 +482,12 @@ class RewriteProgressTests(unittest.TestCase):
         # +1 RecomputeLightCache differential (0x1b5d40 countdown-plus-cull
         # scope; complete 99-insn REA walk + pinning tests; -1 stores in
         # UseLightCache arm + session driver).
-        self.assertEqual(game["ported"], 149 + 1010)
-        self.assertEqual(game["verified"], 149 + 516)
+        # +1 DoDamage breakage dispatch differential (0xd6580; complete
+        # 76-insn REA walk + DoDamage lamp-arm walk + pinning tests;
+        # record/flag writes in sim backend, virtuals staged for the
+        # future component owner).
+        self.assertEqual(game["ported"], 149 + 1011)
+        self.assertEqual(game["verified"], 149 + 517)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

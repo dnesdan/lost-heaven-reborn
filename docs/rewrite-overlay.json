@@ -17563,6 +17563,15 @@
       "symbol": "lhr_engine::mission_effects::tick_light_cache",
       "tier": "differential",
       "evidence": "REA complete 99-insn walk (entry ev_7f2ccb33, empty-JZ ev_bde21853, 0x7e7-store ev_a4d79286, FCOMPP ev_adc6eb9c, NaN-JP ev_741bad25, RET ev_b5098bdd/ev_d62c12a2) + mafia-re game/mission/game.cpp:1670-1692,5949-5954; pinning tests (empty/countdown/strict-boundary/reverse-order/NaN); -1 stores in UseLightCache arm + session driver; live MISE01 tick eval on/off counted"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xd6580",
+      "va": "0x4d6580",
+      "name": "C_Vehicle::DoDamage breakage dispatch (working name)",
+      "symbol": "lhr_engine::vehicle_damage::vehicle_breakage_dispatch",
+      "tier": "differential",
+      "evidence": "REA complete 76-insn walk (entry ev_f0711b3024, null-JNZ ev_5d97ebeb2b, div-magic ev_0ff51ca352, found-JZ ev_6aa22da91e, JL-epilogue ev_495067415b, AND-mask ev_8119cd7e35, bit0-JZ ev_b7e20746fb, bit1-JZ ev_aa297afec3, slot70 ev_affd15bcb, slot18 ev_7735767a13, slot5c+1.0f ev_c13701cd50, slot18 ev_96e31ff811, RET ev_f057bb380f) + DoDamage lamp arm (FLD ev_31f40b1525, index/side pushes ev_749cf1c4f9/ev_4e50e96d13/ev_8d8e8d2b70, CALL ev_1723b9e1be); pinning tests (null/empty/no-match/AND-mask/source-select/first-record); breakage virtuals staged via session queue (unknown receiver classes), exact record/flag writes in sim backend; live MISE01 lamp event drives through"
     }
   ],
   "vm": {

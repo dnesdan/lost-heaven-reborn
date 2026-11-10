@@ -333,6 +333,318 @@ pub fn vehicle_damage_timer<B: VehicleInitBackend>(
     Err(VehicleDamageUnavailable::ParticleTemplate(template))
 }
 
+/// One staged C_Vehicle breakage virtual intent: the dispatch below
+/// resolved the receiver object and the vtable slot with the exact stack
+/// arguments the native call carries, but the receiving classes are not
+/// identified (unknown heap vtables), so no frame owner applies them.
+/// Staged MissionHelpLog-style for the future component owner; the taxi
+/// keeps the already-applied StaticResponse outcome.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BreakageCall {
+    /// Receiver object address as carried by the native call.
+    pub object: u32,
+    /// Vtable slot in bytes (0x18, 0x5c or 0x70).
+    pub slot: u32,
+    /// Callee-order stack arguments (last pushed first).
+    pub args: [u32; 2],
+    /// How many entries of [`BreakageCall::args`] are live.
+    pub argc: u8,
+}
+
+/// One staged lamp/part-breakage dispatch: the DoDamage inputs plus the
+/// virtual intents the native tail would have invoked, in order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LampBreakRequest {
+    pub vehicle: u32,
+    pub index: u32,
+    pub side: u32,
+    pub calls: Vec<BreakageCall>,
+}
+
+/// Original C_Vehicle breakage-dispatch helper, PC GAME 0x4d6580 (Game
+/// RVA 0xd6580; working name — the original symbol is unrecovered).
+/// Called from C_Vehicle::DoDamage's lamp arm (GAME 0x4d57c6, ECX =
+/// vehicle, stack `(index, side)` with side 1/2 from the frame+0x80
+/// sign) and from two further DoDamage arms (0x4d6261, 0x4d632b).
+///
+/// Complete 76-instruction REA walk (entry ev_f0711b3024, RET
+/// ev_f057bb380f): null v+0x110 list returns at once; otherwise the
+/// record count comes from the signed IMUL 0x92492493 + SAR 4 + bias
+/// divide-by-28 over the [v+0x110, v+0x114) span (0x1C records), the
+/// +0x4 fields are scanned in reverse for `index`, and on a match of
+/// record m the low word at +0x18 is AND-masked with `side`, after
+/// which surviving bit 0 fires the +0x70 virtual with the +0x14
+/// source (bit 1 alone uses the +0x10 source) and three further
+/// virtuals always fire (+0x18 on the +0x4 object, +0x5c with 1.0f on
+/// the +0x8 object, +0x18 on the +0x8 object). The record topology
+/// meaning is unrecovered beyond the arithmetic; the virtual
+/// receivers' classes are unknown, so every virtual is staged, never
+/// applied. Out-of-range memory reports instead of faulting (safe
+/// divergence: native would read heap slack or fault).
+pub fn vehicle_breakage_dispatch<B: VehicleInitBackend>(
+    b: &mut B,
+    vehicle: u32,
+    index: u32,
+    side: u32,
+) -> Out<Vec<BreakageCall>, B::Error> {
+    /// MSVC signed divide-by-28 idiom (IMUL 0x92492493, ADD, SAR 4,
+    /// sign-bias correction), replicated with wrapping arithmetic.
+    fn breakage_count(span: u32) -> i32 {
+        let product = (0x92492493u32 as i32 as i64).wrapping_mul(span as i32 as i64);
+        let mut edx = (product >> 32) as i32;
+        edx = edx.wrapping_add(span as i32);
+        edx >>= 4;
+        let bias = ((edx as u32) >> 31) as i32;
+        edx.wrapping_add(bias)
+    }
+    let mut calls = Vec::new();
+    let begin = word(b, vehicle.wrapping_add(0x110))?;
+    if begin == 0 {
+        return Ok(calls);
+    }
+    let end = word(b, vehicle.wrapping_add(0x114))?;
+    let mut remaining = breakage_count(end.wrapping_sub(begin));
+    if remaining == 0 {
+        return Ok(calls);
+    }
+    // Reverse scan of the +0x4 fields for `index`; EDX counts down to
+    // the matched record number (0x4d65c6 loop with the per-iteration
+    // live reread of the list head).
+    let matched = loop {
+        let stride = (remaining as u32)
+            .wrapping_mul(7)
+            .wrapping_mul(4)
+            .wrapping_add(4);
+        let record = word(b, begin.wrapping_add(stride).wrapping_sub(0x1c))?;
+        remaining = remaining.wrapping_sub(1);
+        if record == index {
+            break Some(remaining);
+        }
+        if remaining == 0 {
+            break None;
+        }
+    };
+    let Some(matched) = matched else {
+        return Ok(calls);
+    };
+    // Operate on the matched record: AND the +0x18 state word with the
+    // side mask (low 16 bits only, high word preserved), then test its
+    // low byte for the +0x70 variant while the tail always runs.
+    let record = begin.wrapping_add((matched as u32).wrapping_mul(0x1c));
+    let flag_addr = record.wrapping_add(0x18);
+    let old = word(b, flag_addr)?;
+    let mask = (side & 0xffff) as u16;
+    put(
+        b,
+        flag_addr,
+        (old & 0xffff_0000) | u32::from(old as u16 & mask),
+    )?;
+    let kept = (word(b, flag_addr)? & 0xff) as u8;
+    if kept & 1 != 0 {
+        let object = word(b, record.wrapping_add(0x4))?;
+        let source = word(b, record.wrapping_add(0x14))?;
+        calls.push(BreakageCall {
+            object,
+            slot: 0x70,
+            args: [object, source],
+            argc: 2,
+        });
+    } else if kept & 2 != 0 {
+        let object = word(b, record.wrapping_add(0x4))?;
+        let source = word(b, record.wrapping_add(0x10))?;
+        calls.push(BreakageCall {
+            object,
+            slot: 0x70,
+            args: [object, source],
+            argc: 2,
+        });
+    }
+    let lamp = word(b, record.wrapping_add(0x4))?;
+    calls.push(BreakageCall {
+        object: lamp,
+        slot: 0x18,
+        args: [lamp, 0],
+        argc: 1,
+    });
+    let second = word(b, record.wrapping_add(0x8))?;
+    calls.push(BreakageCall {
+        object: second,
+        slot: 0x5c,
+        args: [second, 0x3f80_0000],
+        argc: 2,
+    });
+    let second = word(b, record.wrapping_add(0x8))?;
+    calls.push(BreakageCall {
+        object: second,
+        slot: 0x18,
+        args: [second, 0],
+        argc: 1,
+    });
+    Ok(calls)
+}
+
+#[cfg(test)]
+mod breakage_tests {
+    use super::*;
+    use crate::vehicle_frame_backend::VehicleFrameMemory;
+
+    fn memory() -> VehicleFrameMemory {
+        VehicleFrameMemory::default()
+    }
+
+    /// One 0x1C record list at `base` with `fields[i]` as the +0x4 key
+    /// words and zeroed remainder; vehicle word at `vehicle` points at it.
+    fn list(memory: &mut VehicleFrameMemory, vehicle: u32, base: u32, fields: &[u32]) {
+        memory.map_bytes(vehicle & !0xfff, &[0; 0x1000]).unwrap();
+        memory
+            .map_bytes(base, &vec![0; fields.len() * 0x1c])
+            .unwrap();
+        memory.write_word(vehicle + 0x110, base).unwrap();
+        memory
+            .write_word(vehicle + 0x114, base + fields.len() as u32 * 0x1c)
+            .unwrap();
+        for (i, field) in fields.iter().enumerate() {
+            memory
+                .write_word(base + i as u32 * 0x1c + 0x4, *field)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn null_and_empty_lists_stage_nothing() {
+        let mut m = memory();
+        m.map_bytes(0x1000, &[0; 0x1000]).unwrap();
+        // Null head: the JNZ-not-taken path returns at once.
+        assert_eq!(
+            vehicle_breakage_dispatch(&mut m, 0x1000, 7, 1).unwrap(),
+            vec![]
+        );
+        // Empty span: count 0, DEC wraps to -1, JL returns.
+        m.write_word(0x1110, 0x2000).unwrap();
+        m.write_word(0x1114, 0x2000).unwrap();
+        m.map_bytes(0x2000, &[0; 4]).unwrap();
+        assert_eq!(
+            vehicle_breakage_dispatch(&mut m, 0x1000, 7, 1).unwrap(),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn unmatched_index_stages_nothing_and_writes_nothing() {
+        let mut m = memory();
+        list(&mut m, 0x1000, 0x2000, &[0x11, 0x22]);
+        m.write_word(0x2000 + 0x18, 0x93).unwrap();
+        m.write_word(0x2000 + 0x1c + 0x18, 0x93).unwrap();
+        assert_eq!(
+            vehicle_breakage_dispatch(&mut m, 0x1000, 0x99, 1).unwrap(),
+            vec![]
+        );
+        // Reverse scan read the +0x4 keys but the AND never ran.
+        assert_eq!(m.read_word(0x2000 + 0x18).unwrap(), 0x93);
+        assert_eq!(m.read_word(0x2000 + 0x1c + 0x18).unwrap(), 0x93);
+        assert_eq!(m.read_word(0x2000 + 0x4).unwrap(), 0x11);
+        assert_eq!(m.read_word(0x2000 + 0x1c + 0x4).unwrap(), 0x22);
+    }
+
+    #[test]
+    fn side_mask_clears_the_other_bit_and_selects_the_slot70_source() {
+        let mut m = memory();
+        // Two records; the +0x4 keys are small ids, +0x8/+0x10/+0x14 are
+        // fake object addresses, +0x18 words hold both state bits.
+        list(&mut m, 0x1000, 0x2000, &[0x11, 0x22]);
+        for (i, bits) in [0x93u32, 0x93].iter().enumerate() {
+            let rec = 0x2000 + i as u32 * 0x1c;
+            m.write_word(rec + 0x8, 0x5000 + i as u32).unwrap();
+            m.write_word(rec + 0x10, 0x6000 + i as u32).unwrap();
+            m.write_word(rec + 0x14, 0x7000 + i as u32).unwrap();
+            m.write_word(rec + 0x18, *bits).unwrap();
+        }
+        // Match the second record (index 1) with side 1: every bit but
+        // bit 0 clears, bit 0 survives and selects the +0x14 source.
+        let calls = vehicle_breakage_dispatch(&mut m, 0x1000, 0x22, 1).unwrap();
+        assert_eq!(m.read_word(0x2000 + 0x1c + 0x18).unwrap() & 0xffff, 0x01);
+        // Untouched record keeps both bits.
+        assert_eq!(m.read_word(0x2000 + 0x18).unwrap() & 0xffff, 0x93);
+        assert_eq!(
+            calls,
+            vec![
+                BreakageCall {
+                    object: 0x22,
+                    slot: 0x70,
+                    args: [0x22, 0x7001],
+                    argc: 2
+                },
+                BreakageCall {
+                    object: 0x22,
+                    slot: 0x18,
+                    args: [0x22, 0],
+                    argc: 1
+                },
+                BreakageCall {
+                    object: 0x5001,
+                    slot: 0x5c,
+                    args: [0x5001, 0x3f80_0000],
+                    argc: 2
+                },
+                BreakageCall {
+                    object: 0x5001,
+                    slot: 0x18,
+                    args: [0x5001, 0],
+                    argc: 1
+                },
+            ]
+        );
+        // Same record with side 2: every bit but bit 1 clears, bit 1
+        // survives and selects the +0x10 source instead.
+        m.write_word(0x2000 + 0x1c + 0x18, 0x93).unwrap();
+        let calls = vehicle_breakage_dispatch(&mut m, 0x1000, 0x22, 2).unwrap();
+        assert_eq!(m.read_word(0x2000 + 0x1c + 0x18).unwrap() & 0xffff, 0x02);
+        assert_eq!(calls[0].args, [0x22, 0x6001]);
+        assert_eq!(calls.len(), 4);
+    }
+
+    #[test]
+    fn neither_state_bit_skips_only_the_slot70_call() {
+        let mut m = memory();
+        list(&mut m, 0x1000, 0x2000, &[0x44]);
+        m.write_word(0x2008, 0x5100).unwrap();
+        m.write_word(0x2018, 0x90).unwrap();
+        let calls = vehicle_breakage_dispatch(&mut m, 0x1000, 0x44, 1).unwrap();
+        // Bit 0 was clear, so the AND leaves neither bit: no 0x70 call,
+        // but the three tail calls still stage.
+        assert_eq!(m.read_word(0x2018).unwrap() & 0xffff, 0x00);
+        assert_eq!(
+            calls.iter().map(|call| call.slot).collect::<Vec<_>>(),
+            vec![0x18, 0x5c, 0x18]
+        );
+        assert_eq!(calls[0].object, 0x44);
+    }
+
+    #[test]
+    fn first_record_match_operates_like_any_other() {
+        let mut m = memory();
+        list(&mut m, 0x1000, 0x2000, &[0x77, 0x88]);
+        m.write_word(0x2008, 0x5100).unwrap();
+        m.write_word(0x2010, 0x6000).unwrap();
+        m.write_word(0x2014, 0x7000).unwrap();
+        m.write_word(0x2018, 0x3).unwrap();
+        let calls = vehicle_breakage_dispatch(&mut m, 0x1000, 0x77, 2).unwrap();
+        assert_eq!(m.read_word(0x2018).unwrap() & 0xffff, 0x2);
+        assert_eq!(calls.len(), 4);
+        // Bit 1 with side 2 selects the +0x10 source (0x6000), proving
+        // the match on record 0 still runs the operate phase.
+        assert_eq!(
+            calls[0],
+            BreakageCall {
+                object: 0x77,
+                slot: 0x70,
+                args: [0x77, 0x6000],
+                argc: 2
+            }
+        );
+    }
+}
+
 #[cfg(test)]
 mod timer_tests {
     use super::*;

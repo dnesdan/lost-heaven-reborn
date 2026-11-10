@@ -44,6 +44,10 @@ pub(crate) struct SimulationState {
     glass_cleanup_started: bool,
     pub crash_pending: Vec<crate::crash_actors::CrashPendingResource>,
     pub crash_pieces: Vec<crate::crash_actors::CrashPieceObservation>,
+    /// Staged C_Vehicle::DoDamage breakage dispatches (GAME 0x4d6580) whose
+    /// frame virtuals no owner serves yet. Recorded MissionHelpLog-style,
+    /// never replayed; the taxi keeps the StaticResponse outcome.
+    pub lamp_breaks: Vec<crate::vehicle_damage::LampBreakRequest>,
     /// Explicit standalone caller-stack fill for the empty allocator byte.
     pub allocator_marker: u8,
     /// Original process atexit registrations, retained in registration order.
@@ -809,7 +813,21 @@ where
         Err(format!("DoDamage part detach {v:#x}, function{function:#x}, context{context:#x}, part{index}, velocity{velocity:?}, extra{extra:#x}"))
     }
     fn damage_lamp_switch(&mut self, v: u32, index: u32, side: u32) -> Result<(), String> {
-        Err(format!("DoDamage lamp switch {v:#x}, {index}, {side}"))
+        // Original C_Vehicle breakage dispatch (GAME 0x4d6580): the exact
+        // record lookup, state-flag writes and virtual-intent selection
+        // run here; the frame virtuals stage into the session queue for
+        // the future component owner instead of aborting the tick.
+        let calls = crate::vehicle_damage::vehicle_breakage_dispatch(self, v, index, side)
+            .map_err(failure)?;
+        self.state
+            .lamp_breaks
+            .push(crate::vehicle_damage::LampBreakRequest {
+                vehicle: v,
+                index,
+                side,
+                calls,
+            });
+        Ok(())
     }
 }
 impl<B> crate::vehicle_damage::VehicleDamageBackend for CarRuntimeSimulationBackend<'_, '_, B>

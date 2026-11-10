@@ -1099,7 +1099,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         &node_pos, &neighbors, node_count, spawn, dest_node,
     ) {
         Some((path, graph_m)) => println!(
-            "probe konec route (evidence only): node {dest_node}, {:.0} m by graph, {} waypoints; full drive blocked (lamp DoDamage + alley pinch + no reverse input)",
+            "probe konec route (evidence only): node {dest_node}, {:.0} m by graph, {} waypoints; full drive blocked (alley pinch + no reverse input; lamp DoDamage dispatch 0xd6580 staged since)",
             graph_m,
             path.len()
         ),
