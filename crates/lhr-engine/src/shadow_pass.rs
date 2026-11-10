@@ -95,6 +95,50 @@ pub fn shdf_is_none(flags: u32) -> bool {
     flags & SHDF_NONE != 0
 }
 
+/// Working name for the `SHDF_TEXTURE_CHANGED` bit test over a `shd_flags`
+/// word (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:708 at pin 113b5b6: the
+/// `RenderTexture` tail sets it beside `SHDF_TEXTURE_VALID`; the `Prepare`
+/// head at line 746 clears it with the other change bits). Same inline-only
+/// status as `shdf_opacity_changed`: exact bit test on the caller-supplied
+/// word; no owner or backend is consulted.
+pub fn shdf_texture_changed(flags: u32) -> bool {
+    flags & SHDF_TEXTURE_CHANGED != 0
+}
+
+/// Working name for the `SHDF_DIR_CHANGED` bit test over a `shd_flags` word
+/// (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:596,609,630,682 at pin
+/// 113b5b6: the `UpdateLight` tails set it; `Prepare` at line 746 and the
+/// `ProcessShadow` gate at line 951 clear/test it). Same inline-only status
+/// as `shdf_opacity_changed`.
+pub fn shdf_dir_changed(flags: u32) -> bool {
+    flags & SHDF_DIR_CHANGED != 0
+}
+
+/// Working name for the `SHDF_VERTS_CHANGED` bit test over a `shd_flags`
+/// word (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:490 at pin 113b5b6: the
+/// `UpdateVertices` tail sets it beside `SHDF_VERTS_VALID`; `Prepare` at
+/// line 746 clears it and the gates at lines 634,692,951 test it). Same
+/// inline-only status as `shdf_opacity_changed`.
+pub fn shdf_verts_changed(flags: u32) -> bool {
+    flags & SHDF_VERTS_CHANGED != 0
+}
+
+/// Working name for the `SHDF_TEXTURE_VALID` bit test over a `shd_flags`
+/// word (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:691,708 at pin 113b5b6:
+/// the `RenderTexture` head gates on it and the tail sets it). Same
+/// inline-only status as `shdf_light_up_to_date`.
+pub fn shdf_texture_up_to_date(flags: u32) -> bool {
+    flags & SHDF_TEXTURE_VALID != 0
+}
+
+/// Working name for the `SHDF_VERTS_VALID` bit test over a `shd_flags` word
+/// (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:468,490 at pin 113b5b6: the
+/// `UpdateLight` head gates on it and the `UpdateVertices` tail sets it).
+/// Same inline-only status as `shdf_light_up_to_date`.
+pub fn shdf_verts_up_to_date(flags: u32) -> bool {
+    flags & SHDF_VERTS_VALID != 0
+}
+
 /// Working name for the `Prepare` change-bit projection over a `shd_flags`
 /// word (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:746-747 at pin 113b5b6:
 /// the head clears `SHDF_TEXTURE_CHANGED | SHDF_DIR_CHANGED |
@@ -2297,6 +2341,73 @@ mod tests {
         assert!(!shdf_is_none(0));
         assert!(!shdf_is_none(SHDF_LIGHT_VALID));
         assert!(!shdf_is_none(u32::MAX & !SHDF_NONE));
+    }
+
+    #[test]
+    fn shdf_texture_changed_reports_only_its_bit() {
+        // Working name for SHDF_TEXTURE_CHANGED (I3D.h:2548): no standalone
+        // LS3DF FUNCTION entry; set by the RenderTexture tail.
+        assert_eq!(SHDF_TEXTURE_CHANGED, 0x1);
+        assert!(shdf_texture_changed(SHDF_TEXTURE_CHANGED));
+        assert!(shdf_texture_changed(SHDF_TEXTURE_CHANGED | SHDF_TEXTURE_VALID));
+        assert!(shdf_texture_changed(u32::MAX));
+        assert!(!shdf_texture_changed(0));
+        assert!(!shdf_texture_changed(SHDF_DIR_CHANGED));
+        assert!(!shdf_texture_changed(u32::MAX & !SHDF_TEXTURE_CHANGED));
+    }
+
+    #[test]
+    fn shdf_dir_changed_reports_only_its_bit() {
+        // Working name for SHDF_DIR_CHANGED (I3D.h:2549): no standalone
+        // LS3DF FUNCTION entry; set by the UpdateLight tails.
+        assert_eq!(SHDF_DIR_CHANGED, 0x2);
+        assert!(shdf_dir_changed(SHDF_DIR_CHANGED));
+        assert!(shdf_dir_changed(SHDF_DIR_CHANGED | SHDF_LIGHT_VALID));
+        assert!(shdf_dir_changed(u32::MAX));
+        assert!(!shdf_dir_changed(0));
+        assert!(!shdf_dir_changed(SHDF_VERTS_CHANGED));
+        assert!(!shdf_dir_changed(u32::MAX & !SHDF_DIR_CHANGED));
+    }
+
+    #[test]
+    fn shdf_verts_changed_reports_only_its_bit() {
+        // Working name for SHDF_VERTS_CHANGED (I3D.h:2550): no standalone
+        // LS3DF FUNCTION entry; set by the UpdateVertices tail.
+        assert_eq!(SHDF_VERTS_CHANGED, 0x4);
+        assert!(shdf_verts_changed(SHDF_VERTS_CHANGED));
+        assert!(shdf_verts_changed(SHDF_VERTS_CHANGED | SHDF_VERTS_VALID));
+        assert!(shdf_verts_changed(u32::MAX));
+        assert!(!shdf_verts_changed(0));
+        assert!(!shdf_verts_changed(SHDF_TEXTURE_CHANGED));
+        assert!(!shdf_verts_changed(u32::MAX & !SHDF_VERTS_CHANGED));
+    }
+
+    #[test]
+    fn shdf_texture_valid_reports_only_its_bit() {
+        // Working name for SHDF_TEXTURE_VALID (I3D.h:2553): no standalone
+        // LS3DF FUNCTION entry; gated and set by the RenderTexture body.
+        assert_eq!(SHDF_TEXTURE_VALID, 0x400);
+        assert!(shdf_texture_up_to_date(SHDF_TEXTURE_VALID));
+        assert!(shdf_texture_up_to_date(
+            SHDF_TEXTURE_VALID | SHDF_TEXTURE_CHANGED
+        ));
+        assert!(shdf_texture_up_to_date(u32::MAX));
+        assert!(!shdf_texture_up_to_date(0));
+        assert!(!shdf_texture_up_to_date(SHDF_VERTS_VALID));
+        assert!(!shdf_texture_up_to_date(u32::MAX & !SHDF_TEXTURE_VALID));
+    }
+
+    #[test]
+    fn shdf_verts_valid_reports_only_its_bit() {
+        // Working name for SHDF_VERTS_VALID (I3D.h:2555): no standalone
+        // LS3DF FUNCTION entry; gated by UpdateLight, set by UpdateVertices.
+        assert_eq!(SHDF_VERTS_VALID, 0x1000);
+        assert!(shdf_verts_up_to_date(SHDF_VERTS_VALID));
+        assert!(shdf_verts_up_to_date(SHDF_VERTS_VALID | SHDF_VERTS_CHANGED));
+        assert!(shdf_verts_up_to_date(u32::MAX));
+        assert!(!shdf_verts_up_to_date(0));
+        assert!(!shdf_verts_up_to_date(SHDF_TEXTURE_VALID));
+        assert!(!shdf_verts_up_to_date(u32::MAX & !SHDF_VERTS_VALID));
     }
 
     #[test]

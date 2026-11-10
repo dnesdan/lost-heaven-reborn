@@ -2856,6 +2856,27 @@ impl I3dFrameGraph {
         state.flags = (state.flags & 0xfffffecb) | 0x40000008;
         Ok(())
     }
+    /// Working name for the LS3DF_EXPORTS branch of the inlined
+    /// `I3D_frame::SetRot` (mafia-re ls3df/I3D/I3D.h:420-427). The reference
+    /// records no LS3DF FUNCTION address for it: the body is a header inline
+    /// compiled into LS3DF, and the only out-of-line copy is Game.exe
+    /// 0x43bce0, which is not claimed here. Unlike `assign_rotation` (the
+    /// Game.exe branch, I3D.h:429-437, which normalizes first), the LS3DF
+    /// branch stores the quaternion verbatim with no normalization and no
+    /// availability guard: non-finite components pass through exactly as the
+    /// native `m_Rot = q` store, and later matrix operations check their own
+    /// numeric domains. The flag store matches both branches (HR_BOUND_W and
+    /// WMAT/MAT/ROT validity cleared, UPDATE and QUAT_VALID set).
+    pub fn assign_rotation_ls3df(
+        &mut self,
+        key: FrameKey,
+        rotation: SQuat,
+    ) -> Result<(), FrameError> {
+        let state = &mut self.node_mut(key)?.state;
+        state.rotation = rotation;
+        state.flags = (state.flags & 0xfffffecb) | 0x40000008;
+        Ok(())
+    }
     /// Assign a quaternion already normalized by the original track evaluator.
     /// Preserve its exact bits; running Normalize again would change samples.
     /// The input has the same numeric availability guard as assign_rotation.
@@ -2946,6 +2967,37 @@ impl I3dFrameGraph {
             let state = &mut self.node_mut(key)?.state;
             state.rotation = rotation;
             state.flags = (state.flags & 0xfffffecb) | 0x40000008;
+            Ok(())
+        })();
+        let node = self.node_mut(key)?;
+        node.local_error = result.as_ref().err().copied();
+        node.world_error = result.as_ref().err().copied();
+        result
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::SetDir1`
+    /// (mafia-re ls3df/I3D/I3D.h:467-475). The reference records no LS3DF
+    /// FUNCTION address for it: the body is a header inline compiled into
+    /// LS3DF, and the only out-of-line copy is Game.exe 0x4609c0, which is
+    /// not claimed here. The local matrix takes `SetDir3(dir, up)` verbatim,
+    /// then the flag store clears HR_BOUND_W_VALID, WMAT_VALID, QUAT_VALID
+    /// and ROT_VALID while setting UPDATE and MAT_VALID. A refused direction
+    /// keeps the native partial basis writes already stored, skips the flag
+    /// store and poisons both caches like the other direction setters.
+    pub fn set_frame_dir1(
+        &mut self,
+        key: FrameKey,
+        direction: [f32; 3],
+        up: [f32; 3],
+    ) -> Result<(), FrameError> {
+        self.index(key)?;
+        let result = (|| {
+            self.node_mut(key)?
+                .state
+                .local
+                .try_set_dir3(direction, up)
+                .map_err(|_| FrameError::DirectionFromVectorsUnavailable)?;
+            let state = &mut self.node_mut(key)?.state;
+            state.flags = (state.flags & 0xfffffed3) | 0x40000010;
             Ok(())
         })();
         let node = self.node_mut(key)?;
@@ -4057,6 +4109,84 @@ mod tests {
         assert_eq!(pos[0].to_bits(), 0x80000000);
         assert_eq!(pos[1].to_bits(), 0.0f32.to_bits());
         assert_eq!(pos[2].to_bits(), 0.0f32.to_bits());
+    }
+    #[test]
+    fn set_frame_dir1_builds_setdir3_basis_and_flag_word() {
+        // Working name for inlined I3D_frame::SetDir1 (I3D.h:467-475): no
+        // LS3DF FUNCTION address exists (only Game.exe 0x4609c0, unclaimed
+        // here). Y-up unit inputs rebuild the identity basis; the flag word
+        // keeps the SetDir3 shape (UPDATE|MAT_VALID, rotation validity gone).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        graph.set_frame_dir1(key, [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]).unwrap();
+        let local = graph.state(key).unwrap().local;
+        assert_eq!(
+            [
+                local.elements[0],
+                local.elements[1],
+                local.elements[2],
+                local.elements[4],
+                local.elements[5],
+                local.elements[6],
+                local.elements[8],
+                local.elements[9],
+                local.elements[10],
+            ],
+            [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        );
+        assert_eq!(graph.state(key).unwrap().flags, 0x4000_0011);
+        // X-forward against Y-up keeps the right-handed permutation basis.
+        graph.set_frame_dir1(key, [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]).unwrap();
+        let local = graph.state(key).unwrap().local;
+        assert_eq!(
+            [
+                local.elements[0],
+                local.elements[1],
+                local.elements[2],
+                local.elements[4],
+                local.elements[5],
+                local.elements[6],
+                local.elements[8],
+                local.elements[9],
+                local.elements[10],
+            ],
+            [0.0, 0.0, -1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0]
+        );
+        // A parallel up vector is a host DegenerateUp: the flag word is
+        // untouched and the unavailable dependency is reported.
+        let before = graph.state(key).unwrap().flags;
+        assert_eq!(
+            graph.set_frame_dir1(key, [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]),
+            Err(FrameError::DirectionFromVectorsUnavailable)
+        );
+        assert_eq!(graph.state(key).unwrap().flags, before);
+        assert_eq!(
+            graph.set_frame_dir1(FrameKey(u32::MAX), [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn assign_rotation_ls3df_stores_verbatim_without_normalize() {
+        // Working name for the LS3DF_EXPORTS branch of inlined
+        // I3D_frame::SetRot (I3D.h:420-427): no LS3DF FUNCTION address
+        // exists (only Game.exe 0x43bce0, unclaimed here). The store skips
+        // the Game branch normalization that `assign_rotation` performs.
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        let rotation = SQuat { wxyz: [0.5, 0.5, 0.5, 0.5] };
+        graph.assign_rotation_ls3df(key, rotation).unwrap();
+        assert_eq!(graph.state(key).unwrap().rotation, rotation);
+        assert_eq!(graph.state(key).unwrap().flags, 0x4000_0009);
+        // Non-finite components pass through exactly as the native store;
+        // the checked Game-branch entry would refuse them.
+        let wild = SQuat { wxyz: [f32::INFINITY, 0.0, 0.0, f32::NAN] };
+        graph.assign_rotation_ls3df(key, wild).unwrap();
+        assert_eq!(graph.state(key).unwrap().rotation.wxyz[0].to_bits(), f32::INFINITY.to_bits());
+        assert!(graph.state(key).unwrap().rotation.wxyz[3].is_nan());
+        assert_eq!(
+            graph.assign_rotation_ls3df(FrameKey(u32::MAX), rotation),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
     }
     #[test]
     fn visual_inv_matrix_returns_identity_in_world_space() {
