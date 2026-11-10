@@ -189,13 +189,14 @@ impl MissionLoadSession {
     }
 
     /// Explicit host clock step, once per caller-selected game tick, never per
-    /// program or actor pass. This does not implement native Game scheduling.
+    /// program or actor pass. Both frame counters advance even at zero delta;
+    /// randomness is neither drawn nor reseeded. Native Tick's weather, failure
+    /// and actor-lookup prefix must precede this boundary. This explicit host
+    /// API is not a substitute for that still-unconnected scheduling.
     pub fn advance_owned_game_time(&mut self, delta: u32) -> Result<i32, SessionActorProgramError> {
         self.global_program_source_admission()
             .map_err(SessionActorProgramError::SourceUnavailable)?;
-        let time = self.game_inline.get_game_time().wrapping_add(delta as i32);
-        self.game_inline.set_game_time(time);
-        Ok(time)
+        Ok(self.game_inline.advance_tick_counters(delta))
     }
 
     /// Read the authoritative represented game fields. This is a borrow, not
