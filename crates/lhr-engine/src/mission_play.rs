@@ -17,6 +17,8 @@
 use crate::human_actor::{HUMAN_ACTION_FALL, HUMAN_ACTION_STAND, HUMAN_ACTION_WALK};
 use crate::human_move_coll::{
     movement_apply_gravity, movement_apply_step, movement_boost_small_step, StepContact,
+    TEST_MOVE_COLL_BODY_LIFT, TEST_MOVE_COLL_HEAD_LIFT, TEST_MOVE_COLL_LEGS_LIFT,
+    TEST_MOVE_COLL_RADII,
 };
 
 /// Host walk speed in m/s. Tuning, not a native constant.
@@ -483,6 +485,151 @@ pub fn ground_height_below(
     best
 }
 
+/// Closest point on triangle `abc` to `p` (Real-Time Collision Detection
+/// 5.1.5, plain f32 host math for the sweep below).
+fn closest_point_tri(p: [f32; 3], a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> [f32; 3] {
+    let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+    let dot = |u: [f32; 3], v: [f32; 3]| u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    let d1 = dot(ab, ap);
+    let d2 = dot(ac, ap);
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return a;
+    }
+    let bp = [p[0] - b[0], p[1] - b[1], p[2] - b[2]];
+    let d3 = dot(ab, bp);
+    let d4 = dot(ac, bp);
+    if d3 >= 0.0 && d4 <= d3 {
+        return b;
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        let v = d1 / (d1 - d3);
+        return [a[0] + ab[0] * v, a[1] + ab[1] * v, a[2] + ab[2] * v];
+    }
+    let cp = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+    let d5 = dot(ab, cp);
+    let d6 = dot(ac, cp);
+    if d6 >= 0.0 && d5 <= d6 {
+        return c;
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        let w = d2 / (d2 - d6);
+        return [a[0] + ac[0] * w, a[1] + ac[1] * w, a[2] + ac[2] * w];
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        let w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return [
+            b[0] + (c[0] - b[0]) * w,
+            b[1] + (c[1] - b[1]) * w,
+            b[2] + (c[2] - b[2]) * w,
+        ];
+    }
+    let denom = 1.0 / (va + vb + vc);
+    let v = vb * denom;
+    let w = vc * denom;
+    [
+        a[0] + ab[0] * v + ac[0] * w,
+        a[1] + ab[1] * v + ac[1] * w,
+        a[2] + ab[2] * v + ac[2] * w,
+    ]
+}
+
+/// Squared distance from a sphere center to a triangle.
+fn sphere_tri_dist_sq(center: [f32; 3], tri: &[[f32; 3]; 3]) -> f32 {
+    let q = closest_point_tri(center, tri[0], tri[1], tri[2]);
+    let d = [center[0] - q[0], center[1] - q[1], center[2] - q[2]];
+    d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+}
+
+/// Evidenced standing capsule spheres as (height above feet, radius):
+/// legs/body/head from `TEST_MOVE_COLL_RADII` and the `*_LIFT` words
+/// (`C_human.cpp:5278-5281`; body/head lifts sit above the legs sphere).
+pub const WALK_CAPSULE_SPHERES: [(f32, f32); 3] = [
+    (TEST_MOVE_COLL_LEGS_LIFT, TEST_MOVE_COLL_RADII[0]),
+    (
+        TEST_MOVE_COLL_LEGS_LIFT + TEST_MOVE_COLL_BODY_LIFT,
+        TEST_MOVE_COLL_RADII[1],
+    ),
+    (
+        TEST_MOVE_COLL_LEGS_LIFT + TEST_MOVE_COLL_HEAD_LIFT,
+        TEST_MOVE_COLL_RADII[2],
+    ),
+];
+
+/// Wall sweep over real scene geometry: the evidenced capsule walks `delta`
+/// (ground plane) from `feet` in discrete substeps and stops at the first
+/// penetration. Returns the rest position and whether anything blocked.
+/// No sliding: a blocked step ends where it touched. The native swept
+/// TestMoveColl arms stay deferred; radii and lifts are native words.
+pub fn sweep_capsule(
+    boxes: &[Option<MeshAabb>],
+    tris_of: &dyn Fn(usize) -> Option<Vec<[[f32; 3]; 3]>>,
+    feet: [f32; 3],
+    delta: [f32; 3],
+) -> ([f32; 3], bool) {
+    if !feet.iter().chain(delta.iter()).all(|v| v.is_finite()) {
+        return (feet, true);
+    }
+    let dist = delta[0].hypot(delta[2]);
+    if dist <= 0.0 {
+        return (feet, false);
+    }
+    let steps = ((dist / 0.1).ceil() as u32).clamp(1, 16);
+    let mut rest = feet;
+    for step in 1..=steps {
+        let k = step as f32 / steps as f32;
+        let candidate = [feet[0] + delta[0] * k, feet[1], feet[2] + delta[2] * k];
+        if capsule_blocked(boxes, tris_of, candidate) {
+            return (rest, true);
+        }
+        rest = candidate;
+    }
+    (rest, false)
+}
+
+/// True when any capsule sphere penetrates scene geometry at `feet`.
+fn capsule_blocked(
+    boxes: &[Option<MeshAabb>],
+    tris_of: &dyn Fn(usize) -> Option<Vec<[[f32; 3]; 3]>>,
+    feet: [f32; 3],
+) -> bool {
+    let pad = TEST_MOVE_COLL_RADII[0];
+    for (index, bb) in boxes.iter().enumerate() {
+        let Some([[min_x, min_y, min_z], [max_x, max_y, max_z]]) = bb else {
+            continue;
+        };
+        // The capsule spans feet.y..feet.y+1.8; expand by the largest radius.
+        if feet[0] + pad < *min_x || feet[0] - pad > *max_x {
+            continue;
+        }
+        if feet[2] + pad < *min_z || feet[2] - pad > *max_z {
+            continue;
+        }
+        if feet[1] + 1.8 + pad < *min_y || feet[1] - pad > *max_y {
+            continue;
+        }
+        let Some(tris) = tris_of(index) else {
+            continue;
+        };
+        for tri in &tris {
+            if !tri.iter().flatten().all(|v| v.is_finite()) {
+                continue;
+            }
+            for (lift, radius) in WALK_CAPSULE_SPHERES {
+                let center = [feet[0], feet[1] + lift, feet[2]];
+                if sphere_tri_dist_sq(center, tri) < radius * radius {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Precomputed per-mesh bounding boxes of one static scene. Only boxes are
 /// retained; triangles stay with the scene and are pulled per overlap.
 #[derive(Clone, Debug, Default)]
@@ -519,6 +666,17 @@ impl MeshGroundSpace {
         max_drop: f32,
     ) -> Option<f32> {
         ground_height_below(&self.boxes, tris_of, x, z, top_y, max_drop)
+    }
+
+    /// Wall sweep from `feet` along ground-plane `delta` against the retained
+    /// boxes. See [`sweep_capsule`].
+    pub fn sweep_walls(
+        &self,
+        tris_of: &dyn Fn(usize) -> Option<Vec<[[f32; 3]; 3]>>,
+        feet: [f32; 3],
+        delta: [f32; 3],
+    ) -> ([f32; 3], bool) {
+        sweep_capsule(&self.boxes, tris_of, feet, delta)
     }
 }
 
@@ -727,6 +885,57 @@ mod tests {
             ground_height_below(&boxes, &tris, 0.5, 0.5, 10.0, 4.0),
             None
         );
+    }
+
+    #[test]
+    fn closest_point_prefers_face_edge_and_vertex() {
+        let tri = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
+        // Above the face.
+        let q = closest_point_tri([0.25, 2.0, 0.25], tri[0], tri[1], tri[2]);
+        assert!((q[0] - 0.25).abs() < 1e-6 && q[1].abs() < 1e-6 && (q[2] - 0.25).abs() < 1e-6);
+        // Past vertex a.
+        let q = closest_point_tri([-1.0, 0.0, -1.0], tri[0], tri[1], tri[2]);
+        assert_eq!(q, tri[0]);
+        // Past edge b-c (x + z = 2 line side).
+        let q = closest_point_tri([1.0, 0.0, 1.0], tri[0], tri[1], tri[2]);
+        assert!((q[0] + q[2] - 1.0).abs() < 1e-6);
+        // Distance from the face point is the height.
+        assert!((sphere_tri_dist_sq([0.25, 3.0, 0.25], &tri) - 9.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn sweep_stops_at_wall_and_passes_free_flight() {
+        // Vertical wall at x=2 spanning y 0..3, z -1..1.
+        let wall = [
+            [[2.0, 0.0, -1.0], [2.0, 3.0, -1.0], [2.0, 0.0, 1.0]],
+            [[2.0, 3.0, -1.0], [2.0, 3.0, 1.0], [2.0, 0.0, 1.0]],
+        ];
+        let boxes = vec![mesh_aabb(&wall[0]), mesh_aabb(&wall[1])];
+        let tris = |i: usize| Some(vec![wall[i]]);
+        // Free flight parallel to the wall.
+        let (rest, blocked) = sweep_capsule(&boxes, &tris, [0.0, 0.0, 0.0], [0.0, 0.0, 5.0]);
+        assert!(!blocked);
+        assert!((rest[2] - 5.0).abs() < 1e-4);
+        // Head-on: the legs sphere (r=0.4 at +0.405) stops at x=1.6.
+        let (rest, blocked) = sweep_capsule(&boxes, &tris, [0.0, 0.0, 0.0], [5.0, 0.0, 0.0]);
+        assert!(blocked);
+        assert!((rest[0] - 1.6).abs() < 0.11);
+        assert!(rest[0] < 2.0);
+    }
+
+    #[test]
+    fn sweep_substeps_catch_fast_thin_walls() {
+        // Thin wall at x=1, only 0.02 thick: a 5 m step must not tunnel.
+        let wall = [[[1.0, 0.0, -5.0], [1.0, 3.0, -5.0], [1.0, 0.0, 5.0]]];
+        let boxes = vec![mesh_aabb(&wall[0])];
+        let tris = |_: usize| Some(wall.to_vec());
+        let (rest, blocked) = sweep_capsule(&boxes, &tris, [0.0, 0.0, 0.0], [5.0, 0.0, 0.0]);
+        assert!(blocked);
+        assert!(rest[0] < 1.0);
+        // Nonfinite input never moves.
+        let (rest, blocked) = sweep_capsule(&boxes, &tris, [f32::NAN, 0.0, 0.0], [5.0, 0.0, 0.0]);
+        assert!(blocked);
+        assert!(rest[0].is_nan());
     }
 
     #[test]

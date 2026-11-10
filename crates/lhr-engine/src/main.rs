@@ -787,6 +787,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     let mut walk_ticks = 0u32;
     let mut min_ground = f32::INFINITY;
     let mut max_ground = f32::NEG_INFINITY;
+    let mut blocked_ticks = 0u32;
     while progress.stage() == Mise01Stage::ReachTaxiStand {
         let pos = player.pos();
         let ground_now = ground.ground_below(&tris_of, pos[0], pos[2], pos[1] + 0.6, 4.0);
@@ -794,6 +795,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             min_ground = min_ground.min(h);
             max_ground = max_ground.max(h);
         }
+        let before = pos;
         player.step(
             16,
             WalkInput {
@@ -803,7 +805,17 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             },
             cam_yaw,
             ground_now,
-            |_, _| None,
+            |from, delta| {
+                let (rest, blocked) = ground.sweep_walls(&tris_of, from, delta);
+                if blocked {
+                    blocked_ticks += 1;
+                }
+                blocked.then(|| lhr_engine::human_move_coll::StepContact {
+                    newpos: rest,
+                    material: 0,
+                    owner_arm: false,
+                })
+            },
         );
         progress.player_moved(player.pos());
         walk_ticks += 1;
@@ -813,14 +825,37 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 player.pos()
             ));
         }
+        let _ = before;
     }
     println!(
-        "probe walk: reached the stand after {walk_ticks} ticks at pos [{:.2}, {:.2}, {:.2}], real ground range [{min_ground:.2}, {max_ground:.2}]; stage={:?}",
+        "probe walk: reached the stand after {walk_ticks} ticks ({blocked_ticks} wall-blocked) at pos [{:.2}, {:.2}, {:.2}], real ground range [{min_ground:.2}, {max_ground:.2}]; stage={:?}",
         player.pos()[0],
         player.pos()[1],
         player.pos()[2],
         progress.stage()
     );
+    // Wall-sweep proof on real geometry: 200 m rays in 8 compass headings.
+    let stand = player.pos();
+    let mut blocked_dirs = 0u32;
+    for k in 0..8 {
+        let heading = k as f32 * std::f32::consts::FRAC_PI_4;
+        let (rest, blocked) = ground.sweep_walls(
+            &tris_of,
+            stand,
+            [heading.sin() * 200.0, 0.0, heading.cos() * 200.0],
+        );
+        let travelled = (rest[0] - stand[0]).hypot(rest[2] - stand[2]);
+        if blocked {
+            blocked_dirs += 1;
+        }
+        println!(
+            "probe walls: heading {:>3}° travelled {travelled:6.1} m blocked={blocked}",
+            (k as f32 * 45.0) as u32,
+        );
+    }
+    if blocked_dirs == 0 {
+        return Err("Wall sweep met no MISE01 geometry in 8 headings".into());
+    }
     // 3. Board the real taxi driving world and drive to Complete.
     // Reuses the installation and patches from the scene load above.
     let lease = patches
@@ -1544,32 +1579,28 @@ impl App {
             let offset = self.camera.eye - self.camera.target;
             let cam_yaw = (-offset.x).atan2(-offset.z);
             let before = self.mise01.stage();
-            // Real-geometry ground under the feet; the void means a fall and
-            // wall sweeps stay deferred (free flight).
+            // Real-geometry ground under the feet and wall sweep against the
+            // static scene; the void means a fall. Slides stay deferred: a
+            // blocked step ends where it touched.
+            let tris_of = |index: usize| {
+                self.scene.meshes.get(index).and_then(|mesh| {
+                    let mut tris = Vec::new();
+                    for face in mesh.indices.chunks_exact(3) {
+                        let mut tri = [[0.0; 3]; 3];
+                        for (slot, corner) in tri.iter_mut().zip(face.iter()) {
+                            *slot = mesh.vertices.get(*corner as usize)?.position;
+                        }
+                        tris.push(tri);
+                    }
+                    if tris.is_empty() {
+                        None
+                    } else {
+                        Some(tris)
+                    }
+                })
+            };
             let ground_here = |x: f32, z: f32, top_y: f32| {
-                self.walk_ground.ground_below(
-                    &|index| {
-                        self.scene.meshes.get(index).and_then(|mesh| {
-                            let mut tris = Vec::new();
-                            for face in mesh.indices.chunks_exact(3) {
-                                let mut tri = [[0.0; 3]; 3];
-                                for (slot, corner) in tri.iter_mut().zip(face.iter()) {
-                                    *slot = mesh.vertices.get(*corner as usize)?.position;
-                                }
-                                tris.push(tri);
-                            }
-                            if tris.is_empty() {
-                                None
-                            } else {
-                                Some(tris)
-                            }
-                        })
-                    },
-                    x,
-                    z,
-                    top_y,
-                    4.0,
-                )
+                self.walk_ground.ground_below(&tris_of, x, z, top_y, 4.0)
             };
             if let Some(player) = &mut self.walk_player {
                 player.step(
@@ -1581,7 +1612,14 @@ impl App {
                     },
                     cam_yaw,
                     ground_here(player.pos()[0], player.pos()[2], player.pos()[1] + 0.6),
-                    |_, _| None,
+                    |from, delta| {
+                        let (rest, blocked) = self.walk_ground.sweep_walls(&tris_of, from, delta);
+                        blocked.then(|| lhr_engine::human_move_coll::StepContact {
+                            newpos: rest,
+                            material: 0,
+                            owner_arm: false,
+                        })
+                    },
                 );
                 let pos = player.pos();
                 // Hard camera follow on the ground plane; orbit kept.
