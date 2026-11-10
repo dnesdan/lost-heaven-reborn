@@ -507,6 +507,68 @@ pub fn frame_orig_name_bytes_or_empty(orig: Option<&[u8]>) -> &[u8] {
 pub fn frame_property_bytes_or_empty(property: Option<&[u8]>) -> &[u8] {
     property.unwrap_or(b"")
 }
+/// Working name for the `I3D_frame::GetName` presence gate (mafia-re
+/// ls3df/I3D/I3D.h:583-587 at pin 113b5b6: `m_pName ? m_pName : ""`). The
+/// reference records no LS3DF FUNCTION address for a standalone reader; only
+/// the Game.exe out-of-line copy at 0x47ad00 exists, unclaimed here as it is
+/// not an LS3DF.dll code address. Reports whether a name pointer is present;
+/// no owner or device is consulted.
+pub fn frame_name_is_empty(has_name: bool) -> bool {
+    !has_name
+}
+/// Working name for the `I3D_frame::GetOrigName` presence gate (mafia-re
+/// ls3df/I3D/I3D.h:589-593 at pin 113b5b6: `m_pOrigName ? m_pOrigName : ""`).
+/// The reference records no LS3DF FUNCTION address and no Game.exe out-of-line
+/// copy for a standalone reader, so no RVA is claimed here. Reports whether
+/// the model-stripped name pointer is present; pure.
+pub fn frame_orig_name_is_empty(has_orig: bool) -> bool {
+    !has_orig
+}
+/// Working name for the `I3D_frame::GetProperty` presence gate (mafia-re
+/// ls3df/I3D/I3D.h:625-630 at pin 113b5b6, game-only branch:
+/// `m_pProperty ? m_pProperty : ""`). The reference records no LS3DF FUNCTION
+/// address for a standalone reader, so no RVA is claimed here. Reports whether
+/// the property string pointer is present; pure.
+pub fn frame_property_is_empty(has_property: bool) -> bool {
+    !has_property
+}
+/// Working name for the `I3D_frame::GetData` zero gate (mafia-re
+/// ls3df/I3D/I3D.h:595-600 at pin 113b5b6: the inlined body returns
+/// `m_UserData` at +0x08). The reference records no LS3DF FUNCTION address
+/// for a standalone reader, so no RVA is claimed here. Reports whether the
+/// user-data word still holds the construction zero; no owner is consulted.
+pub fn frame_data_is_zero(user_data: u32) -> bool {
+    user_data == 0
+}
+/// Working name for the constructor scale gate of `I3D_frame` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:42 at pin 113b5b6:
+/// `m_Scale = S_vector(1.0f, 1.0f, 1.0f)`). The inlined `GetScale`
+/// (mafia-re ls3df/I3D/I3D.h:478-481) has no LS3DF FUNCTION address and no
+/// Game.exe out-of-line copy recorded, so no RVA is claimed here. Reports
+/// whether the stored scale is the unit construction value; exact `f32`
+/// equality, no cache moves.
+pub fn frame_scale_is_unit(scale: [f32; 3]) -> bool {
+    scale == [1.0, 1.0, 1.0]
+}
+/// Working name for the construction world-scale gate of `I3D_frame`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:44 at pin 113b5b6:
+/// `m_WorldScale = 1.0f`). The inlined `GetWorldScale` (mafia-re
+/// ls3df/I3D/I3D.h:519-528) records only a Game.exe out-of-line copy at
+/// 0x47a7b0, which is not an LS3DF.dll code address and is unclaimed here.
+/// Reports whether the world scale still holds the construction value; exact
+/// bits, no matrix refresh.
+pub fn frame_world_scale_is_initial(world_scale: f32) -> bool {
+    world_scale.to_bits() == 1.0f32.to_bits()
+}
+/// Working name for the construction update-count gate of `I3D_frame`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:41 at pin 113b5b6:
+/// `m_UpdateCount = 0`). The count is only bumped inside the occupied
+/// `UpdateChildren` body (PC RVA 0x1c9a0, already ported, not claimed here);
+/// the reference records no LS3DF FUNCTION address for a standalone reader.
+/// Reports whether the frame was never moved by an update; no state moves.
+pub fn frame_update_count_is_initial(count: u32) -> bool {
+    count == 0
+}
 /// Working name for the `FRAME_USER` type-word discriminant behind
 /// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
 /// `FRAME_USER` is 8, stored by the ctor in
@@ -7520,5 +7582,60 @@ mod tests {
         assert_eq!(tail, first);
         assert!(!graph.frame_has_next_sibling(tail).unwrap());
         assert!(graph.frame_has_prev_sibling(tail).unwrap());
+    }
+    #[test]
+    fn frame_name_empty_reports_missing_pointer() {
+        // Working name for the GetName presence gate (I3D.h:583-587): no
+        // LS3DF FUNCTION entry exists; only Game.exe 0x47ad00, unclaimed.
+        assert!(frame_name_is_empty(false));
+        assert!(!frame_name_is_empty(true));
+    }
+    #[test]
+    fn frame_orig_name_empty_reports_missing_pointer() {
+        // Working name for the GetOrigName presence gate (I3D.h:589-593): no
+        // LS3DF FUNCTION entry and no Game.exe copy exist.
+        assert!(frame_orig_name_is_empty(false));
+        assert!(!frame_orig_name_is_empty(true));
+    }
+    #[test]
+    fn frame_property_empty_reports_missing_pointer() {
+        // Working name for the GetProperty presence gate (I3D.h:625-630,
+        // game-only branch): no LS3DF FUNCTION entry exists.
+        assert!(frame_property_is_empty(false));
+        assert!(!frame_property_is_empty(true));
+    }
+    #[test]
+    fn frame_data_zero_reports_construction_word() {
+        // Working name for the GetData word (I3D.h:595-600, +0x08): the
+        // reference records no LS3DF FUNCTION entry for a standalone reader.
+        assert!(frame_data_is_zero(0));
+        assert!(!frame_data_is_zero(1));
+        assert!(!frame_data_is_zero(u32::MAX));
+    }
+    #[test]
+    fn frame_scale_unit_reports_ctor_vector() {
+        // Working name for the ctor scale (I3d_frame.cpp:42): GetScale
+        // (I3D.h:478-481) has no LS3DF FUNCTION entry.
+        assert!(frame_scale_is_unit([1.0, 1.0, 1.0]));
+        assert!(!frame_scale_is_unit([0.0, 1.0, 1.0]));
+        assert!(!frame_scale_is_unit([1.0, 1.0, 0.0]));
+        assert!(!frame_scale_is_unit([f32::NAN, 1.0, 1.0]));
+    }
+    #[test]
+    fn frame_world_scale_initial_reports_ctor_word() {
+        // Working name for the ctor world scale (I3d_frame.cpp:44): GetWorldScale
+        // (I3D.h:519-528) exists only as Game.exe 0x47a7b0, unclaimed here.
+        assert!(frame_world_scale_is_initial(1.0));
+        assert!(!frame_world_scale_is_initial(0.0));
+        assert!(!frame_world_scale_is_initial(2.0));
+        assert!(!frame_world_scale_is_initial(f32::NAN));
+    }
+    #[test]
+    fn frame_update_count_initial_reports_zero_only() {
+        // Working name for the ctor update count (I3d_frame.cpp:41): bumped only
+        // inside occupied UpdateChildren 0x1c9a0, no standalone FUNCTION.
+        assert!(frame_update_count_is_initial(0));
+        assert!(!frame_update_count_is_initial(1));
+        assert!(!frame_update_count_is_initial(u32::MAX));
     }
 }

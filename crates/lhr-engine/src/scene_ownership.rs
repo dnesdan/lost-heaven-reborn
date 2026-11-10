@@ -385,6 +385,69 @@ pub fn scene_anim_blend_is_in_range(blend: f32) -> bool {
 pub fn scene_viewport_half_extent_from_span(span: i32) -> f32 {
     (span as f32) * 0.5
 }
+/// Working name for the `SetBackdropRange` validity gate (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:638-644 at pin 113b5b6: `backdrop_ncp = near1`,
+/// `backdrop_fcp = far1`). The setter body lives at PC RVA 0x4a840 (already
+/// occupied in `docs/rewrite-overlay.json`, not claimed here); the reference
+/// records no LS3DF FUNCTION address for a standalone validator. Reports
+/// whether the pair can frame a backdrop (finite, near positive, far beyond
+/// near); NaN never validates. No state moves.
+pub fn scene_backdrop_range_is_valid(near: f32, far: f32) -> bool {
+    near.is_finite() && far.is_finite() && near > 0.0 && far > near
+}
+/// Working name for the `SetViewport` empty-span gate (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:695-708 at pin 113b5b6). The `SetViewport` body
+/// lives at PC RVA 0x4a9c0 (already occupied, not claimed here); the reference
+/// records no LS3DF FUNCTION address for a standalone span reader. Reports
+/// whether the caller-supplied `(sx - x)` span covers no pixels; the wrapping
+/// subtraction itself stays caller-owned. No state moves.
+pub fn scene_viewport_span_is_empty(span: i32) -> bool {
+    span == 0
+}
+/// Working name for the `SetViewport` horizontal center word (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:703-706 at pin 113b5b6:
+/// `viewport_center[0] = viewport.left + viewport_size_half[0]`). Same
+/// occupied-body status as `scene_viewport_half_extent_from_span`; the RECT
+/// stores and result word stay caller-owned. Plain host `f32` addition of the
+/// caller-supplied edge and half-extent; no state moves.
+pub fn scene_viewport_center_x(left: f32, half_extent_x: f32) -> f32 {
+    left + half_extent_x
+}
+/// Working name for the `SetViewport` vertical center word (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:703-706 at pin 113b5b6:
+/// `viewport_center[1] = viewport.top - viewport_size_half[1]`, where the
+/// stored half height is negative). Same occupied-body status as
+/// `scene_viewport_center_x`. Plain host `f32` subtraction of the
+/// caller-supplied edge and stored half-extent; no state moves.
+pub fn scene_viewport_center_y(top: f32, half_extent_y: f32) -> f32 {
+    top - half_extent_y
+}
+/// Working name for the first animation slot gate (mafia-re ls3df/I3D/I3D.h:1226
+/// at pin 113b5b6: `I3D_MAX_ANIMS` is 8, every scene animation verb rejects
+/// `index >= 8`). The verbs live at PC RVAs 0x4b0f0-0x4b390 (already occupied,
+/// not claimed here); the reference records no LS3DF FUNCTION address for a
+/// standalone slot predicate. Reports whether the index names slot zero; no
+/// state moves.
+pub fn scene_anim_slot_is_first(index: u32) -> bool {
+    index == 0
+}
+/// Working name for the last animation slot gate (mafia-re ls3df/I3D/I3D.h:1226
+/// at pin 113b5b6, same `I3D_MAX_ANIMS` bound as `scene_anim_slot_is_first`).
+/// Same occupied-body status; the reference records no LS3DF FUNCTION address
+/// for a standalone slot predicate. Reports whether the index names slot
+/// seven; out-of-range indices never report last. No state moves.
+pub fn scene_anim_slot_is_last(index: u32) -> bool {
+    index == 7
+}
+/// Working name for the scene tick-list single-entry gate (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:446-461 at pin 113b5b6: `AddTickFrame` pushes with
+/// `push_back_unique`, `DeleteTickFrame` removes, `Tick` walks). The mutating
+/// verbs live at PC RVAs 0x49f90/0x4a050 (already occupied, not claimed here);
+/// the reference records no LS3DF FUNCTION address for a standalone count
+/// reader. Reports whether the tick list holds exactly one frame; no walk.
+pub fn scene_tick_list_is_single(count: usize) -> bool {
+    count == 1
+}
 
 #[derive(Debug)]
 pub struct SceneFrameOwner {
@@ -4258,5 +4321,73 @@ mod scene_frame_getter_working_name_tests {
         assert!(arena.scene_has_shadows(SceneKey(FrameKey(u32::MAX))).is_err());
         assert!(arena.scene_has_mirrors(SceneKey(FrameKey(u32::MAX))).is_err());
         assert!(arena.scene_has_tick_frames(SceneKey(FrameKey(u32::MAX))).is_err());
+    }
+    #[test]
+    fn backdrop_range_valid_requires_positive_ordered_finite_pair() {
+        // Working name for the SetBackdropRange validity gate
+        // (I3d_scene.cpp:638-644): occupied setter RVA 0x4a840, no RVA claimed.
+        assert!(scene_backdrop_range_is_valid(1.0, 10000.0));
+        assert!(scene_backdrop_range_is_valid(0.5, 0.6));
+        assert!(!scene_backdrop_range_is_valid(0.0, 10000.0));
+        assert!(!scene_backdrop_range_is_valid(-1.0, 10.0));
+        assert!(!scene_backdrop_range_is_valid(10.0, 10.0));
+        assert!(!scene_backdrop_range_is_valid(20.0, 10.0));
+        assert!(!scene_backdrop_range_is_valid(f32::NAN, 10.0));
+        assert!(!scene_backdrop_range_is_valid(1.0, f32::INFINITY));
+    }
+    #[test]
+    fn viewport_span_empty_reports_zero_only() {
+        // Working name for the SetViewport empty-span gate (I3d_scene.cpp:695-708):
+        // occupied setter RVA 0x4a9c0, no RVA claimed here.
+        assert!(scene_viewport_span_is_empty(0));
+        assert!(!scene_viewport_span_is_empty(1));
+        assert!(!scene_viewport_span_is_empty(-1));
+        assert!(!scene_viewport_span_is_empty(i32::MAX));
+        assert!(!scene_viewport_span_is_empty(i32::MIN));
+    }
+    #[test]
+    fn viewport_center_x_adds_half_extent() {
+        // Working name for the SetViewport center[0] word (I3d_scene.cpp:703-706):
+        // center[0] = left + half_x. Occupied setter RVA 0x4a9c0, no RVA claimed.
+        assert_eq!(scene_viewport_center_x(10.0, 400.0).to_bits(), 410.0f32.to_bits());
+        assert_eq!(scene_viewport_center_x(0.0, 0.0).to_bits(), 0.0f32.to_bits());
+        assert_eq!(scene_viewport_center_x(-5.0, 5.0).to_bits(), 0.0f32.to_bits());
+    }
+    #[test]
+    fn viewport_center_y_subtracts_half_extent() {
+        // Working name for the SetViewport center[1] word (I3d_scene.cpp:703-706):
+        // center[1] = top - half_y, half_y negative. Same occupied status.
+        assert_eq!(scene_viewport_center_y(20.0, -300.0).to_bits(), 320.0f32.to_bits());
+        assert_eq!(scene_viewport_center_y(0.0, 0.0).to_bits(), 0.0f32.to_bits());
+        assert_eq!(scene_viewport_center_y(5.0, 5.0).to_bits(), 0.0f32.to_bits());
+    }
+    #[test]
+    fn anim_first_slot_reports_index_zero_only() {
+        // Working name for the I3D_MAX_ANIMS first slot (I3D.h:1226, 8 slots):
+        // occupied animation verbs unclaimed, no standalone FUNCTION.
+        assert!(scene_anim_slot_is_first(0));
+        assert!(!scene_anim_slot_is_first(1));
+        assert!(!scene_anim_slot_is_first(7));
+        assert!(!scene_anim_slot_is_first(8));
+        assert!(!scene_anim_slot_is_first(u32::MAX));
+    }
+    #[test]
+    fn anim_last_slot_reports_index_seven_only() {
+        // Working name for the I3D_MAX_ANIMS last slot (I3D.h:1226, 8 slots):
+        // same occupied status as the first-slot gate.
+        assert!(scene_anim_slot_is_last(7));
+        assert!(!scene_anim_slot_is_last(0));
+        assert!(!scene_anim_slot_is_last(6));
+        assert!(!scene_anim_slot_is_last(8));
+        assert!(!scene_anim_slot_is_last(u32::MAX));
+    }
+    #[test]
+    fn tick_list_single_reports_exactly_one() {
+        // Working name for the tick-list single-entry gate (I3d_scene.cpp:446-461):
+        // occupied Add/DeleteTick RVAs 0x49f90/0x4a050, no RVA claimed here.
+        assert!(!scene_tick_list_is_single(0));
+        assert!(scene_tick_list_is_single(1));
+        assert!(!scene_tick_list_is_single(2));
+        assert!(!scene_tick_list_is_single(usize::MAX));
     }
 }
