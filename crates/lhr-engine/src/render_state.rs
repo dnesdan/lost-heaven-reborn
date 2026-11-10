@@ -923,3 +923,391 @@ mod tests {
         assert_eq!(backend.ops, vec![9]);
     }
 }
+
+/// PC-only `I3D_driver` immediate debug-draw STUBs.
+///
+/// Evidenced names `I3D_driver::DrawPoint`, `DrawPoint2D`, `DrawLine`,
+/// `DrawLines`, `DrawTriangles`, `DrawCircle2D`, `DrawText`, `DrawText2D`,
+/// `DrawSprite`, `DrawBox`, `DrawSphere` from mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:728-1309` (helper `MakeColor` at :721-726, whose
+/// pure color packing already lives in
+/// `crate::presentation_material::pack_debug_draw_color`). Every RVA below is
+/// a verified LS3DF code address: each has a `FUNCTION: LS3DF` marker in the
+/// reference and was checked against both `docs/rewrite-overlay.json` and the
+/// frozen `docs/progress.json` ledger (base-relative `RVA = VA - 0x10000000`,
+/// so e.g. `0x166c0` is `VA 0x100166c0`); none is claimed in either file.
+///
+/// Shared native preamble (all draws): fog off (`set_fog` shape, see above),
+/// clip on (`D3DRS_CLIPPING`, cached in `m_CurrClipState`), `D3DTOP_MODULATE`
+/// color/alpha ops, the `IsAbsMrgZero(a - 1.0)` alpha pick (`ALPHASTATE_NONE`
+/// when opaque, `ALPHASTATE_BLEND` otherwise; `set_alpha_state` shape above),
+/// `BLENDSTATE_ALPHA`, texture stage 0 unbound, then the primitive. The
+/// transparency convention is a byte: `a = (255 - (alpha & 0xff)) / 255`
+/// packed by `MakeColor` (`FloatToInt` round-to-nearest, full-word shifts).
+///
+/// Every stub returns explicit `Unsupported`: the missing owners are the D3D8
+/// device (`m_pD3DDevice8` draw/state calls), the shared `LVertList` /
+/// `TLVertList` scratch, and — for the text/sprite/sphere draws — the font
+/// material (`pFontMat`), the current camera (`pCurrentCamera`) and the
+/// `IGraph` world-matrix sink. No pixels are produced and no render state is
+/// touched; the doc-comments pin the native order so a future backend can
+/// implement it without re-deriving the bodies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DebugDrawStubError {
+    Unsupported { entry: u32 },
+}
+
+/// LS3DF RVA 0x166c0 (`VA 0x100166c0`).
+pub const DRAW_POINT_ENTRY: u32 = 0x166c0;
+/// LS3DF RVA 0x168f0 (`VA 0x100168f0`).
+pub const DRAW_POINT_2D_ENTRY: u32 = 0x168f0;
+/// LS3DF RVA 0x16b20 (`VA 0x10016b20`).
+pub const DRAW_LINE_ENTRY: u32 = 0x16b20;
+/// LS3DF RVA 0x16d70 (`VA 0x10016d70`).
+pub const DRAW_LINES_ENTRY: u32 = 0x16d70;
+/// LS3DF RVA 0x16ff0 (`VA 0x10016ff0`).
+pub const DRAW_TRIANGLES_ENTRY: u32 = 0x16ff0;
+/// LS3DF RVA 0x17580 (`VA 0x10017580`).
+pub const DRAW_CIRCLE_2D_ENTRY: u32 = 0x17580;
+/// LS3DF RVA 0x17890 (`VA 0x10017890`).
+pub const DRAW_TEXT_ENTRY: u32 = 0x17890;
+/// LS3DF RVA 0x17d40 (`VA 0x10017d40`).
+pub const DRAW_TEXT_2D_ENTRY: u32 = 0x17d40;
+/// LS3DF RVA 0x182f0 (`VA 0x100182f0`).
+pub const DRAW_SPRITE_ENTRY: u32 = 0x182f0;
+/// LS3DF RVA 0x186a0 (`VA 0x100186a0`).
+pub const DRAW_BOX_ENTRY: u32 = 0x186a0;
+/// LS3DF RVA 0x18cc0 (`VA 0x10018cc0`).
+pub const DRAW_SPHERE_ENTRY: u32 = 0x18cc0;
+
+/// LS3DF RVA 0x166c0 (`VA 0x100166c0`) `I3D_driver::DrawPoint` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:730-754`): shared preamble, then one `LVERTEX`
+/// at `pos` with the packed color, `VF_LVERTEX`, `D3DPT_POINTLIST` of 1.
+/// D3D8 device owner missing.
+pub fn driver_draw_point(
+    _pos: [f32; 3],
+    _color: [f32; 3],
+    _alpha: u32,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_POINT_ENTRY,
+    })
+}
+
+/// LS3DF RVA 0x168f0 (`VA 0x100168f0`) `I3D_driver::DrawPoint2D` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:758-784`): shared preamble, then one `TLVERTEX`
+/// at `(x, y, 0)` with `rhw 1`, packed color, `specular 0`, `VF_TLVERTEX`,
+/// `D3DPT_POINTLIST` of 1. D3D8 device owner missing.
+pub fn driver_draw_point_2d(
+    _x: i32,
+    _y: i32,
+    _color: [f32; 3],
+    _alpha: u32,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_POINT_2D_ENTRY,
+    })
+}
+
+/// LS3DF RVA 0x16b20 (`VA 0x10016b20`) `I3D_driver::DrawLine` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:788-816`): shared preamble, then two `LVERTEX`
+/// at `from`/`to` with the packed color, `VF_LVERTEX`, `D3DPT_LINELIST` of 1.
+/// D3D8 device owner missing.
+pub fn driver_draw_line(
+    _from: [f32; 3],
+    _to: [f32; 3],
+    _color: [f32; 3],
+    _alpha: u32,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_LINE_ENTRY,
+    })
+}
+
+/// LS3DF RVA 0x16d70 (`VA 0x10016d70`) `I3D_driver::DrawLines` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:820-852`): shared preamble, then the strided
+/// vertex walk (`(uchar *)verts + i * vstride`) is fanned into the shared
+/// `LVertList` with the packed color and drawn indexed (`D3DPT_LINELIST`,
+/// `num_indices / 2`, 16-bit indices). D3D8 device and `LVertList` owners
+/// missing.
+pub fn driver_draw_lines(
+    _num_verts: u32,
+    _num_indices: u32,
+    _color: [f32; 3],
+    _alpha: u32,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_LINES_ENTRY,
+    })
+}
+
+/// LS3DF RVA 0x16ff0 (`VA 0x10016ff0`) `I3D_driver::DrawTriangles` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:868-966`): shared preamble with the transparency
+/// taken from the flags low byte (`flags & I3DDRAW_TRANPARENCY_MASK`, `0xff`;
+/// not the `alpha` low byte the other draws use), cull select (`I3DDRAW_NOCULL`
+/// `0x200` forces none, else `I3DDRAW_CULL_CW` `0x400` picks CW, else CCW),
+/// then the untransformed `LVERTEX` path or the `I3DDRAW_TRANSFORMED` `0x100`
+/// `TLVERTEX` path (`rhw` from the fourth float, `specular 0`), each with or
+/// without the parallel texcoord array (`has_texcoords`), drawn indexed
+/// (`D3DPT_TRIANGLELIST`, `num_indices / 3`); the cull mode is restored to CCW
+/// when forced-none or CW was used. Native returns `LS3D_RESULT`; D3D8 device
+/// and `LVertList`/`TLVertList` owners missing.
+pub fn driver_draw_triangles(
+    _num_verts: u32,
+    _num_indices: u32,
+    _color: [f32; 3],
+    _stride: u32,
+    _flags: u32,
+    _has_texcoords: bool,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_TRIANGLES_ENTRY,
+    })
+}
+
+/// LS3DF RVA 0x17580 (`VA 0x10017580`) `I3D_driver::DrawCircle2D` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:970-1006`): shared preamble, then `segments + 1`
+/// `TLVERTEX` (`z 0`, `rhw 1`, packed color, `specular 0`) stepping the
+/// `(0, -radius)` start vector by `RotateZ(2 * PI / segments)` around `center`
+/// with the last vertex closed back onto the first, drawn as
+/// `D3DPT_LINESTRIP` of `segments`. D3D8 device and `TLVertList` owners
+/// missing.
+pub fn driver_draw_circle_2d(
+    _center: [f32; 2],
+    _radius: f32,
+    _color: [f32; 3],
+    _segments: i32,
+    _alpha: u32,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_CIRCLE_2D_ENTRY,
+    })
+}
+
+/// LS3DF RVA 0x17890 (`VA 0x10017890`) `I3D_driver::DrawText` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:1017-1091`): shared preamble plus `D3DCULL_NONE`,
+/// early-out when no camera is current, world matrix at `pos` from the camera
+/// matrix via `IGraph`, then per-character 6-vertex `LVERTEX` quads (`w = h =
+/// size * 16`, `16 / font_width|height` UV cells) with the color packed from
+/// the alpha byte and the *font material diffuse* (the draw takes no color
+/// parameter), drawn as `D3DPT_TRIANGLELIST`; fill mode forced solid with the
+/// wireframe-flag restore. Owners missing: camera, font material, `IGraph`
+/// sink, D3D8 device, `LVertList`.
+pub fn driver_draw_text(
+    _pos: [f32; 3],
+    _text: &str,
+    _alpha: u8,
+    _size: f32,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_TEXT_ENTRY,
+    })
+}
+
+/// LS3DF RVA 0x17d40 (`VA 0x10017d40`) `I3D_driver::DrawText2D` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:1098-1184`): shared preamble plus `D3DCULL_NONE`,
+/// early-out when the font material is missing, then per-character quads at
+/// `(x, y)` with `z 1`, `rhw 1` and zeroed `specular` (triangles `0 1 2` and
+/// `3 2 1`) with the color packed from the alpha byte and the font material
+/// diffuse, linear min/mag filtering with the `RS_LINEARFILTER` restore,
+/// `ZENABLE` off/on around the draw and the wireframe-flag restore. Owners
+/// missing: font material, D3D8 device, `TLVertList`.
+pub fn driver_draw_text_2d(
+    _x: i32,
+    _y: i32,
+    _text: &str,
+    _alpha: u8,
+    _size: f32,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_TEXT_2D_ENTRY,
+    })
+}
+
+/// The only `I3D_material` members `I3D_driver::DrawSprite` reads (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:1192-1254`): `diffuse` feeds `MakeColor` with the
+/// alpha byte; `flags` selects the alpha/blend pair (`MATF_ADD_MODE`
+/// `0x80000000` → blend/add-alpha, `MATF_TXT_ALPHA` `0x40000000` → blend plus
+/// add-alpha iff `emissive_nonzero` else plain alpha, `MATF_CKEY_ALPHA`
+/// `0x20000000` → test/alpha, else none; words in `render_clip.rs`);
+/// `has_texture` picks the material texture behind stage 0.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DebugSpriteMaterial {
+    pub diffuse: [f32; 3],
+    pub flags: u32,
+    pub emissive_nonzero: bool,
+    pub has_texture: bool,
+}
+
+/// LS3DF RVA 0x182f0 (`VA 0x100182f0`) `I3D_driver::DrawSprite` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:1192-1254`): shared preamble, early-out when no
+/// camera is current, world matrix at `pos` from the camera matrix via
+/// `IGraph`, then the centered 4-corner `LVERTEX` fan (`±size / 2`, `.001` /
+/// `.999` UVs) with the material-driven alpha/blend select above, drawn as
+/// `D3DPT_TRIANGLESTRIP` of 2. Owners missing: camera, material/texture,
+/// `IGraph` sink, D3D8 device.
+pub fn driver_draw_sprite(
+    _pos: [f32; 3],
+    _material: &DebugSpriteMaterial,
+    _alpha: u8,
+    _size: f32,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_SPRITE_ENTRY,
+    })
+}
+
+/// LS3DF RVA 0x186a0 (`VA 0x100186a0`) `I3D_driver::DrawBox` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:1258-1273`): no-op unless the box is valid
+/// (`min.x <= max.x`); otherwise the fill delegates to `DrawTriangles` over
+/// the 8 box corners with the 36-index table, and the edges delegate to
+/// `DrawLines` with the 24-index table and `alpha >> 8`. D3D8 device owner
+/// missing (both delegates are stubs above).
+pub fn driver_draw_box(
+    _min: [f32; 3],
+    _max: [f32; 3],
+    _line_color: Option<[f32; 3]>,
+    _fill_color: Option<[f32; 3]>,
+    _alpha: u16,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_BOX_ENTRY,
+    })
+}
+
+/// LS3DF RVA 0x18cc0 (`VA 0x10018cc0`) `I3D_driver::DrawSphere` (mafia-re
+/// `ls3df/I3D/I3d_driver.cpp:1298-1309`): no-op for `radius <= 0`; otherwise
+/// the unit-ball wireframe (`VolumeBall`, 48 vertices on three circles,
+/// `VolumeBallIndx` 96 indices) is scaled by `radius`, translated to `center`
+/// and post-multiplied by `world` into the `IGraph` world matrix, then drawn
+/// via `DrawLines` with `alpha >> 8`. Owners missing: `IGraph` sink, D3D8
+/// device (the `DrawLines` delegate is a stub above).
+pub fn driver_draw_sphere(
+    _world: [[f32; 4]; 4],
+    _center: [f32; 3],
+    _radius: f32,
+    _color: [f32; 3],
+    _alpha: u16,
+) -> Result<(), DebugDrawStubError> {
+    Err(DebugDrawStubError::Unsupported {
+        entry: DRAW_SPHERE_ENTRY,
+    })
+}
+
+#[cfg(test)]
+mod debug_draw_stub_tests {
+    use super::*;
+
+    #[test]
+    fn stub_0x166c0_draw_point_is_unsupported() {
+        assert_eq!(
+            driver_draw_point([1.0, 2.0, 3.0], [1.0, 0.0, 0.0], 0),
+            Err(DebugDrawStubError::Unsupported { entry: 0x166c0 })
+        );
+    }
+
+    #[test]
+    fn stub_0x168f0_draw_point_2d_is_unsupported() {
+        assert_eq!(
+            driver_draw_point_2d(4, 5, [0.0, 1.0, 0.0], 0),
+            Err(DebugDrawStubError::Unsupported {
+                entry: 0x168f0
+            })
+        );
+    }
+
+    #[test]
+    fn stub_0x16b20_draw_line_is_unsupported() {
+        assert_eq!(
+            driver_draw_line([0.0; 3], [1.0; 3], [0.0, 0.0, 1.0], 0),
+            Err(DebugDrawStubError::Unsupported { entry: 0x16b20 })
+        );
+    }
+
+    #[test]
+    fn stub_0x16d70_draw_lines_is_unsupported() {
+        assert_eq!(
+            driver_draw_lines(8, 24, [1.0; 3], 0),
+            Err(DebugDrawStubError::Unsupported { entry: 0x16d70 })
+        );
+    }
+
+    #[test]
+    fn stub_0x16ff0_draw_triangles_is_unsupported() {
+        assert_eq!(
+            driver_draw_triangles(8, 36, [1.0; 3], 12, 0, false),
+            Err(DebugDrawStubError::Unsupported {
+                entry: 0x16ff0
+            })
+        );
+    }
+
+    #[test]
+    fn stub_0x17580_draw_circle_2d_is_unsupported() {
+        assert_eq!(
+            driver_draw_circle_2d([0.0, 0.0], 4.0, [1.0; 3], 16, 0),
+            Err(DebugDrawStubError::Unsupported {
+                entry: 0x17580
+            })
+        );
+    }
+
+    #[test]
+    fn stub_0x17890_draw_text_is_unsupported() {
+        assert_eq!(
+            driver_draw_text([0.0; 3], "x", 0, 1.0),
+            Err(DebugDrawStubError::Unsupported { entry: 0x17890 })
+        );
+    }
+
+    #[test]
+    fn stub_0x17d40_draw_text_2d_is_unsupported() {
+        assert_eq!(
+            driver_draw_text_2d(1, 2, "xy", 0, 1.0),
+            Err(DebugDrawStubError::Unsupported {
+                entry: 0x17d40
+            })
+        );
+    }
+
+    #[test]
+    fn stub_0x182f0_draw_sprite_is_unsupported() {
+        let material = DebugSpriteMaterial {
+            diffuse: [1.0; 3],
+            flags: 0,
+            emissive_nonzero: false,
+            has_texture: false,
+        };
+        assert_eq!(
+            driver_draw_sprite([0.0; 3], &material, 0, 2.0),
+            Err(DebugDrawStubError::Unsupported { entry: 0x182f0 })
+        );
+    }
+
+    #[test]
+    fn stub_0x186a0_draw_box_is_unsupported() {
+        assert_eq!(
+            driver_draw_box([0.0; 3], [1.0; 3], None, Some([1.0; 3]), 0),
+            Err(DebugDrawStubError::Unsupported { entry: 0x186a0 })
+        );
+    }
+
+    #[test]
+    fn stub_0x18cc0_draw_sphere_is_unsupported() {
+        assert_eq!(
+            driver_draw_sphere(
+                [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+                [0.0; 3],
+                2.0,
+                [1.0; 3],
+                0
+            ),
+            Err(DebugDrawStubError::Unsupported { entry: 0x18cc0 })
+        );
+    }
+}

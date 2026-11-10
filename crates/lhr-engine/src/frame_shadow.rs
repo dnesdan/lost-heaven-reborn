@@ -734,6 +734,17 @@ impl ModelArena {
         Ok(())
     }
 
+    /// Working name for `I3D_shadow::SetVisibleRange` (mafia-re
+    /// ls3df/I3D/I3D.h:2587-2591). No LS3DF FUNCTION address exists for it:
+    /// it is a header inline compiled into LS3DF (`Duplicate` copies
+    /// `visible_range` directly with `FLD`/`FSTP` instead of calling it, per
+    /// the 0x50c60 byte walk). Unconditional store of the caller's range;
+    /// no validation, no flag or light effects.
+    pub fn set_shadow_visible_range(&mut self, key: FrameKey, range: f32) -> Result<(), ModelError> {
+        self.shadow_state_mut(key)?.visible_range = range;
+        Ok(())
+    }
+
     /// Original SetMaxTextureDistance, PC RVA 0x51840 (contract: sweep
     /// 0x10051840–0x1005189e with the `80000007` fail block at 0x10051899).
     /// Ordered `d < 0 || d > 32` reject; NaN passes both ordered comparisons
@@ -823,6 +834,270 @@ impl ModelArena {
         state.lights_count = -1;
         state.shadow_flags = 0;
         Ok(SCENE_OK)
+    }
+
+    /// Working name for the `range` word read: the original exposes no
+    /// `I3D_shadow::GetRange` (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp at
+    /// pin 113b5b6 defines only `Set*` entry points; the `SetRange` setter
+    /// RVA 0x51800 is already occupied). No new RVA is claimed: this only
+    /// re-reads the setter-written word through the existing `shadow`
+    /// accessor, with the same availability guard.
+    pub fn shadow_range_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.shadow(key)?.range)
+    }
+
+    /// Working name for the `max_texture_distance` word read: the original
+    /// exposes no `I3D_shadow::GetMaxTextureDistance` (setter RVA 0x51840
+    /// already occupied). No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_max_texture_distance_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.shadow(key)?.max_texture_distance)
+    }
+
+    /// Working name for the clamped `color` triple read: the original
+    /// exposes no `I3D_shadow::GetColor` (setter RVA 0x518b0 already
+    /// occupied). No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_color_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.shadow(key)?.color)
+    }
+
+    /// Working name for the clamped `reverse_factor` word read: the original
+    /// exposes no `I3D_shadow::GetReverseFactor` (setter RVA 0x51980 already
+    /// occupied). No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_reverse_factor_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.shadow(key)?.reverse_factor)
+    }
+
+    /// Working name for the `orthogonal` flag read: the original exposes no
+    /// `I3D_shadow::GetOrthogonal` (setter RVA 0x519e0 already occupied).
+    /// No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_is_orthogonal_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.orthogonal)
+    }
+
+    /// Working name for the rounded `size_x`/`size_y` pair read: the original
+    /// exposes no `I3D_shadow::GetTextureSize` (setter RVA 0x51a20 already
+    /// occupied). No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_texture_size_of(&self, key: FrameKey) -> Result<[u32; 2], ModelError> {
+        let state = self.shadow(key)?;
+        Ok([state.size_x, state.size_y])
+    }
+
+    /// Working name for the `lock` word read: the original exposes no
+    /// `I3D_shadow::GetShadowLock` (setter RVA 0x51400 already occupied).
+    /// No new RVA is claimed; same guard as `shadow`.
+    pub fn shadow_lock_of(&self, key: FrameKey) -> Result<u32, ModelError> {
+        Ok(self.shadow(key)?.lock)
+    }
+
+    /// Working name for the `shd_flags` word read (+0x208; mafia-re
+    /// ls3df/I3D/I3D.h:2547-2556 at pin 113b5b6, `SHDF_*`). The original
+    /// exposes no `I3D_shadow::GetShadowFlags`: the word is only read in
+    /// place by the occupied `Prepare`/`UpdateVertices`/`UpdateLight`/
+    /// `RenderTexture` bodies (PC RVAs 0x52a90/0x51ab0/0x51c00/0x529c0,
+    /// already ported, not claimed here), so no RVA is claimed. Reports the
+    /// stored word with the same guard as `shadow`.
+    pub fn shadow_flags_of(&self, key: FrameKey) -> Result<u32, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags)
+    }
+
+    /// Working name for the `SHDF_TEXTURE_CHANGED` (0x1) bit read over the
+    /// frame-side `shd_flags` word (+0x208; mafia-re ls3df/I3D/I3D.h:2548 at
+    /// pin 113b5b6). The original exposes no per-bit getter: the bit is only
+    /// read in place by the occupied `RenderTexture`/`Prepare` bodies (PC
+    /// RVAs 0x529c0/0x52a90, already ported, not claimed here), so no RVA is
+    /// claimed. Same guard as `shadow`.
+    pub fn shadow_texture_changed_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags & 0x1 != 0)
+    }
+
+    /// Working name for the `SHDF_DIR_CHANGED` (0x2) bit read over the
+    /// frame-side `shd_flags` word (+0x208; mafia-re ls3df/I3D/I3D.h:2549 at
+    /// pin 113b5b6). The original exposes no per-bit getter: the bit is only
+    /// read in place by the occupied `UpdateLight` body (PC RVA 0x51c00,
+    /// already ported, not claimed here), so no RVA is claimed. Same guard
+    /// as `shadow`.
+    pub fn shadow_dir_changed_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags & 0x2 != 0)
+    }
+
+    /// Working name for the `SHDF_VERTS_CHANGED` (0x4) bit read over the
+    /// frame-side `shd_flags` word (+0x208; mafia-re ls3df/I3D/I3D.h:2550 at
+    /// pin 113b5b6). The original exposes no per-bit getter: the bit is only
+    /// read in place by the occupied `UpdateVertices`/`Prepare` bodies (PC
+    /// RVAs 0x51ab0/0x52a90, already ported, not claimed here), so no RVA is
+    /// claimed. Same guard as `shadow`.
+    pub fn shadow_verts_changed_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags & 0x4 != 0)
+    }
+
+    /// Working name for the `SHDF_TEXTURE_VALID` (0x400) bit read over the
+    /// frame-side `shd_flags` word (+0x208; mafia-re ls3df/I3D/I3D.h:2553 at
+    /// pin 113b5b6). The original exposes no per-bit getter: the bit is only
+    /// read in place by the occupied `RenderTexture` body (PC RVA 0x529c0,
+    /// already ported, not claimed here), so no RVA is claimed. Same guard
+    /// as `shadow`.
+    pub fn shadow_texture_valid_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags & 0x400 != 0)
+    }
+
+    /// Working name for the `SHDF_VERTS_VALID` (0x1000) bit read over the
+    /// frame-side `shd_flags` word (+0x208; mafia-re ls3df/I3D/I3D.h:2555 at
+    /// pin 113b5b6). The original exposes no per-bit getter: the bit is only
+    /// read in place by the occupied `UpdateLight`/`UpdateVertices` bodies
+    /// (PC RVAs 0x51c00/0x51ab0, already ported, not claimed here), so no
+    /// RVA is claimed. Same guard as `shadow`.
+    pub fn shadow_verts_valid_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags & 0x1000 != 0)
+    }
+
+    /// Working name for the `SHDF_OPACITY_CHANGED` (0x8) bit read over the
+    /// frame-side `shd_flags` word (+0x208; mafia-re ls3df/I3D/I3D.h:2551 at
+    /// pin 113b5b6). The original exposes no per-bit getter: the bit is only
+    /// read in place by the occupied `Prepare` body (PC RVA 0x52a90, already
+    /// ported, not claimed here), so no RVA is claimed. Same guard as
+    /// `shadow`.
+    pub fn shadow_opacity_changed_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags & 0x8 != 0)
+    }
+
+    /// Working name for the `SHDF_RECEIVERS_CHANGED` (0x10) bit read over the
+    /// frame-side `shd_flags` word (+0x208; mafia-re ls3df/I3D/I3D.h:2552 at
+    /// pin 113b5b6). The original exposes no per-bit getter: the bit is only
+    /// set by the occupied `ProcessShadow` step (PC RVA 0x52a90 family,
+    /// already ported, not claimed here), so no RVA is claimed. Same guard
+    /// as `shadow`.
+    pub fn shadow_receivers_changed_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags & 0x10 != 0)
+    }
+
+    /// Working name for the `SHDF_LIGHT_VALID` (0x800) bit read over the
+    /// frame-side `shd_flags` word (+0x208; mafia-re ls3df/I3D/I3D.h:2554 at
+    /// pin 113b5b6). The original exposes no per-bit getter: the bit is only
+    /// read in place by the occupied `UpdateLight`/`Prepare` bodies (PC RVAs
+    /// 0x51c00/0x52a90, already ported, not claimed here), so no RVA is
+    /// claimed. Same guard as `shadow`.
+    pub fn shadow_light_valid_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags & 0x800 != 0)
+    }
+
+    /// Working name for the `SHDF_RECEIVERS_VALID` (0x2000) bit read over the
+    /// frame-side `shd_flags` word (+0x208; mafia-re ls3df/I3D/I3D.h:2556 at
+    /// pin 113b5b6). The original exposes no per-bit getter: the bit is only
+    /// read in place by the occupied `ProcessShadow`/`Prepare` bodies (PC
+    /// RVA 0x52a90 family, already ported, not claimed here), so no RVA is
+    /// claimed. Same guard as `shadow`.
+    pub fn shadow_receivers_valid_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags & 0x2000 != 0)
+    }
+
+    /// Working name for the `SHDF_NONE` (0x8000) bit read over the frame-side
+    /// `shd_flags` word (+0x208; mafia-re ls3df/I3D/I3D.h:2557 at pin
+    /// 113b5b6). The original exposes no per-bit getter: the bit marks no
+    /// light casting the shadow or no geometry, tested in place by the
+    /// occupied `Prepare` body (PC RVA 0x52a90, already ported, not claimed
+    /// here), so no RVA is claimed. Same guard as `shadow`.
+    pub fn shadow_has_none_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.shadow_flags & 0x8000 != 0)
+    }
+
+    /// Working name for the `I3DLOCK_VERTICES` (1) lock-word read over the
+    /// frame-side `lock` word (mafia-re ls3df/I3D/I3D.h:2542 at pin 113b5b6;
+    /// PS2 name, values' names are guesses). The original exposes no
+    /// per-value getter: the word is only written by the occupied
+    /// `SetShadowLock` port (RVA 0x51400), so no RVA is claimed here.
+    /// Same guard as `shadow`.
+    pub fn shadow_lock_is_vertices_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.lock == 1)
+    }
+
+    /// Working name for the `I3DLOCK_LIGHT` (2) lock-word read over the
+    /// frame-side `lock` word (mafia-re ls3df/I3D/I3D.h:2543 at pin 113b5b6).
+    /// Same inline-only status as `shadow_lock_is_vertices_of`: the occupied
+    /// `SetShadowLock` body is the only writer, not claimed here. Reports
+    /// whether vertices plus light direction and texture are kept; same guard
+    /// as `shadow`.
+    pub fn shadow_lock_is_light_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.lock == 2)
+    }
+
+    /// Working name for the `I3DLOCK_RECEIVERS` (3) lock-word read over the
+    /// frame-side `lock` word (mafia-re ls3df/I3D/I3D.h:2544 at pin 113b5b6).
+    /// Same inline-only status as `shadow_lock_is_vertices_of`: the occupied
+    /// `SetShadowLock` body is the only writer, not claimed here. Reports
+    /// whether receivers are kept as well; same guard as `shadow`.
+    pub fn shadow_lock_is_receivers_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.lock == 3)
+    }
+
+    /// Working name for the `I3DLOCK_NONE` (0) lock-word read over the
+    /// frame-side `lock` word (mafia-re ls3df/I3D/I3D.h:2541 at pin 113b5b6;
+    /// everything is computed again each frame; host analog is
+    /// `SHADOW_LOCK_NONE`). Same inline-only status as
+    /// `shadow_lock_is_vertices_of`: no standalone LS3DF getter body exists,
+    /// so no RVA is claimed. Same guard as `shadow`.
+    pub fn shadow_lock_is_none_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.shadow(key)?.lock == 0)
+    }
+
+    /// Working name for the `visible_range` word read (+0x200; mafia-re
+    /// ls3df/I3D/I3d_shadow.cpp:62 at pin 113b5b6, ctor stores 100.0, and
+    /// `Duplicate` copies it through `SetVisibleRange`, I3d_shadow.cpp:110).
+    /// The original exposes no `I3D_shadow::GetVisibleRange` (setter helper
+    /// at I3D.h:2587-2591 is header-inline). No new RVA is claimed; same
+    /// guard as `shadow`.
+    pub fn shadow_visible_range_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.shadow(key)?.visible_range)
+    }
+
+    /// Working name for the `verts_count` word read (+0x204; mafia-re
+    /// ls3df/I3D/visuals/I3d_shadow.cpp:64,173,345 at pin 113b5b6: the ctor
+    /// and the `UpdateVertices`/`SetTo` tails store -1 until the transformed
+    /// vertex total is known). The original exposes no standalone getter, so
+    /// no RVA is claimed. Same guard as `shadow`.
+    pub fn shadow_verts_count_of(&self, key: FrameKey) -> Result<i32, ModelError> {
+        Ok(self.shadow(key)?.verts_count)
+    }
+
+    /// Working name for the `lights_count` word read (+0x20c; mafia-re
+    /// ls3df/I3D/visuals/I3d_shadow.cpp:65,174,346 at pin 113b5b6: the ctor
+    /// and the `UpdateLight`/`SetTo` tails store -1, and `SetShadowLock`
+    /// (I3d_shadow.cpp:273-274) plus `SetOrthogonal` (I3d_shadow.cpp:344)
+    /// reset it to -1). The original exposes no standalone getter, so no RVA
+    /// is claimed. Same guard as `shadow`.
+    pub fn shadow_lights_count_of(&self, key: FrameKey) -> Result<i32, ModelError> {
+        Ok(self.shadow(key)?.lights_count)
+    }
+
+    /// Working name for the scene back-pointer read at +0x188 (mafia-re
+    /// ls3df/I3D/I3D.h:2615: the scene whose `AddShadow` took the shadow).
+    /// The reference records no LS3DF FUNCTION address for a standalone
+    /// reader; only `update_shadow_v` stores it (occupied RVA 0x51430 path,
+    /// not claimed here), and `set_shadow_to` with no target clears it.
+    /// Reports the owning scene, if linked; no state moves.
+    pub fn shadow_scene_of(&self, key: FrameKey) -> Result<Option<SceneKey>, ModelError> {
+        Ok(self.shadow(key)?.scene)
+    }
+
+    /// Working name for the `def` share read at +0x144 (mafia-re
+    /// ls3df/I3D/I3D.h:2605: the shadow definition the geometry is cast
+    /// from). The reference records no LS3DF FUNCTION address for a
+    /// standalone reader; only `set_shadow_def` and `duplicate_shadow`
+    /// share it (occupied RVAs, not claimed here). Reports the shared
+    /// definition, if any; the Arc clone is the host analog of the native
+    /// `def->ref++` share, same convention as `set_shadow_def`.
+    pub fn shadow_def_of(&self, key: FrameKey) -> Result<Option<Arc<ShadowDefData>>, ModelError> {
+        Ok(self.shadow(key)?.def.clone())
+    }
+
+    /// Working name for the `light_dir` triple read at +0x1a8 (mafia-re
+    /// ls3df/I3D/I3D.h:2622: from the light to the shadow). The reference
+    /// records no LS3DF FUNCTION address for a standalone reader; the ctor
+    /// and the `SetOrthogonal`/`SetTo` tails store it here (occupied RVAs
+    /// 0x50950/0x519e0, not claimed here), while the `UpdateLight` refresh
+    /// stays render-owned and unported. Reports the stored direction; no
+    /// state moves.
+    pub fn shadow_light_dir_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.shadow(key)?.light_dir)
     }
 }
 
@@ -923,6 +1198,174 @@ mod tests {
         }
         arena.link_frame_base(key, Some(parent), 0).unwrap();
         key
+    }
+
+    #[test]
+    fn shadow_range_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_range_of(key).unwrap(), 8.0);
+        arena.shadow_set_range(key, 12.0).unwrap();
+        assert_eq!(arena.shadow_range_of(key).unwrap(), 12.0);
+        arena.shadow_set_range(key, -1.0).unwrap();
+        assert_eq!(arena.shadow_range_of(key).unwrap(), 12.0);
+        assert_eq!(
+            arena.shadow_range_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_scene_def_and_light_dir_readers_report_ctor_words_then_stores() {
+        // Working names for the scene link (+0x188), the def share (+0x144)
+        // and the light-space direction (+0x1a8) (mafia-re ls3df/I3D/I3D.h
+        // at pin 113b5b6): the reference records no LS3DF FUNCTION address
+        // for standalone readers; `update_shadow_v`, `set_shadow_def` and
+        // `SetOrthogonal` own the stores.
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_scene_of(key).unwrap(), None);
+        assert!(arena.shadow_def_of(key).unwrap().is_none());
+        assert_eq!(arena.shadow_light_dir_of(key).unwrap(), [0.0, 0.0, 1.0]);
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        arena.link_shadow_frame(key, Some(sector.frame()), 0, &mut visual).unwrap();
+        arena.update_shadow_v(key).unwrap();
+        assert_eq!(arena.shadow_scene_of(key).unwrap(), Some(scene));
+        let def = def_two_parts();
+        arena.set_shadow_def(key, Some(def)).unwrap();
+        assert_eq!(arena.shadow_def_of(key).unwrap().unwrap().parts.len(), 2);
+        arena.shadow_set_orthogonal(key, true).unwrap();
+        assert_eq!(arena.shadow_light_dir_of(key).unwrap(), [0.0; 3]);
+        arena.set_shadow_def(key, None).unwrap();
+        assert!(arena.shadow_def_of(key).unwrap().is_none());
+        arena.link_shadow_frame(key, None, 0, &mut visual).unwrap();
+        assert_eq!(arena.shadow_scene_of(key).unwrap(), None);
+        let bad = FrameKey(u32::MAX);
+        assert!(arena.shadow_scene_of(bad).is_err());
+        assert!(arena.shadow_def_of(bad).is_err());
+        assert!(arena.shadow_light_dir_of(bad).is_err());
+    }
+
+    #[test]
+    fn shadow_visible_range_setter_stores_unconditionally() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_state(key).unwrap().visible_range, 100.0);
+        arena.set_shadow_visible_range(key, 40.0).unwrap();
+        assert_eq!(arena.shadow_state(key).unwrap().visible_range, 40.0);
+        // Unlike SetRange there is no positivity gate: zero, negative and
+        // NaN all store.
+        arena.set_shadow_visible_range(key, -2.0).unwrap();
+        assert_eq!(arena.shadow_state(key).unwrap().visible_range, -2.0);
+        arena.set_shadow_visible_range(key, f32::NAN).unwrap();
+        assert!(arena.shadow_state(key).unwrap().visible_range.is_nan());
+        assert_eq!(
+            arena.set_shadow_visible_range(FrameKey(u32::MAX), 1.0).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_max_texture_distance_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_max_texture_distance_of(key).unwrap(), 1.0);
+        arena.shadow_set_max_texture_distance(key, 2.5).unwrap();
+        assert_eq!(arena.shadow_max_texture_distance_of(key).unwrap(), 2.5);
+        arena.shadow_set_max_texture_distance(key, 33.0).unwrap();
+        assert_eq!(arena.shadow_max_texture_distance_of(key).unwrap(), 2.5);
+        assert_eq!(
+            arena
+                .shadow_max_texture_distance_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_color_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_color_of(key).unwrap(), [0.0; 3]);
+        arena.shadow_set_color(key, [0.25, 0.5, 2.0]).unwrap();
+        assert_eq!(arena.shadow_color_of(key).unwrap(), [0.25, 0.5, 1.0]);
+        assert_eq!(
+            arena.shadow_color_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_reverse_factor_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_reverse_factor_of(key).unwrap(), 0.5);
+        arena.shadow_set_reverse_factor(key, 0.75).unwrap();
+        assert_eq!(arena.shadow_reverse_factor_of(key).unwrap(), 0.75);
+        arena.shadow_set_reverse_factor(key, -1.0).unwrap();
+        assert_eq!(arena.shadow_reverse_factor_of(key).unwrap(), 0.0);
+        assert_eq!(
+            arena
+                .shadow_reverse_factor_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_orthogonal_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert!(arena.shadow_is_orthogonal_of(key).unwrap());
+        arena.shadow_set_orthogonal(key, false).unwrap();
+        assert!(!arena.shadow_is_orthogonal_of(key).unwrap());
+        assert_eq!(
+            arena
+                .shadow_is_orthogonal_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_texture_size_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        let mut tex = NullTex {
+            released: Vec::new(),
+        };
+        assert_eq!(arena.shadow_texture_size_of(key).unwrap(), [64, 64]);
+        arena.shadow_set_texture_size(key, 100, 5, &mut tex).unwrap();
+        assert_eq!(arena.shadow_texture_size_of(key).unwrap(), [128, 128]);
+        assert_eq!(
+            arena
+                .shadow_texture_size_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_lock_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_lock_of(key).unwrap(), SHADOW_LOCK_NONE);
+        arena.set_shadow_lock(key, 7).unwrap();
+        assert_eq!(arena.shadow_lock_of(key).unwrap(), 7);
+        assert_eq!(
+            arena.shadow_lock_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
     }
 
     #[test]
@@ -1528,6 +1971,193 @@ mod tests {
         assert_eq!(
             arena.state(door).unwrap().flags & SHADOW_MEMBER_FLAG,
             SHADOW_MEMBER_FLAG
+        );
+    }
+
+    #[test]
+    fn shadow_flags_reader_reports_ctor_zero_and_lock_clears() {
+        // Working name for the shd_flags word (+0x208): no standalone LS3DF
+        // FUNCTION entry; stored by the taken pass bodies, cleared by the
+        // SetShadowLock/SetOrthogonal tails.
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_flags_of(key).unwrap(), 0);
+        arena.set_shadow_lock(key, 2).unwrap();
+        assert_eq!(arena.shadow_flags_of(key).unwrap(), 0);
+        arena.shadow_set_orthogonal(key, true).unwrap();
+        assert_eq!(arena.shadow_flags_of(key).unwrap(), 0);
+        assert_eq!(
+            arena.shadow_flags_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_changed_and_valid_bit_readers_follow_live_flags_word() {
+        // Working names for the per-bit SHDF reads over the frame-side
+        // shd_flags word (+0x208; I3D.h:2548-2550,2553,2555): the reference
+        // records no LS3DF FUNCTION addresses for standalone readers.
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert!(!arena.shadow_texture_changed_of(key).unwrap());
+        assert!(!arena.shadow_dir_changed_of(key).unwrap());
+        assert!(!arena.shadow_verts_changed_of(key).unwrap());
+        assert!(!arena.shadow_texture_valid_of(key).unwrap());
+        assert!(!arena.shadow_verts_valid_of(key).unwrap());
+        // Same-module word store (mirrors the pass bodies' flag effects).
+        arena.shadow_state_mut(key).unwrap().shadow_flags = 0x1 | 0x1000;
+        assert!(arena.shadow_texture_changed_of(key).unwrap());
+        assert!(!arena.shadow_dir_changed_of(key).unwrap());
+        assert!(!arena.shadow_verts_changed_of(key).unwrap());
+        assert!(!arena.shadow_texture_valid_of(key).unwrap());
+        assert!(arena.shadow_verts_valid_of(key).unwrap());
+        arena.shadow_state_mut(key).unwrap().shadow_flags = 0x2 | 0x4 | 0x400;
+        assert!(!arena.shadow_texture_changed_of(key).unwrap());
+        assert!(arena.shadow_dir_changed_of(key).unwrap());
+        assert!(arena.shadow_verts_changed_of(key).unwrap());
+        assert!(arena.shadow_texture_valid_of(key).unwrap());
+        assert!(!arena.shadow_verts_valid_of(key).unwrap());
+        assert_eq!(
+            arena.shadow_texture_changed_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+        assert_eq!(
+            arena.shadow_dir_changed_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+        assert_eq!(
+            arena.shadow_verts_changed_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+        assert_eq!(
+            arena.shadow_texture_valid_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+        assert_eq!(
+            arena.shadow_verts_valid_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_remaining_changed_valid_none_and_lock_readers_follow_live_words() {
+        // Working names for the remaining SHDF bits over the frame-side
+        // shd_flags word (+0x208; I3D.h:2551-2552,2554,2556-2557) and the
+        // I3DLOCK values over the lock word (I3D.h:2541-2544): the reference
+        // records no LS3DF FUNCTION addresses for standalone readers.
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert!(!arena.shadow_opacity_changed_of(key).unwrap());
+        assert!(!arena.shadow_receivers_changed_of(key).unwrap());
+        assert!(!arena.shadow_light_valid_of(key).unwrap());
+        assert!(!arena.shadow_receivers_valid_of(key).unwrap());
+        assert!(!arena.shadow_has_none_of(key).unwrap());
+        assert!(arena.shadow_lock_is_none_of(key).unwrap());
+        assert!(!arena.shadow_lock_is_vertices_of(key).unwrap());
+        assert!(!arena.shadow_lock_is_light_of(key).unwrap());
+        assert!(!arena.shadow_lock_is_receivers_of(key).unwrap());
+        // Same-module word stores (mirror the pass bodies' flag effects).
+        arena.shadow_state_mut(key).unwrap().shadow_flags = 0x8 | 0x10 | 0x8000;
+        assert!(arena.shadow_opacity_changed_of(key).unwrap());
+        assert!(arena.shadow_receivers_changed_of(key).unwrap());
+        assert!(!arena.shadow_light_valid_of(key).unwrap());
+        assert!(!arena.shadow_receivers_valid_of(key).unwrap());
+        assert!(arena.shadow_has_none_of(key).unwrap());
+        arena.shadow_state_mut(key).unwrap().shadow_flags = 0x800 | 0x2000;
+        assert!(!arena.shadow_opacity_changed_of(key).unwrap());
+        assert!(!arena.shadow_receivers_changed_of(key).unwrap());
+        assert!(arena.shadow_light_valid_of(key).unwrap());
+        assert!(arena.shadow_receivers_valid_of(key).unwrap());
+        assert!(!arena.shadow_has_none_of(key).unwrap());
+        for lock in [1, 2, 3] {
+            arena.set_shadow_lock(key, lock).unwrap();
+            assert_eq!(arena.shadow_lock_is_vertices_of(key).unwrap(), lock == 1);
+            assert_eq!(arena.shadow_lock_is_light_of(key).unwrap(), lock == 2);
+            assert_eq!(arena.shadow_lock_is_receivers_of(key).unwrap(), lock == 3);
+            assert!(!arena.shadow_lock_is_none_of(key).unwrap());
+        }
+        arena.set_shadow_lock(key, 0).unwrap();
+        assert!(arena.shadow_lock_is_none_of(key).unwrap());
+        assert_eq!(
+            arena.shadow_opacity_changed_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+        assert_eq!(
+            arena.shadow_receivers_changed_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+        assert_eq!(
+            arena.shadow_light_valid_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+        assert_eq!(
+            arena.shadow_receivers_valid_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+        assert_eq!(
+            arena.shadow_has_none_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+        assert_eq!(
+            arena.shadow_lock_is_vertices_of(FrameKey(u32::MAX)).unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_visible_range_reader_reports_ctor_default_then_setter_store() {
+        // Working name for the visible_range word (+0x200): ctor 100.0,
+        // Duplicate copies it through SetVisibleRange; unconditional store.
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_visible_range_of(key).unwrap(), 100.0);
+        arena.set_shadow_visible_range(key, 40.0).unwrap();
+        assert_eq!(arena.shadow_visible_range_of(key).unwrap(), 40.0);
+        arena.set_shadow_visible_range(key, -2.0).unwrap();
+        assert_eq!(arena.shadow_visible_range_of(key).unwrap(), -2.0);
+        assert_eq!(
+            arena
+                .shadow_visible_range_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_verts_count_reader_reports_ctor_sentinel() {
+        // Working name for the verts_count word (+0x204): ctor -1 until the
+        // UpdateVertices total is known; no standalone LS3DF getter.
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_verts_count_of(key).unwrap(), -1);
+        assert_eq!(
+            arena
+                .shadow_verts_count_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+
+    #[test]
+    fn shadow_lights_count_reader_reports_ctor_sentinel_and_lock_reset() {
+        // Working name for the lights_count word (+0x20c): ctor -1, and the
+        // SetShadowLock/SetOrthogonal tails reset it to -1.
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_lights_count_of(key).unwrap(), -1);
+        arena.set_shadow_lock(key, 1).unwrap();
+        assert_eq!(arena.shadow_lights_count_of(key).unwrap(), -1);
+        assert_eq!(
+            arena
+                .shadow_lights_count_of(FrameKey(u32::MAX))
+                .unwrap_err(),
+            ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
     }
 }

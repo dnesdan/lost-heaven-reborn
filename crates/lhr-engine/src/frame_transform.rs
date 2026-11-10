@@ -32,6 +32,10 @@ mod lensflare_parameters;
 pub(crate) use lensflare_parameters::LensflareParameter;
 pub use lensflare_parameters::{lensflare_admit_glow, lensflare_fade_step, LensflareFadePlan};
 pub use lensflare_parameters::{
+    lensflare_plain_set_fade, lensflare_plain_set_intensity, lensflare_plain_set_range,
+    lensflare_plain_set_size, lensflare_plain_set_test_interval,
+};
+pub use lensflare_parameters::{
     LensflareGlowError, LensflareParameterUnavailable, LensflareParameters, LensflareReleaseCursor,
     LENSFLARE_FIXED_EXTENT, LENSFLARE_FIXED_RADIUS,
 };
@@ -301,6 +305,1315 @@ pub fn visual_void_num_levels() -> i32 {
 /// regions, hence the constant zero.
 pub fn visual_void_num_regions() -> i32 {
     0
+}
+/// Working name for the flag word written by the LS3DF-inlined
+/// `I3D_frame::SetRot` (mafia-re ls3df/I3D/I3D.h:420-437, LS3DF_EXPORTS
+/// branch). The reference records no LS3DF FUNCTION address for it (header
+/// inline compiled into LS3DF; the only out-of-line copy is Game.exe
+/// 0x43bce0, which is not claimed here). Clears HR_BOUND_W_VALID,
+/// WMAT_VALID, MAT_VALID and ROT_VALID, then sets UPDATE and QUAT_VALID.
+/// The quaternion store and the Game.exe normalization branch stay
+/// caller-owned; only the flag word is modeled.
+pub fn frame_flags_after_set_rot(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20 | 0x10 | 0x04)) | 0x4000_0000 | 0x08
+}
+/// Working name for the flag word written by the LS3DF-inlined
+/// `I3D_frame::SetPos` (mafia-re ls3df/I3D/I3D.h:447-455). The reference
+/// records no LS3DF FUNCTION address for it (header inline; the only
+/// out-of-line copy is Game.exe 0x460980, which is not claimed here).
+/// A locked frame (FRMFLAGS_LOCKED, 0x80) stores nothing and keeps its
+/// flags, reported here as `None`. Otherwise the translation store clears
+/// HR_BOUND_W_VALID and WMAT_VALID and sets UPDATE; the matrix store stays
+/// caller-owned.
+pub fn frame_flags_after_set_pos(flags: u32) -> Option<u32> {
+    if flags & 0x80 != 0 {
+        return None;
+    }
+    Some((flags & !(0x100 | 0x20)) | 0x4000_0000)
+}
+/// Working name for the flag word written by the LS3DF-inlined
+/// `I3D_frame::SetLocalMatrix` (mafia-re ls3df/I3D/I3D.h:495-503). The
+/// reference records no LS3DF FUNCTION address for it and marks no Game.exe
+/// out-of-line copy. Clears WMAT_VALID and QUAT_VALID, then sets UPDATE,
+/// MAT_VALID and ROT_VALID. The matrix store and the scale remake from its
+/// basis rows stay caller-owned.
+pub fn frame_flags_after_set_local_matrix(flags: u32) -> u32 {
+    (flags & !(0x20 | 0x08)) | 0x4000_0000 | 0x10 | 0x04
+}
+/// Working name for the flag word written by the LS3DF-inlined
+/// `I3D_frame::SetDir1` (mafia-re ls3df/I3D/I3D.h:467-475). The reference
+/// records no LS3DF FUNCTION address for it (header inline; the only
+/// out-of-line copy is Game.exe 0x4609c0, which is not claimed here).
+/// Clears HR_BOUND_W_VALID, WMAT_VALID, QUAT_VALID and ROT_VALID, then sets
+/// UPDATE and MAT_VALID. The SetDir3 matrix build stays caller-owned.
+pub fn frame_flags_after_set_dir1(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20 | 0x08 | 0x04)) | 0x4000_0000 | 0x10
+}
+/// Working name for the flag word written by the LS3DF-inlined
+/// `I3D_frame::SetScale` (mafia-re ls3df/I3D/I3D.h:483-493). The reference
+/// records no LS3DF FUNCTION address for it (header inline; the only
+/// out-of-line copy is Game.exe 0x47a750, which is not claimed here).
+/// Clears HR_BOUND_W_VALID, WMAT_VALID, MAT_VALID and ROT_VALID, then sets
+/// UPDATE and QUAT_VALID. The scale store and the conditional Make call
+/// stay caller-owned (covered by `assign_scale`).
+pub fn frame_flags_after_set_scale(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20 | 0x10 | 0x04)) | 0x4000_0000 | 0x08
+}
+/// Working name for the flag effects of the LS3DF-inlined
+/// `I3D_frame::UpdateMatrix` (mafia-re ls3df/I3D/I3D.h:382-405). The
+/// reference records LS3DF 0x1001a6e0 for the out-of-line copy, but that
+/// address is already occupied in docs/progress.json retained entries, so no
+/// RVA is claimed here. Only the flag word is modeled: a matrix-stale frame gains
+/// MAT_VALID and ROT_VALID, otherwise a rotation-stale frame gains
+/// ROT_VALID and QUAT_VALID. The SetRot3 row scaling and the Make call stay
+/// caller-owned.
+pub fn frame_flags_after_update_matrix(flags: u32) -> u32 {
+    if flags & 0x10 == 0 {
+        flags | 0x10 | 0x04
+    } else if flags & 0x04 == 0 {
+        flags | 0x04 | 0x08
+    } else {
+        flags
+    }
+}
+/// Working name for the FRMFLAGS_ON bit test (mafia-re ls3df/I3D/I3D.h:259).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only read in place by the inlined `IsOn` (I3D.h:543-549; the
+/// only out-of-line copy is Game.exe 0x47acf0, unclaimed here). The arena
+/// `frame_is_on` method covers stateful reads; this is the pure word test
+/// completing the free-reader family. Reports visibility; no cache moves.
+pub fn frame_is_on_flag(flags: u32) -> bool {
+    flags & 0x1 != 0
+}
+/// Working name for the FRMFLAGS_LOCKED bit test (mafia-re ls3df/I3D/I3D.h:265).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit only appears inside inlined stores such as `SetPos`. Reports
+/// whether the frame position is locked; no cache moves.
+pub fn frame_is_locked(flags: u32) -> bool {
+    flags & 0x80 != 0
+}
+/// Working name for the FRMFLAGS_TICK bit test (mafia-re ls3df/I3D/I3D.h:281).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is maintained by the scene tick-list setters. Reports whether the
+/// frame sits in its scene tick list; no cache moves.
+pub fn frame_is_in_tick_list(flags: u32) -> bool {
+    flags & 0x40_0000 != 0
+}
+/// Working name for the FRMFLAGS_UPDATE bit test (mafia-re ls3df/I3D/I3D.h:287).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is set by every transform setter. Reports whether the frame still
+/// needs an update; no cache moves.
+pub fn frame_update_is_pending(flags: u32) -> bool {
+    flags & 0x4000_0000 != 0
+}
+/// Working name for the FRMFLAGS_NO_CULL bit test (mafia-re ls3df/I3D/I3D.h:282-284).
+/// The reference records no LS3DF FUNCTION address for a standalone reader.
+/// Reports whether portal culling skips the frame and its children; no cache
+/// moves.
+pub fn frame_is_no_cull(flags: u32) -> bool {
+    flags & 0x0800_0000 != 0
+}
+/// Working name for the FRMFLAGS_DUPLICATE_MASK projection (mafia-re
+/// ls3df/I3D/I3D.h:289-291). The reference records no LS3DF FUNCTION address
+/// for the mask itself; it documents what `Duplicate` copies. Keeps every bit
+/// except world-matrix/bound-volume validity, list membership (target, shadow,
+/// tick, fast-find tree, weather), interpolator, sector/occluder hierarchy
+/// bits and UPDATE.
+pub fn frame_duplicate_flags(flags: u32) -> u32 {
+    flags & 0x0fa7_3e9f
+}
+/// Working name for the null-source limb of `I3D_frame::Duplicate` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:799-804 at pin 113b5b6). The reference
+/// records the body at PC RVA 0x1c5b0, which is already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. A null source
+/// returns I3DERR_INVALIDPARAMS before any store; the composed port lives on
+/// `ModelArena::duplicate_frame`. Reports whether the source is rejected.
+pub fn frame_duplicate_rejects_null_source(is_null: bool) -> bool {
+    is_null
+}
+/// Working name for the merged flag word of `I3D_frame::Duplicate` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:807-809 at pin 113b5b6). Same
+/// occupied-body status as `frame_duplicate_flags`. Composes the masked
+/// source word (`frame_duplicate_flags`), the kept destination list bits
+/// (`frame_duplicate_preserved_bits`) and `FRMFLAGS_UPDATE`; the
+/// matrix/scale/rotation copies stay caller-owned.
+pub fn frame_duplicate_merged_flags(src_flags: u32, dst_flags: u32) -> u32 {
+    frame_duplicate_flags(src_flags) | frame_duplicate_preserved_bits(dst_flags) | 0x4000_0000
+}
+/// Working name for the fast-find re-registration gate of
+/// `I3D_frame::Duplicate` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:824-827
+/// at pin 113b5b6). Same occupied-body status as `frame_duplicate_flags`.
+/// A duplicated frame rejoins the driver fast-find tree only when the copy
+/// has a name and `renderState[RS_FAST_FIND]` is set; the tree edits stay
+/// caller-owned.
+pub fn frame_duplicate_rejoins_fast_find(has_name: bool, fast_find_on: bool) -> bool {
+    has_name && fast_find_on
+}
+/// Working name for the null-name arm of `I3D_frame::Duplicate` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:813-816 at pin 113b5b6). Same
+/// occupied-body status as `frame_duplicate_flags`. A sourceless name clears
+/// both the copied name and the rebased original-name pointer; the
+/// allocation, copy and fast-find skip for the named arm stay caller-owned.
+pub fn frame_duplicate_clears_name_words(is_null_name: bool) -> bool {
+    is_null_name
+}
+/// Working name for the original-name rebase of `I3D_frame::Duplicate`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:827 at pin 113b5b6:
+/// `m_pOrigName = frame->m_pOrigName - frame->m_pName + m_pName`). Same
+/// occupied-body status as `frame_duplicate_flags`. The native interior
+/// pointer difference has no host equivalent, so it is modeled as wrapping
+/// byte offsets from each name base; allocation and registration stay
+/// caller-owned.
+pub fn duplicate_orig_name_offset(
+    src_name_base: usize,
+    src_orig: usize,
+    dst_name_base: usize,
+) -> usize {
+    src_orig.wrapping_sub(src_name_base).wrapping_add(dst_name_base)
+}
+/// Working name for the `I3D_frame::GetData` word read (mafia-re
+/// ls3df/I3D/I3D.h:595-600; `m_UserData` at +0x08, I3D.h:660, Insanity3D's
+/// name). The reference records no LS3DF FUNCTION address for a standalone
+/// reader: the inlined body just returns the member, and the single meshes'
+/// proxies reach their visual through it. The arena models no user-data word
+/// on `I3dFrameState`, so this stays a pure word projection with the native
+/// offset documented; no owner or device is consulted.
+pub fn frame_data_word(user_data: u32) -> u32 {
+    user_data
+}
+/// Working name for the inlined `I3D_frame::GetName` empty fallback
+/// (mafia-re ls3df/I3D/I3D.h:583-587 at pin 113b5b6). The reference records
+/// no LS3DF FUNCTION address for a standalone reader; only the Game.exe
+/// out-of-line copy at 0x47ad00 exists, unclaimed here. Mirrors
+/// `m_pName ? m_pName : ""` over raw bytes; no owner or device is consulted.
+pub fn frame_name_bytes_or_empty(name: Option<&[u8]>) -> &[u8] {
+    name.unwrap_or(b"")
+}
+/// Working name for the inlined `I3D_frame::GetOrigName` empty fallback
+/// (mafia-re ls3df/I3D/I3D.h:589-593 at pin 113b5b6). The reference records
+/// no LS3DF FUNCTION address and no Game.exe out-of-line copy for a
+/// standalone reader. Mirrors `m_pOrigName ? m_pOrigName : ""`; pure.
+/// The arena `frame_orig_name_or_empty` covers stored names; this pins the
+/// byte-level empty rule with no owner.
+pub fn frame_orig_name_bytes_or_empty(orig: Option<&[u8]>) -> &[u8] {
+    orig.unwrap_or(b"")
+}
+/// Working name for the inlined `I3D_frame::GetProperty` empty fallback
+/// (mafia-re ls3df/I3D/I3D.h:625-630 at pin 113b5b6, game-only `#else`
+/// branch). The reference records no LS3DF FUNCTION address for a standalone
+/// reader. Mirrors `m_pProperty ? m_pProperty : ""`; pure.
+/// The arena `frame_property_or_empty` covers stored properties; this pins
+/// the byte-level empty rule with no owner.
+pub fn frame_property_bytes_or_empty(property: Option<&[u8]>) -> &[u8] {
+    property.unwrap_or(b"")
+}
+/// Working name for the `I3D_frame::GetName` presence gate (mafia-re
+/// ls3df/I3D/I3D.h:583-587 at pin 113b5b6: `m_pName ? m_pName : ""`). The
+/// reference records no LS3DF FUNCTION address for a standalone reader; only
+/// the Game.exe out-of-line copy at 0x47ad00 exists, unclaimed here as it is
+/// not an LS3DF.dll code address. Reports whether a name pointer is present;
+/// no owner or device is consulted.
+pub fn frame_name_is_empty(has_name: bool) -> bool {
+    !has_name
+}
+/// Working name for the `I3D_frame::GetOrigName` presence gate (mafia-re
+/// ls3df/I3D/I3D.h:589-593 at pin 113b5b6: `m_pOrigName ? m_pOrigName : ""`).
+/// The reference records no LS3DF FUNCTION address and no Game.exe out-of-line
+/// copy for a standalone reader, so no RVA is claimed here. Reports whether
+/// the model-stripped name pointer is present; pure.
+pub fn frame_orig_name_is_empty(has_orig: bool) -> bool {
+    !has_orig
+}
+/// Working name for the `I3D_frame::GetProperty` presence gate (mafia-re
+/// ls3df/I3D/I3D.h:625-630 at pin 113b5b6, game-only branch:
+/// `m_pProperty ? m_pProperty : ""`). The reference records no LS3DF FUNCTION
+/// address for a standalone reader, so no RVA is claimed here. Reports whether
+/// the property string pointer is present; pure.
+pub fn frame_property_is_empty(has_property: bool) -> bool {
+    !has_property
+}
+/// Working name for the `I3D_frame::GetData` zero gate (mafia-re
+/// ls3df/I3D/I3D.h:595-600 at pin 113b5b6: the inlined body returns
+/// `m_UserData` at +0x08). The reference records no LS3DF FUNCTION address
+/// for a standalone reader, so no RVA is claimed here. Reports whether the
+/// user-data word still holds the construction zero; no owner is consulted.
+pub fn frame_data_is_zero(user_data: u32) -> bool {
+    user_data == 0
+}
+/// Working name for the constructor scale gate of `I3D_frame` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:42 at pin 113b5b6:
+/// `m_Scale = S_vector(1.0f, 1.0f, 1.0f)`). The inlined `GetScale`
+/// (mafia-re ls3df/I3D/I3D.h:478-481) has no LS3DF FUNCTION address and no
+/// Game.exe out-of-line copy recorded, so no RVA is claimed here. Reports
+/// whether the stored scale is the unit construction value; exact `f32`
+/// equality, no cache moves.
+pub fn frame_scale_is_unit(scale: [f32; 3]) -> bool {
+    scale == [1.0, 1.0, 1.0]
+}
+/// Working name for the construction world-scale gate of `I3D_frame`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:44 at pin 113b5b6:
+/// `m_WorldScale = 1.0f`). The inlined `GetWorldScale` (mafia-re
+/// ls3df/I3D/I3D.h:519-528) records only a Game.exe out-of-line copy at
+/// 0x47a7b0, which is not an LS3DF.dll code address and is unclaimed here.
+/// Reports whether the world scale still holds the construction value; exact
+/// bits, no matrix refresh.
+pub fn frame_world_scale_is_initial(world_scale: f32) -> bool {
+    world_scale.to_bits() == 1.0f32.to_bits()
+}
+/// Working name for the construction update-count gate of `I3D_frame`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:41 at pin 113b5b6:
+/// `m_UpdateCount = 0`). The count is only bumped inside the occupied
+/// `UpdateChildren` body (PC RVA 0x1c9a0, already ported, not claimed here);
+/// the reference records no LS3DF FUNCTION address for a standalone reader.
+/// Reports whether the frame was never moved by an update; no state moves.
+pub fn frame_update_count_is_initial(count: u32) -> bool {
+    count == 0
+}
+/// Working name for the `FRAME_USER` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_USER` is 8, stored by the ctor in
+/// ls3df/I3D/frames/I3d_user.cpp:5-13). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader; the word is
+/// tested in place by `Duplicate`. Reports whether a stored type word
+/// denotes a user frame; no cache moves.
+pub fn frame_type_word_is_user(type_word: u32) -> bool {
+    type_word == 8
+}
+/// Working name for the `FRAME_VOLUME` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-74 at pin 113b5b6;
+/// `FRAME_VOLUME` is 11, stored by the ctor in
+/// ls3df/I3D/frames/I3d_volume.cpp:5-13). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a volume frame; no cache moves.
+pub fn frame_type_word_is_volume(type_word: u32) -> bool {
+    type_word == 11
+}
+/// Working name for the `FRAME_DUMMY` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-69 at pin 113b5b6;
+/// `FRAME_DUMMY` is 6). The reference records no LS3DF FUNCTION address
+/// for a standalone discriminant reader. Reports whether a stored type
+/// word denotes a dummy frame; no cache moves.
+pub fn frame_type_word_is_dummy(type_word: u32) -> bool {
+    type_word == 6
+}
+/// Working name for the `FRAME_JOINT` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-73 at pin 113b5b6;
+/// `FRAME_JOINT` is 10). The reference records no LS3DF FUNCTION address
+/// for a standalone discriminant reader. Reports whether a stored type
+/// word denotes a joint frame; no cache moves.
+pub fn frame_type_word_is_joint(type_word: u32) -> bool {
+    type_word == 10
+}
+/// Working name for the `FRAME_TARGET` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-70 at pin 113b5b6;
+/// `FRAME_TARGET` is 7). The reference records no LS3DF FUNCTION address
+/// for a standalone discriminant reader. This tests the stored type word,
+/// unlike `frame_is_target_frame` which tests the `FRMFLAGS_TARGET` list
+/// bit; no cache moves.
+pub fn frame_type_word_is_target(type_word: u32) -> bool {
+    type_word == 7
+}
+/// Working name for the `FRAME_MODEL` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_MODEL` is 9). The reference records no LS3DF FUNCTION address
+/// for a standalone discriminant reader. Reports whether a stored type
+/// word denotes a model frame; no cache moves.
+pub fn frame_type_word_is_model(type_word: u32) -> bool {
+    type_word == 9
+}
+/// Working name for the `FRAME_NULL` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_NULL` is 0, stored by the base ctor in
+/// ls3df/I3D/frames/I3d_frame.cpp:28-63). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader; the word is
+/// tested in place by `Duplicate` and the enum switches. Reports whether
+/// a stored type word denotes a bare frame; no cache moves.
+pub fn frame_type_word_is_null(type_word: u32) -> bool {
+    type_word == 0
+}
+/// Working name for the `FRAME_VISUAL` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_VISUAL` is 1, stored by the ctor in
+/// ls3df/I3D/visuals/I3d_visual.cpp:8-19). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a visual frame; no cache moves.
+pub fn frame_type_word_is_visual(type_word: u32) -> bool {
+    type_word == 1
+}
+/// Working name for the `FRAME_LIGHT` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_LIGHT` is 2, stored by the ctor in
+/// ls3df/I3D/frames/I3d_light.cpp:17-51). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a light frame; no cache moves.
+pub fn frame_type_word_is_light(type_word: u32) -> bool {
+    type_word == 2
+}
+/// Working name for the `FRAME_CAMERA` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_CAMERA` is 3, stored by the ctor in
+/// ls3df/I3D/frames/I3d_camera.cpp:7-37). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a camera frame; no cache moves.
+pub fn frame_type_word_is_camera(type_word: u32) -> bool {
+    type_word == 3
+}
+/// Working name for the `FRAME_SOUND` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_SOUND` is 4, stored by the ctor in
+/// ls3df/I3D/frames/I3d_sound.cpp:32-71). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a sound frame; no cache moves.
+pub fn frame_type_word_is_sound(type_word: u32) -> bool {
+    type_word == 4
+}
+/// Working name for the `FRAME_SECTOR` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_SECTOR` is 5, stored by the ctor in
+/// ls3df/I3D/frames/I3d_sector.cpp:99-126). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a sector frame; no cache moves.
+pub fn frame_type_word_is_sector(type_word: u32) -> bool {
+    type_word == 5
+}
+/// Working name for the `FRAME_OCCLUDER` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-76 at pin 113b5b6;
+/// `FRAME_OCCLUDER` is 12, stored by the ctor in
+/// ls3df/I3D/frames/I3d_occluder.cpp:53-81). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes an occluder frame; no cache moves.
+pub fn frame_type_word_is_occluder(type_word: u32) -> bool {
+    type_word == 12
+}
+/// Working name for the `FRAME_SCENE` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-77 at pin 113b5b6;
+/// `FRAME_SCENE` is 13, stored by the ctor in
+/// ls3df/I3D/I3d_scene.cpp:90-148). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a scene frame; no cache moves.
+pub fn frame_type_word_is_scene(type_word: u32) -> bool {
+    type_word == 13
+}
+/// Working name for the `FRAME_AREA` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-78 at pin 113b5b6;
+/// `FRAME_AREA` is 14, stored by the ctor in
+/// ls3df/I3D/frames/I3d_area.cpp:17-35). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes an area frame; no cache moves.
+pub fn frame_type_word_is_area(type_word: u32) -> bool {
+    type_word == 14
+}
+/// Working name for the `FRAME_SHADOW` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-78 at pin 113b5b6;
+/// `FRAME_SHADOW` is 15, stored by the ctor in
+/// ls3df/I3D/visuals/I3d_shadow.cpp:40). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a shadow frame; no cache moves.
+pub fn frame_type_word_is_shadow(type_word: u32) -> bool {
+    type_word == 15
+}
+/// Working name for the `FRAME_LANDSCAPE` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-79 at pin 113b5b6;
+/// `FRAME_LANDSCAPE` is 16, PC only, stored by the ctor in
+/// ls3df/I3D/visuals/I3d_landscape.cpp:348). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a landscape frame; no cache moves.
+pub fn frame_type_word_is_landscape(type_word: u32) -> bool {
+    type_word == 16
+}
+/// Working name for the `FRAME_EMITOR` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-80 at pin 113b5b6;
+/// `FRAME_EMITOR` is 17, stored by the ctor in
+/// ls3df/I3D/visuals/I3d_particle.cpp:331). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes an emitor frame; no cache moves.
+pub fn frame_type_word_is_emitor(type_word: u32) -> bool {
+    type_word == 17
+}
+/// Working name for the `FRAME_LAST` bound sentinel behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-81 at pin 113b5b6;
+/// `FRAME_LAST` is 18, the number of frame types, never a stored type: the
+/// 4ds loader refuses a type from here on). The reference records no LS3DF
+/// FUNCTION address for a standalone reader. Reports whether a word equals
+/// the exclusive upper bound; no cache moves.
+pub fn frame_type_word_is_last(type_word: u32) -> bool {
+    type_word == 18
+}
+/// Working name for the loader-admitted type range behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-81 at pin 113b5b6:
+/// `FRAME_LAST` is the count and the 4ds loader refuses a type from there
+/// on). The reference records no LS3DF FUNCTION address for a standalone
+/// range reader. Reports whether a stored type word names a loadable frame
+/// kind (`type < FRAME_LAST`); no cache moves.
+pub fn frame_type_in_valid_range(type_word: u32) -> bool {
+    type_word < 18
+}
+/// Working name for the loader-refused type range behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-81 at pin 113b5b6,
+/// same `FRAME_LAST` bound as `frame_type_in_valid_range`). The reference
+/// records no LS3DF FUNCTION address for a standalone range reader.
+/// Reports whether the 4ds loader must refuse the type word
+/// (`type >= FRAME_LAST`); no cache moves.
+pub fn frame_type_loader_refuses(type_word: u32) -> bool {
+    type_word >= 18
+}
+/// Working name for the FRMFLAGS_FFTREE bit test (mafia-re ls3df/I3D/I3D.h:286).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit gates `RemoveFromFFTree` in the destructor (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:71). Reports whether the frame sits in the
+/// driver's fast-find tree; no cache moves.
+pub fn frame_in_fast_find_tree(flags: u32) -> bool {
+    flags & 0x2000_0000 != 0
+}
+/// Working name for the FRMFLAGS_TARGET bit test (mafia-re ls3df/I3D/I3D.h:269).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit gates `DeleteFromAnyTarget` in the destructor (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:73). Reports whether the frame is a
+/// target's frame; no cache moves.
+pub fn frame_is_target_frame(flags: u32) -> bool {
+    flags & 0x4000 != 0
+}
+/// Working name for the FRMFLAGS_SHADOW bit test (mafia-re ls3df/I3D/I3D.h:270).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit gates `DeleteFromAnyShadow` in the destructor (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:75). Reports whether the frame is a
+/// shadow's frame; no cache moves.
+pub fn frame_is_shadow_frame(flags: u32) -> bool {
+    flags & 0x8000 != 0
+}
+/// Working name for the FRMFLAGS_WEATHER bit test (mafia-re ls3df/I3D/I3D.h:288).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is set by `WeatherSystemAddDummy` and cleared by
+/// `WeatherSystemDelDummy` (mafia-re ls3df/I3D/I3d_scene.cpp:1058-1078).
+/// Reports whether the dummy is registered in a scene weather system; no
+/// cache moves.
+pub fn frame_is_weather_dummy(flags: u32) -> bool {
+    flags & 0x8000_0000 != 0
+}
+/// Working name for the FRMFLAGS_CHANGED bit test (mafia-re ls3df/I3D/I3D.h:268).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit joins `FRMFLAGS_UPDATE` in the `Update` gate (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:907). Reports whether the frame moved since
+/// the last update; no cache moves.
+pub fn frame_has_changed(flags: u32) -> bool {
+    flags & 0x2000 != 0
+}
+/// Working name for the FRMFLAGS_HR_AREAS bit test (mafia-re ls3df/I3D/I3D.h:275).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is maintained by area LinkTo/AddToRemoveFromSceneRing (mafia-re
+/// ls3df/I3D/frames/I3d_area.cpp:90-112). Reports whether the hierarchy owns
+/// areas; no cache moves.
+pub fn frame_hr_areas_set(flags: u32) -> bool {
+    flags & 0x40000 != 0
+}
+/// Working name for the FRMFLAGS_HR_SECTORS bit test (mafia-re ls3df/I3D/I3D.h:277).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is folded into LinkTo hierarchy propagation (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:503-528). Reports whether the hierarchy owns
+/// sectors; no cache moves.
+pub fn frame_hr_sectors_set(flags: u32) -> bool {
+    flags & 0x80000 != 0
+}
+/// Working name for the FRMFLAGS_HR_OCCLUDERS bit test (mafia-re ls3df/I3D/I3D.h:279).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is folded into the same LinkTo propagation. Reports whether the
+/// hierarchy owns occluders; no cache moves.
+pub fn frame_hr_occluders_set(flags: u32) -> bool {
+    flags & 0x100000 != 0
+}
+/// Working name for the FRMFLAGS_CLIP bit test (mafia-re ls3df/I3D/I3D.h:281).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit marks frames that have to be clipped. Reports the clip request;
+/// no cache moves.
+pub fn frame_is_clipped(flags: u32) -> bool {
+    flags & 0x200000 != 0
+}
+/// Working name for the FRMFLAGS_IN_VIEW bit test (mafia-re ls3df/I3D/I3D.h:271-274).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the portal walk sets it for frames inside the view depth range. Reports
+/// the in-view mark; no cache moves.
+pub fn frame_in_view(flags: u32) -> bool {
+    flags & 0x10000 != 0
+}
+/// Working name for the FRMFLAGS_ROT_VALID bit test (mafia-re ls3df/I3D/I3D.h:260).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only tested inside the inlined `UpdateMatrix`/`SetRot` bodies.
+/// Reports whether `m_Rot` currently holds the local matrix rotation; no
+/// cache moves.
+pub fn frm_rot_valid(flags: u32) -> bool {
+    flags & 0x04 != 0
+}
+/// Working name for the FRMFLAGS_QUAT_VALID bit test (mafia-re ls3df/I3D/I3D.h:261).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only tested inside the inlined `UpdateMatrix` body. Reports
+/// whether `m_Rot` holds the rotation the local matrix was made from; no
+/// cache moves.
+pub fn frm_quat_valid(flags: u32) -> bool {
+    flags & 0x08 != 0
+}
+/// Working name for the FRMFLAGS_MAT_VALID bit test (mafia-re ls3df/I3D/I3D.h:262).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `GetLocalMatrix` (mafia-re ls3df/I3D/I3D.h:407-413) refreshes
+/// the matrix through it. Reports whether the local matrix is up to date; no
+/// cache moves.
+pub fn frm_mat_valid(flags: u32) -> bool {
+    flags & 0x10 != 0
+}
+/// Working name for the FRMFLAGS_WMAT_VALID bit test (mafia-re ls3df/I3D/I3D.h:263).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `UpdateWMatrix` (mafia-re ls3df/I3D/I3D.h:505-510) gates on it.
+/// Reports whether the world matrix is up to date; no cache moves.
+pub fn frm_wmat_valid(flags: u32) -> bool {
+    flags & 0x20 != 0
+}
+/// Working name for the FRMFLAGS_HR_BOUND_VALID bit test (mafia-re ls3df/I3D/I3D.h:264).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is cleared by `DiscardHRBoundVol` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:929-943) and set by `UpdateHRBoundVol`.
+/// Reports whether the local hierarchy bound volume is up to date; no cache
+/// moves.
+pub fn frm_hr_bound_valid(flags: u32) -> bool {
+    flags & 0x40 != 0
+}
+/// Working name for the FRMFLAGS_HR_BOUND_W_VALID bit test (mafia-re
+/// ls3df/I3D/I3D.h:266). The reference records no LS3DF FUNCTION address for
+/// a standalone reader; the inlined `GetHRBoundVolumeW` (mafia-re
+/// ls3df/I3D/I3D.h:536-541) refreshes through it. Reports whether the world
+/// hierarchy bound volume is up to date; no cache moves.
+pub fn frm_hr_bound_w_valid(flags: u32) -> bool {
+    flags & 0x100 != 0
+}
+/// Working name for the FRMFLAGS_INTERPOLATOR bit test (mafia-re
+/// ls3df/I3D/I3D.h:285). The reference records no LS3DF FUNCTION address for
+/// a standalone reader; the bit is tested by the scene walker (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:681-684) and excluded from the Duplicate mask.
+/// Reports whether the frame owns an interpolator; no cache moves.
+pub fn frm_has_interpolator(flags: u32) -> bool {
+    flags & 0x1000_0000 != 0
+}
+/// Working name for the FRMFLAGS_CALLBACK_MASK projection (mafia-re
+/// ls3df/I3D/I3D.h:267). The reference records no LS3DF FUNCTION address for
+/// the mask itself; `SetCallback` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:225-234) intersects the input with it.
+/// Keeps only the callback message bits; no cache moves.
+pub fn frm_callback_bits(flags: u32) -> u32 {
+    flags & 0x1e00
+}
+/// Working name for the `LS3D_CALLBACK_NOTE` gate (mafia-re ls3df/I3D/I3D.h:299
+/// at pin 113b5b6: an animation passed a note key). The reference records no
+/// LS3DF FUNCTION address for a standalone reader; the bit travels inside the
+/// `FRMFLAGS_CALLBACK_MASK` word and is consumed inline by the interpolator
+/// tick, so no RVA is claimed here. Exact bit test on the caller-supplied
+/// flags word; no owner or cache is consulted.
+pub fn frame_callback_wants_note(flags: u32) -> bool {
+    flags & 0x200 != 0
+}
+/// Working name for the `LS3D_CALLBACK_LOD` gate (mafia-re ls3df/I3D/I3D.h:301
+/// at pin 113b5b6: a visual's level of detail changed). Same inline-only
+/// status as `frame_callback_wants_note`: no standalone LS3DF FUNCTION entry
+/// exists, so no RVA is claimed here. Exact bit test; no state moves.
+pub fn frame_callback_wants_lod(flags: u32) -> bool {
+    flags & 0x400 != 0
+}
+/// Working name for the `LS3D_CALLBACK_ANIM_END` gate (mafia-re
+/// ls3df/I3D/I3D.h:302 at pin 113b5b6: an animation reached an end). Same
+/// inline-only status as `frame_callback_wants_note`: no standalone LS3DF
+/// FUNCTION entry exists, so no RVA is claimed here. Exact bit test; no
+/// state moves.
+pub fn frame_callback_wants_anim_end(flags: u32) -> bool {
+    flags & 0x800 != 0
+}
+/// Working name for the `LS3D_CALLBACK_NOTE_STRING` gate (mafia-re
+/// ls3df/I3D/I3D.h:303 at pin 113b5b6: an animation passed a string note key).
+/// Same inline-only status as `frame_callback_wants_note`: no standalone LS3DF
+/// FUNCTION entry exists, so no RVA is claimed here. Exact bit test; no state
+/// moves.
+pub fn frame_callback_wants_note_string(flags: u32) -> bool {
+    flags & 0x1000 != 0
+}
+/// Working name for the generic frame-callback message gate over the four
+/// documented `LS3D_CALLBACK_*` bits (mafia-re ls3df/I3D/I3D.h:299-303 at pin
+/// 113b5b6, inside `FRMFLAGS_CALLBACK_MASK` 0x1e00). The reference records no
+/// LS3DF FUNCTION address for a standalone dispatcher, so no RVA is claimed
+/// here. Reports whether the caller-supplied message bit is set in the flags
+/// word; undocumented bits never report true. Pure helper, no state moves.
+pub fn frame_callback_enables(flags: u32, message_bit: u32) -> bool {
+    const KNOWN: u32 = 0x200 | 0x400 | 0x800 | 0x1000;
+    message_bit & KNOWN != 0 && flags & message_bit != 0
+}
+/// Native `I3DLINK_UPDMATRIX` (mafia-re ls3df/I3D/I3D.h:307 at pin 113b5b6;
+/// Insanity3D's name, same value and role). Keep the world matrix across
+/// `LinkTo`: the local matrix is made again against the new parent. The
+/// reference records no LS3DF FUNCTION address for the flag itself (it is a
+/// `#define`, not a function); the flag word is consumed by `LinkTo` (PC RVA
+/// 0x1b9d0, already occupied, not claimed here).
+pub const I3DLINK_UPDMATRIX: u32 = 0x1;
+/// Native `I3DLINK_DISCARD_BOUND` (mafia-re ls3df/I3D/I3D.h:308-309 at pin
+/// 113b5b6; the name is a guess). Discard the old parent's and the frame's
+/// hierarchy bound volumes on `LinkTo` instead of updating at once. Same
+/// working-name status as `I3DLINK_UPDMATRIX`; the flag-2 path stays an
+/// explicit `UnsupportedLinkFlags` rejection in `link_to_projection`, so this
+/// word only classifies caller input and moves no state.
+pub const I3DLINK_DISCARD_BOUND: u32 = 0x2;
+/// Native `I3DLINK_UPDATE` (mafia-re ls3df/I3D/I3D.h:310-311 at pin 113b5b6;
+/// the name is a guess). Update the frame at once on `LinkTo` instead of
+/// discarding the bound volumes. Same working-name status as
+/// `I3DLINK_UPDMATRIX`; the flag-4 path stays an explicit
+/// `UnsupportedLinkFlags` rejection in `link_to_projection`.
+pub const I3DLINK_UPDATE: u32 = 0x4;
+/// Working name for the `flags & I3DLINK_UPDMATRIX` gate of `LinkTo`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:468-469 at pin 113b5b6). The
+/// reference records no LS3DF FUNCTION address for the gate itself; the
+/// branch lives inside the occupied `LinkTo` body (PC RVA 0x1b9d0).
+/// Reports whether the link keeps the world matrix; no cache moves.
+pub fn link_keeps_world_matrix(flags: u32) -> bool {
+    flags & I3DLINK_UPDMATRIX != 0
+}
+/// Working name for the `flags & I3DLINK_DISCARD_BOUND` gate of `LinkTo`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:474-476 at pin 113b5b6). Same
+/// working-name status as `link_keeps_world_matrix`. Reports whether the
+/// link discards (rather than updates) the bound volumes; no cache moves.
+pub fn link_discards_bounds(flags: u32) -> bool {
+    flags & I3DLINK_DISCARD_BOUND != 0
+}
+/// Working name for the `flags & I3DLINK_UPDATE` gate of `LinkTo` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:498-501 at pin 113b5b6). Same
+/// working-name status as `link_keeps_world_matrix`. Reports whether the
+/// link updates the frame at once; no cache moves.
+pub fn link_updates_at_once(flags: u32) -> bool {
+    flags & I3DLINK_UPDATE != 0
+}
+/// Working name for the same-parent early-out of `I3D_frame::LinkTo`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:465-466 at pin 113b5b6). The
+/// reference records the body at PC RVA 0x1b9d0, which is already occupied
+/// in `docs/rewrite-overlay.json`, so no RVA is claimed here. Linking to
+/// the current parent returns I3D_OK with no store; the unlink/relink walk
+/// stays caller-owned.
+pub fn link_to_same_parent_noop(same_parent: bool) -> bool {
+    same_parent
+}
+/// Working name for the old-chain flag clearing of `I3D_frame::LinkTo`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:508-528 at pin 113b5b6). The
+/// `LinkTo` body lives at frozen ledger RVA 0x1b9d0 (not claimed here); the
+/// ancestor walks stay caller-owned. Each old-chain ancestor above a sector
+/// drops the area and occluder flags, above an occluder the area and sector
+/// flags, and above an area the sector and occluder flags; above any other
+/// kind all three hierarchy flags drop. Reports the mask to clear from one
+/// ancestor's flags word. The children's re-gather below stays with the
+/// walker. No state moves.
+pub fn link_to_old_chain_clear_mask(kind: FrameKind) -> u32 {
+    const AREAS: u32 = 0x40000;
+    const SECTORS: u32 = 0x80000;
+    const OCCLUDERS: u32 = 0x100000;
+    match kind {
+        FrameKind::Sector => AREAS | OCCLUDERS,
+        FrameKind::Occluder => AREAS | SECTORS,
+        FrameKind::Area => SECTORS | OCCLUDERS,
+        _ => AREAS | SECTORS | OCCLUDERS,
+    }
+}
+/// Follow-up selected by `link_to_follow_up` after the `LinkTo` relink.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LinkToFollowUp {
+    /// `I3DLINK_UPDATE`: update the frame at once.
+    Update,
+    /// `I3DLINK_DISCARD_BOUND`: discard the hierarchy bound volumes.
+    DiscardBoundVolume,
+    /// Neither flag: the world-matrix validity update stands alone.
+    None,
+}
+/// Working name for the follow-up dispatch of `I3D_frame::LinkTo` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:498-501 at pin 113b5b6: `I3DLINK_UPDATE`
+/// updates at once, otherwise `I3DLINK_DISCARD_BOUND` discards the hierarchy
+/// bound volumes). Same frozen-body status as `link_to_old_chain_clear_mask`
+/// (ledger RVA 0x1b9d0); the `Update`/`DiscardHRBoundVol` calls stay
+/// caller-owned, and the single-flag gates live in `link_updates_at_once`
+/// and `link_discards_bounds`. Reports which follow-up the flag word selects;
+/// `UPDATE` wins when both bits are set, matching the native branch order.
+/// No state moves.
+pub fn link_to_follow_up(flags: u32) -> LinkToFollowUp {
+    if flags & I3DLINK_UPDATE != 0 {
+        LinkToFollowUp::Update
+    } else if flags & I3DLINK_DISCARD_BOUND != 0 {
+        LinkToFollowUp::DiscardBoundVolume
+    } else {
+        LinkToFollowUp::None
+    }
+}
+/// Structural case unlinked by `I3D_frame::RemoveChild` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:586-600 at pin 113b5b6).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RemoveChildCase {
+    /// A predecessor exists: bypass the child between predecessor and
+    /// successor.
+    Middle,
+    /// No predecessor but a successor exists: the successor becomes the head
+    /// child.
+    First,
+    /// Neither: the child list empties and the count zeroes.
+    Only,
+}
+/// Working name for the structural case of `I3D_frame::RemoveChild`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:586-600 at pin 113b5b6). The
+/// `RemoveChild` body lives at frozen ledger RVA 0x1bf20 (not claimed here);
+/// the pointer and count stores stay caller-owned, as does the
+/// parent-identity early-out. Reports which unlink shape the sibling links
+/// select. No state moves.
+pub fn frame_remove_child_case(has_prev: bool, has_next: bool) -> RemoveChildCase {
+    if has_prev {
+        RemoveChildCase::Middle
+    } else if has_next {
+        RemoveChildCase::First
+    } else {
+        RemoveChildCase::Only
+    }
+}
+/// Working name for the `UPDATE|CHANGED` gate of `UpdateChildren`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:887 at pin 113b5b6).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the word is only tested inside the occupied `UpdateChildren` body
+/// (PC RVA 0x1c9a0, already ported, not claimed here).
+/// Reports whether the frame still needs an update traversal; no cache moves.
+pub fn frame_needs_update(flags: u32) -> bool {
+    flags & (0x4000_0000 | 0x2000) != 0
+}
+/// Working name for the `changed` word of `UpdateChildren` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:887 at pin 113b5b6). The reference records
+/// no LS3DF FUNCTION address for a standalone reader; the word is only
+/// tested inside the occupied `UpdateChildren` body (PC RVA 0x1c9a0, already
+/// ported, not claimed here). Keeps the `UPDATE|CHANGED` bits; the counter
+/// bump and descent stay caller-owned.
+pub fn frame_changed_word(flags: u32) -> u32 {
+    flags & (0x4000_0000 | 0x2000)
+}
+/// Working name for the `ON && (UPDATE|CHANGED)` gate of
+/// `I3D_target::UpdateV` (mafia-re ls3df/I3D/frames/I3d_target.cpp:115-119
+/// at pin 113b5b6). The reference records no LS3DF FUNCTION address for the
+/// gate itself; the queuing body (`UpdateTargetList.push_back`, PC RVA
+/// 0x59920) is already ported in `target_state`, not claimed here.
+/// Reports whether an on-frame with pending motion is queued for the
+/// post-update target pass; no cache moves.
+pub fn frame_queues_target_update(flags: u32) -> bool {
+    flags & 0x1 != 0 && frame_needs_update(flags)
+}
+/// Working name for the target-list drain gate of `I3D_frame::Update`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:916-926 at pin 113b5b6). The
+/// reference records the body at PC RVA 0x1ca60, which is already occupied
+/// in `docs/rewrite-overlay.json`, so no RVA is claimed here. The guarded
+/// `UpdateTargetList` flush runs only with pending targets while no flush
+/// is already in progress; the per-target `UpdateFrames` calls and the
+/// reentrancy flag stay caller-owned.
+pub fn update_drains_target_list(pending_targets: usize, updating: bool) -> bool {
+    pending_targets != 0 && !updating
+}
+/// Working name for the flag word written by `I3D_frame::SetCallback`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:225-234 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1b3c0, which is already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Only the callback-mask bits (0x1e00) of the input matter: a present
+/// callback sets them, an absent one clears them. The callback pointer
+/// store stays caller-owned; only the flag word is modeled.
+pub fn frame_flags_after_set_callback(flags: u32, has_callback: bool, input: u32) -> u32 {
+    let masked = input & 0x1e00;
+    if has_callback {
+        flags | masked
+    } else {
+        flags & !masked
+    }
+}
+/// Working name for the flag word written by `I3D_frame::SetOn`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:238-244 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1b400, which is already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Setting `on` stores bit0 (FRMFLAGS_ON); clearing it restores the word
+/// without touching any other bit. The kind dispatch and owner updates
+/// stay caller-owned; only the flag word is modeled.
+pub fn frame_flags_after_set_on(flags: u32, on: bool) -> u32 {
+    if on {
+        flags | 1
+    } else {
+        flags & !1
+    }
+}
+/// Working name for the last-reference limb of `I3D_frame::Release` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:98-104 at pin 113b5b6). The reference
+/// records the body at PC RVA 0x1aae0, which is already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. The pre-decrement
+/// count above zero is returned and the frame survives; only a pre-decrement
+/// count of one deletes the frame and returns zero. The count store and the
+/// destruction stay caller-owned.
+pub fn frame_release_deletes_last(refcount: u32) -> bool {
+    refcount == 1
+}
+/// Working name for the null/empty limbs of `I3D_frame::SetProperty`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:834-845 at pin 113b5b6). The
+/// reference records the body at PC RVA 0x1c700, which is already occupied
+/// in `docs/rewrite-overlay.json`, so no RVA is claimed here. A null
+/// property and an empty string both store NULL and return I3D_OK; only a
+/// non-empty string allocates and copies. The buffer edits stay
+/// caller-owned.
+pub fn frame_set_property_stores_null(prop_len: Option<usize>) -> bool {
+    matches!(prop_len, None | Some(0))
+}
+/// Port of the out-of-line empty base `I3D_frame::Tick`
+/// (mafia-re ls3df/I3D/I3D.h:350 at pin 113b5b6: `Tick(int time) {}`).
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6;
+/// LS3DF RVA 0x5240, VA 0x10005240.
+/// The reference records the out-of-line copy at I3D.h:4311-4317 ("The
+/// frame's empty Tick ... the original keeps the area file's copy"):
+/// Ghidra FUN_10005240 is a 3-byte body (`RET 0x8`, thiscall cleanup for
+/// the single `int` argument), REA ev_ca37de54f3881e816d8dd35cadb68749ef85b81bd2779fd21ead1c67749486b9.
+/// Both vtable slots that need it share this address: the frame vtable
+/// slot 5 (frame vtable 0x1009b9b8) and the scene vtable slot 9
+/// (`I3D_scene::SetOn`, scene vtable 0x1009c8f8), folded by shape.
+/// The time argument is ignored and no state moves.
+pub fn frame_tick_noop(_time: i32) {}
+/// Working name for the in-class empty base `I3D_frame::SaveImage`
+/// (mafia-re ls3df/I3D/I3D.h:367 at pin 113b5b6: `SaveImage() {}`).
+/// The reference records no LS3DF FUNCTION address for it: only kinds with
+/// image payloads override it (area, sector, light, sound, portal and the
+/// visuals), and the base body is empty. No state moves.
+pub fn frame_save_image_noop() {}
+/// Working name for the `TICK|SHADOW|TARGET` preservation of
+/// `I3D_frame::Duplicate` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:807-809
+/// at pin 113b5b6). The reference records the body at PC RVA 0x1c5b0,
+/// already occupied, so no RVA is claimed here. Returns the old word's
+/// registration bits that survive the duplicate-mask copy; the mask
+/// application and the unconditional `UPDATE` set stay with the caller.
+pub fn frame_duplicate_preserved_bits(old_flags: u32) -> u32 {
+    old_flags & (0x40_0000 | 0x8000 | 0x4000)
+}
+/// Working name for the hierarchy-bits extraction of `I3D_frame::LinkTo`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:503 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1b9d0, already occupied,
+/// so no RVA is claimed here. Keeps only `HR_SECTORS|HR_OCCLUDERS|HR_AREAS`;
+/// the upward propagation walk stays caller-owned.
+pub fn frame_hr_hierarchy_bits(flags: u32) -> u32 {
+    flags & (0x8_0000 | 0x10_0000 | 0x4_0000)
+}
+/// Working name for the flag word written by `AddChild` and `RemoveChild`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:561 and :604 at pin 113b5b6).
+/// Both bodies live at already-occupied PC RVAs (0x1bea0/0x1bf20, ported as
+/// graph methods), so no RVA is claimed here. Both clear the local and
+/// world hierarchy bound-volume validity; list edits stay caller-owned.
+pub fn frame_flags_after_child_list_change(flags: u32) -> u32 {
+    flags & !(0x100 | 0x40)
+}
+/// Working name for the flag word written by `I3D_frame::LinkTo` without
+/// `I3DLINK_UPDMATRIX` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:496-497
+/// at pin 113b5b6). The reference records the body at PC RVA 0x1b9d0,
+/// already occupied, so no RVA is claimed here. Clears `WMAT_VALID` and
+/// sets `UPDATE`; the hierarchy relink stays caller-owned.
+pub fn frame_flags_after_link_no_keep(flags: u32) -> u32 {
+    (flags & !0x20) | 0x4000_0000
+}
+/// Working name for the flag word written by `I3D_frame::SetBoundVolume`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:993-1003 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1ce80, already occupied,
+/// so no RVA is claimed here. Clears `HR_BOUND_W_VALID` and sets
+/// `HR_BOUND_VALID`; the box/sphere stores stay caller-owned.
+pub fn frame_flags_after_set_bound_volume(flags: u32) -> u32 {
+    (flags & !0x100) | 0x40
+}
+/// Working name for the flag word written by `I3D_frame::Update`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:907-915 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1ca60, already occupied,
+/// so no RVA is claimed here. Clears `UPDATE|CHANGED`; the visual-cache
+/// and target-list effects stay caller-owned.
+pub fn frame_flags_after_update(flags: u32) -> u32 {
+    flags & !(0x4000_0000 | 0x2000)
+}
+/// Working name for the child flag word written by `UpdateChildren`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:893-896 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1c9a0, already occupied,
+/// so no RVA is claimed here. A changed parent clears the child's world
+/// and world-bound validity and marks it changed; list walks stay
+/// caller-owned.
+pub fn frame_child_flags_after_parent_change(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20)) | 0x2000
+}
+/// Working name for the flag word written by `SetWorldDir` and the
+/// matrix half of `SetWorldPosDir` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:183-184 and :217-218 at pin 113b5b6).
+/// The `SetWorldPosDir` body lives at already-occupied PC RVA 0x1b230 and
+/// `SetWorldDir` (PC RVA 0x1b040) already has a graph projection, so no RVA
+/// is claimed here. Clears `HR_BOUND_W_VALID|WMAT_VALID|QUAT_VALID|`
+/// `ROT_VALID` and sets `UPDATE|MAT_VALID`; matrix builds stay caller-owned.
+pub fn frame_flags_after_set_world_dir(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20 | 0x08 | 0x04)) | (0x4000_0000 | 0x10)
+}
+/// Working name for the roll gate shared by `I3D_frame::SetWorldDir` and the
+/// matrix half of `SetWorldPosDir` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:178 and :213 at pin 113b5b6). The
+/// `SetWorldPosDir` body lives at already-occupied PC RVA 0x1b230 and
+/// `SetWorldDir` (PC RVA 0x1b040) already has a graph projection, so no RVA
+/// is claimed here. The roll matrix composes only when `fabs(roll)` exceeds
+/// `MRG_ZERO` (1e-8 per ls3df/ls3df.h:48); an unordered (NaN) roll keeps the
+/// unrolled branch, matching the native comparison. The matrix builds stay
+/// caller-owned.
+pub fn world_dir_applies_roll(roll: f32) -> bool {
+    roll.abs() > 1e-8
+}
+/// Working name for the sector-ancestor early-out of
+/// `I3D_scene::SetFrameSectorPos` (mafia-re ls3df/I3D/I3d_scene.cpp:517-533
+/// at pin 113b5b6). The reference records the body at PC RVA 0x4a280, which
+/// is already occupied in `docs/rewrite-overlay.json`, so no RVA is claimed
+/// here. A frame already under a backdrop or omni sector keeps its link and
+/// returns I3D_OK; the ancestor walk and the sector lookup stay
+/// caller-owned.
+pub fn set_frame_sector_pos_ancestor_keeps(
+    ancestor_is_sector: bool,
+    backdrop: bool,
+    omni: bool,
+) -> bool {
+    ancestor_is_sector && (backdrop || omni)
+}
+/// Working name for the same-sector no-op of `I3D_scene::SetFrameSectorPos`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:529-532 at pin 113b5b6). Same
+/// occupied-body status as `set_frame_sector_pos_ancestor_keeps`. The frame
+/// already in its world-position sector keeps its link and returns I3D_OK;
+/// the lookup and the `LinkTo` call stay caller-owned.
+pub fn set_frame_sector_pos_skips_same_sector(same_sector: bool) -> bool {
+    same_sector
+}
+/// Working name for the `VISF_WORLD_SPACE` bit test (mafia-re
+/// ls3df/I3D/I3D.h visual `vis_flags` 0x40; tested in
+/// ls3df/I3D/visuals/I3d_visual.cpp:32 and :40 at pin 113b5b6).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit only gates `UpdateV`/`SetSpace` (PC RVAs 0x5a390/0x5a3c0,
+/// already ported or occupied, not claimed here). Reports whether the
+/// visual lives in world space; no cache moves.
+pub fn frame_visual_in_world_space(visual_flags: u32) -> bool {
+    visual_flags & 0x40 != 0
+}
+/// Working name for the parent flag word written by `UpdateChildren`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:898-901 at pin 113b5b6).
+/// The reference records the body at PC RVA 0x1c9a0, already occupied,
+/// so no RVA is claimed here. When a child moved, the parent drops both
+/// hierarchy bound-volume validity bits and gains `CHANGED`; the descent
+/// itself stays caller-owned.
+pub fn frame_flags_after_update_children_parent(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x40)) | 0x2000
+}
+/// Working name for the flag word written by the keep-world half of
+/// `I3D_frame::LinkTo` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:491-492
+/// at pin 113b5b6). The reference records the body at PC RVA 0x1b9d0,
+/// already occupied, so no RVA is claimed here. Clears
+/// `HR_BOUND_W_VALID|WMAT_VALID|MAT_VALID|ROT_VALID` and sets
+/// `UPDATE|QUAT_VALID`; the matrix rebuild stays caller-owned. The second
+/// store (SetDir3 then `UPDATE|MAT_VALID`) matches
+/// `frame_flags_after_set_world_dir` exactly and is not repeated here.
+pub fn frame_flags_after_link_keep_world_first(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20 | 0x10 | 0x04)) | (0x4000_0000 | 0x08)
+}
+/// Working name for the old-chain hierarchy-bit clearing of
+/// `I3D_frame::LinkTo` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:505-528
+/// at pin 113b5b6). Same occupied-body status as
+/// `frame_hr_hierarchy_bits`: the upward walk stays caller-owned, only
+/// the kept `HR_SECTORS|HR_OCCLUDERS|HR_AREAS` projection is modeled. A
+/// sector ancestor keeps its sector bit (areas and occluders cleared), an
+/// occluder keeps its occluder bit, an area keeps its area bit; any other
+/// frame keeps none of the three.
+pub fn link_old_parent_kept_hr_bits(is_sector: bool, is_occluder: bool, is_area: bool) -> u32 {
+    if is_sector {
+        0x8_0000
+    } else if is_occluder {
+        0x10_0000
+    } else if is_area {
+        0x4_0000
+    } else {
+        0
+    }
+}
+/// Working name for the `Update` world-bound clear gate (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:907-915 at pin 113b5b6). Same
+/// occupied-body status as `frame_flags_after_update`: the visual-cache
+/// store stays caller-owned, only the gate is modeled. A visual frame
+/// with pending motion (`UPDATE|CHANGED`) whose visual is not in world
+/// space drops `VISF_WBOUND_VALID` (mafia-re ls3df/I3D/I3D.h:2704);
+/// non-visuals never consult a `vis_flags` word.
+pub fn frame_update_clears_visual_bound(
+    is_visual: bool,
+    vis_in_world_space: bool,
+    flags: u32,
+) -> bool {
+    is_visual && frame_needs_update(flags) && !vis_in_world_space
+}
+/// Working name for the `UpdateChildren` world-bound clear gate (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:887-897 at pin 113b5b6). Same
+/// occupied-body status as `frame_flags_after_update_children_parent`
+/// (`UpdateChildren` is PC RVA 0x1c9a0): the `m_UpdateCount` bump and
+/// the visual-cache store stay caller-owned. A moved parent clears the
+/// same `VISF_WBOUND_VALID` bit on a local-space visual child.
+pub fn frame_update_children_clears_visual_bound(
+    is_visual: bool,
+    vis_in_world_space: bool,
+    parent_flags: u32,
+) -> bool {
+    frame_needs_update(parent_flags) && is_visual && !vis_in_world_space
+}
+/// Working name for the `I3D_frame::GetRot` remake gate (mafia-re
+/// ls3df/I3D/I3D.h:5002-5009 at pin 113b5b6). The reference records no
+/// LS3DF FUNCTION address for it: the body is header-inline, and the only
+/// out-of-line copy is Game.exe 0x47a810, which is not claimed here.
+/// Reports whether the rotation must be remade from the local matrix
+/// (`QUAT_VALID` clear); the `Make` call stays caller-owned.
+pub fn frame_rot_needs_make(flags: u32) -> bool {
+    flags & 0x08 == 0
+}
+/// Working name for the `I3D_frame::GetDir` rebuild branch (mafia-re
+/// ls3df/I3D/I3D.h:558-572 at pin 113b5b6). Same inline-only status as
+/// `frame_rot_needs_make`: no LS3DF FUNCTION entry exists, and the only
+/// out-of-line copy is Game.exe 0x47a890, which is not claimed here.
+/// Reports whether the matrix must be rebuilt from the normalized
+/// rotation first (`MAT_VALID` clear, returning the rebuilt row
+/// verbatim); otherwise the caller normalizes a copy of the stored row.
+/// Both normalizations stay caller-owned.
+pub fn frame_dir_rebuilds_matrix(flags: u32) -> bool {
+    flags & 0x10 == 0
+}
+/// Working name for the sector arm of `I3D_frame::UpdateHRBoundVol`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:954-957 at pin 113b5b6).
+/// Same occupied-body status as `frame_flags_after_set_bound_volume`
+/// (`UpdateHRBoundVol` is PC RVA 0x1cc50): the hierarchy walk stays
+/// caller-owned. A sector only sets `HR_BOUND_VALID` and returns; the
+/// bound-volume copy stays with the caller.
+pub fn frame_flags_after_update_hr_bound_vol_sector(flags: u32) -> u32 {
+    flags | 0x40
+}
+/// Working name for the `UpdateHRBoundVolW` local-refresh gate (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:1010-1011 at pin 113b5b6). Same
+/// occupied-body status as `frm_hr_bound_w_valid`
+/// (`UpdateHRBoundVolW` is PC RVA 0x1cf90): the `UpdateHRBoundVol` call
+/// and the world-space copy stay caller-owned. Reports whether the local
+/// hierarchy bound must be refreshed first (`HR_BOUND_VALID` clear).
+pub fn frame_hr_bound_w_needs_local_refresh(flags: u32) -> bool {
+    flags & 0x40 == 0
+}
+/// Working name for the `I3D_frame::GetHRBoundVolume` refresh gate (mafia-re
+/// ls3df/I3D/I3D.h:5011-5016 at pin 113b5b6: refresh when `HR_BOUND_VALID`
+/// is clear, then return the local hierarchy bound volume). The reference
+/// records no LS3DF FUNCTION address for a standalone gate reader; the check
+/// lives inside the occupied `UpdateHRBoundVol` body (PC RVA 0x1cc50, already
+/// ported, not claimed here). Reports whether the local bound must be
+/// recomputed; no state moves.
+pub fn frame_hr_bound_needs_update(flags: u32) -> bool {
+    flags & 0x40 == 0
+}
+/// Working name for the `I3D_frame::GetHRBoundVolumeW` refresh gate (mafia-re
+/// ls3df/I3D/I3D.h:536-541 at pin 113b5b6: refresh when `HR_BOUND_W_VALID`
+/// is clear, then return the world hierarchy bound volume). The reference
+/// records no LS3DF FUNCTION address for a standalone gate reader; the check
+/// lives inside the occupied `UpdateHRBoundVolW` body (PC RVA 0x1cf90,
+/// already ported, not claimed here). Reports whether the world bound must
+/// be recomputed; no state moves.
+pub fn frame_hr_bound_w_needs_update(flags: u32) -> bool {
+    flags & 0x100 == 0
+}
+/// Working name for the `m_RenderNumber` initial-word check (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:62 at pin 113b5b6: the constructor stores
+/// -1, observed as `u32::MAX` on the host). The reference records no LS3DF
+/// FUNCTION address for a standalone initial reader; the word is only
+/// written by the driver producer that is unimplemented here. Reports whether
+/// the frame was never rendered; no cache moves.
+pub fn frame_render_number_is_initial(render_number: u32) -> bool {
+    render_number == u32::MAX
+}
+/// Working name for the child-list empty check behind `I3D_frame::GetChild`
+/// and `NumChildren` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:608-620 and
+/// ls3df/I3D/I3D.h:602-611 at pin 113b5b6: `m_numChildren` at +0x11c, the
+/// first child at +0x124). The reference records no LS3DF FUNCTION address
+/// for a standalone empty reader; the count is only walked by the child
+/// indexer. Reports whether the frame has no children; no hierarchy walk.
+pub fn frame_child_list_is_empty(child_count: u32) -> bool {
+    child_count == 0
+}
+/// Working name for the sector early-out of
+/// `I3D_frame::DiscardHRBoundVol` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:932-934 at pin 113b5b6). Same
+/// occupied-body status as `discard_hr_bound_vol`: the ancestor walk
+/// stays caller-owned. Sectors keep both hierarchy bound-volume
+/// validity bits; every other frame clears them upward.
+pub fn frame_discard_bound_skips_sector(is_sector: bool) -> bool {
+    is_sector
+}
+/// Working name for the count-bump gate of `I3D_frame::UpdateChildren`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:887-892 at pin 113b5b6).
+/// The `Update` body lives at frozen ledger RVA 0x1ca60 (not claimed
+/// here); only the bump gate is modeled, and the counter and visual
+/// flag stores stay caller-owned. Reports whether the changed word
+/// (`FRMFLAGS_UPDATE | FRMFLAGS_CHANGED`) bumps `m_UpdateCount`.
+/// Pure helper, no hierarchy walk.
+pub fn frame_update_children_bumps_count(flags: u32) -> bool {
+    flags & (0x4000_0000 | 0x2000) != 0
+}
+/// Step selected by the ancestor walk of `I3D_frame::DiscardHRBoundVol`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:936-942 at pin 113b5b6).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HrBoundAncestorStep {
+    /// Clear the ancestor's world and local hierarchy bound validity.
+    Clear,
+    /// Stop the walk: the ancestor already lacks local validity or the
+    /// walk reached a sector, whose own early-out owns its bits.
+    Stop,
+}
+/// Working name for one ancestor step of `I3D_frame::DiscardHRBoundVol`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:936-942 at pin 113b5b6:
+/// stop when the ancestor lacks `HR_BOUND_VALID` or is a sector,
+/// otherwise clear `HR_BOUND_W_VALID | HR_BOUND_VALID`). The
+/// `DiscardHRBoundVol` body lives at frozen ledger RVA 0x1cc00 (not
+/// claimed here); only the per-ancestor rule is modeled, and the flag
+/// stores and the walk stay caller-owned. No state moves.
+pub fn frame_discard_hr_bound_vol_ancestor_step(
+    ancestor_flags: u32,
+    ancestor_is_sector: bool,
+) -> HrBoundAncestorStep {
+    if ancestor_flags & 0x40 == 0 || ancestor_is_sector {
+        HrBoundAncestorStep::Stop
+    } else {
+        HrBoundAncestorStep::Clear
+    }
+}
+/// Source selected by `I3D_frame::UpdateHRBoundVol` for the local
+/// hierarchy bound (mafia-re ls3df/I3D/frames/I3d_frame.cpp:954-964
+/// at pin 113b5b6).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HrBoundSource {
+    /// A sector only marks its bound valid and returns.
+    MarkValidOnly,
+    /// A visual copies its own bound volume.
+    CopyVisualBound,
+    /// Any other frame invalidates the box.
+    InvalidateBox,
+}
+/// Working name for the source dispatch of
+/// `I3D_frame::UpdateHRBoundVol` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:954-964 at pin 113b5b6: sectors mark
+/// valid-only, visuals copy their bound, everything else invalidates).
+/// The reference records the body at PC RVA 0x1cc50, which is already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Only the kind dispatch is modeled; the flag stores, the visual
+/// bound-proc call and the invalidation stay caller-owned. No state
+/// moves.
+pub fn frame_update_hr_bound_vol_source_kind(is_sector: bool, is_visual: bool) -> HrBoundSource {
+    if is_sector {
+        HrBoundSource::MarkValidOnly
+    } else if is_visual {
+        HrBoundSource::CopyVisualBound
+    } else {
+        HrBoundSource::InvalidateBox
+    }
+}
+/// Working name for the in-class empty base `I3D_frame::LoadImage`
+/// (mafia-re ls3df/I3D/I3D.h:368 at pin 113b5b6: `LoadImage() {}`).
+/// The reference records no LS3DF FUNCTION address for it: only kinds with
+/// image payloads override it (area, sector, light, sound, portal and the
+/// visuals), and the base body is empty like `Tick` and `SaveImage`.
+/// No state moves.
+pub fn frame_load_image_noop() {}
+/// Working name for the in-class empty base `I3D_frame::UpdateV`
+/// (mafia-re ls3df/I3D/I3D.h:366 at pin 113b5b6: `UpdateV() {}`).
+/// The reference records no LS3DF FUNCTION address for it: the out-of-line
+/// empty bodies are shared with the renderer base
+/// (`CBaseVideoRenderer::OnWaitEnd`, 0x10088540), not LS3DF frame code,
+/// so no RVA is claimed here. No state moves.
+pub fn frame_update_v_noop() {}
+/// Working name for the NUL-terminated name-length read shared by `GetName`,
+/// `GetOrigName` and `GetProperty` (mafia-re ls3df/I3D/I3D.h:583-587,589-593,
+/// 625-630 at pin 113b5b6: `m_pName ? m_pName : ""` and siblings). The
+/// reference records no LS3DF FUNCTION address for a standalone reader (the
+/// only out-of-line copy is Game.exe 0x47ad00 for `GetName`, which is not
+/// claimed here; `GetOrigName` and `GetProperty` have none). Returns the byte
+/// length before the first NUL; a slice without NUL reads whole. Pure helper,
+/// no owner consulted.
+pub fn frame_name_len_until_nul(name: &[u8]) -> usize {
+    name.iter().position(|&b| b == 0).unwrap_or(name.len())
+}
+/// Working name for the allocation-size limb of `I3D_frame::SetProperty`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:834-845 at pin 113b5b6). The
+/// reference records the body at PC RVA 0x1c700, which is already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. A non-empty
+/// property allocates `len + 1` bytes; checked addition reports overflow as
+/// `None` (the native calls the fatal ErrorHandler there, disclosed). Pure
+/// helper, no buffer moves.
+pub fn frame_property_alloc_len(prop_len: usize) -> Option<usize> {
+    prop_len.checked_add(1)
+}
+/// Working name for the supported-flags mask of `I3D_frame::LinkTo`
+/// (mafia-re ls3df/I3D/I3D.h:307-311 at pin 113b5b6: `I3DLINK_UPDMATRIX`,
+/// `I3DLINK_DISCARD_BOUND`, `I3DLINK_UPDATE`). The reference records no LS3DF
+/// FUNCTION address for the mask itself (defines, not functions); the flags
+/// word is consumed by `LinkTo` (PC RVA 0x1b9d0, already occupied, not claimed
+/// here). Reports the union of the three admitted bits. Pure helper.
+pub fn link_supported_flags_mask() -> u32 {
+    0x7
+}
+/// Working name for the content-equal early-out of `I3D_frame::SetName`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:350-377 at pin 113b5b6). The
+/// reference records the body at PC RVA 0x1b6f0, which is already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. Compares C-string
+/// content truncated at the first NUL; `None` equals only `None`. Pure helper,
+/// no allocation or registration moves.
+pub fn frame_set_name_is_content_equal(
+    stored: Option<&[u8]>,
+    incoming: Option<&[u8]>,
+) -> bool {
+    match (stored, incoming) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            let a = &a[..frame_name_len_until_nul(a)];
+            let b = &b[..frame_name_len_until_nul(b)];
+            a == b
+        }
+        _ => false,
+    }
+}
+/// Working name for the null-incoming gate of `I3D_frame::SetName`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:361-364 at pin 113b5b6:
+/// a null name clears both stored pointers and returns `I3D_OK`).
+/// The `SetName` body lives at frozen ledger RVA 0x1b6f0 (not claimed
+/// here); only the null gate is modeled, and the pointer stores stay
+/// caller-owned. Reports whether the incoming name clears the stored
+/// one. Pure helper, no allocation moves.
+pub fn frame_set_name_null_clears(incoming: Option<&[u8]>) -> bool {
+    incoming.is_none()
+}
+/// Working name for the already-reset early-out of
+/// `I3D_frame::ResetModelName` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:407-408 at pin 113b5b6: the original
+/// name already is the full name, so there is nothing to strip).
+/// The reference records the body at PC RVA 0x1b8f0, which is already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Only the pointer-identity gate is modeled; the buffer moves stay
+/// caller-owned. Pure helper, no allocation moves.
+pub fn frame_reset_model_name_is_noop(orig_is_name: bool) -> bool {
+    orig_is_name
+}
+/// Working name for the buffer layout of `I3D_frame::SetModelName`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:385 and :397 at pin
+/// 113b5b6: `strlen(model) + strlen(orig) + 2` bytes for the dot and
+/// the terminator, with the original name rebased past the dot at
+/// `strlen(model) + 1`). The reference records the body at PC RVA
+/// 0x1b800, which is already occupied in `docs/rewrite-overlay.json`,
+/// so no RVA is claimed here. Returns the total byte count and the
+/// original-name offset; checked addition reports overflow as `None`
+/// (the native calls the fatal ErrorHandler there, disclosed). Pure
+/// helper, no buffer moves.
+pub fn frame_set_model_name_layout(model_len: usize, orig_len: usize) -> Option<(usize, usize)> {
+    let total = model_len.checked_add(orig_len)?.checked_add(2)?;
+    let orig_offset = model_len.checked_add(1)?;
+    Some((total, orig_offset))
+}
+/// Working name for the index gate of `I3D_frame::GetChild`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:610-620 at pin 113b5b6:
+/// `if (index < m_numChildren)`). The reference records the body at PC RVA
+/// 0x1bfd0, which is already occupied in `docs/rewrite-overlay.json`, so no
+/// RVA is claimed here. Reports whether a signed index selects an existing
+/// child; negative indices never select. The native member is a signed int,
+/// so the comparison stays signed (`u32::MAX` reads back as -1 and admits
+/// nothing). Pure helper, no hierarchy walk.
+pub fn frame_get_child_index_in_range(index: i32, child_count: u32) -> bool {
+    index >= 0 && index < child_count as i32
 }
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
@@ -665,6 +1978,37 @@ impl I3dFrameGraph {
     pub fn frame_parent_key(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
         Ok(self.links(key)?.parent)
     }
+    /// Working name for the `I3D_frame::GetParent` presence gate (mafia-re
+    /// ls3df/I3D/I3D.h:5042-5046 at pin 113b5b6). No LS3DF FUNCTION address
+    /// exists for it: the only out-of-line copy is Game.exe 0x47ad10, which
+    /// is not claimed here. Reports whether the frame is linked under a
+    /// parent; no cache moves.
+    pub fn frame_has_parent(&self, key: FrameKey) -> Result<bool, FrameError> {
+        Ok(self.links(key)?.parent.is_some())
+    }
+    /// Working name for the first-child presence behind `I3D_frame::GetChild`
+    /// and `NumChildren` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:559-606 and
+    /// ls3df/I3D/I3D.h:678 at pin 113b5b6: `m_pChild` at +0x124). No LS3DF
+    /// FUNCTION address exists for a standalone presence reader; children are
+    /// only walked by the hierarchy traversals. Reports whether the frame has
+    /// at least one child; no walk.
+    pub fn frame_has_child(&self, key: FrameKey) -> Result<bool, FrameError> {
+        Ok(self.links(key)?.child.is_some())
+    }
+    /// Working name for the `m_pNext` sibling presence at +0x128 (mafia-re
+    /// ls3df/I3D/I3D.h:679 at pin 113b5b6). No LS3DF FUNCTION address exists
+    /// for it: siblings are only walked by `AddChild`/`RemoveChild` and the
+    /// enumeration helpers. Reports whether a next sibling is linked; no walk.
+    pub fn frame_has_next_sibling(&self, key: FrameKey) -> Result<bool, FrameError> {
+        Ok(self.links(key)?.next.is_some())
+    }
+    /// Working name for the `m_pPrev` sibling presence at +0x128 (mafia-re
+    /// ls3df/I3D/I3D.h:679 at pin 113b5b6). No LS3DF FUNCTION address exists
+    /// for it: same inline-only status as the next-sibling presence above.
+    /// Reports whether a previous sibling is linked; no walk.
+    pub fn frame_has_prev_sibling(&self, key: FrameKey) -> Result<bool, FrameError> {
+        Ok(self.links(key)?.previous.is_some())
+    }
     /// Working name for the LS3DF-inlined `I3D_frame::NumChildren` read
     /// (mafia-re ls3df/I3D/I3D.h:602-611, LS3DF_EXPORTS by-value branch). No
     /// LS3DF FUNCTION address exists for it: the only out-of-line copy is
@@ -771,6 +2115,13 @@ impl I3dFrameGraph {
     pub fn frame_next_key(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
         Ok(self.links(key)?.next)
     }
+    /// Working name for the `m_pChild` first-child read at +0x124 (mafia-re
+    /// ls3df/I3D/I3D.h:678). No LS3DF FUNCTION address exists for a
+    /// standalone reader: first children are only walked by hierarchy
+    /// traversals. Borrows the live link; no ownership claim.
+    pub fn frame_first_child_key(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
+        Ok(self.links(key)?.child)
+    }
     /// Working name for the scalar `m_WorldScale` read at +0x114
     /// (mafia-re ls3df/I3D/I3D.h:674). No LS3DF FUNCTION address exists
     /// for it: the only out-of-line scale reader is the `GetWorldScale`
@@ -788,6 +2139,30 @@ impl I3dFrameGraph {
         let state = &mut self.node_mut(key)?.state;
         state.rotation = rotation;
         state.flags = (state.flags & 0xfffffecb) | 0x40000008;
+        Ok(())
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::SetLocalMatrix`
+    /// (mafia-re ls3df/I3D/I3D.h:495-503). The reference records no LS3DF
+    /// FUNCTION address for it (header inline compiled into LS3DF callers;
+    /// the file notes inline sites but no out-of-line copy in either
+    /// binary). Makes the input the local matrix, remakes the scale from
+    /// its basis rows through the `GetScale` projection, then clears
+    /// WMAT_VALID and QUAT_VALID and sets UPDATE, MAT_VALID and ROT_VALID.
+    /// The scale is remade from the input before any store, so a
+    /// host-unavailable scale leaves the prior matrix, scale and flags
+    /// untouched (native has no failure; disclosed reorder).
+    pub fn store_frame_local_matrix(
+        &mut self,
+        key: FrameKey,
+        matrix: SMatrix,
+    ) -> Result<(), FrameError> {
+        let scale = matrix
+            .try_get_scale()
+            .map_err(|_| FrameError::NumericDomain("SetLocalMatrix GetScale"))?;
+        let state = &mut self.node_mut(key)?.state;
+        state.local = matrix;
+        state.scale = scale;
+        state.flags = (state.flags & 0xffffffd7) | 0x40000014;
         Ok(())
     }
     /// Working name for the LS3DF-inlined `I3D_frame::SetDir1`
@@ -1525,6 +2900,52 @@ impl I3dFrameGraph {
     pub fn links(&self, key: FrameKey) -> Result<FrameLinks, FrameError> {
         Ok(self.node(key)?.links)
     }
+    /// Working name for the inlined `I3D_frame::GetPos` local-row read
+    /// (mafia-re ls3df/I3D/I3D.h:460-465 at pin 113b5b6: `return
+    /// m_LocalMatrix(3)`). The reference records no LS3DF FUNCTION address
+    /// for a standalone reader; the only out-of-line copy is Game.exe
+    /// 0x47a720, which is not claimed here. Reports the stored local
+    /// position row; no cache is refreshed.
+    pub fn frame_local_pos_of(&self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        Ok(self.state(key)?.local.elements[12..15].try_into().unwrap())
+    }
+    /// Working name for the inlined `I3D_frame::GetWorldPos` read
+    /// (mafia-re ls3df/I3D/I3D.h:552-556 at pin 113b5b6: `return
+    /// GetMatrix()(3)`). Same inline-only status as `frame_local_pos_of`:
+    /// no LS3DF FUNCTION entry exists, and the only out-of-line copy is
+    /// Game.exe 0x47a730, which is not claimed here. Refreshes the world
+    /// matrix through the native `WMAT_VALID` gate, then reports its
+    /// position row.
+    pub fn frame_world_pos_of(&mut self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        Ok(self.world_matrix(key)?.elements[12..15].try_into().unwrap())
+    }
+    /// Working name for the inlined `I3D_frame::GetScale` member read
+    /// (mafia-re ls3df/I3D/I3D.h:477-481 at pin 113b5b6). Same
+    /// inline-only status: no LS3DF FUNCTION entry exists, and the only
+    /// out-of-line copy is Game.exe 0x47aec0, which is not claimed here.
+    /// Reports the stored scale; no matrix is remade.
+    pub fn frame_scale_of(&self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        Ok(self.state(key)?.scale)
+    }
+    /// Working name for the inlined `I3D_frame::GetParent` member read
+    /// (mafia-re ls3df/I3D/I3D.h:5043-5046 at pin 113b5b6). Same
+    /// inline-only status: no LS3DF FUNCTION entry exists, and the only
+    /// out-of-line copy is Game.exe 0x47ad10, which is not claimed here.
+    /// Reports the stored parent link; unknown frames stay an explicit
+    /// error, never a null parent.
+    pub fn frame_parent_of(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
+        Ok(self.links(key)?.parent)
+    }
+    /// Working name for the inlined `I3D_frame::NumChildren` member read
+    /// (mafia-re ls3df/I3D/I3D.h:619-623 at pin 113b5b6). Same
+    /// inline-only status: no LS3DF FUNCTION entry exists, and the only
+    /// out-of-line copy is Game.exe 0x47ad20, which is not claimed here.
+    /// Reports the stored child count (native `int` width; the graph
+    /// stores the same value in `u32`, so no truncation is observable
+    /// through this reader).
+    pub fn frame_num_children_of(&self, key: FrameKey) -> Result<u32, FrameError> {
+        Ok(self.links(key)?.child_count)
+    }
     pub fn storage_bytes(&self) -> Result<usize, FrameError> {
         let binding_bytes = self
             .nodes
@@ -1752,6 +3173,27 @@ impl I3dFrameGraph {
         state.flags = (state.flags & 0xfffffecb) | 0x40000008;
         Ok(())
     }
+    /// Working name for the LS3DF_EXPORTS branch of the inlined
+    /// `I3D_frame::SetRot` (mafia-re ls3df/I3D/I3D.h:420-427). The reference
+    /// records no LS3DF FUNCTION address for it: the body is a header inline
+    /// compiled into LS3DF, and the only out-of-line copy is Game.exe
+    /// 0x43bce0, which is not claimed here. Unlike `assign_rotation` (the
+    /// Game.exe branch, I3D.h:429-437, which normalizes first), the LS3DF
+    /// branch stores the quaternion verbatim with no normalization and no
+    /// availability guard: non-finite components pass through exactly as the
+    /// native `m_Rot = q` store, and later matrix operations check their own
+    /// numeric domains. The flag store matches both branches (HR_BOUND_W and
+    /// WMAT/MAT/ROT validity cleared, UPDATE and QUAT_VALID set).
+    pub fn assign_rotation_ls3df(
+        &mut self,
+        key: FrameKey,
+        rotation: SQuat,
+    ) -> Result<(), FrameError> {
+        let state = &mut self.node_mut(key)?.state;
+        state.rotation = rotation;
+        state.flags = (state.flags & 0xfffffecb) | 0x40000008;
+        Ok(())
+    }
     /// Assign a quaternion already normalized by the original track evaluator.
     /// Preserve its exact bits; running Normalize again would change samples.
     /// The input has the same numeric availability guard as assign_rotation.
@@ -1849,6 +3291,37 @@ impl I3dFrameGraph {
         node.world_error = result.as_ref().err().copied();
         result
     }
+    /// Working name for the LS3DF-inlined `I3D_frame::SetDir1`
+    /// (mafia-re ls3df/I3D/I3D.h:467-475). The reference records no LS3DF
+    /// FUNCTION address for it: the body is a header inline compiled into
+    /// LS3DF, and the only out-of-line copy is Game.exe 0x4609c0, which is
+    /// not claimed here. The local matrix takes `SetDir3(dir, up)` verbatim,
+    /// then the flag store clears HR_BOUND_W_VALID, WMAT_VALID, QUAT_VALID
+    /// and ROT_VALID while setting UPDATE and MAT_VALID. A refused direction
+    /// keeps the native partial basis writes already stored, skips the flag
+    /// store and poisons both caches like the other direction setters.
+    pub fn set_frame_dir1(
+        &mut self,
+        key: FrameKey,
+        direction: [f32; 3],
+        up: [f32; 3],
+    ) -> Result<(), FrameError> {
+        self.index(key)?;
+        let result = (|| {
+            self.node_mut(key)?
+                .state
+                .local
+                .try_set_dir3(direction, up)
+                .map_err(|_| FrameError::DirectionFromVectorsUnavailable)?;
+            let state = &mut self.node_mut(key)?.state;
+            state.flags = (state.flags & 0xfffffed3) | 0x40000010;
+            Ok(())
+        })();
+        let node = self.node_mut(key)?;
+        node.local_error = result.as_ref().err().copied();
+        node.world_error = result.as_ref().err().copied();
+        result
+    }
     /// Original SetWorldPos (LS3DF RVA 0x1b160). Parentless frames use SetPos
     /// directly. Otherwise the parent world cache is requested before the
     /// inverse/point arithmetic, a singular parent uses the original inverse
@@ -1935,6 +3408,18 @@ impl I3dFrameGraph {
     }
 
     /// RemoveChild preserves the detached child's world cache, even if now stale.
+    /// Original I3D_frame::RemoveChild, PC RVA 0x1bf20 (VA 0x1001bf20; REA
+    /// formed Ghidra body FUN_1001bf20 in LS3DF.dll
+    /// e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// ev_57935d4fccfcf7b53b09675a5bb59b537b6c348c286cb10304b3a113ea9;
+    /// mafia-re ls3df/I3D/frames/I3d_frame.cpp:579-606 at pin 113b5b6).
+    /// Confirm-only on this pre-existing port. Order-exact: a
+    /// non-child returns the frame untouched; otherwise numChildren--, the
+    /// three unlink arms (middle splice, first-child advance, last-child
+    /// clear with count reset to zero), then prev/next/parent nulling and
+    /// the parent HR-bound-validity clear (0xfffffebf). The detached child's
+    /// world cache is preserved even if now stale, matching the native
+    /// no-refresh unlink.
     pub fn remove_child(&mut self, parent: FrameKey, child: FrameKey) -> Result<(), FrameError> {
         self.index(parent)?;
         let l = self.links(child)?;
@@ -2167,7 +3652,7 @@ impl I3dFrameGraph {
             Option<FrameKey>,
         ) -> Result<(), FrameError>,
     ) -> Result<u32, FrameError> {
-        if flags > 1 {
+        if flags > I3DLINK_UPDMATRIX {
             return Err(FrameError::UnsupportedLinkFlags(flags));
         }
         let result = self.link_to_inner(child, parent, flags, allow_hr, &mut transition);
@@ -2217,7 +3702,7 @@ impl I3dFrameGraph {
         if old == parent {
             return Ok(0);
         }
-        if !allow_hr && flags == 1 && self.state(child)?.flags & 0x1c0000 != 0 {
+        if !allow_hr && flags == I3DLINK_UPDMATRIX && self.state(child)?.flags & 0x1c0000 != 0 {
             return Err(FrameError::UnsupportedLinkState);
         }
         let mut at = parent;
@@ -2232,7 +3717,7 @@ impl I3dFrameGraph {
                 return Err(FrameError::Cycle);
             }
         }
-        if flags & 1 != 0 {
+        if flags & I3DLINK_UPDMATRIX != 0 {
             self.world_matrix(child)?;
         }
         if let Some(old) = old {
@@ -2252,7 +3737,7 @@ impl I3dFrameGraph {
             p.links.child_count = p.links.child_count.wrapping_add(1);
             p.state.flags &= 0xfffffebf;
         }
-        if flags & 1 == 0 {
+        if flags & I3DLINK_UPDMATRIX == 0 {
             let s = &mut self.node_mut(child)?.state;
             s.flags = (s.flags & !0x20) | 0x40000000;
         } else {
@@ -2381,6 +3866,21 @@ impl I3dFrameGraph {
             return Err(error);
         }
         Ok(self.state(key)?.world)
+    }
+    /// Working name for the LS3DF-inlined `I3D_frame::UpdateWMatrix` (mafia-re
+    /// ls3df/I3D/I3D.h:505-510 at pin 113b5b6: refresh the world matrix unless
+    /// `FRMFLAGS_WMAT_VALID` is set). The reference records no LS3DF FUNCTION
+    /// address for it (header inline compiled into LS3DF callers) and marks
+    /// no Game.exe out-of-line copy either. A stale cache runs the occupied
+    /// `UpdateWMatrixProc` path (PC RVA 0x1c7d0) through `world_matrix`; an
+    /// already valid cache moves nothing. Unknown frames fail before any
+    /// cache move.
+    pub fn update_w_matrix(&mut self, key: FrameKey) -> Result<(), FrameError> {
+        if frm_wmat_valid(self.state(key)?.flags) {
+            return Ok(());
+        }
+        self.world_matrix(key)?;
+        Ok(())
     }
     /// Original I3D_visual::GetRenderMatrix, PC RVA 0x2ad00 (differential:
     /// REA formed Ghidra body FUN_1002ad00 5BB/40B/15insn; mafia-re
@@ -2800,6 +4300,88 @@ mod tests {
         );
     }
     #[test]
+    fn frame_hierarchy_and_clip_flag_readers_report_only_their_bits() {
+        // Working names for inlined FRMFLAGS reads (I3D.h:271-281): no LS3DF
+        // FUNCTION addresses exist for standalone readers.
+        assert!(frame_hr_areas_set(0x40000));
+        assert!(frame_hr_sectors_set(0x80000));
+        assert!(frame_hr_occluders_set(0x100000));
+        assert!(frame_is_clipped(0x200000));
+        assert!(frame_in_view(0x10000));
+        assert!(!frame_hr_areas_set(0));
+        assert!(!frame_hr_sectors_set(0x40000));
+        assert!(!frame_hr_occluders_set(0x80000));
+        assert!(!frame_is_clipped(0));
+        assert!(!frame_in_view(0x200000));
+        assert!(frame_in_view(u32::MAX));
+        assert!(!frame_hr_areas_set(u32::MAX & !0x40000));
+    }
+    #[test]
+    fn rot_valid_reports_only_bit_two() {
+        assert!(frm_rot_valid(0x04));
+        assert!(frm_rot_valid(u32::MAX));
+        assert!(!frm_rot_valid(0));
+        assert!(!frm_rot_valid(0x08));
+        assert!(!frm_rot_valid(u32::MAX & !0x04));
+    }
+    #[test]
+    fn quat_valid_reports_only_bit_three() {
+        assert!(frm_quat_valid(0x08));
+        assert!(frm_quat_valid(u32::MAX));
+        assert!(!frm_quat_valid(0));
+        assert!(!frm_quat_valid(0x04));
+        assert!(!frm_quat_valid(u32::MAX & !0x08));
+    }
+    #[test]
+    fn mat_valid_reports_only_bit_four() {
+        assert!(frm_mat_valid(0x10));
+        assert!(frm_mat_valid(u32::MAX));
+        assert!(!frm_mat_valid(0));
+        assert!(!frm_mat_valid(0x20));
+        assert!(!frm_mat_valid(u32::MAX & !0x10));
+    }
+    #[test]
+    fn wmat_valid_reports_only_bit_five() {
+        assert!(frm_wmat_valid(0x20));
+        assert!(frm_wmat_valid(u32::MAX));
+        assert!(!frm_wmat_valid(0));
+        assert!(!frm_wmat_valid(0x10));
+        assert!(!frm_wmat_valid(u32::MAX & !0x20));
+    }
+    #[test]
+    fn hr_bound_valid_reports_only_bit_six() {
+        assert!(frm_hr_bound_valid(0x40));
+        assert!(frm_hr_bound_valid(u32::MAX));
+        assert!(!frm_hr_bound_valid(0));
+        assert!(!frm_hr_bound_valid(0x100));
+        assert!(!frm_hr_bound_valid(u32::MAX & !0x40));
+    }
+    #[test]
+    fn hr_bound_w_valid_reports_only_bit_eight() {
+        assert!(frm_hr_bound_w_valid(0x100));
+        assert!(frm_hr_bound_w_valid(u32::MAX));
+        assert!(!frm_hr_bound_w_valid(0));
+        assert!(!frm_hr_bound_w_valid(0x40));
+        assert!(!frm_hr_bound_w_valid(u32::MAX & !0x100));
+    }
+    #[test]
+    fn interpolator_reader_reports_only_bit_twenty_eight() {
+        assert!(frm_has_interpolator(0x1000_0000));
+        assert!(frm_has_interpolator(u32::MAX));
+        assert!(!frm_has_interpolator(0));
+        assert!(!frm_has_interpolator(0x4000));
+        assert!(!frm_has_interpolator(u32::MAX & !0x1000_0000));
+    }
+    #[test]
+    fn callback_bits_keep_only_the_mask() {
+        assert_eq!(frm_callback_bits(0x1e00), 0x1e00);
+        assert_eq!(frm_callback_bits(u32::MAX), 0x1e00);
+        assert_eq!(frm_callback_bits(0), 0);
+        assert_eq!(frm_callback_bits(0x100), 0);
+        assert_eq!(frm_callback_bits(0x1e01), 0x1e00);
+        assert_eq!(frm_callback_bits(0x2000), 0);
+    }
+    #[test]
     fn set_frame_local_matrix_stores_matrix_and_scale() {
         // Working name for inlined I3D_frame::SetLocalMatrix (I3D.h:495-503):
         // no LS3DF FUNCTION address and no Game.exe copy exist.
@@ -2844,6 +4426,84 @@ mod tests {
         assert_eq!(pos[0].to_bits(), 0x80000000);
         assert_eq!(pos[1].to_bits(), 0.0f32.to_bits());
         assert_eq!(pos[2].to_bits(), 0.0f32.to_bits());
+    }
+    #[test]
+    fn set_frame_dir1_builds_setdir3_basis_and_flag_word() {
+        // Working name for inlined I3D_frame::SetDir1 (I3D.h:467-475): no
+        // LS3DF FUNCTION address exists (only Game.exe 0x4609c0, unclaimed
+        // here). Y-up unit inputs rebuild the identity basis; the flag word
+        // keeps the SetDir3 shape (UPDATE|MAT_VALID, rotation validity gone).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        graph.set_frame_dir1(key, [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]).unwrap();
+        let local = graph.state(key).unwrap().local;
+        assert_eq!(
+            [
+                local.elements[0],
+                local.elements[1],
+                local.elements[2],
+                local.elements[4],
+                local.elements[5],
+                local.elements[6],
+                local.elements[8],
+                local.elements[9],
+                local.elements[10],
+            ],
+            [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        );
+        assert_eq!(graph.state(key).unwrap().flags, 0x4000_0011);
+        // X-forward against Y-up keeps the right-handed permutation basis.
+        graph.set_frame_dir1(key, [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]).unwrap();
+        let local = graph.state(key).unwrap().local;
+        assert_eq!(
+            [
+                local.elements[0],
+                local.elements[1],
+                local.elements[2],
+                local.elements[4],
+                local.elements[5],
+                local.elements[6],
+                local.elements[8],
+                local.elements[9],
+                local.elements[10],
+            ],
+            [0.0, 0.0, -1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0]
+        );
+        // A parallel up vector is a host DegenerateUp: the flag word is
+        // untouched and the unavailable dependency is reported.
+        let before = graph.state(key).unwrap().flags;
+        assert_eq!(
+            graph.set_frame_dir1(key, [0.0, 0.0, 1.0], [0.0, 0.0, 2.0]),
+            Err(FrameError::DirectionFromVectorsUnavailable)
+        );
+        assert_eq!(graph.state(key).unwrap().flags, before);
+        assert_eq!(
+            graph.set_frame_dir1(FrameKey(u32::MAX), [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn assign_rotation_ls3df_stores_verbatim_without_normalize() {
+        // Working name for the LS3DF_EXPORTS branch of inlined
+        // I3D_frame::SetRot (I3D.h:420-427): no LS3DF FUNCTION address
+        // exists (only Game.exe 0x43bce0, unclaimed here). The store skips
+        // the Game branch normalization that `assign_rotation` performs.
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        let rotation = SQuat { wxyz: [0.5, 0.5, 0.5, 0.5] };
+        graph.assign_rotation_ls3df(key, rotation).unwrap();
+        assert_eq!(graph.state(key).unwrap().rotation, rotation);
+        assert_eq!(graph.state(key).unwrap().flags, 0x4000_0009);
+        // Non-finite components pass through exactly as the native store;
+        // the checked Game-branch entry would refuse them.
+        let wild = SQuat { wxyz: [f32::INFINITY, 0.0, 0.0, f32::NAN] };
+        graph.assign_rotation_ls3df(key, wild).unwrap();
+        assert_eq!(graph.state(key).unwrap().rotation.wxyz[0].to_bits(), f32::INFINITY.to_bits());
+        assert!(graph.state(key).unwrap().rotation.wxyz[3].is_nan());
+        assert_eq!(
+            graph.assign_rotation_ls3df(FrameKey(u32::MAX), rotation),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
     }
     #[test]
     fn visual_inv_matrix_returns_identity_in_world_space() {
@@ -2895,6 +4555,70 @@ mod tests {
         assert_eq!(graph.frame_child_count(parent).unwrap(), 1);
         graph.add_child(parent, second).unwrap();
         assert_eq!(graph.frame_child_count(parent).unwrap(), 2);
+    }
+    #[test]
+    fn remove_child_rva_0x1bf20_unlinks_all_arms_and_clears_parent_bits() {
+        // PC RVA 0x1bf20 (VA 0x1001bf20; REA formed Ghidra body FUN_1001bf20,
+        // ev_57935d4f...; mafia-re I3d_frame.cpp:579-606): non-children
+        // return untouched; otherwise numChildren--, the three unlink arms,
+        // child link nulling and the parent 0xfffffebf clear.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let first = graph.insert(I3dFrameState::dummy()).unwrap();
+        let second = graph.insert(I3dFrameState::dummy()).unwrap();
+        let third = graph.insert(I3dFrameState::dummy()).unwrap();
+        // Prepend order: linking first, second, third leaves [third, second,
+        // first].
+        graph.add_child(parent, first).unwrap();
+        graph.add_child(parent, second).unwrap();
+        graph.add_child(parent, third).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(third));
+        // A non-child returns the frame untouched: no count or link moves.
+        graph.remove_child(parent, parent).unwrap();
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 3);
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(third));
+        // Middle splice: second drops out, neighbors relink.
+        graph.remove_child(parent, second).unwrap();
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 2);
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(third));
+        assert_eq!(graph.frame_next_key(third).unwrap(), Some(first));
+        assert_eq!(graph.frame_prev_key(first).unwrap(), Some(third));
+        assert_eq!(graph.frame_parent_key(second).unwrap(), None);
+        assert_eq!(graph.frame_prev_key(second).unwrap(), None);
+        assert_eq!(graph.frame_next_key(second).unwrap(), None);
+        // First-child advance.
+        graph.remove_child(parent, third).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(first));
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 1);
+        // Last-child clear resets the count to zero, not wrapping.
+        graph.remove_child(parent, first).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), None);
+        assert_eq!(graph.frame_child_count(parent).unwrap(), 0);
+        // Parent validity bits clear on every removal path: preset the
+        // 0x140 word, remove again via a fresh link, and check the clear.
+        graph.add_child(parent, first).unwrap();
+        graph.change_flags(parent, 0, 0x140).unwrap();
+        assert_eq!(graph.state(parent).unwrap().flags & 0x140, 0x140);
+        graph.remove_child(parent, first).unwrap();
+        assert_eq!(graph.state(parent).unwrap().flags & 0x140, 0);
+    }
+    #[test]
+    fn frame_first_child_key_reports_prepend_head() {
+        // Working name for the m_pChild read at +0x124 (I3D.h:678): no
+        // LS3DF FUNCTION address exists for a standalone reader.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), None);
+        let first = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.add_child(parent, first).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(first));
+        let second = graph.insert(I3dFrameState::dummy()).unwrap();
+        graph.add_child(parent, second).unwrap();
+        assert_eq!(graph.frame_first_child_key(parent).unwrap(), Some(second));
+        assert_eq!(
+            graph.frame_first_child_key(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
     }
     #[test]
     fn frame_kind_reports_live_kind() {
@@ -4820,5 +6544,1098 @@ mod tests {
             graph.frame_world_scale_scalar(FrameKey(u32::MAX)),
             Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
         );
+    }
+    #[test]
+    fn frame_flags_after_set_rot_clears_caches_and_sets_quat_update() {
+        assert_eq!(frame_flags_after_set_rot(0), 0x4000_0000 | 0x08);
+        assert_eq!(
+            frame_flags_after_set_rot(0xffff_ffff),
+            (0xffff_ffff & !(0x100 | 0x20 | 0x10 | 0x04)) | 0x4000_0000 | 0x08
+        );
+        assert_eq!(frame_flags_after_set_rot(0x100 | 0x20 | 0x10 | 0x04), 0x4000_0000 | 0x08);
+    }
+    #[test]
+    fn frame_flags_after_set_pos_locks_and_clears_world_caches() {
+        assert_eq!(frame_flags_after_set_pos(0x80), None);
+        assert_eq!(frame_flags_after_set_pos(0x80 | 0x1234), None);
+        assert_eq!(frame_flags_after_set_pos(0), Some(0x4000_0000));
+        assert_eq!(
+            frame_flags_after_set_pos(0x100 | 0x20 | 0x5555),
+            Some((0x5555 & !(0x100 | 0x20)) | 0x4000_0000)
+        );
+    }
+    #[test]
+    fn frame_flags_after_set_local_matrix_sets_matched_caches() {
+        assert_eq!(frame_flags_after_set_local_matrix(0), 0x4000_0014);
+        assert_eq!(
+            frame_flags_after_set_local_matrix(0x20 | 0x08 | 0x7777),
+            (0x7777 & !(0x20 | 0x08)) | 0x4000_0000 | 0x10 | 0x04
+        );
+    }
+    #[test]
+    fn link_keep_world_first_and_old_chain_projection() {
+        // Working names for the LinkTo keep-world first store
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:491-492) and the
+        // old-chain hierarchy clearing (505-528): the body lives at the
+        // occupied PC RVA 0x1b9d0, so no RVA is claimed here.
+        assert_eq!(frame_flags_after_link_keep_world_first(0), 0x4000_0008);
+        assert_eq!(frame_flags_after_link_keep_world_first(0x134 | 0x51), 0x4000_0049);
+        assert_eq!(
+            frame_flags_after_link_keep_world_first(0xffff_ffff),
+            (0xffff_ffff & !0x134) | 0x4000_0000 | 0x08
+        );
+        assert_eq!(link_old_parent_kept_hr_bits(true, false, false), 0x8_0000);
+        assert_eq!(link_old_parent_kept_hr_bits(false, true, false), 0x10_0000);
+        assert_eq!(link_old_parent_kept_hr_bits(false, false, true), 0x4_0000);
+        assert_eq!(link_old_parent_kept_hr_bits(false, false, false), 0);
+        // Mixed inputs are outside the native domain (one frame has one
+        // type); the chain reports sector first, host-defined.
+        assert_eq!(link_old_parent_kept_hr_bits(true, true, true), 0x8_0000);
+        assert_eq!(link_old_parent_kept_hr_bits(false, true, true), 0x10_0000);
+    }
+    #[test]
+    fn update_gates_clear_only_local_space_visual_bound() {
+        // Working names for the Update (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:907-915) and UpdateChildren
+        // (893-897) VISF_WBOUND_VALID gates: occupied bodies 0x1ca60 and
+        // 0x1c9a0, so no RVA is claimed here.
+        assert!(frame_update_clears_visual_bound(true, false, 0x4000_0000));
+        assert!(frame_update_clears_visual_bound(true, false, 0x2000));
+        assert!(!frame_update_clears_visual_bound(true, true, 0x4000_0000));
+        assert!(!frame_update_clears_visual_bound(false, false, 0x4000_0000));
+        assert!(!frame_update_clears_visual_bound(true, false, 0));
+        assert!(!frame_update_clears_visual_bound(true, false, 0x1));
+        assert!(frame_update_children_clears_visual_bound(true, false, 0x4000_0000));
+        assert!(frame_update_children_clears_visual_bound(true, false, 0x2000));
+        assert!(!frame_update_children_clears_visual_bound(true, true, 0x4000_0000));
+        assert!(!frame_update_children_clears_visual_bound(false, false, 0x4000_0000));
+        assert!(!frame_update_children_clears_visual_bound(true, false, 0));
+    }
+    #[test]
+    fn rot_and_dir_refresh_gates_follow_valid_bits() {
+        // Working names for the inlined GetRot (mafia-re ls3df/I3D/I3D.h:5002-5009)
+        // and GetDir (558-572) refresh branches: no LS3DF FUNCTION entries
+        // exist (only Game.exe 0x47a810/0x47a890), so no RVA is claimed here.
+        assert!(frame_rot_needs_make(0));
+        assert!(!frame_rot_needs_make(0x08));
+        assert!(frame_rot_needs_make(0xffff_ffff & !0x08));
+        assert!(frame_dir_rebuilds_matrix(0));
+        assert!(!frame_dir_rebuilds_matrix(0x10));
+        assert!(frame_dir_rebuilds_matrix(0xffff_ffff & !0x10));
+    }
+    #[test]
+    fn hr_bound_sector_and_refresh_gates() {
+        // Working names for the UpdateHRBoundVol sector arm (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:954-957), the UpdateHRBoundVolW
+        // gate (1010-1011) and the DiscardHRBoundVol sector early-out
+        // (932-934): occupied bodies 0x1cc50/0x1cf90/0x1cc00, unclaimed.
+        assert_eq!(frame_flags_after_update_hr_bound_vol_sector(0), 0x40);
+        assert_eq!(frame_flags_after_update_hr_bound_vol_sector(0x1100), 0x1140);
+        assert_eq!(frame_flags_after_update_hr_bound_vol_sector(0xffff_ffff), 0xffff_ffff);
+        assert!(frame_hr_bound_w_needs_local_refresh(0));
+        assert!(!frame_hr_bound_w_needs_local_refresh(0x40));
+        assert!(frame_hr_bound_w_needs_local_refresh(0xffff_ffff & !0x40));
+        assert!(frame_discard_bound_skips_sector(true));
+        assert!(!frame_discard_bound_skips_sector(false));
+    }
+    #[test]
+    fn frame_live_position_scale_parent_and_child_count_readers() {
+        // Working names for the inlined GetPos (mafia-re ls3df/I3D/I3D.h:460-465),
+        // GetWorldPos (552-556), GetScale (477-481), GetParent (5043-5046)
+        // and NumChildren (619-623) member reads: no LS3DF FUNCTION entries
+        // exist (only Game.exe 0x47a720/0x47a730/0x47aec0/0x47ad10/0x47ad20),
+        // so no RVA is claimed here.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let child = graph.insert(I3dFrameState::model()).unwrap();
+        graph.node_mut(parent).unwrap().state.local.elements[12..15]
+            .copy_from_slice(&[1., 2., 3.]);
+        graph.node_mut(parent).unwrap().state.scale = [2., 3., 4.];
+        assert_eq!(graph.frame_local_pos_of(parent).unwrap(), [1., 2., 3.]);
+        assert_eq!(graph.frame_world_pos_of(parent).unwrap(), [0., 0., 0.]);
+        assert_eq!(graph.frame_scale_of(parent).unwrap(), [2., 3., 4.]);
+        assert_eq!(graph.frame_parent_of(child).unwrap(), None);
+        assert_eq!(graph.frame_num_children_of(parent).unwrap(), 0);
+        graph.add_child(parent, child).unwrap();
+        assert_eq!(graph.frame_parent_of(child).unwrap(), Some(parent));
+        assert_eq!(graph.frame_num_children_of(parent).unwrap(), 1);
+        // The world reader follows the refreshed world cache, not the local row.
+        graph.node_mut(child).unwrap().state.world.elements[12..15]
+            .copy_from_slice(&[7., 8., 9.]);
+        assert_eq!(graph.frame_world_pos_of(child).unwrap(), [7., 8., 9.]);
+        assert_eq!(
+            graph.frame_local_pos_of(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+        assert_eq!(
+            graph.frame_num_children_of(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn frame_flags_after_set_dir1_clears_rotation_caches() {
+        assert_eq!(frame_flags_after_set_dir1(0), 0x4000_0000 | 0x10);
+        assert_eq!(
+            frame_flags_after_set_dir1(0x100 | 0x20 | 0x08 | 0x04 | 0x3333),
+            (0x3333 & !(0x100 | 0x20 | 0x08 | 0x04)) | 0x4000_0000 | 0x10
+        );
+    }
+    #[test]
+    fn frame_flags_after_set_scale_clears_matrix_caches() {
+        // Working name for inlined I3D_frame::SetScale (I3D.h:483-493):
+        // no LS3DF FUNCTION address exists (only Game.exe 0x47a750).
+        assert_eq!(frame_flags_after_set_scale(0), 0x4000_0000 | 0x08);
+        assert_eq!(
+            frame_flags_after_set_scale(0x100 | 0x20 | 0x10 | 0x04 | 0x3333),
+            (0x3333 & !(0x100 | 0x20 | 0x10 | 0x04)) | 0x4000_0000 | 0x08
+        );
+    }
+    #[test]
+    fn store_frame_local_matrix_remakes_scale_and_matched_caches() {
+        // Working name for inlined I3D_frame::SetLocalMatrix (I3D.h:495-503):
+        // no LS3DF FUNCTION address exists in either binary.
+        use crate::native_transform::SMatrix;
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        let matrix = SMatrix {
+            elements: [
+                2., 0., 0., 0., //
+                0., 3., 0., 0., //
+                0., 0., 4., 0., //
+                5., 6., 7., 1.,
+            ],
+        };
+        graph.store_frame_local_matrix(key, matrix).unwrap();
+        assert_eq!(graph.state(key).unwrap().scale, [2., 3., 4.]);
+        assert_eq!(
+            graph.state(key).unwrap().local.elements[12..15],
+            [5., 6., 7.]
+        );
+        assert_eq!(graph.state(key).unwrap().flags, 0x4000_0015);
+        assert!(graph.store_frame_local_matrix(FrameKey(u32::MAX), matrix).is_err());
+        let bad = SMatrix {
+            elements: [
+                f32::NAN, 0., 0., 0., //
+                0., 1., 0., 0., //
+                0., 0., 1., 0., //
+                0., 0., 0., 1.,
+            ],
+        };
+        assert!(graph.store_frame_local_matrix(key, bad).is_err());
+        assert_eq!(graph.state(key).unwrap().scale, [2., 3., 4.]);
+        assert_eq!(graph.state(key).unwrap().flags, 0x4000_0015);
+    }
+    #[test]
+    fn frame_flags_after_update_matrix_picks_the_stale_branch() {
+        assert_eq!(frame_flags_after_update_matrix(0), 0x10 | 0x04);
+        assert_eq!(frame_flags_after_update_matrix(0x10), 0x10 | 0x04 | 0x08);
+        assert_eq!(frame_flags_after_update_matrix(0x10 | 0x04), 0x10 | 0x04);
+        assert_eq!(
+            frame_flags_after_update_matrix(0x10 | 0x04 | 0x08 | 0x4000_0000),
+            0x10 | 0x04 | 0x08 | 0x4000_0000
+        );
+    }
+    #[test]
+    fn frame_locked_bit_matches_setpos_gate() {
+        assert!(frame_is_locked(0x80));
+        assert!(frame_is_locked(0xffff_ffff));
+        assert!(!frame_is_locked(0));
+        assert!(!frame_is_locked(0x7f));
+        assert_eq!(frame_flags_after_set_pos(0x80), None);
+    }
+    #[test]
+    fn frame_tick_bit_marks_scene_tick_list() {
+        assert!(frame_is_in_tick_list(0x40_0000));
+        assert!(frame_is_in_tick_list(0xffff_ffff));
+        assert!(!frame_is_in_tick_list(0));
+        assert!(!frame_is_in_tick_list(0x80));
+    }
+    #[test]
+    fn frame_update_bit_marks_pending_update() {
+        assert!(frame_update_is_pending(0x4000_0000));
+        assert!(frame_update_is_pending(0xffff_ffff));
+        assert!(!frame_update_is_pending(0));
+        assert!(!frame_update_is_pending(0x40_0000));
+    }
+    #[test]
+    fn frame_no_cull_bit_skips_portal_culling() {
+        assert!(frame_is_no_cull(0x0800_0000));
+        assert!(frame_is_no_cull(0xffff_ffff));
+        assert!(!frame_is_no_cull(0));
+        assert!(!frame_is_no_cull(0x80));
+    }
+    #[test]
+    fn frame_duplicate_flags_keep_only_the_copied_bits() {
+        assert_eq!(frame_duplicate_flags(0), 0);
+        assert_eq!(frame_duplicate_flags(0xffff_ffff), 0x0fa7_3e9f);
+        assert_eq!(frame_duplicate_flags(1), 1);
+        assert_eq!(frame_duplicate_flags(0x4000_0000), 0);
+        assert_eq!(frame_duplicate_flags(0x0fa7_3e9f), 0x0fa7_3e9f);
+    }
+    #[test]
+    fn frame_list_membership_bits_report_dtor_gates() {
+        assert!(frame_in_fast_find_tree(0x2000_0000));
+        assert!(frame_in_fast_find_tree(0xffff_ffff));
+        assert!(!frame_in_fast_find_tree(0));
+        assert!(!frame_in_fast_find_tree(0x80));
+        assert!(frame_is_target_frame(0x4000));
+        assert!(frame_is_target_frame(0xffff_ffff));
+        assert!(!frame_is_target_frame(0));
+        assert!(!frame_is_target_frame(0x8000));
+        assert!(frame_is_shadow_frame(0x8000));
+        assert!(frame_is_shadow_frame(0xffff_ffff));
+        assert!(!frame_is_shadow_frame(0));
+        assert!(!frame_is_shadow_frame(0x4000));
+    }
+    #[test]
+    fn frame_weather_and_changed_bits_report_state_flags() {
+        assert!(frame_is_weather_dummy(0x8000_0000));
+        assert!(frame_is_weather_dummy(0xffff_ffff));
+        assert!(!frame_is_weather_dummy(0));
+        assert!(!frame_is_weather_dummy(0x2000_0000));
+        assert!(frame_has_changed(0x2000));
+        assert!(frame_has_changed(0xffff_ffff));
+        assert!(!frame_has_changed(0));
+        assert!(!frame_has_changed(0x4000_0000));
+    }
+    #[test]
+    fn link_flag_words_match_native_linkto_bits() {
+        // Working names for the I3DLINK_* words (mafia-re ls3df/I3D/I3D.h:306-311):
+        // the reference records no LS3DF FUNCTION addresses (defines, not functions).
+        assert_eq!(I3DLINK_UPDMATRIX, 0x1);
+        assert_eq!(I3DLINK_DISCARD_BOUND, 0x2);
+        assert_eq!(I3DLINK_UPDATE, 0x4);
+        assert!(link_keeps_world_matrix(I3DLINK_UPDMATRIX));
+        assert!(link_keeps_world_matrix(I3DLINK_UPDMATRIX | I3DLINK_DISCARD_BOUND));
+        assert!(!link_keeps_world_matrix(0));
+        assert!(!link_keeps_world_matrix(I3DLINK_DISCARD_BOUND | I3DLINK_UPDATE));
+        assert!(!link_keeps_world_matrix(u32::MAX & !I3DLINK_UPDMATRIX));
+        assert!(link_discards_bounds(I3DLINK_DISCARD_BOUND));
+        assert!(!link_discards_bounds(0));
+        assert!(!link_discards_bounds(I3DLINK_UPDMATRIX));
+        assert!(link_updates_at_once(I3DLINK_UPDATE));
+        assert!(!link_updates_at_once(0));
+        assert!(!link_updates_at_once(I3DLINK_UPDMATRIX));
+    }
+    #[test]
+    fn update_w_matrix_refreshes_only_a_stale_world_cache() {
+        // Working name for inlined I3D_frame::UpdateWMatrix (I3D.h:505-510): no
+        // LS3DF FUNCTION address exists (header inline, no Game.exe copy either).
+        let mut graph = I3dFrameGraph::default();
+        let key = graph.insert(I3dFrameState::model()).unwrap();
+        // Fresh constructor frames carry WMAT_VALID: the gate is a no-op.
+        assert!(frm_wmat_valid(graph.state(key).unwrap().flags));
+        graph.update_w_matrix(key).unwrap();
+        assert!(frm_wmat_valid(graph.state(key).unwrap().flags));
+        // Clearing the bit forces the UpdateWMatrixProc path and restores it;
+        // a parentless world cache matches the local matrix.
+        graph.change_flags(key, 0x20, 0).unwrap();
+        assert!(!frm_wmat_valid(graph.state(key).unwrap().flags));
+        graph.update_w_matrix(key).unwrap();
+        assert!(frm_wmat_valid(graph.state(key).unwrap().flags));
+        assert_eq!(
+            graph.world_matrix(key).unwrap(),
+            graph.local_matrix(key).unwrap()
+        );
+        // Unknown frames fail before any cache move.
+        assert_eq!(
+            graph.update_w_matrix(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+    }
+    #[test]
+    fn frame_callback_message_bits_report_only_their_bits() {
+        // Working names for the inlined LS3D_CALLBACK_* gates (I3D.h:299-303):
+        // no LS3DF FUNCTION addresses exist for standalone readers.
+        assert!(frame_callback_wants_note(0x200));
+        assert!(frame_callback_wants_lod(0x400));
+        assert!(frame_callback_wants_anim_end(0x800));
+        assert!(frame_callback_wants_note_string(0x1000));
+        assert!(frame_callback_wants_note(0x1e00));
+        assert!(frame_callback_wants_lod(0x1e00));
+        assert!(frame_callback_wants_anim_end(0x1e00));
+        assert!(frame_callback_wants_note_string(0x1e00));
+        assert!(!frame_callback_wants_note(0));
+        assert!(!frame_callback_wants_lod(0x200));
+        assert!(!frame_callback_wants_anim_end(0x400));
+        assert!(!frame_callback_wants_note_string(0x800));
+        assert!(!frame_callback_wants_note(u32::MAX & !0x200));
+        assert!(!frame_callback_wants_lod(u32::MAX & !0x400));
+        assert!(!frame_callback_wants_anim_end(u32::MAX & !0x800));
+        assert!(!frame_callback_wants_note_string(u32::MAX & !0x1000));
+        assert!(frame_callback_wants_note(u32::MAX));
+        assert!(frame_callback_wants_lod(u32::MAX));
+        assert!(frame_callback_wants_anim_end(u32::MAX));
+        assert!(frame_callback_wants_note_string(u32::MAX));
+    }
+    #[test]
+    fn frame_callback_enables_only_documented_message_bits() {
+        // Working name for the generic LS3D_CALLBACK_* dispatcher (I3D.h:299-303):
+        // no LS3DF FUNCTION address exists for a standalone dispatcher.
+        for bit in [0x200u32, 0x400, 0x800, 0x1000] {
+            assert!(frame_callback_enables(bit, bit));
+            assert!(frame_callback_enables(0x1e00, bit));
+            assert!(frame_callback_enables(u32::MAX, bit));
+            assert!(!frame_callback_enables(0, bit));
+            assert!(!frame_callback_enables(u32::MAX & !bit, bit));
+        }
+        // Loader message words and undocumented bits never dispatch.
+        for bit in [0x8u32, 0x10, 0x20, 0x100, 0x2000, 0] {
+            assert!(!frame_callback_enables(0x1e00, bit));
+            assert!(!frame_callback_enables(u32::MAX, bit));
+        }
+    }
+    #[test]
+    fn frame_update_gates_report_either_pending_bit() {
+        // Working names for the UPDATE|CHANGED gates (I3d_frame.cpp:887,
+        // I3d_target.cpp:117): no standalone LS3DF FUNCTION entries.
+        assert!(!frame_needs_update(0));
+        assert!(frame_needs_update(0x4000_0000));
+        assert!(frame_needs_update(0x2000));
+        assert!(frame_needs_update(0x4000_2000));
+        assert!(frame_needs_update(u32::MAX));
+        assert!(!frame_needs_update(u32::MAX & !(0x4000_0000 | 0x2000)));
+        // Target queuing additionally requires ON.
+        assert!(!frame_queues_target_update(0x4000_0000));
+        assert!(!frame_queues_target_update(0x2000));
+        assert!(frame_queues_target_update(0x1 | 0x4000_0000));
+        assert!(frame_queues_target_update(0x1 | 0x2000));
+        assert!(frame_queues_target_update(u32::MAX));
+        assert!(!frame_queues_target_update(u32::MAX & !0x1));
+    }
+    #[test]
+    fn frame_set_callback_masks_and_branches_on_presence() {
+        // Working name for SetCallback (I3d_frame.cpp:225-234): PC RVA
+        // 0x1b3c0 already occupied, not claimed here.
+        assert_eq!(frame_flags_after_set_callback(0, true, 0x1e00), 0x1e00);
+        assert_eq!(frame_flags_after_set_callback(0xffff, true, 0x200), 0xffff);
+        assert_eq!(frame_flags_after_set_callback(0xffff, false, 0x200), 0xffff & !0x200);
+        assert_eq!(frame_flags_after_set_callback(0x1e00, false, 0x1e00), 0);
+        // Bits outside 0x1e00 never pass the mask.
+        assert_eq!(frame_flags_after_set_callback(0, true, 0x8), 0);
+        assert_eq!(frame_flags_after_set_callback(0xffff, false, 0x8), 0xffff);
+        assert_eq!(frame_flags_after_set_callback(0, true, u32::MAX), 0x1e00);
+    }
+    #[test]
+    fn frame_set_on_stores_bit_zero_and_empty_bases_move_nothing() {
+        // Working names for SetOn (I3d_frame.cpp:238-244, RVA 0x1b400):
+        // the RVA is occupied and not claimed. The empty base SaveImage
+        // (I3D.h:367) has no LS3DF address; the empty base Tick is pinned
+        // to LS3DF RVA 0x5240 at `frame_tick_noop` above.
+        assert_eq!(frame_flags_after_set_on(0, true), 1);
+        assert_eq!(frame_flags_after_set_on(0xfffffffe, true), u32::MAX);
+        assert_eq!(frame_flags_after_set_on(1, true), 1);
+        assert_eq!(frame_flags_after_set_on(1, false), 0);
+        assert_eq!(frame_flags_after_set_on(u32::MAX, false), u32::MAX & !1);
+        assert_eq!(frame_flags_after_set_on(0x4000_0000, false), 0x4000_0000);
+        frame_tick_noop(0);
+        frame_tick_noop(-1);
+        frame_tick_noop(i32::MAX);
+        frame_save_image_noop();
+    }
+    #[test]
+    fn frame_tick_noop_pins_rva_0x5240_empty_body() {
+        // LS3DF RVA 0x5240 (VA 0x10005240) is the 3-byte `RET 0x8` empty
+        // shared by the frame vtable Tick slot and the scene vtable SetOn
+        // slot: every `int` time value is accepted and no state moves.
+        // i32::MIN exercises the full argument domain like the sibling
+        // coverage above.
+        frame_tick_noop(0);
+        frame_tick_noop(-1);
+        frame_tick_noop(1);
+        frame_tick_noop(i32::MIN);
+        frame_tick_noop(i32::MAX);
+    }
+    #[test]
+    fn frame_duplicate_and_hierarchy_bits_match_native_words() {
+        // Working names for Duplicate (I3d_frame.cpp:807-809, RVA 0x1c5b0)
+        // and LinkTo hr_flags (I3d_frame.cpp:503, RVA 0x1b9d0): both
+        // occupied, neither claimed here.
+        assert_eq!(frame_duplicate_preserved_bits(0), 0);
+        assert_eq!(
+            frame_duplicate_preserved_bits(0x40_0000 | 0x8000 | 0x4000),
+            0x40_0000 | 0x8000 | 0x4000
+        );
+        assert_eq!(frame_duplicate_preserved_bits(u32::MAX), 0x40_0000 | 0x8000 | 0x4000);
+        assert_eq!(frame_hr_hierarchy_bits(0), 0);
+        assert_eq!(
+            frame_hr_hierarchy_bits(0x8_0000 | 0x10_0000 | 0x4_0000),
+            0x8_0000 | 0x10_0000 | 0x4_0000
+        );
+        assert_eq!(
+            frame_hr_hierarchy_bits(u32::MAX),
+            0x8_0000 | 0x10_0000 | 0x4_0000
+        );
+        assert_eq!(frame_hr_hierarchy_bits(0x1e00), 0);
+    }
+    #[test]
+    fn frame_child_list_and_link_words_clear_only_their_bits() {
+        // Working names for AddChild/RemoveChild (RVAs 0x1bea0/0x1bf20) and
+        // LinkTo no-keep path (RVA 0x1b9d0): all occupied, none claimed.
+        assert_eq!(frame_flags_after_child_list_change(0x100 | 0x40), 0);
+        assert_eq!(frame_flags_after_child_list_change(u32::MAX), u32::MAX & !(0x100 | 0x40));
+        assert_eq!(frame_flags_after_child_list_change(0x4000_0000), 0x4000_0000);
+        assert_eq!(frame_flags_after_link_no_keep(0x20), 0x4000_0000);
+        assert_eq!(
+            frame_flags_after_link_no_keep(0),
+            0x4000_0000
+        );
+        assert_eq!(
+            frame_flags_after_link_no_keep(u32::MAX),
+            (u32::MAX & !0x20) | 0x4000_0000
+        );
+    }
+    #[test]
+    fn frame_bound_update_and_propagation_words_match_native_stores() {
+        // Working names for SetBoundVolume (RVA 0x1ce80), Update (RVA
+        // 0x1ca60) and UpdateChildren (RVA 0x1c9a0): all occupied.
+        assert_eq!(frame_flags_after_set_bound_volume(0x100), 0x40);
+        assert_eq!(frame_flags_after_set_bound_volume(0), 0x40);
+        assert_eq!(
+            frame_flags_after_set_bound_volume(u32::MAX),
+            (u32::MAX & !0x100) | 0x40
+        );
+        assert_eq!(frame_flags_after_update(0x4000_0000 | 0x2000), 0);
+        assert_eq!(frame_flags_after_update(u32::MAX), u32::MAX & !(0x4000_0000 | 0x2000));
+        assert_eq!(
+            frame_child_flags_after_parent_change(0x100 | 0x20),
+            0x2000
+        );
+        assert_eq!(
+            frame_child_flags_after_parent_change(0),
+            0x2000
+        );
+        assert_eq!(
+            frame_flags_after_update_children_parent(0x100 | 0x40),
+            0x2000
+        );
+        assert_eq!(
+            frame_flags_after_update_children_parent(0),
+            0x2000
+        );
+    }
+    #[test]
+    fn frame_world_dir_and_world_space_words_match_native_stores() {
+        // Working names for SetWorldDir/SetWorldPosDir
+        // (I3d_frame.cpp:183-184/:217-218; RVAs 0x1b040/0x1b230 occupied or
+        // projected) and VISF_WORLD_SPACE (I3d_visual.cpp:32/:40; RVAs
+        // 0x5a390/0x5a3c0 occupied or ported): none claimed here.
+        assert_eq!(
+            frame_flags_after_set_world_dir(0x100 | 0x20 | 0x08 | 0x04),
+            0x4000_0000 | 0x10
+        );
+        assert_eq!(frame_flags_after_set_world_dir(0), 0x4000_0000 | 0x10);
+        assert_eq!(
+            frame_flags_after_set_world_dir(u32::MAX),
+            (u32::MAX & !(0x100 | 0x20 | 0x08 | 0x04)) | (0x4000_0000 | 0x10)
+        );
+        assert!(frame_visual_in_world_space(0x40));
+        assert!(frame_visual_in_world_space(u32::MAX));
+        assert!(!frame_visual_in_world_space(0));
+        assert!(!frame_visual_in_world_space(0xffffffbf));
+    }
+    #[test]
+    fn on_flag_reader_reports_only_bit_zero() {
+        // Working name for the FRMFLAGS_ON bit (I3D.h:259): no LS3DF
+        // FUNCTION address exists for a standalone reader (only Game.exe
+        // 0x47acf0, unclaimed). The arena frame_is_on method covers stateful
+        // reads; this pins the pure word test.
+        assert!(frame_is_on_flag(0x1));
+        assert!(frame_is_on_flag(u32::MAX));
+        assert!(!frame_is_on_flag(0));
+        assert!(!frame_is_on_flag(0x80));
+        assert!(!frame_is_on_flag(u32::MAX & !0x1));
+    }
+    #[test]
+    fn data_word_returns_stored_user_word() {
+        // Working name for the inlined I3D_frame::GetData (I3D.h:595-600,
+        // m_UserData at +0x08): no LS3DF FUNCTION address exists for a
+        // standalone reader.
+        assert_eq!(frame_data_word(0), 0);
+        assert_eq!(frame_data_word(1), 1);
+        assert_eq!(frame_data_word(0x1234_5678), 0x1234_5678);
+        assert_eq!(frame_data_word(u32::MAX), u32::MAX);
+    }
+
+    #[test]
+    fn duplicate_rejects_only_the_null_source() {
+        // Working name for the I3D_frame::Duplicate null limb
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:799-804): the occupied
+        // body at PC RVA 0x1c5b0 is not claimed here.
+        assert!(frame_duplicate_rejects_null_source(true));
+        assert!(!frame_duplicate_rejects_null_source(false));
+    }
+
+    #[test]
+    fn duplicate_null_name_clears_both_name_words() {
+        // Working name for the null-name arm of I3D_frame::Duplicate
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:813-816): a sourceless
+        // name clears both the copied name and the rebased original-name
+        // pointer; the occupied body at PC RVA 0x1c5b0 is not claimed here.
+        assert!(frame_duplicate_clears_name_words(true));
+        assert!(!frame_duplicate_clears_name_words(false));
+    }
+
+    #[test]
+    fn duplicate_merges_masked_source_kept_lists_and_update() {
+        // Working name for the merged flag word of I3D_frame::Duplicate
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:807-809): source masked
+        // with FRMFLAGS_DUPLICATE_MASK, destination list bits kept, UPDATE
+        // always set.
+        assert_eq!(frame_duplicate_merged_flags(0, 0), 0x4000_0000);
+        assert_eq!(
+            frame_duplicate_merged_flags(u32::MAX, u32::MAX),
+            0x0fa7_3e9f | 0x0040_c000 | 0x4000_0000
+        );
+        assert_eq!(
+            frame_duplicate_merged_flags(0, 0x4000),
+            0x4000_0000 | 0x4000
+        );
+        assert_eq!(
+            frame_duplicate_merged_flags(0x10, 0x20 | 0x100),
+            0x4000_0000 | 0x10
+        );
+    }
+
+    #[test]
+    fn duplicate_rejoins_fast_find_only_with_name_and_flag() {
+        // Working name for the RS_FAST_FIND re-registration gate of
+        // I3D_frame::Duplicate (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:824-827): the occupied body is not
+        // claimed here.
+        assert!(frame_duplicate_rejoins_fast_find(true, true));
+        assert!(!frame_duplicate_rejoins_fast_find(true, false));
+        assert!(!frame_duplicate_rejoins_fast_find(false, true));
+        assert!(!frame_duplicate_rejoins_fast_find(false, false));
+    }
+
+    #[test]
+    fn duplicate_orig_name_offset_rebases_pointer_difference() {
+        // Working name for the original-name rebase of I3D_frame::Duplicate
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:827:
+        // `m_pOrigName = frame->m_pOrigName - frame->m_pName + m_pName`).
+        // Wrapping offsets stand in for the native interior pointers.
+        assert_eq!(duplicate_orig_name_offset(100, 104, 200), 204);
+        assert_eq!(duplicate_orig_name_offset(100, 100, 200), 200);
+        assert_eq!(duplicate_orig_name_offset(0, 0, 0), 0);
+        assert_eq!(
+            duplicate_orig_name_offset(0, usize::MAX, 1),
+            usize::MAX.wrapping_add(1)
+        );
+        assert_eq!(
+            duplicate_orig_name_offset(8, 3, 100),
+            3usize.wrapping_sub(8).wrapping_add(100)
+        );
+    }
+
+    #[test]
+    fn changed_word_keeps_only_update_and_changed() {
+        // Working name for the `changed` word of UpdateChildren (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:887): UPDATE 0x40000000 and
+        // CHANGED 0x2000; the occupied body is not claimed here.
+        assert_eq!(frame_changed_word(0x4000_2000), 0x4000_2000);
+        assert_eq!(frame_changed_word(u32::MAX), 0x4000_2000);
+        assert_eq!(frame_changed_word(0), 0);
+        assert_eq!(frame_changed_word(0x4000_0000), 0x4000_0000);
+        assert_eq!(frame_changed_word(0x2000), 0x2000);
+        assert_eq!(frame_changed_word(0x0fa7_3e9f), 0x2000);
+    }
+
+    #[test]
+    fn target_list_drains_only_with_pending_targets_outside_flush() {
+        // Working name for the drain gate of I3D_frame::Update (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:916-926): pending list and no
+        // reentrant flush; the occupied body is not claimed here.
+        assert!(update_drains_target_list(1, false));
+        assert!(update_drains_target_list(usize::MAX, false));
+        assert!(!update_drains_target_list(0, false));
+        assert!(!update_drains_target_list(1, true));
+        assert!(!update_drains_target_list(0, true));
+    }
+
+    #[test]
+    fn sector_pos_ancestor_keep_needs_backdrop_or_omni_sector() {
+        // Working name for the sector-ancestor early-out of
+        // I3D_scene::SetFrameSectorPos (mafia-re
+        // ls3df/I3D/I3d_scene.cpp:517-533): the occupied body at PC RVA
+        // 0x4a280 is not claimed here.
+        assert!(set_frame_sector_pos_ancestor_keeps(true, true, false));
+        assert!(set_frame_sector_pos_ancestor_keeps(true, false, true));
+        assert!(set_frame_sector_pos_ancestor_keeps(true, true, true));
+        assert!(!set_frame_sector_pos_ancestor_keeps(true, false, false));
+        assert!(!set_frame_sector_pos_ancestor_keeps(false, true, true));
+        assert!(!set_frame_sector_pos_ancestor_keeps(false, false, false));
+    }
+
+    #[test]
+    fn sector_pos_skips_only_the_same_sector() {
+        // Working name for the same-sector no-op of
+        // I3D_scene::SetFrameSectorPos (mafia-re
+        // ls3df/I3D/I3d_scene.cpp:529-532): the occupied body is not
+        // claimed here.
+        assert!(set_frame_sector_pos_skips_same_sector(true));
+        assert!(!set_frame_sector_pos_skips_same_sector(false));
+    }
+
+    #[test]
+    fn world_dir_roll_gate_matches_mrg_zero() {
+        // Working name for the roll gate of SetWorldDir/SetWorldPosDir
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:178 and :213):
+        // `fabs(roll) > MRG_ZERO` with MRG_ZERO 1e-8 per ls3df/ls3df.h:48.
+        // NaN stays unordered (false), matching the native comparison.
+        assert!(world_dir_applies_roll(1e-7));
+        assert!(world_dir_applies_roll(-1.0));
+        assert!(!world_dir_applies_roll(0.0));
+        assert!(!world_dir_applies_roll(-0.0));
+        assert!(!world_dir_applies_roll(1e-8));
+        assert!(!world_dir_applies_roll(5e-9));
+        assert!(!world_dir_applies_roll(f32::NAN));
+    }
+
+    #[test]
+    fn release_deletes_only_the_last_reference() {
+        // Working name for the last-reference limb of I3D_frame::Release
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:98-104): the occupied
+        // body at PC RVA 0x1aae0 is not claimed here. The argument is the
+        // pre-decrement count; only one deletes.
+        assert!(frame_release_deletes_last(1));
+        assert!(!frame_release_deletes_last(0));
+        assert!(!frame_release_deletes_last(2));
+        assert!(!frame_release_deletes_last(u32::MAX));
+    }
+
+    #[test]
+    fn set_property_stores_null_for_null_and_empty() {
+        // Working name for the null/empty limbs of I3D_frame::SetProperty
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:834-845): both store
+        // NULL and return I3D_OK; the occupied body at PC RVA 0x1c700 is
+        // not claimed here.
+        assert!(frame_set_property_stores_null(None));
+        assert!(frame_set_property_stores_null(Some(0)));
+        assert!(!frame_set_property_stores_null(Some(1)));
+        assert!(!frame_set_property_stores_null(Some(usize::MAX)));
+    }
+
+    #[test]
+    fn link_to_same_parent_is_a_noop() {
+        // Working name for the same-parent early-out of I3D_frame::LinkTo
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:465-466): returns
+        // I3D_OK with no store; the occupied body at PC RVA 0x1b9d0 is not
+        // claimed here.
+        assert!(link_to_same_parent_noop(true));
+        assert!(!link_to_same_parent_noop(false));
+    }
+
+    #[test]
+    fn base_empty_load_image_does_not_move_state() {
+        // Working name for the in-class empty base LoadImage
+        // (mafia-re ls3df/I3D/I3D.h:368): no LS3DF FUNCTION address exists.
+        frame_load_image_noop();
+    }
+
+    #[test]
+    fn base_empty_update_v_does_not_move_state() {
+        // Working name for the in-class empty base UpdateV
+        // (mafia-re ls3df/I3D/I3D.h:366): the out-of-line empties are shared
+        // with the renderer base, not LS3DF frame code, so no RVA is claimed.
+        frame_update_v_noop();
+    }
+
+    #[test]
+    fn name_length_stops_at_first_nul() {
+        // Working name for the NUL-terminated length behind GetName/GetOrigName/
+        // GetProperty (mafia-re ls3df/I3D/I3D.h:583-593,625-630): no LS3DF
+        // FUNCTION address exists (only Game.exe 0x47ad00 for GetName).
+        assert_eq!(frame_name_len_until_nul(b""), 0);
+        assert_eq!(frame_name_len_until_nul(b"abc"), 3);
+        assert_eq!(frame_name_len_until_nul(b"a\0bc"), 1);
+        assert_eq!(frame_name_len_until_nul(b"\0abc"), 0);
+        assert_eq!(frame_name_len_until_nul(b"ab\0"), 2);
+    }
+
+    #[test]
+    fn property_allocation_adds_nul_or_reports_overflow() {
+        // Working name for the SetProperty len+1 limb (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:834-845): the occupied body at PC
+        // RVA 0x1c700 is not claimed here.
+        assert_eq!(frame_property_alloc_len(0), Some(1));
+        assert_eq!(frame_property_alloc_len(3), Some(4));
+        assert_eq!(frame_property_alloc_len(usize::MAX), None);
+    }
+
+    #[test]
+    fn link_mask_covers_the_three_admitted_bits() {
+        // Working name for the I3DLINK_* mask (mafia-re ls3df/I3D/I3D.h:307-311):
+        // defines, not functions, so no LS3DF FUNCTION address exists.
+        assert_eq!(link_supported_flags_mask(), 0x7);
+        assert_eq!(
+            link_supported_flags_mask(),
+            super::I3DLINK_UPDMATRIX | super::I3DLINK_DISCARD_BOUND | super::I3DLINK_UPDATE
+        );
+    }
+
+    #[test]
+    fn set_name_content_compare_uses_c_string_semantics() {
+        // Working name for the SetName content-equal early-out (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:350-377): the occupied body at PC
+        // RVA 0x1b6f0 is not claimed here.
+        assert!(frame_set_name_is_content_equal(None, None));
+        assert!(frame_set_name_is_content_equal(Some(b"a"), Some(b"a")));
+        assert!(frame_set_name_is_content_equal(
+            Some(b"a\0extra"),
+            Some(b"a")
+        ));
+        assert!(!frame_set_name_is_content_equal(Some(b"a"), Some(b"b")));
+        assert!(!frame_set_name_is_content_equal(None, Some(b"a")));
+        assert!(!frame_set_name_is_content_equal(Some(b"a"), None));
+        assert!(!frame_set_name_is_content_equal(Some(b""), Some(b"a")));
+    }
+
+    #[test]
+    fn get_child_gate_accepts_only_in_range_indices() {
+        // Working name for the GetChild index gate (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:610-620): the occupied body at PC
+        // RVA 0x1bfd0 is not claimed here.
+        assert!(frame_get_child_index_in_range(0, 1));
+        assert!(frame_get_child_index_in_range(2, 3));
+        assert!(!frame_get_child_index_in_range(3, 3));
+        assert!(!frame_get_child_index_in_range(-1, 3));
+        assert!(!frame_get_child_index_in_range(0, 0));
+        assert!(!frame_get_child_index_in_range(i32::MIN, 5));
+        assert!(!frame_get_child_index_in_range(i32::MAX, u32::MAX));
+    }
+
+    #[test]
+    fn frame_name_byte_empties_match_null_pointer_fallback() {
+        // Working names for the GetName/GetOrigName/GetProperty `? : ""`
+        // fallbacks (mafia-re ls3df/I3D/I3D.h:583-593,625-630): no LS3DF
+        // FUNCTION addresses exist for standalone readers (only Game.exe
+        // 0x47ad00 for GetName, unclaimed). Pure byte rules, no owner.
+        assert_eq!(frame_name_bytes_or_empty(None), b"");
+        assert_eq!(frame_name_bytes_or_empty(Some(b"a")), b"a");
+        assert_eq!(frame_name_bytes_or_empty(Some(b"")), b"");
+        assert_eq!(frame_orig_name_bytes_or_empty(None), b"");
+        assert_eq!(frame_orig_name_bytes_or_empty(Some(b"m.f")), b"m.f");
+        assert_eq!(frame_property_bytes_or_empty(None), b"");
+        assert_eq!(frame_property_bytes_or_empty(Some(b"p")), b"p");
+        assert_eq!(frame_property_bytes_or_empty(Some(b"")), b"");
+    }
+
+    #[test]
+    fn frame_type_word_discriminants_match_frame_enum_values() {
+        // Working names for the FRAME_* discriminants behind GetType
+        // (mafia-re ls3df/I3D/I3D.h:61-74): no LS3DF FUNCTION addresses
+        // exist for standalone readers.
+        assert!(frame_type_word_is_user(8));
+        assert!(frame_type_word_is_volume(11));
+        assert!(frame_type_word_is_dummy(6));
+        assert!(frame_type_word_is_joint(10));
+        assert!(frame_type_word_is_target(7));
+        assert!(frame_type_word_is_model(9));
+        assert!(!frame_type_word_is_user(0));
+        assert!(!frame_type_word_is_user(11));
+        assert!(!frame_type_word_is_volume(8));
+        assert!(!frame_type_word_is_dummy(7));
+        assert!(!frame_type_word_is_joint(9));
+        assert!(!frame_type_word_is_target(0x4000));
+        assert!(!frame_type_word_is_model(u32::MAX));
+        assert!(!frame_type_word_is_user(u32::MAX));
+    }
+
+    #[test]
+    fn frame_type_word_remaining_discriminants_match_frame_enum_values() {
+        // Working names for the remaining FRAME_* discriminants behind GetType
+        // (mafia-re ls3df/I3D/I3D.h:61-80): no LS3DF FUNCTION addresses
+        // exist for standalone readers; values are the enum order.
+        assert!(frame_type_word_is_null(0));
+        assert!(frame_type_word_is_visual(1));
+        assert!(frame_type_word_is_light(2));
+        assert!(frame_type_word_is_camera(3));
+        assert!(frame_type_word_is_sound(4));
+        assert!(frame_type_word_is_sector(5));
+        assert!(frame_type_word_is_occluder(12));
+        assert!(frame_type_word_is_scene(13));
+        assert!(frame_type_word_is_area(14));
+        assert!(frame_type_word_is_shadow(15));
+        assert!(frame_type_word_is_landscape(16));
+        assert!(frame_type_word_is_emitor(17));
+        assert!(!frame_type_word_is_null(1));
+        assert!(!frame_type_word_is_visual(0));
+        assert!(!frame_type_word_is_light(1));
+        assert!(!frame_type_word_is_camera(2));
+        assert!(!frame_type_word_is_sound(5));
+        assert!(!frame_type_word_is_sector(4));
+        assert!(!frame_type_word_is_occluder(13));
+        assert!(!frame_type_word_is_scene(14));
+        assert!(!frame_type_word_is_area(13));
+        assert!(!frame_type_word_is_shadow(14));
+        assert!(!frame_type_word_is_landscape(17));
+        assert!(!frame_type_word_is_emitor(16));
+        assert!(!frame_type_word_is_visual(u32::MAX));
+        assert!(!frame_type_word_is_scene(u32::MAX));
+    }
+
+    #[test]
+    fn frame_type_bound_helpers_match_last_sentinel() {
+        // Working names for the FRAME_LAST bound (mafia-re ls3df/I3D/I3D.h:81:
+        // 18 is the count; the 4ds loader refuses a type from here on): no
+        // LS3DF FUNCTION address exists for a standalone reader.
+        assert!(frame_type_word_is_last(18));
+        assert!(!frame_type_word_is_last(17));
+        assert!(!frame_type_word_is_last(0));
+        assert!(!frame_type_word_is_last(u32::MAX));
+        assert!(frame_type_in_valid_range(0));
+        assert!(frame_type_in_valid_range(17));
+        assert!(!frame_type_in_valid_range(18));
+        assert!(!frame_type_in_valid_range(u32::MAX));
+        assert!(frame_type_loader_refuses(18));
+        assert!(frame_type_loader_refuses(u32::MAX));
+        assert!(!frame_type_loader_refuses(0));
+        assert!(!frame_type_loader_refuses(17));
+        assert_eq!(
+            frame_type_in_valid_range(17),
+            !frame_type_loader_refuses(17)
+        );
+        assert_eq!(
+            frame_type_in_valid_range(18),
+            !frame_type_loader_refuses(18)
+        );
+    }
+    #[test]
+    fn link_old_chain_clear_mask_drops_other_two_kinds() {
+        // Working name for the LinkTo old-chain clearing (I3d_frame.cpp:508-528):
+        // no LS3DF FUNCTION address exists for a standalone reader (ledger
+        // RVA 0x1b9d0 is occupied, not claimed here).
+        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Sector), 0x40000 | 0x100000);
+        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Occluder), 0x40000 | 0x80000);
+        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Area), 0x80000 | 0x100000);
+        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Model), 0x40000 | 0x80000 | 0x100000);
+        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Dummy), 0x40000 | 0x80000 | 0x100000);
+    }
+    #[test]
+    fn link_follow_up_prefers_update_over_discard() {
+        // Working name for the LinkTo follow-up dispatch (I3d_frame.cpp:498-501):
+        // no LS3DF FUNCTION address exists for a standalone reader (ledger
+        // RVA 0x1b9d0 is occupied, not claimed here).
+        assert_eq!(link_to_follow_up(0), LinkToFollowUp::None);
+        assert_eq!(link_to_follow_up(I3DLINK_UPDMATRIX), LinkToFollowUp::None);
+        assert_eq!(link_to_follow_up(I3DLINK_DISCARD_BOUND), LinkToFollowUp::DiscardBoundVolume);
+        assert_eq!(link_to_follow_up(I3DLINK_UPDATE), LinkToFollowUp::Update);
+        assert_eq!(
+            link_to_follow_up(I3DLINK_UPDATE | I3DLINK_DISCARD_BOUND),
+            LinkToFollowUp::Update
+        );
+        assert_eq!(link_to_follow_up(u32::MAX), LinkToFollowUp::Update);
+    }
+    #[test]
+    fn remove_child_case_covers_all_sibling_shapes() {
+        // Working name for the RemoveChild structural cases
+        // (I3d_frame.cpp:586-600): no LS3DF FUNCTION address exists for a
+        // standalone reader (ledger RVA 0x1bf20 is occupied, not claimed here).
+        assert_eq!(frame_remove_child_case(true, true), RemoveChildCase::Middle);
+        assert_eq!(frame_remove_child_case(true, false), RemoveChildCase::Middle);
+        assert_eq!(frame_remove_child_case(false, true), RemoveChildCase::First);
+        assert_eq!(frame_remove_child_case(false, false), RemoveChildCase::Only);
+    }
+    #[test]
+    fn set_name_null_gate_clears_stored_name() {
+        // Working name for the SetName null gate (I3d_frame.cpp:361-364):
+        // occupied body (ledger 0x1b6f0), no RVA claimed here.
+        assert!(frame_set_name_null_clears(None));
+        assert!(!frame_set_name_null_clears(Some(b"model.frame")));
+        assert!(!frame_set_name_null_clears(Some(b"")));
+    }
+    #[test]
+    fn reset_model_name_collapse_is_noop() {
+        // Working name for the ResetModelName collapse
+        // (I3d_frame.cpp:407-408): occupied body (overlay 0x1b8f0), no RVA
+        // claimed here.
+        assert!(frame_reset_model_name_is_noop(true));
+        assert!(!frame_reset_model_name_is_noop(false));
+    }
+    #[test]
+    fn set_model_name_layout_counts_dot_and_terminator() {
+        // Working name for the SetModelName buffer layout
+        // (I3d_frame.cpp:385,397): occupied body (overlay 0x1b800), no RVA
+        // claimed here.
+        assert_eq!(frame_set_model_name_layout(5, 4), Some((11, 6)));
+        assert_eq!(frame_set_model_name_layout(0, 0), Some((2, 1)));
+        assert_eq!(frame_set_model_name_layout(usize::MAX, 1), None);
+    }
+    #[test]
+    fn update_children_bump_gate_needs_changed_word() {
+        // Working name for the UpdateChildren count gate
+        // (I3d_frame.cpp:887-892, ledger 0x1ca60): occupied body, no RVA
+        // claimed here.
+        assert!(frame_update_children_bumps_count(0x4000_0000));
+        assert!(frame_update_children_bumps_count(0x2000));
+        assert!(frame_update_children_bumps_count(u32::MAX));
+        assert!(!frame_update_children_bumps_count(0));
+        assert!(!frame_update_children_bumps_count(0x40));
+    }
+    #[test]
+    fn discard_hr_bound_vol_ancestor_step_stops_cleanly() {
+        // Working name for one DiscardHRBoundVol ancestor step
+        // (I3d_frame.cpp:936-942, ledger 0x1cc00): occupied body, no RVA
+        // claimed here.
+        assert_eq!(
+            frame_discard_hr_bound_vol_ancestor_step(0x40, false),
+            HrBoundAncestorStep::Clear
+        );
+        assert_eq!(
+            frame_discard_hr_bound_vol_ancestor_step(0, false),
+            HrBoundAncestorStep::Stop
+        );
+        assert_eq!(
+            frame_discard_hr_bound_vol_ancestor_step(0x40, true),
+            HrBoundAncestorStep::Stop
+        );
+        assert_eq!(
+            frame_discard_hr_bound_vol_ancestor_step(u32::MAX, true),
+            HrBoundAncestorStep::Stop
+        );
+    }
+    #[test]
+    fn update_hr_bound_vol_source_dispatch_covers_kinds() {
+        // Working name for the UpdateHRBoundVol source dispatch
+        // (I3d_frame.cpp:954-964, overlay 0x1cc50): occupied body, no RVA
+        // claimed here.
+        assert_eq!(
+            frame_update_hr_bound_vol_source_kind(true, false),
+            HrBoundSource::MarkValidOnly
+        );
+        assert_eq!(
+            frame_update_hr_bound_vol_source_kind(true, true),
+            HrBoundSource::MarkValidOnly
+        );
+        assert_eq!(
+            frame_update_hr_bound_vol_source_kind(false, true),
+            HrBoundSource::CopyVisualBound
+        );
+        assert_eq!(
+            frame_update_hr_bound_vol_source_kind(false, false),
+            HrBoundSource::InvalidateBox
+        );
+    }
+    #[test]
+    fn hr_bound_refresh_gates_report_cleared_bits_only() {
+        // Working names for the GetHRBoundVolume/GetHRBoundVolumeW refresh
+        // gates (I3D.h:5011-5016/536-541): no LS3DF FUNCTION entries exist
+        // for standalone readers; occupied bodies 0x1cc50/0x1cf90 unclaimed.
+        assert!(frame_hr_bound_needs_update(0));
+        assert!(!frame_hr_bound_needs_update(0x40));
+        assert!(frame_hr_bound_needs_update(u32::MAX & !0x40));
+        assert!(!frame_hr_bound_needs_update(u32::MAX));
+        assert!(frame_hr_bound_w_needs_update(0));
+        assert!(!frame_hr_bound_w_needs_update(0x100));
+        assert!(frame_hr_bound_w_needs_update(u32::MAX & !0x100));
+        assert!(!frame_hr_bound_w_needs_update(u32::MAX));
+    }
+    #[test]
+    fn render_number_initial_and_child_empty_report_ctor_words() {
+        // Working names for the m_RenderNumber -1 word (I3d_frame.cpp:62)
+        // and the m_numChildren empty check (+0x11c): no LS3DF FUNCTION
+        // entries exist for standalone readers.
+        assert!(frame_render_number_is_initial(u32::MAX));
+        assert!(!frame_render_number_is_initial(0));
+        assert!(!frame_render_number_is_initial(41));
+        assert!(frame_child_list_is_empty(0));
+        assert!(!frame_child_list_is_empty(1));
+        assert!(!frame_child_list_is_empty(u32::MAX));
+    }
+    #[test]
+    fn hierarchy_presence_readers_follow_live_links() {
+        // Working names for GetParent/first-child/sibling presence
+        // (I3D.h:5042-5046/678-679): only Game.exe copies exist
+        // (0x47ad10 etc.), unclaimed here.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let child = graph.insert(I3dFrameState::model()).unwrap();
+        assert!(!graph.frame_has_parent(parent).unwrap());
+        assert!(!graph.frame_has_child(parent).unwrap());
+        assert!(!graph.frame_has_next_sibling(child).unwrap());
+        assert!(!graph.frame_has_prev_sibling(child).unwrap());
+        graph.add_child(parent, child).unwrap();
+        assert!(graph.frame_has_child(parent).unwrap());
+        assert!(graph.frame_has_parent(child).unwrap());
+        assert_eq!(graph.frame_has_next_sibling(parent), graph.frame_has_prev_sibling(parent));
+        assert_eq!(
+            graph.frame_has_parent(FrameKey(u32::MAX)).unwrap_err(),
+            FrameError::UnknownFrame(FrameKey(u32::MAX))
+        );
+    }
+    #[test]
+    fn sibling_presence_distinguishes_next_and_prev() {
+        // Same inline-only hierarchy links as above: prepend order puts the
+        // second child first, so next/prev are not symmetric.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let first = graph.insert(I3dFrameState::model()).unwrap();
+        let second = graph.insert(I3dFrameState::model()).unwrap();
+        graph.add_child(parent, first).unwrap();
+        graph.add_child(parent, second).unwrap();
+        let head = graph.frame_first_child_key(parent).unwrap().unwrap();
+        assert_eq!(head, second);
+        assert!(graph.frame_has_next_sibling(head).unwrap());
+        assert!(!graph.frame_has_prev_sibling(head).unwrap());
+        let tail = graph.frame_next_key(head).unwrap().unwrap();
+        assert_eq!(tail, first);
+        assert!(!graph.frame_has_next_sibling(tail).unwrap());
+        assert!(graph.frame_has_prev_sibling(tail).unwrap());
+    }
+    #[test]
+    fn frame_name_empty_reports_missing_pointer() {
+        // Working name for the GetName presence gate (I3D.h:583-587): no
+        // LS3DF FUNCTION entry exists; only Game.exe 0x47ad00, unclaimed.
+        assert!(frame_name_is_empty(false));
+        assert!(!frame_name_is_empty(true));
+    }
+    #[test]
+    fn frame_orig_name_empty_reports_missing_pointer() {
+        // Working name for the GetOrigName presence gate (I3D.h:589-593): no
+        // LS3DF FUNCTION entry and no Game.exe copy exist.
+        assert!(frame_orig_name_is_empty(false));
+        assert!(!frame_orig_name_is_empty(true));
+    }
+    #[test]
+    fn frame_property_empty_reports_missing_pointer() {
+        // Working name for the GetProperty presence gate (I3D.h:625-630,
+        // game-only branch): no LS3DF FUNCTION entry exists.
+        assert!(frame_property_is_empty(false));
+        assert!(!frame_property_is_empty(true));
+    }
+    #[test]
+    fn frame_data_zero_reports_construction_word() {
+        // Working name for the GetData word (I3D.h:595-600, +0x08): the
+        // reference records no LS3DF FUNCTION entry for a standalone reader.
+        assert!(frame_data_is_zero(0));
+        assert!(!frame_data_is_zero(1));
+        assert!(!frame_data_is_zero(u32::MAX));
+    }
+    #[test]
+    fn frame_scale_unit_reports_ctor_vector() {
+        // Working name for the ctor scale (I3d_frame.cpp:42): GetScale
+        // (I3D.h:478-481) has no LS3DF FUNCTION entry.
+        assert!(frame_scale_is_unit([1.0, 1.0, 1.0]));
+        assert!(!frame_scale_is_unit([0.0, 1.0, 1.0]));
+        assert!(!frame_scale_is_unit([1.0, 1.0, 0.0]));
+        assert!(!frame_scale_is_unit([f32::NAN, 1.0, 1.0]));
+    }
+    #[test]
+    fn frame_world_scale_initial_reports_ctor_word() {
+        // Working name for the ctor world scale (I3d_frame.cpp:44): GetWorldScale
+        // (I3D.h:519-528) exists only as Game.exe 0x47a7b0, unclaimed here.
+        assert!(frame_world_scale_is_initial(1.0));
+        assert!(!frame_world_scale_is_initial(0.0));
+        assert!(!frame_world_scale_is_initial(2.0));
+        assert!(!frame_world_scale_is_initial(f32::NAN));
+    }
+    #[test]
+    fn frame_update_count_initial_reports_zero_only() {
+        // Working name for the ctor update count (I3d_frame.cpp:41): bumped only
+        // inside occupied UpdateChildren 0x1c9a0, no standalone FUNCTION.
+        assert!(frame_update_count_is_initial(0));
+        assert!(!frame_update_count_is_initial(1));
+        assert!(!frame_update_count_is_initial(u32::MAX));
     }
 }

@@ -9,6 +9,56 @@ use crate::{
     scene_weather_dummy::WEATHER_FLAG,
 };
 
+/// DUMMYF_INV_MAT_VALID 0x10 (mafia-re ls3df/I3D/I3D.h:1824 at pin 113b5b6):
+/// inv_matrix is up to date (PC only); cleared when the frame moves or is
+/// normalized, set by GetInvMatrix.
+pub const DUMMYF_INV_MAT_VALID: u32 = 0x10;
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the DUMMYF_INV_MAT_VALID bit (I3D.h:1824) that GetInvMatrix gates on
+/// (I3D.h:1852; mafia-re ls3df/I3D/I3D.h at pin 113b5b6). The original
+/// exposes no named accessor: Normalize and GetInvMatrix test and store the
+/// bit in place.
+pub fn dummy_inv_matrix_valid(dummy_flags: u32) -> bool {
+    dummy_flags & DUMMYF_INV_MAT_VALID != 0
+}
+
+/// DUMMYF_NORMALIZED 0x1 (mafia-re ls3df/I3D/I3D.h:1822): Normalize mapped
+/// the box to (0, 0, 0)-(1, 1, 1).
+pub const DUMMYF_NORMALIZED: u32 = 0x01;
+/// DUMMYF_NORMALIZED_CENTER 0x2 (mafia-re ls3df/I3D/I3D.h:1823): Normalize
+/// mapped the box to (-1, -1, -1)-(1, 1, 1).
+pub const DUMMYF_NORMALIZED_CENTER: u32 = 0x02;
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the DUMMYF_NORMALIZED bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:1822; set by `Normalize`, mafia-re
+/// ls3df/I3D/frames/I3d_dummy.cpp:62-69). Reports the (0, 0, 0)-(1, 1, 1)
+/// normalization; no state moves.
+pub fn dummy_is_normalized(dummy_flags: u32) -> bool {
+    dummy_flags & DUMMYF_NORMALIZED != 0
+}
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the DUMMYF_NORMALIZED_CENTER bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:1823; set by `Normalize`, mafia-re
+/// ls3df/I3D/frames/I3d_dummy.cpp:52-60). Reports the centered (-1, -1,
+/// -1)-(1, 1, 1) normalization; no state moves.
+pub fn dummy_is_center_normalized(dummy_flags: u32) -> bool {
+    dummy_flags & DUMMYF_NORMALIZED_CENTER != 0
+}
+
+/// Working name for the `Normalize` mode gate (mafia-re
+/// ls3df/I3D/frames/I3d_dummy.cpp:48-71 at pin 113b5b6: center limb for
+/// mode 2, min-corner limb otherwise). The reference records no LS3DF
+/// FUNCTION address for a standalone gate reader; the CMP/mode,2/JNZ branch
+/// lives inside the occupied `Normalize` body (PC RVA 0x1a350, already
+/// ported, not claimed here). Reports whether the centered (-1,-1,-1) to
+/// (1,1,1) limb applies; no state moves.
+pub fn dummy_normalize_mode_is_center(mode: u32) -> bool {
+    mode == 2
+}
+
 impl ModelArena {
     pub fn create_dummy_frame(&mut self) -> Result<FrameKey, ModelError> {
         self.insert(
@@ -227,6 +277,47 @@ impl ModelArena {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inv_matrix_valid_reader_reports_only_bit_four() {
+        assert_eq!(DUMMYF_INV_MAT_VALID, 0x10);
+        assert!(dummy_inv_matrix_valid(DUMMYF_INV_MAT_VALID));
+        assert!(dummy_inv_matrix_valid(u32::MAX));
+        assert!(!dummy_inv_matrix_valid(0));
+        assert!(!dummy_inv_matrix_valid(0x03));
+        assert!(!dummy_inv_matrix_valid(0x20));
+    }
+    #[test]
+    fn normalized_reader_reports_only_bit_zero() {
+        assert_eq!(DUMMYF_NORMALIZED, 0x01);
+        assert!(dummy_is_normalized(DUMMYF_NORMALIZED));
+        assert!(dummy_is_normalized(u32::MAX));
+        assert!(!dummy_is_normalized(0));
+        assert!(!dummy_is_normalized(DUMMYF_NORMALIZED_CENTER));
+        assert!(!dummy_is_normalized(DUMMYF_INV_MAT_VALID));
+        assert!(!dummy_is_normalized(u32::MAX & !DUMMYF_NORMALIZED));
+    }
+    #[test]
+    fn center_normalized_reader_reports_only_bit_one() {
+        assert_eq!(DUMMYF_NORMALIZED_CENTER, 0x02);
+        assert!(dummy_is_center_normalized(DUMMYF_NORMALIZED_CENTER));
+        assert!(dummy_is_center_normalized(u32::MAX));
+        assert!(!dummy_is_center_normalized(0));
+        assert!(!dummy_is_center_normalized(DUMMYF_NORMALIZED));
+        assert!(!dummy_is_center_normalized(DUMMYF_INV_MAT_VALID));
+        assert!(!dummy_is_center_normalized(
+            u32::MAX & !DUMMYF_NORMALIZED_CENTER
+        ));
+    }
+    #[test]
+    fn normalize_mode_gate_reports_only_center_mode() {
+        // Working name for the Normalize mode==2 gate (I3d_dummy.cpp:48-71):
+        // no LS3DF FUNCTION address exists for a standalone reader.
+        assert!(dummy_normalize_mode_is_center(2));
+        assert!(!dummy_normalize_mode_is_center(0));
+        assert!(!dummy_normalize_mode_is_center(1));
+        assert!(!dummy_normalize_mode_is_center(99));
+        assert!(!dummy_normalize_mode_is_center(u32::MAX));
+    }
     #[test]
     fn genuine_dummy_constructor_box_copy_and_last_release_share_one_owner() {
         let mut arena = ModelArena::default();

@@ -15,6 +15,7 @@ use crate::mission_components::{
     GameConstructorGlobals, GameConstructorInputs, MissionAllocation, MissionAllocator,
     MissionComponent, MissionComponentKind,
 };
+use crate::mission_options::MissionOptions;
 use crate::mission_resources::MissionCaches;
 use crate::scene_ownership::SceneKey;
 
@@ -182,6 +183,355 @@ impl MissionLifecycle {
     /// identity word; no tshift owner is resolved here.
     pub fn get_tshift(&self) -> i32 {
         self.word(0x28) as i32
+    }
+    /// Working name (no outline Game.exe entry is claimed; mafia-re
+    /// `game/mission/Mission.h:228-233`, `C_mission::GetGame`): reads the
+    /// game member (mission +0x24, the `C_game` the mission owns). The
+    /// reference only ventures a guess at an outline copy (`Mission.h:230`,
+    /// `0x47ae50`, inventory-only with no unique body), so no RVA is
+    /// claimed here. The host keeps the member's identity word; no game
+    /// owner is resolved here.
+    pub fn get_game(&self) -> i32 {
+        self.word(0x24) as i32
+    }
+    /// Working name (no outline Game.exe entry is claimed; mafia-re
+    /// `game/mission/Mission.h:278-281`, `C_mission::GetScene`): reads the
+    /// scene member (mission +0x10). No outline copy exists in the
+    /// reference, so no RVA is claimed here. Unlike
+    /// [`MissionLifecycle::scene`], which resolves the owned `SceneKey`,
+    /// this reads the raw member word, like [`MissionLifecycle::get_tshift`].
+    pub fn get_scene(&self) -> i32 {
+        self.word(0x10) as i32
+    }
+    /// Working name (no outline Game.exe entry is claimed; mafia-re
+    /// `game/mission/Mission.h:268-271`, `C_mission::GetOptions`): reads the
+    /// staged video/audio option words (mission +0x90, `S_mission_options`
+    /// layout `Mission.h:23-31`) into the option state. The reference folds
+    /// the only outline copy with `I3D_frame::GetScale` (`0x47aec0`,
+    /// inventory-only, no unique body), so no RVA is claimed here.
+    pub fn get_options(&self) -> MissionOptions {
+        MissionOptions {
+            level_of_detail: f32::from_le_bytes(self.word(0x90).to_le_bytes()),
+            draw_distance: f32::from_le_bytes(self.word(0x94).to_le_bytes()),
+            far_range: f32::from_le_bytes(self.word(0x98).to_le_bytes()),
+            game_effects: self.word(0x9c) as i32,
+            game_sounds: self.word(0xa0) as i32,
+            shadows: self.word(0xa4) as i32,
+            particles: self.word(0xa8) as i32,
+        }
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; inline only,
+    /// mafia-re `game/mission/Mission.h:290-294`,
+    /// `C_mission::ResetMissionNumbers`): clears both staged mission numbers
+    /// (mission +0x70 `next_mission_number`, +0x74 `mission_number`) through
+    /// one load of the mission, as the reference does. The body is inlined
+    /// at the single `main` call site, so no Game.exe function entry exists
+    /// and none is claimed here.
+    pub fn reset_mission_numbers(&mut self) {
+        self.put_word(0x70, 0);
+        self.put_word(0x74, 0);
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; folded copy,
+    /// mafia-re `game/mission/Mission.h:272-277`,
+    /// `C_mission::GetMissionName`): reads the staged mission-name word
+    /// (mission +0x68, `char *mission_name`). The reference folds the only
+    /// outline copy with `C_actor::GetFrame` (kept as
+    /// `BaseActorState::frame_id`, GAME 0x47afb0 / RVA 0x7afb0), so the copy
+    /// names the shared body and no separate mission RVA is claimed here.
+    /// The host keeps the word; string ownership stays with the mission
+    /// name owner.
+    pub fn mission_name_word(&self) -> u32 {
+        self.word(0x68)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; inline only,
+    /// mafia-re `game/mission/Mission.h:117-120`, `C_mission::last_actor_number`
+    /// at +0x8): reads the last number `C_actor::Init` gave an actor. `Open`
+    /// clears it. The native word is read inline with no dedicated getter,
+    /// so no RVA is claimed.
+    pub fn last_actor_number(&self) -> i32 {
+        self.word(0x08) as i32
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; inline only,
+    /// mafia-re `game/mission/Mission.h:120-122`, `C_mission::opened` at
+    /// +0xc): reports whether a mission is open. `Close` does nothing
+    /// without it and clears it. No dedicated getter exists natively, so no
+    /// RVA is claimed.
+    pub fn is_opened(&self) -> bool {
+        self.bytes[0x0c] != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; inline only,
+    /// mafia-re `game/mission/Mission.h:135-136`, `C_mission::render_number`
+    /// at +0x64): reads the scene render number `C_game::Tick` copies each
+    /// frame. No dedicated getter exists natively, so no RVA is claimed.
+    pub fn render_number(&self) -> i32 {
+        self.word(0x64) as i32
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; inline only,
+    /// mafia-re `game/mission/Mission.h:79-82`, `C_mission::restore_volume`
+    /// at +0x7c): reports the pending volume-restore latch `Open` sets while
+    /// it mutes the sound. The first `Tick` with `skip_frames` below 1
+    /// clears it. No dedicated getter exists natively, so no RVA is claimed.
+    pub fn is_restore_volume(&self) -> bool {
+        self.bytes[0x7c] != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:117`, `C_mission::unknown_0` at
+    /// +0x0): reads the staged word without attaching gameplay meaning. No
+    /// dedicated native getter exists, so no RVA is claimed.
+    pub fn unknown_0(&self) -> u32 {
+        self.word(0x00)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:118`, `C_mission::unknown_4` at
+    /// +0x4): reads the staged word without attaching gameplay meaning. No
+    /// dedicated native getter exists, so no RVA is claimed.
+    pub fn unknown_4(&self) -> u32 {
+        self.word(0x04)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:125`, `C_mission::web_path` at
+    /// +0x2c): reads the staged web-path member word. No dedicated native
+    /// getter exists, so no RVA is claimed.
+    pub fn web_path_word(&self) -> u32 {
+        self.word(0x2c)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:127`, `C_mission::roads` at +0x30):
+    /// reads the staged roads member word. No dedicated native getter
+    /// exists, so no RVA is claimed.
+    pub fn roads_word(&self) -> u32 {
+        self.word(0x30)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:142`, `C_mission::effects` at +0x6c):
+    /// reads the staged effects member word. No dedicated native getter
+    /// exists, so no RVA is claimed.
+    pub fn effects_word(&self) -> u32 {
+        self.word(0x6c)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:144-148`, `C_mission::skip_frames`
+    /// at +0x78): reads the staged skip-frames count `Tick` counts down
+    /// without presenting. No dedicated native getter exists, so no RVA is
+    /// claimed.
+    pub fn skip_frames_word(&self) -> i32 {
+        self.word(0x78) as i32
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw store,
+    /// mafia-re `game/mission/Mission.h:144-148`, `C_mission::skip_frames`
+    /// at +0x78): stages the skip-frames count. The `Tick` countdown stays
+    /// with the mission owner. No dedicated native setter exists, so no RVA
+    /// is claimed.
+    pub fn set_skip_frames_word(&mut self, value: i32) {
+        self.put_word(0x78, value as u32);
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:140-141`, `C_mission::next_mission_number`
+    /// at +0x70): reads the staged next-mission number. The native member is
+    /// written by `SetMissionNumber` and read by `KeepMissionNumber` with no
+    /// dedicated raw getter, so no RVA is claimed.
+    pub fn next_mission_number_word(&self) -> i32 {
+        self.word(0x70) as i32
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:140-141`, `C_mission::mission_number`
+    /// at +0x74): reads the staged current mission number. The native member
+    /// is read by `GetMissionNumber` with no dedicated raw getter, so no RVA
+    /// is claimed.
+    pub fn mission_number_word(&self) -> i32 {
+        self.word(0x74) as i32
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:124`, `C_mission::anim_models` at
+    /// +0x14, `S_anim_model` entries): reads the staged animation-model
+    /// vector word. The native size is read inline at each loop bound with
+    /// no dedicated getter, so no RVA is claimed.
+    pub fn anim_models_word(&self) -> u32 {
+        self.word(0x14)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:129`, `C_mission::actors` at +0x34):
+    /// reads the staged actor vector word. The native size is read inline
+    /// at each loop bound with no dedicated getter, so no RVA is claimed.
+    pub fn actors_word(&self) -> u32 {
+        self.word(0x34)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:132`, `C_mission::not_me_actors` at
+    /// +0x44): reads the staged not-me actor vector word. The native size
+    /// is read inline with no dedicated getter, so no RVA is claimed.
+    pub fn not_me_actors_word(&self) -> u32 {
+        self.word(0x44)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:134`, `C_mission::programs` at
+    /// +0x54): reads the staged whole-game script vector word. The native
+    /// size is read inline at each loop bound with no dedicated getter, so
+    /// no RVA is claimed.
+    pub fn programs_word(&self) -> u32 {
+        self.word(0x54)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:153`, `C_mission::t_transparent` at
+    /// +0x80, `S_t_transparent` entries): reads the staged fade-object
+    /// vector word. The native size is read inline with no dedicated
+    /// getter, so no RVA is claimed.
+    pub fn t_transparent_word(&self) -> u32 {
+        self.word(0x80)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:155`, `C_mission::frame_actor_buffer`
+    /// at +0xac, `S_frame_actor_buffer` 0x10-byte entries): reads the staged
+    /// kept-between-missions vector word. The native size is read inline at
+    /// each loop bound with no dedicated getter, so no RVA is claimed.
+    pub fn frame_actor_buffer_word(&self) -> u32 {
+        self.word(0xac)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:156`, `C_mission::active_actors` at
+    /// +0xbc): reads the staged stay-in-game actor vector word. The native
+    /// size is read inline at each loop bound with no dedicated getter, so
+    /// no RVA is claimed.
+    pub fn active_actors_word(&self) -> u32 {
+        self.word(0xbc)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:157`, `C_mission::actor_sound_buffer`
+    /// at +0xcc, `S_actor_sound_buffer` 0xc-byte entries): reads the staged
+    /// kept actor-sound vector word. The native size is read inline at each
+    /// loop bound with no dedicated getter, so no RVA is claimed.
+    pub fn actor_sound_buffer_word(&self) -> u32 {
+        self.word(0xcc)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:129`, `actors` at +0x34): whether an
+    /// actor vector word is staged. The native size is tested inline where
+    /// the actor registry consumes it, with no dedicated flag getter, so no
+    /// Game.exe function entry is claimed.
+    pub fn has_actors_staged(&self) -> bool {
+        self.word(0x34) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:132`, `not_me_actors` at +0x44):
+    /// whether a not-me actor vector word is staged. Inline native use
+    /// only, so no RVA is claimed.
+    pub fn has_not_me_actors_staged(&self) -> bool {
+        self.word(0x44) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:134`, `programs` at +0x54): whether
+    /// a whole-game script vector word is staged. Inline native use only,
+    /// so no RVA is claimed.
+    pub fn has_programs_staged(&self) -> bool {
+        self.word(0x54) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:153`, `t_transparent` at +0x80):
+    /// whether a fade-object vector word is staged. Inline native use only,
+    /// so no RVA is claimed.
+    pub fn has_t_transparent_staged(&self) -> bool {
+        self.word(0x80) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:156`, `active_actors` at +0xbc):
+    /// whether a stay-in-game actor vector word is staged. Inline native
+    /// use only, so no RVA is claimed.
+    pub fn has_active_actors_staged(&self) -> bool {
+        self.word(0xbc) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:157`, `actor_sound_buffer` at +0xcc):
+    /// whether a kept actor-sound vector word is staged. Inline native use
+    /// only, so no RVA is claimed.
+    pub fn has_actor_sound_buffer_staged(&self) -> bool {
+        self.word(0xcc) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:124`, `anim_models` at +0x14):
+    /// whether an animation-model vector word is staged. The native size is
+    /// read inline at each loop bound (`Mission.cpp:163,180,193`) with no
+    /// dedicated flag getter, so no RVA is claimed.
+    pub fn has_anim_models_staged(&self) -> bool {
+        self.word(0x14) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:155`, `frame_actor_buffer` at +0xac,
+    /// `S_frame_actor_buffer` 0x10-byte entries): whether a kept-between-missions
+    /// vector word is staged. Inline native use only, so no RVA is claimed.
+    pub fn has_frame_actor_buffer_staged(&self) -> bool {
+        self.word(0xac) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:127`, `web_path` at +0x2c): whether
+    /// a web-path member word is staged. `Init` (`Mission.cpp:99-100`)
+    /// branches on the null word inline with no dedicated flag getter, so no
+    /// RVA is claimed.
+    pub fn has_web_path_staged(&self) -> bool {
+        self.word(0x2c) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:128`, `roads` at +0x30): whether a
+    /// roads member word is staged. `Init` (`Mission.cpp:101-102`) branches
+    /// on the null word inline, so no RVA is claimed.
+    pub fn has_roads_staged(&self) -> bool {
+        self.word(0x30) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:140`, `effects` at +0x6c): whether
+    /// an effects member word is staged. `Init` (`Mission.cpp:103-104`)
+    /// branches on the null word inline, so no RVA is claimed.
+    pub fn has_effects_staged(&self) -> bool {
+        self.word(0x6c) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:126`, `tshift` at +0x28): whether a
+    /// tshift member word is staged. `Init` (`Mission.cpp:97-98`) branches
+    /// on the null word inline, so no RVA is claimed.
+    pub fn has_tshift_staged(&self) -> bool {
+        self.word(0x28) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:125`, `game` at +0x24): whether a
+    /// game member word is staged. `Init` (`Mission.cpp:107`) branches on the
+    /// null word inline with no dedicated flag getter, so no RVA is claimed.
+    pub fn has_game_staged(&self) -> bool {
+        self.word(0x24) != 0
     }
     pub fn pending_scene(&self) -> Option<SceneKey> {
         self.pending_scene
@@ -949,6 +1299,120 @@ impl MissionLifecycle {
     }
 }
 
+/// Texture-shift element flag: the shift sets the mesh texture offsets
+/// (`u_ofs`, `v_ofs`; mafia-re `game/mission/tshift.h:41`).
+pub const TSHIFT_TEXTURE: u16 = 1;
+/// Texture-shift element flag: the shift sets the environment-map offsets
+/// (`env_u_ofs`, `env_v_ofs`; mafia-re `game/mission/tshift.h:42`).
+pub const TSHIFT_ENVIRONMENT: u16 = 2;
+
+/// Staged texture-shift element (mafia-re `game/mission/tshift.h:15-38`,
+/// `S_tshift_elem`, 0x1c bytes). Native `I3D_mesh_object`/`I3D_visual`
+/// pointers are staged identity words; live mesh/visual ownership stays
+/// with the scene owner.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TshiftElem {
+    pub mesh: u32,
+    pub visual: u32,
+    pub u_speed: f32,
+    pub v_speed: f32,
+    pub u: f32,
+    pub v: f32,
+    pub flags: u16,
+}
+
+impl TshiftElem {
+    /// FUNCTION: GAME RVA 0x145250, VA 0x545250 (mafia-re
+    /// `game/mission/tshift.h:23-35`, `S_tshift_elem::Init`): stores the
+    /// mesh/visual words and the per-second speeds, zeroes the shift and
+    /// stores the flags. Store order is unspecified (VC6 groups the
+    /// constant stores), so only the resulting values are contracted.
+    pub fn init(mesh: u32, visual: u32, u_speed: f32, v_speed: f32, flags: u16) -> Self {
+        Self {
+            mesh,
+            visual,
+            u_speed,
+            v_speed,
+            u: 0.0,
+            v: 0.0,
+            flags,
+        }
+    }
+}
+
+/// Owned texture-shift list (mafia-re `game/mission/tshift.h:45-62`,
+/// `C_tshift`, `elems` at +0x0). Element storage stays here; live
+/// mesh/visual ownership stays with the scene owner.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TshiftStore {
+    pub elems: Vec<TshiftElem>,
+}
+
+impl TshiftStore {
+    /// FUNCTION: GAME RVA 0x145280, VA 0x545280 (mafia-re
+    /// `game/mission/tshift.h:56-61`, `C_tshift::Add`): pushes the staged
+    /// element. The inlined `push_back` growth stays with the host `Vec`.
+    pub fn add(&mut self, elem: TshiftElem) {
+        self.elems.push(elem);
+    }
+
+    /// Working name (no outline entry is claimed): `C_mission::Close`
+    /// 0x5405e0 clears the shift list (`tshift->elems.clear()`, mafia-re
+    /// `game/mission/Mission.cpp:521` at pin 113b5b6). The clear is inlined
+    /// with no dedicated outline, so no RVA is claimed here.
+    pub fn clear(&mut self) {
+        self.elems.clear();
+    }
+}
+
+/// Host sink for the flag-gated mesh offset writes of
+/// [`tshift_elem_tick`]. Mirrors the two `SetOffsets` call sites (texture
+/// vs. environment); live mesh/visual ownership stays deferred.
+pub trait TshiftOffsetsBackend {
+    fn set_texture_offsets(&mut self, u: f32, v: f32);
+    fn set_env_offsets(&mut self, u: f32, v: f32);
+}
+
+/// FUNCTION: GAME RVA 0x160410, VA 0x560410 (mafia-re
+/// `game/mission/tshift.cpp:19-52`, `S_tshift_elem::Tick`): advances the
+/// shift by `t` seconds and wraps each axis into (-1.0, 1.0] via the
+/// reference's `floor`/`ceil` subtraction (`floor` past +1.0, `ceil` past
+/// -1.0, untouched otherwise, NaN included). The flag-gated offset stores
+/// run through the backend in native order (texture, then environment);
+/// the FPU copy width of the original is a host `f32` copy here.
+pub fn tshift_elem_tick(elem: &mut TshiftElem, t: f32, backend: &mut impl TshiftOffsetsBackend) {
+    elem.u += t * elem.u_speed;
+    if elem.u > 1.0 {
+        elem.u -= elem.u.floor();
+    } else if elem.u < -1.0 {
+        elem.u -= elem.u.ceil();
+    }
+    elem.v += t * elem.v_speed;
+    if elem.v > 1.0 {
+        elem.v -= elem.v.floor();
+    } else if elem.v < -1.0 {
+        elem.v -= elem.v.ceil();
+    }
+    if elem.flags & TSHIFT_TEXTURE != 0 {
+        backend.set_texture_offsets(elem.u, elem.v);
+    }
+    if elem.flags & TSHIFT_ENVIRONMENT != 0 {
+        backend.set_env_offsets(elem.u, elem.v);
+    }
+}
+
+/// FUNCTION: GAME RVA 0x145fd0, VA 0x545fd0 (mafia-re
+/// `game/mission/Mission.h:408-412` marker, `game/mission/Mission.cpp:1844-1850`,
+/// static `ClearCarSeats`): empties the car's seats from the last one via
+/// `SetOwner(NULL, i, 0.0)`. The car/seat owners stay deferred, so the host
+/// takes the staged seat slots and clears them back-to-front in the same
+/// order; `0.0` is the native detach parameter and carries no value here.
+pub fn clear_car_seats(seats: &mut [Option<u32>]) {
+    for slot in seats.iter_mut().rev() {
+        *slot = None;
+    }
+}
+
 fn component_offset(kind: MissionComponentKind) -> usize {
     match kind {
         MissionComponentKind::Tshift => 0x28,
@@ -1000,6 +1464,48 @@ mod tests {
         mission.put_word(0x28, (-1i32) as u32);
         assert_eq!(mission.get_tshift(), -1);
         assert_eq!(mission.get_tshift() as u32, mission.word(0x28));
+    }
+    #[test]
+    fn mission_get_game_reads_staged_member_word() {
+        // Working name, mafia-re `game/mission/Mission.h:228-233`: the game
+        // member (mission +0x24) read. The constructor stores a null member,
+        // so the default read is zero.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.get_game(), 0);
+        mission.put_word(0x24, 0x1234_5678);
+        assert_eq!(mission.get_game(), 0x1234_5678 as i32);
+    }
+    #[test]
+    fn mission_get_scene_reads_staged_member_word() {
+        // Working name, mafia-re `game/mission/Mission.h:278-281`: the scene
+        // member (mission +0x10) read. Unlike `scene()`, which resolves the
+        // owned key, this reads the raw staged identity word.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.get_scene(), 0);
+        mission.put_word(0x10, (-42i32) as u32);
+        assert_eq!(mission.get_scene(), -42);
+    }
+    #[test]
+    fn mission_get_options_reads_staged_words() {
+        // Working name, mafia-re `game/mission/Mission.h:268-271` with the
+        // `S_mission_options` layout `Mission.h:23-31`: the seven staged
+        // option words map onto the option state in member order.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        mission.put_word(0x90, 1f32.to_bits());
+        mission.put_word(0x94, 0.5f32.to_bits());
+        mission.put_word(0x98, 250.0f32.to_bits());
+        mission.put_word(0x9c, 2);
+        mission.put_word(0xa0, (-1i32) as u32);
+        mission.put_word(0xa4, 6);
+        mission.put_word(0xa8, 0);
+        let options = mission.get_options();
+        assert_eq!(options.level_of_detail, 1.0);
+        assert_eq!(options.draw_distance, 0.5);
+        assert_eq!(options.far_range, 250.0);
+        assert_eq!(options.game_effects, 2);
+        assert_eq!(options.game_sounds, -1);
+        assert_eq!(options.shadows, 6);
+        assert_eq!(options.particles, 0);
     }
     struct Heap {
         next: u32,
@@ -1949,5 +2455,364 @@ mod tests {
             assert_eq!(mission.bytes[0x0c], 1);
             assert_eq!(mission.components().filter(|(_, alive)| *alive).count(), 5);
         });
+    }
+    #[test]
+    fn tshift_elem_init_rva_145250_stores_speeds_and_zeroes_shift() {
+        // S_tshift_elem::Init GAME RVA 0x145250 (VA 0x545250).
+        let elem = TshiftElem::init(0x11, 0x22, 0.5, -1.25, TSHIFT_TEXTURE | TSHIFT_ENVIRONMENT);
+        assert_eq!(elem.mesh, 0x11);
+        assert_eq!(elem.visual, 0x22);
+        assert_eq!(elem.u_speed, 0.5);
+        assert_eq!(elem.v_speed, -1.25);
+        assert_eq!(elem.u, 0.0);
+        assert_eq!(elem.v, 0.0);
+        assert_eq!(elem.flags, TSHIFT_TEXTURE | TSHIFT_ENVIRONMENT);
+    }
+    #[test]
+    fn tshift_add_rva_145280_pushes_elements_in_order() {
+        // C_tshift::Add GAME RVA 0x145280 (VA 0x545280).
+        let mut store = TshiftStore::default();
+        let first = TshiftElem::init(1, 2, 0.0, 0.0, TSHIFT_TEXTURE);
+        let second = TshiftElem::init(3, 4, 1.0, 1.0, TSHIFT_ENVIRONMENT);
+        store.add(first);
+        store.add(second);
+        assert_eq!(store.elems, vec![first, second]);
+    }
+    struct OffsetLog {
+        texture: Vec<[f32; 2]>,
+        env: Vec<[f32; 2]>,
+    }
+    impl TshiftOffsetsBackend for OffsetLog {
+        fn set_texture_offsets(&mut self, u: f32, v: f32) {
+            self.texture.push([u, v]);
+        }
+        fn set_env_offsets(&mut self, u: f32, v: f32) {
+            self.env.push([u, v]);
+        }
+    }
+    #[test]
+    fn tshift_elem_tick_rva_160410_wraps_and_gates_by_flags() {
+        // S_tshift_elem::Tick GAME RVA 0x160410 (VA 0x560410). Exact binary
+        // fractions keep the f32 wrap assertions bit-exact.
+        let mut backend = OffsetLog { texture: vec![], env: vec![] };
+        let mut elem = TshiftElem::init(1, 2, 0.75, -0.75, TSHIFT_TEXTURE | TSHIFT_ENVIRONMENT);
+        tshift_elem_tick(&mut elem, 2.0, &mut backend);
+        assert_eq!(elem.u, 0.5);
+        assert_eq!(elem.v, -0.5);
+        assert_eq!(backend.texture, vec![[0.5, -0.5]]);
+        assert_eq!(backend.env, vec![[0.5, -0.5]]);
+        // Texture-only: env sink stays quiet; in-range shift passes through.
+        let mut backend = OffsetLog { texture: vec![], env: vec![] };
+        let mut elem = TshiftElem::init(1, 2, 0.25, 0.25, TSHIFT_TEXTURE);
+        tshift_elem_tick(&mut elem, 1.0, &mut backend);
+        assert_eq!((elem.u, elem.v), (0.25, 0.25));
+        assert_eq!(backend.texture.len(), 1);
+        assert!(backend.env.is_empty());
+        // No flags: no sink writes, shift still advances.
+        let mut backend = OffsetLog { texture: vec![], env: vec![] };
+        let mut elem = TshiftElem::init(1, 2, 0.5, 0.5, 0);
+        tshift_elem_tick(&mut elem, 1.0, &mut backend);
+        assert_eq!((elem.u, elem.v), (0.5, 0.5));
+        assert!(backend.texture.is_empty() && backend.env.is_empty());
+    }
+    #[test]
+    fn clear_car_seats_rva_145fd0_clears_back_to_front() {
+        // Static ClearCarSeats GAME RVA 0x145fd0 (VA 0x545fd0).
+        let mut seats = vec![Some(11u32), Some(22), Some(33)];
+        clear_car_seats(&mut seats);
+        assert_eq!(seats, vec![None, None, None]);
+        let mut empty: Vec<Option<u32>> = vec![];
+        clear_car_seats(&mut empty);
+        assert!(empty.is_empty());
+    }
+    #[test]
+    fn reset_mission_numbers_working_name_clears_both_staged_words() {
+        // Inline C_mission::ResetMissionNumbers (Mission.h:290-294); no
+        // outline RVA is claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        mission.put_word(0x70, 7);
+        mission.put_word(0x74, 9);
+        mission.reset_mission_numbers();
+        assert_eq!(mission.word(0x70), 0);
+        assert_eq!(mission.word(0x74), 0);
+    }
+    #[test]
+    fn mission_name_word_working_name_reads_staged_pointer_word() {
+        // C_mission::GetMissionName (Mission.h:272-277); the only outline
+        // copy is folded with C_actor::GetFrame (0x47afb0), so no separate
+        // mission RVA is claimed here.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.mission_name_word(), 0);
+        mission.put_word(0x68, 0x1234_5678);
+        assert_eq!(mission.mission_name_word(), 0x1234_5678);
+    }
+    #[test]
+    fn last_actor_number_working_name_reads_staged_word() {
+        // Inline C_mission::last_actor_number read (Mission.h:117-120,
+        // +0x8); no outline RVA is claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.last_actor_number(), 0);
+        mission.put_word(0x08, 41);
+        assert_eq!(mission.last_actor_number(), 41);
+        mission.put_word(0x08, (-7i32) as u32);
+        assert_eq!(mission.last_actor_number(), -7);
+    }
+    #[test]
+    fn is_opened_working_name_reads_flag_byte() {
+        // Inline C_mission::opened read (Mission.h:120-122, +0xc); no
+        // outline RVA is claimed. The constructor leaves it cleared.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert!(!mission.is_opened());
+        mission.bytes[0x0c] = 1;
+        assert!(mission.is_opened());
+        mission.bytes[0x0c] = 0;
+        assert!(!mission.is_opened());
+    }
+    #[test]
+    fn render_number_working_name_reads_staged_word() {
+        // Inline C_mission::render_number read (Mission.h:135-136, +0x64);
+        // no outline RVA is claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.render_number(), 0);
+        mission.put_word(0x64, 1234);
+        assert_eq!(mission.render_number(), 1234);
+    }
+    #[test]
+    fn is_restore_volume_working_name_reads_flag_byte() {
+        // Inline C_mission::restore_volume read (Mission.h:79-82, +0x7c);
+        // no outline RVA is claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert!(!mission.is_restore_volume());
+        mission.bytes[0x7c] = 1;
+        assert!(mission.is_restore_volume());
+        mission.bytes[0x7c] = 0;
+        assert!(!mission.is_restore_volume());
+    }
+    #[test]
+    fn unknown_words_working_name_read_staged_words() {
+        // Raw C_mission::unknown_0 (+0x0) and unknown_4 (+0x4) reads
+        // (Mission.h:117-118); no meaning attached and no RVA is claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.unknown_0(), 0);
+        assert_eq!(mission.unknown_4(), 0);
+        mission.put_word(0x00, 0x1111_2222);
+        mission.put_word(0x04, 0x3333_4444);
+        assert_eq!(mission.unknown_0(), 0x1111_2222);
+        assert_eq!(mission.unknown_4(), 0x3333_4444);
+    }
+
+    #[test]
+    fn tshift_store_clear_working_name_empties_elements() {
+        // Working name: C_mission::Close 0x5405e0 clears tshift->elems
+        // (Mission.cpp:521); inlined, no outline RVA is claimed.
+        let mut store = TshiftStore::default();
+        assert!(store.elems.is_empty());
+        store.add(TshiftElem::init(1, 2, 0.5, 0.25, TSHIFT_TEXTURE));
+        store.add(TshiftElem::init(3, 4, 0.25, 0.5, TSHIFT_ENVIRONMENT));
+        assert_eq!(store.elems.len(), 2);
+        store.clear();
+        assert!(store.elems.is_empty());
+        store.clear();
+        assert!(store.elems.is_empty());
+    }
+
+    #[test]
+    fn staged_member_words_working_name_read_raw_handles() {
+        // Working names: C_mission web_path (+0x2c), roads (+0x30) and
+        // effects (+0x6c) member words (Mission.h:125-142); inline-only
+        // reads with no outline RVA claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.web_path_word(), 0);
+        assert_eq!(mission.roads_word(), 0);
+        assert_eq!(mission.effects_word(), 0);
+        mission.put_word(0x2c, 0x1111_1111);
+        mission.put_word(0x30, 0x2222_2222);
+        mission.put_word(0x6c, 0x3333_3333);
+        assert_eq!(mission.web_path_word(), 0x1111_1111);
+        assert_eq!(mission.roads_word(), 0x2222_2222);
+        assert_eq!(mission.effects_word(), 0x3333_3333);
+    }
+
+    #[test]
+    fn skip_frames_word_working_name_round_trips_staged_count() {
+        // Working names: C_mission::skip_frames (+0x78) raw read/store
+        // (Mission.h:144-148); inline-only with no outline RVA claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.skip_frames_word(), 0);
+        mission.set_skip_frames_word(10);
+        assert_eq!(mission.skip_frames_word(), 10);
+        mission.set_skip_frames_word(-1);
+        assert_eq!(mission.skip_frames_word(), -1);
+        assert_eq!(mission.skip_frames_word() as u32, mission.word(0x78));
+    }
+
+    #[test]
+    fn mission_number_words_working_name_read_staged_pair() {
+        // Working names: C_mission next_mission_number (+0x70) and
+        // mission_number (+0x74) raw reads (Mission.h:140-141); inline-only
+        // with no outline RVA claimed.
+        let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
+        assert_eq!(mission.next_mission_number_word(), 0);
+        assert_eq!(mission.mission_number_word(), 0);
+        mission.put_word(0x70, 7);
+        mission.put_word(0x74, 9u32);
+        assert_eq!(mission.next_mission_number_word(), 7);
+        assert_eq!(mission.mission_number_word(), 9);
+        mission.reset_mission_numbers();
+        assert_eq!(mission.next_mission_number_word(), 0);
+        assert_eq!(mission.mission_number_word(), 0);
+    }
+
+    #[test]
+    fn mission_list_words_working_name_read_staged_vectors() {
+        // Working names: C_mission actors (+0x34), not_me_actors (+0x44),
+        // programs (+0x54) and t_transparent (+0x80) vector words
+        // (Mission.h:129,132,134,153); inline-only reads with no outline
+        // RVA claimed.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert_eq!(mission.actors_word(), 0);
+        assert_eq!(mission.not_me_actors_word(), 0);
+        assert_eq!(mission.programs_word(), 0);
+        assert_eq!(mission.t_transparent_word(), 0);
+        mission.put_word(0x34, 0x1111_1111);
+        mission.put_word(0x44, 0x2222_2222);
+        mission.put_word(0x54, 0x3333_3333);
+        mission.put_word(0x80, 0x4444_4444);
+        assert_eq!(mission.actors_word(), 0x1111_1111);
+        assert_eq!(mission.not_me_actors_word(), 0x2222_2222);
+        assert_eq!(mission.programs_word(), 0x3333_3333);
+        assert_eq!(mission.t_transparent_word(), 0x4444_4444);
+        assert_eq!(mission.actors_word(), mission.word(0x34));
+        assert_eq!(mission.programs_word(), mission.word(0x54));
+    }
+
+    #[test]
+    fn kept_buffer_words_working_name_read_staged_vectors() {
+        // Working names: C_mission anim_models (+0x14), frame_actor_buffer
+        // (+0xac), active_actors (+0xbc) and actor_sound_buffer (+0xcc)
+        // vector words (Mission.h:124,155-157); inline-only reads with no
+        // outline RVA claimed.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert_eq!(mission.anim_models_word(), 0);
+        assert_eq!(mission.frame_actor_buffer_word(), 0);
+        assert_eq!(mission.active_actors_word(), 0);
+        assert_eq!(mission.actor_sound_buffer_word(), 0);
+        mission.put_word(0x14, 0x5555_5555);
+        mission.put_word(0xac, 0x6666_6666);
+        mission.put_word(0xbc, 0x7777_7777);
+        mission.put_word(0xcc, 0x8888_8888);
+        assert_eq!(mission.anim_models_word(), 0x5555_5555);
+        assert_eq!(mission.frame_actor_buffer_word(), 0x6666_6666);
+        assert_eq!(mission.active_actors_word(), 0x7777_7777);
+        assert_eq!(mission.actor_sound_buffer_word(), 0x8888_8888);
+    }
+
+    #[test]
+    fn staged_list_presence_working_name_tracks_nonzero_words() {
+        // Working names: nonzero tests of the staged actor (+0x34), not-me
+        // (+0x44), program (+0x54), fade (+0x80), stay-in-game (+0xbc) and
+        // actor-sound (+0xcc) vector words; inline-only with no outline RVA
+        // claimed.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_actors_staged());
+        assert!(!mission.has_not_me_actors_staged());
+        assert!(!mission.has_programs_staged());
+        assert!(!mission.has_t_transparent_staged());
+        assert!(!mission.has_active_actors_staged());
+        assert!(!mission.has_actor_sound_buffer_staged());
+        mission.put_word(0x34, 1);
+        mission.put_word(0x44, 2);
+        mission.put_word(0x54, 3);
+        mission.put_word(0x80, 4);
+        mission.put_word(0xbc, 5);
+        mission.put_word(0xcc, 6);
+        assert!(mission.has_actors_staged());
+        assert!(mission.has_not_me_actors_staged());
+        assert!(mission.has_programs_staged());
+        assert!(mission.has_t_transparent_staged());
+        assert!(mission.has_active_actors_staged());
+        assert!(mission.has_actor_sound_buffer_staged());
+        mission.put_word(0x34, 0);
+        mission.put_word(0xcc, 0);
+        assert!(!mission.has_actors_staged());
+        assert!(mission.has_programs_staged());
+        assert!(!mission.has_actor_sound_buffer_staged());
+    }
+
+    #[test]
+    fn has_anim_models_staged_working_name_tracks_vector_word() {
+        // Working name: anim_models (+0x14); inline size test, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_anim_models_staged());
+        mission.put_word(0x14, 0x1111_1111);
+        assert!(mission.has_anim_models_staged());
+        mission.put_word(0x14, 0);
+        assert!(!mission.has_anim_models_staged());
+    }
+
+    #[test]
+    fn has_frame_actor_buffer_staged_working_name_tracks_vector_word() {
+        // Working name: frame_actor_buffer (+0xac); inline size test, no RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_frame_actor_buffer_staged());
+        mission.put_word(0xac, 0x2222_2222);
+        assert!(mission.has_frame_actor_buffer_staged());
+        mission.put_word(0xac, 0);
+        assert!(!mission.has_frame_actor_buffer_staged());
+    }
+
+    #[test]
+    fn has_web_path_staged_working_name_tracks_member_word() {
+        // Working name: web_path (+0x2c); Init null-branch, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_web_path_staged());
+        mission.put_word(0x2c, 0x3333_3333);
+        assert!(mission.has_web_path_staged());
+        mission.put_word(0x2c, 0);
+        assert!(!mission.has_web_path_staged());
+    }
+
+    #[test]
+    fn has_roads_staged_working_name_tracks_member_word() {
+        // Working name: roads (+0x30); Init null-branch, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_roads_staged());
+        mission.put_word(0x30, 0x4444_4444);
+        assert!(mission.has_roads_staged());
+        mission.put_word(0x30, 0);
+        assert!(!mission.has_roads_staged());
+    }
+
+    #[test]
+    fn has_effects_staged_working_name_tracks_member_word() {
+        // Working name: effects (+0x6c); Init null-branch, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_effects_staged());
+        mission.put_word(0x6c, 0x5555_5555);
+        assert!(mission.has_effects_staged());
+        mission.put_word(0x6c, 0);
+        assert!(!mission.has_effects_staged());
+    }
+
+    #[test]
+    fn has_tshift_staged_working_name_tracks_member_word() {
+        // Working name: tshift (+0x28); Init null-branch, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_tshift_staged());
+        mission.put_word(0x28, 0x6666_6666);
+        assert!(mission.has_tshift_staged());
+        mission.put_word(0x28, 0);
+        assert!(!mission.has_tshift_staged());
+    }
+
+    #[test]
+    fn has_game_staged_working_name_tracks_member_word() {
+        // Working name: game (+0x24); Init null-branch, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_game_staged());
+        mission.put_word(0x24, 0x7777_7777);
+        assert!(mission.has_game_staged());
+        mission.put_word(0x24, 0);
+        assert!(!mission.has_game_staged());
     }
 }

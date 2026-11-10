@@ -1291,3 +1291,397 @@ mod result_message_tests {
         assert_eq!(result_message_for(0, &mut scratch).to_vec(), b"OK".to_vec());
     }
 }
+
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+/// LS3DF RVA 0x6b6e0, VA 0x1006b6e0, `TEV`
+/// (mafia-re ls3df/IGraph/Globals.cpp:98-108 at pin 113b5b6).
+/// Engine/client version gate: Ghidra FUN_10006b6e0 is an 85-byte body
+/// (REA ev_e3162907953ae56091fc62d492cfa79d2e7675035ef565bb070e44a8cf43f007)
+/// comparing the argument against `ENGINE_VERSION` (0x18b = 395): equal
+/// returns true at once, otherwise the native formats
+/// `"Bad version - engine:%d  client:%d"` and shows it with `MessageBoxA`
+/// (`MB_SYSTEMMODAL | MB_ICONSTOP`) before returning false.
+/// The predicate below is the portable half; the message text is pinned by
+/// `tev_mismatch_text`. The Win32 dialog has no host backend here and stays
+/// caller-side: a false return means the caller must present the text.
+pub fn tev_version_ok(version: i32) -> bool {
+    version == engine_version()
+}
+
+/// Pure projection of the `TEV` mismatch branch: exactly what the native
+/// `sprintf` writes, including the double space before `client`.
+/// `scratch` must hold 128 bytes like the native stack buffer (the longest
+/// `i32` pair fits with room to spare); the filled prefix is returned.
+fn tev_mismatch_text(client_version: i32, scratch: &mut [u8; 128]) -> &[u8] {
+    let text = format!(
+        "Bad version - engine:{}  client:{}",
+        engine_version(),
+        client_version
+    );
+    let bytes = text.as_bytes();
+    scratch[..bytes.len()].copy_from_slice(bytes);
+    &scratch[..bytes.len()]
+}
+
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+/// LS3DF RVA 0x6b740, VA 0x1006b740, `GetIGraph`
+/// (mafia-re ls3df/IGraph/Globals.cpp:110-115 at pin 113b5b6).
+/// Ghidra FUN_10006b740 is a 6-byte body (`MOV EAX,[0x101c5294]`, `RET`; REA
+/// ev_b621c087bc71548d99cc9eeb280ce9e8583592390a4e73307a0c4e6514f80872)
+/// returning the engine-global `IGraph` singleton (`pGlobalIGraph`).
+/// The host equivalent is the `graph` slot minted during `init_system`.
+pub fn igraph_handle(system: &SystemState) -> Option<SystemHandle> {
+    system.graph
+}
+
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+/// LS3DF RVA 0x6b760, VA 0x1006b760, `I3DGetDriver`
+/// (mafia-re ls3df/IGraph/Globals.cpp:124-129 at pin 113b5b6).
+/// Ghidra FUN_10006b760 is a 6-byte global load (`MOV EAX,[0x101c5298]`) plus `RET`
+/// (REA ev_1b4e9465401daac7218ec859dabfeaf5062e7e29a14dc1a9fc909816da69ae33)
+/// returning `pI3DDriver`. The host equivalent is the `driver` slot minted
+/// during `init_system`.
+pub fn i3d_driver_handle(system: &SystemState) -> Option<SystemHandle> {
+    system.driver
+}
+
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+/// LS3DF RVA 0x6b750, VA 0x1006b750, `ISndGetDriver`
+/// (mafia-re ls3df/IGraph/Globals.cpp:117-122 at pin 113b5b6).
+/// Ghidra FUN_10006b750 is a 6-byte global load (`MOV EAX,[0x101c529c]`) plus `RET`
+/// (REA ev_5daf2be5ae6fdd0c4f30180971da071d492a527e8e4305421e88ca3b2ab80bcb)
+/// returning `pISndDriver`. Engine-global getter only: voice playback and
+/// mixer state stay with the audio owners, which this module never touches.
+pub fn sound_driver_handle(system: &SystemState) -> Option<SystemHandle> {
+    system.sound
+}
+
+/// Host projection of the `IGraph` window/app-name/dialog words
+/// (`m_MainHWnd`, `m_ChildHWnd`, `m_AppName`, `m_DlgHWndList` in
+/// mafia-re ls3df/IGraph/IGraph.h at pin 113b5b6). Native handles are raw
+/// Win32 `HWND`s; the host stores opaque `SystemHandle`s minted by the
+/// windowing backend instead (a `None` slot is the native `NULL`).
+/// `Default` matches a freshly constructed `IGraph`: null windows, empty
+/// dialog list, and `m_AppName = "LS3D"`
+/// (mafia-re ls3df/IGraph/IGraph.cpp:514 at pin 113b5b6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphWindowState {
+    main: Option<SystemHandle>,
+    child: Option<SystemHandle>,
+    app_name: Vec<u8>,
+    dialogs: Vec<SystemHandle>,
+}
+
+impl Default for GraphWindowState {
+    fn default() -> Self {
+        Self {
+            main: None,
+            child: None,
+            app_name: b"LS3D".to_vec(),
+            dialogs: Vec::new(),
+        }
+    }
+}
+
+impl GraphWindowState {
+    /// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+    /// LS3DF RVA 0x6c800, VA 0x1006c800, `IGraph::GetMainHWND`
+    /// (mafia-re ls3df/IGraph/IGraph.cpp:640-645 at pin 113b5b6).
+    /// Ghidra formed no standalone body (same class as prior contract
+    /// entries); the raw-bytes walk `A1 58541C10 C2 0400` plus `RET`-exit
+    /// `NOP` tiling (REA ev_76dc29723a3aa4aba1608b3dbaa2ca12bd1da1371f73a870d068221dad74534f)
+    /// decodes to the reference 6-byte body: load `m_MainHWnd`, `RET 4`.
+    pub fn main_window(&self) -> Option<SystemHandle> {
+        self.main
+    }
+
+    /// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+    /// LS3DF RVA 0x6c810, VA 0x1006c810, `IGraph::GetChildHWND`
+    /// (mafia-re ls3df/IGraph/IGraph.cpp:647-652 at pin 113b5b6).
+    /// Same verification class as `GetMainHWND`: raw bytes
+    /// `A1 08541C10 C2 0400` plus `RET`-exit tiling
+    /// (REA ev_529c3175bbc98eada1b7ea38bf6e96ceb17de2c5eb4802475884b999a871d554)
+    /// decode to load `m_ChildHWnd`, `RET 4`.
+    pub fn child_window(&self) -> Option<SystemHandle> {
+        self.child
+    }
+
+    /// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+    /// LS3DF RVA 0x6c8f0, VA 0x1006c8f0, `IGraph::GetAppName`
+    /// (mafia-re ls3df/IGraph/IGraph.cpp:673-678 at pin 113b5b6).
+    /// Same verification class as above: raw bytes
+    /// `A1 20541C10 85C0 7406 83C008 C2 0400`
+    /// (REA ev_2fdd0ad05a0db9f7c6f40ccdaf82c67b09aafe373033006720f2550a1e6dc31b)
+    /// decode to the null-checked `C_str` data load plus `RET 4`.
+    /// Returns the stored bytes without a terminator (the native caller
+    /// receives the `C_str` data pointer the same way).
+    pub fn app_name(&self) -> &[u8] {
+        &self.app_name
+    }
+
+    /// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+    /// LS3DF RVA 0x6c820, VA 0x1006c820, `IGraph::SetAppName`
+    /// (mafia-re ls3df/IGraph/IGraph.cpp:654-662 at pin 113b5b6).
+    /// Same verification class as above: raw bytes compare the stored
+    /// pointer against the argument and skip the store plus the window-text
+    /// call when equal
+    /// (REA ev_16c8ca3d4f41635fc54b076ac1acd02baecac07c4aa83945d756b9cacc81a195);
+    /// only a changed name is stored and announced. The native
+    /// `SetWindowTextA` side effect travels as `GraphSetAppName`, like the
+    /// startup path already does; the returned flag is host-observable
+    /// (native `void`): true means stored and announced.
+    pub fn set_app_name(
+        &mut self,
+        graph: SystemHandle,
+        name: &[u8],
+        backend: &mut impl SystemBackend,
+    ) -> Result<bool, SystemError> {
+        if self.app_name == name {
+            return Ok(false);
+        }
+        self.app_name = name.to_vec();
+        backend.effect(SystemEffect::GraphSetAppName(graph, name.to_vec()))?;
+        Ok(true)
+    }
+
+    /// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+    /// LS3DF RVA 0x6c910, VA 0x1006c910, `IGraph::AddDlgHWND`
+    /// (mafia-re ls3df/IGraph/IGraph.cpp:682-688 at pin 113b5b6).
+    /// Ghidra FUN_10006c910 is a 137-byte body
+    /// (REA ev_4b86f0d91804c1f87754e40503fb2166053f5495202734512d881a70a43b37cd):
+    /// null refuses with false, otherwise the handle is appended and the
+    /// call reports true. Host growth is `Vec` growth (native operator-new
+    /// failure has no host spelling here).
+    pub fn add_dialog_window(&mut self, window: Option<SystemHandle>) -> bool {
+        match window {
+            None => false,
+            Some(handle) => {
+                self.dialogs.push(handle);
+                true
+            }
+        }
+    }
+
+    /// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+    /// LS3DF RVA 0x6c9a0, VA 0x1006c9a0, `IGraph::DeleteDlgHWND`
+    /// (mafia-re ls3df/IGraph/IGraph.cpp:690-695 at pin 113b5b6).
+    /// Same verification class as the other small `IGraph` getters: raw
+    /// bytes walk the dialog list and remove the first hit
+    /// (REA ev_de4fa82c329ad741e22bd0f634aa160952927405900b57be2dca55c9a086646e),
+    /// matching `C_list::remove` reporting whether anything was removed.
+    pub fn delete_dialog_window(&mut self, window: SystemHandle) -> bool {
+        match self.dialogs.iter().position(|slot| *slot == window) {
+            None => false,
+            Some(index) => {
+                self.dialogs.remove(index);
+                true
+            }
+        }
+    }
+}
+
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6.
+/// LS3DF RVA 0x6c7c0, VA 0x1006c7c0, `IGraph::SetTexture`
+/// (mafia-re ls3df/IGraph/IGraph.cpp:630-638 at pin 113b5b6).
+/// Explicit unsupported boundary: both native arms (null texture clears
+/// stage 0, otherwise the texture's `IDirect3DTexture8` is bound) end in an
+/// `IDirect3DDevice8::SetTexture` virtual call
+/// (REA raw-bytes walk ev_aa9c613fe3061d75b7178204756eebb7f004e3b3fa5d6b0300d1ba110e3aa359),
+/// and no Direct3D8 device owner exists on this host. The texture argument
+/// is opaque on purpose: nothing about it is consulted.
+pub fn set_device_texture(_texture: Option<SystemHandle>) -> Result<(), SystemError> {
+    Err(SystemError::Unsupported(
+        "IGraph::SetTexture needs the IDirect3DDevice8 owner",
+    ))
+}
+
+#[cfg(test)]
+mod igraph_global_tests {
+    use super::*;
+
+    struct EffectFixture {
+        effects: Vec<SystemEffect>,
+    }
+    impl SystemBackend for EffectFixture {
+        fn domain_id(&self) -> SystemDomainId {
+            SystemDomainId::default()
+        }
+        fn effect(&mut self, effect: SystemEffect) -> Result<(), SystemError> {
+            self.effects.push(effect);
+            Ok(())
+        }
+        fn create_archive(&mut self, _: &[u8]) -> Result<Option<SystemHandle>, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn find_game_file(&mut self, _: &[u8]) -> Result<Option<Vec<u8>>, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn open_file(&mut self, _: &[u8]) -> Result<Option<SystemHandle>, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn read_file(&mut self, _: SystemHandle, _: usize) -> Result<Vec<u8>, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn get_graph(&mut self) -> Result<Option<SystemHandle>, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn graph_init(
+            &mut self,
+            _: SystemHandle,
+            _: &GraphInitDescriptor,
+        ) -> Result<i32, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn load_resource_string(
+            &mut self,
+            _: SystemHandle,
+            _: u32,
+            _: usize,
+        ) -> Result<Vec<u8>, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn get_sound_driver(&mut self) -> Result<SystemHandle, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn sound_init(
+            &mut self,
+            _: SystemHandle,
+            _: SystemHandle,
+            _: u32,
+        ) -> Result<i32, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn get_driver(&mut self) -> Result<SystemHandle, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn driver_init(&mut self, _: SystemHandle, _: u32) -> Result<i32, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn play_logo(&mut self, _: &[u8], _: [f32; 2]) -> Result<bool, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+        fn profile_init(&mut self) -> Result<bool, SystemError> {
+            Err(SystemError::Unsupported("fixture"))
+        }
+    }
+
+    #[test]
+    fn tev_version_gate_pins_rva_0x6b6e0_predicate() {
+        assert!(tev_version_ok(395));
+        for version in [394, 396, 0, -1, 1, i32::MIN, i32::MAX] {
+            assert!(!tev_version_ok(version), "version {version}");
+        }
+    }
+
+    #[test]
+    fn tev_mismatch_text_pins_double_space_format() {
+        let mut scratch = [0u8; 128];
+        assert_eq!(
+            tev_mismatch_text(390, &mut scratch).to_vec(),
+            b"Bad version - engine:395  client:390".to_vec()
+        );
+        let mut scratch = [0u8; 128];
+        assert_eq!(
+            tev_mismatch_text(0, &mut scratch).to_vec(),
+            b"Bad version - engine:395  client:0".to_vec()
+        );
+    }
+
+    #[test]
+    fn global_singletons_default_to_none_rva_0x6b740_0x6b750_0x6b760() {
+        let system = SystemState::default();
+        assert_eq!(igraph_handle(&system), None);
+        assert_eq!(i3d_driver_handle(&system), None);
+        assert_eq!(sound_driver_handle(&system), None);
+    }
+
+    #[test]
+    fn global_singletons_roundtrip_minted_handles() {
+        let mut system = SystemState::default();
+        system.graph = Some(SystemHandle(11));
+        system.driver = Some(SystemHandle(22));
+        system.sound = Some(SystemHandle(33));
+        assert_eq!(igraph_handle(&system), Some(SystemHandle(11)));
+        assert_eq!(i3d_driver_handle(&system), Some(SystemHandle(22)));
+        assert_eq!(sound_driver_handle(&system), Some(SystemHandle(33)));
+    }
+
+    #[test]
+    fn window_handles_default_to_none_rva_0x6c800_0x6c810() {
+        let state = GraphWindowState::default();
+        assert_eq!(state.main_window(), None);
+        assert_eq!(state.child_window(), None);
+    }
+
+    #[test]
+    fn window_handles_roundtrip_stored_handles() {
+        let mut state = GraphWindowState::default();
+        state.main = Some(SystemHandle(5));
+        state.child = Some(SystemHandle(6));
+        assert_eq!(state.main_window(), Some(SystemHandle(5)));
+        assert_eq!(state.child_window(), Some(SystemHandle(6)));
+    }
+
+    #[test]
+    fn app_name_defaults_to_ls3d_rva_0x6c8f0() {
+        assert_eq!(GraphWindowState::default().app_name(), b"LS3D");
+    }
+
+    #[test]
+    fn set_app_name_pins_rva_0x6c820_change_and_noop() {
+        let mut backend = EffectFixture { effects: Vec::new() };
+        let mut state = GraphWindowState::default();
+        assert_eq!(
+            state.set_app_name(SystemHandle(9), b"LS3D", &mut backend),
+            Ok(false)
+        );
+        assert!(backend.effects.is_empty());
+        assert_eq!(
+            state.set_app_name(SystemHandle(9), b"Mafia", &mut backend),
+            Ok(true)
+        );
+        assert_eq!(state.app_name(), b"Mafia");
+        assert_eq!(
+            backend.effects,
+            vec![SystemEffect::GraphSetAppName(
+                SystemHandle(9),
+                b"Mafia".to_vec()
+            )]
+        );
+        assert_eq!(
+            state.set_app_name(SystemHandle(9), b"Mafia", &mut backend),
+            Ok(false)
+        );
+        assert_eq!(backend.effects.len(), 1);
+    }
+
+    #[test]
+    fn dialog_list_add_remove_pins_rva_0x6c910_0x6c9a0() {
+        let mut state = GraphWindowState::default();
+        assert!(!state.add_dialog_window(None));
+        assert!(state.dialogs.is_empty());
+        assert!(state.add_dialog_window(Some(SystemHandle(1))));
+        assert!(state.add_dialog_window(Some(SystemHandle(2))));
+        assert!(!state.delete_dialog_window(SystemHandle(3)));
+        assert!(state.delete_dialog_window(SystemHandle(1)));
+        assert!(!state.delete_dialog_window(SystemHandle(1)));
+        assert!(state.delete_dialog_window(SystemHandle(2)));
+        assert!(state.dialogs.is_empty());
+    }
+
+    #[test]
+    fn set_device_texture_is_unsupported_rva_0x6c7c0() {
+        assert_eq!(
+            set_device_texture(None),
+            Err(SystemError::Unsupported(
+                "IGraph::SetTexture needs the IDirect3DDevice8 owner"
+            ))
+        );
+        assert_eq!(
+            set_device_texture(Some(SystemHandle(4))),
+            Err(SystemError::Unsupported(
+                "IGraph::SetTexture needs the IDirect3DDevice8 owner"
+            ))
+        );
+    }
+}

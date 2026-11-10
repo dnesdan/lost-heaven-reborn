@@ -176,6 +176,20 @@ pub fn cb_del_frame(frame: &HousekeepingFrame, list: &mut Vec<FramePlacement>) {
     }
 }
 
+/// STUB: GAME RVA 0x1b0300, VA 0x5b0300 (`game.cpp:3226-3230`,
+/// `C_game::AddFramePlacement`): unwritten upstream. The full placement
+/// record (position, rotation, scale and parent per `game.h`
+/// `S_frame_placement`) stays with the placement owner; the minimal
+/// [`FramePlacement`] cannot represent the add, so no list write is claimed.
+pub const ADD_FRAME_PLACEMENT_ENTRY: u32 = 0x5b0300;
+
+/// Original `C_game::AddFramePlacement` stub: always reports the boundary.
+pub fn add_frame_placement(_frame: FrameId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_FRAME_PLACEMENT_ENTRY,
+    })
+}
+
 /// FUNCTION: GAME 0x5b1da0 (`game.cpp:3252`, `C_game::InventoryStackClear`).
 /// Drops every kept inventory snapshot (`game.h:439`); the `Vec` drain runs
 /// the per-element destruction the original loop spells out with `delete`.
@@ -191,6 +205,79 @@ pub fn float_stack_clear(stack: &mut Vec<f32>) {
 /// FUNCTION: GAME 0x5b2590 (`game.cpp:3290`, `C_game::CharacterStackClear`).
 pub fn character_stack_clear(stack: &mut Vec<u32>) {
     stack.clear();
+}
+
+/// STUB: GAME RVA 0x1b1e10, VA 0x5b1e10 (`game.cpp:3259-3263`,
+/// `C_game::InventoryStackPush`): unwritten upstream; the human inventory
+/// owner is deferred.
+pub const INVENTORY_STACK_PUSH_ENTRY: u32 = 0x5b1e10;
+
+/// Original `C_game::InventoryStackPush` stub: always reports the boundary.
+pub fn inventory_stack_push(_human: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: INVENTORY_STACK_PUSH_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b20b0, VA 0x5b20b0 (`game.cpp:3265-3269`,
+/// `C_game::InventoryStackPop`): unwritten upstream; the human inventory
+/// owner is deferred.
+pub const INVENTORY_STACK_POP_ENTRY: u32 = 0x5b20b0;
+
+/// Original `C_game::InventoryStackPop` stub: always reports the boundary.
+pub fn inventory_stack_pop(_human: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: INVENTORY_STACK_POP_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b2350, VA 0x5b2350 (`game.cpp:3277-3281`,
+/// `C_game::FloatStackPush`): unwritten upstream; the float-stack store is
+/// deferred with the script owner.
+pub const FLOAT_STACK_PUSH_ENTRY: u32 = 0x5b2350;
+
+/// Original `C_game::FloatStackPush` stub: always reports the boundary.
+pub fn float_stack_push(_value: f32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: FLOAT_STACK_PUSH_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b2530, VA 0x5b2530 (`game.cpp:3283-3287`,
+/// `C_game::FloatStackPop`): unwritten upstream; the float-stack store is
+/// deferred with the script owner.
+pub const FLOAT_STACK_POP_ENTRY: u32 = 0x5b2530;
+
+/// Original `C_game::FloatStackPop` stub: always reports the boundary,
+/// mirroring the native unwritten body without inventing the pop.
+pub fn float_stack_pop(_value: &mut f32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: FLOAT_STACK_POP_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b25c0, VA 0x5b25c0 (`game.cpp:3295-3299`,
+/// `C_game::CharacterStackPush`): unwritten upstream; the human owner is
+/// deferred.
+pub const CHARACTER_STACK_PUSH_ENTRY: u32 = 0x5b25c0;
+
+/// Original `C_game::CharacterStackPush` stub: always reports the boundary.
+pub fn character_stack_push(_human: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: CHARACTER_STACK_PUSH_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b2740, VA 0x5b2740 (`game.cpp:3301-3305`,
+/// `C_game::CharacterStackPop`): unwritten upstream; the human owner is
+/// deferred.
+pub const CHARACTER_STACK_POP_ENTRY: u32 = 0x5b2740;
+
+/// Original `C_game::CharacterStackPop` stub: always reports the boundary.
+pub fn character_stack_pop(_human: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: CHARACTER_STACK_POP_ENTRY,
+    })
 }
 
 /// Marker-only projection of `C_game::S_shadow_item` (mafia-re
@@ -235,11 +322,23 @@ pub struct LightnessEntry {
     pub marker: u32,
 }
 
-/// FUNCTION: GAME 0x5b5180 (`game.cpp:3419`, `C_game::LightnessClear`).
+/// FUNCTION: GAME RVA 0x1b5780, VA 0x5b5780 (`game.cpp:3419`, `C_game::LightnessClear`).
 /// Deletes every lightness entry and empties the list; the `Vec` drain runs
 /// the per-element destruction the original loop spells out with `delete`.
 pub fn lightness_clear(lightness: &mut Vec<LightnessEntry>) {
     lightness.clear();
+}
+
+/// STUB: GAME RVA 0x1b57e0, VA 0x5b57e0 (`game.cpp:3426-3430`,
+/// `C_game::LightnessTick`): unwritten upstream; the lightness list and the
+/// actor/time owners are deferred.
+pub const LIGHTNESS_TICK_ENTRY: u32 = 0x5b57e0;
+
+/// Original `C_game::LightnessTick` stub: always reports the boundary.
+pub fn lightness_tick(_time: u32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: LIGHTNESS_TICK_ENTRY,
+    })
 }
 
 /// Current score and its HUD switch (`game.h`, `score` / `score_on`).
@@ -1164,6 +1263,225 @@ pub const DEATH_HUMAN_TALK_ENTRY: u32 = 0x5b77c0;
 pub fn death_human_talk(_human: ActorId) -> Result<(), UnwrittenGameEntry> {
     Err(UnwrittenGameEntry::Unsupported {
         entry: DEATH_HUMAN_TALK_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b4560, VA 0x5b4560 (`game.cpp:3370-3374`,
+/// `C_game::DeathActorAdd`): unwritten upstream; the death-actor list owner
+/// is deferred.
+pub const DEATH_ACTOR_ADD_ENTRY: u32 = 0x5b4560;
+
+/// Original `C_game::DeathActorAdd` stub: always reports the boundary.
+pub fn death_actor_add(_actor: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DEATH_ACTOR_ADD_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b4720, VA 0x5b4720 (`game.cpp:3376-3380`,
+/// `C_game::DeathActorProcess`): unwritten upstream; death-actor processing
+/// stays with the actor owner.
+pub const DEATH_ACTOR_PROCESS_ENTRY: u32 = 0x5b4720;
+
+/// Original `C_game::DeathActorProcess` stub: always reports the boundary.
+pub fn death_actor_process() -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DEATH_ACTOR_PROCESS_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1b4790, VA 0x5b4790 (`game.cpp:3382-3387`,
+/// `C_game::GetActorFromGUID`): the native body is unwritten (`StubLog` +
+/// NULL). The GUID registry stays with the actor owner; the native NULL is
+/// mirrored without inventing a registry entry.
+pub fn get_actor_from_guid(_id: u32) -> Option<ActorId> {
+    None
+}
+
+/// STUB: GAME RVA 0x1a7b70, VA 0x5a7b70 (`game.cpp:2434-2438`,
+/// `C_game::InternTempActAdd`): unwritten upstream; the temporary-actor
+/// lists stay with the actor owner (see `crash_actor` for the covered
+/// removal side).
+pub const INTERN_TEMP_ACT_ADD_ENTRY: u32 = 0x5a7b70;
+
+/// Original `C_game::InternTempActAdd` stub: always reports the boundary.
+pub fn intern_temp_act_add(_actor: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: INTERN_TEMP_ACT_ADD_ENTRY,
+    })
+}
+
+/// Inline-constructed `C_game` flag words (FUNCTION: GAME RVA 0x1472f0, VA
+/// 0x5472f0; `game.h:558-569`). The initializer list runs in member order:
+/// `initialized` false, the four `unknown_2eb*` words zero and the trailing
+/// `unknown_2ec4` switch false. Scene, sound, actor and menu owners stay
+/// deferred; only these scalar words are staged here.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GameCtorState {
+    initialized: bool,
+    unknown_2eb0: u32,
+    unknown_2eb8: u32,
+    unknown_2ebc: u32,
+    unknown_2ec0: u32,
+    unknown_2ec4: bool,
+}
+
+impl GameCtorState {
+    /// Mirrors the native `C_game()` initializer list.
+    pub fn new() -> Self {
+        Self {
+            initialized: false,
+            unknown_2eb0: 0,
+            unknown_2eb8: 0,
+            unknown_2ebc: 0,
+            unknown_2ec0: 0,
+            unknown_2ec4: false,
+        }
+    }
+
+    /// Reads the `initialized` word the ctor clears.
+    pub fn initialized(&self) -> bool {
+        self.initialized
+    }
+
+    /// Reads the staged `unknown_2eb0` word.
+    pub fn unknown_2eb0(&self) -> u32 {
+        self.unknown_2eb0
+    }
+
+    /// Reads the staged `unknown_2eb8` word.
+    pub fn unknown_2eb8(&self) -> u32 {
+        self.unknown_2eb8
+    }
+
+    /// Reads the staged `unknown_2ebc` word.
+    pub fn unknown_2ebc(&self) -> u32 {
+        self.unknown_2ebc
+    }
+
+    /// Reads the staged `unknown_2ec0` word.
+    pub fn unknown_2ec0(&self) -> u32 {
+        self.unknown_2ec0
+    }
+
+    /// Reads the trailing `unknown_2ec4` switch the ctor clears.
+    pub fn unknown_2ec4(&self) -> bool {
+        self.unknown_2ec4
+    }
+}
+
+/// STUB: GAME RVA 0x1a77c0, VA 0x5a77c0 (`game.cpp:2416-2420`,
+/// `C_game::AddTemporaryActor`): stages the actor as temporary. Unwritten
+/// upstream; the temporary-actor owner is deferred.
+pub const ADD_TEMPORARY_ACTOR_ENTRY: u32 = 0x5a77c0;
+
+/// Original `C_game::AddTemporaryActor` stub: always reports the boundary.
+pub fn add_temporary_actor(_actor: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_TEMPORARY_ACTOR_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1a7ec0, VA 0x5a7ec0 (`game.cpp:2478-2482`,
+/// `C_game::_RemoveTemporaryActor`, leading underscore as in the
+/// reference): the private temporary-actor removal. Unwritten upstream;
+/// the temporary-actor owner is deferred. Distinct from the outlined
+/// `RemoveTemporaryActor` (GAME 0x5a79a0).
+pub const REMOVE_TEMPORARY_ACTOR_PRIVATE_ENTRY: u32 = 0x5a7ec0;
+
+/// Original `C_game::_RemoveTemporaryActor` stub: always reports the
+/// boundary.
+pub fn remove_temporary_actor_private(_actor: ActorId) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: REMOVE_TEMPORARY_ACTOR_PRIVATE_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1a84a0, VA 0x5a84a0 (`game.cpp:2519-2525`,
+/// `C_game::NewShoot`): fires a shot from the actor along the direction
+/// with the given power. Unwritten upstream; the shot list, collision and
+/// frame owners are deferred. The reference stub returns `true`; the host
+/// reports the boundary instead of inventing the shot.
+pub const NEW_SHOOT_ENTRY: u32 = 0x5a84a0;
+
+/// Original `C_game::NewShoot` stub: always reports the boundary.
+pub fn new_shoot(
+    _actor: ActorId,
+    _pos: [f32; 3],
+    _dir: [f32; 3],
+    _power: f32,
+    _unknown1: i32,
+    _frame: FrameId,
+    _unknown2: i32,
+) -> Result<bool, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: NEW_SHOOT_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1aae10, VA 0x5aae10 (`game.cpp:2824-2829`,
+/// `C_game::NewExplosion`): spawns an explosion at the position with the
+/// given parameters. Unwritten upstream; the effect/actor owners are
+/// deferred.
+pub const NEW_EXPLOSION_ENTRY: u32 = 0x5aae10;
+
+/// Original `C_game::NewExplosion` stub: always reports the boundary.
+pub fn new_explosion(
+    _actor: ActorId,
+    _pos: [f32; 3],
+    _unknown1: f32,
+    _unknown2: f32,
+    _unknown3: bool,
+    _unknown4: bool,
+    _unknown5: bool,
+    _unknown6: i32,
+) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: NEW_EXPLOSION_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1acc00, VA 0x5acc00 (`game.cpp:2845-2849`,
+/// `C_game::Stop3DSound`): stops the numbered 3D sound with the fade/time
+/// shape. Unwritten upstream; the sound owner is deferred.
+pub const STOP_3D_SOUND_ENTRY: u32 = 0x5acc00;
+
+/// Original `C_game::Stop3DSound` stub: always reports the boundary.
+pub fn stop_3d_sound(_sound: i32, _fade: bool, _time: f32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: STOP_3D_SOUND_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1ad2a0, VA 0x5ad2a0 (`game.cpp:2909-2915`,
+/// `C_game::AddFrameForShadow`): files the frame for shadows and returns
+/// the slot. Unwritten upstream; the shadow/frame owners are deferred. The
+/// reference stub returns `0`; the host reports the boundary instead of
+/// inventing the slot.
+pub const ADD_FRAME_FOR_SHADOW_ENTRY: u32 = 0x5ad2a0;
+
+/// Original `C_game::AddFrameForShadow` stub: always reports the boundary.
+pub fn add_frame_for_shadow(
+    _frame: FrameId,
+    _type1: i32,
+    _type2: i32,
+    _replaced_frame: Option<FrameId>,
+    _name: &str,
+) -> Result<i32, UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: ADD_FRAME_FOR_SHADOW_ENTRY,
+    })
+}
+
+/// STUB: GAME RVA 0x1ad7c0, VA 0x5ad7c0 (`game.cpp:2917-2921`,
+/// `C_game::DelFrameForShadow`): drops the frame's shadow filing.
+/// Unwritten upstream; the shadow/frame owners are deferred.
+pub const DEL_FRAME_FOR_SHADOW_ENTRY: u32 = 0x5ad7c0;
+
+/// Original `C_game::DelFrameForShadow` stub: always reports the boundary.
+pub fn del_frame_for_shadow(_frame: FrameId, _shadow_type: i32) -> Result<(), UnwrittenGameEntry> {
+    Err(UnwrittenGameEntry::Unsupported {
+        entry: DEL_FRAME_FOR_SHADOW_ENTRY,
     })
 }
 
@@ -4582,5 +4900,220 @@ mod tests {
         assert!(state.is_game_failed());
         state.set_game_failed(false);
         assert!(!state.is_game_failed());
+    }
+
+    #[test]
+    fn inventory_stack_push_rva_1b1e10_reports_unsupported() {
+        assert_eq!(
+            inventory_stack_push(7),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: INVENTORY_STACK_PUSH_ENTRY
+            })
+        );
+        assert_eq!(INVENTORY_STACK_PUSH_ENTRY, 0x5b1e10);
+    }
+
+    #[test]
+    fn inventory_stack_pop_rva_1b20b0_reports_unsupported() {
+        assert_eq!(
+            inventory_stack_pop(7),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: INVENTORY_STACK_POP_ENTRY
+            })
+        );
+        assert_eq!(INVENTORY_STACK_POP_ENTRY, 0x5b20b0);
+    }
+
+    #[test]
+    fn float_stack_push_rva_1b2350_reports_unsupported() {
+        assert_eq!(
+            float_stack_push(1.5),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: FLOAT_STACK_PUSH_ENTRY
+            })
+        );
+        assert_eq!(FLOAT_STACK_PUSH_ENTRY, 0x5b2350);
+    }
+
+    #[test]
+    fn float_stack_pop_rva_1b2530_reports_unsupported() {
+        let mut value = 0.0f32;
+        assert_eq!(
+            float_stack_pop(&mut value),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: FLOAT_STACK_POP_ENTRY
+            })
+        );
+        assert_eq!(FLOAT_STACK_POP_ENTRY, 0x5b2530);
+    }
+
+    #[test]
+    fn character_stack_push_rva_1b25c0_reports_unsupported() {
+        assert_eq!(
+            character_stack_push(7),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: CHARACTER_STACK_PUSH_ENTRY
+            })
+        );
+        assert_eq!(CHARACTER_STACK_PUSH_ENTRY, 0x5b25c0);
+    }
+
+    #[test]
+    fn character_stack_pop_rva_1b2740_reports_unsupported() {
+        assert_eq!(
+            character_stack_pop(7),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: CHARACTER_STACK_POP_ENTRY
+            })
+        );
+        assert_eq!(CHARACTER_STACK_POP_ENTRY, 0x5b2740);
+    }
+
+    #[test]
+    fn lightness_tick_rva_1b57e0_reports_unsupported() {
+        assert_eq!(
+            lightness_tick(16),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: LIGHTNESS_TICK_ENTRY
+            })
+        );
+        assert_eq!(LIGHTNESS_TICK_ENTRY, 0x5b57e0);
+    }
+
+    #[test]
+    fn add_frame_placement_rva_1b0300_reports_unsupported() {
+        assert_eq!(
+            add_frame_placement(9),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: ADD_FRAME_PLACEMENT_ENTRY
+            })
+        );
+        assert_eq!(ADD_FRAME_PLACEMENT_ENTRY, 0x5b0300);
+    }
+
+    #[test]
+    fn death_actor_add_rva_1b4560_reports_unsupported() {
+        assert_eq!(
+            death_actor_add(7),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: DEATH_ACTOR_ADD_ENTRY
+            })
+        );
+        assert_eq!(DEATH_ACTOR_ADD_ENTRY, 0x5b4560);
+    }
+
+    #[test]
+    fn death_actor_process_rva_1b4720_reports_unsupported() {
+        assert_eq!(
+            death_actor_process(),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: DEATH_ACTOR_PROCESS_ENTRY
+            })
+        );
+        assert_eq!(DEATH_ACTOR_PROCESS_ENTRY, 0x5b4720);
+    }
+
+    #[test]
+    fn get_actor_from_guid_rva_1b4790_mirrors_native_null() {
+        assert_eq!(get_actor_from_guid(0x1234), None);
+    }
+
+    #[test]
+    fn intern_temp_act_add_rva_1a7b70_reports_unsupported() {
+        assert_eq!(
+            intern_temp_act_add(7),
+            Err(UnwrittenGameEntry::Unsupported {
+                entry: INTERN_TEMP_ACT_ADD_ENTRY
+            })
+        );
+        assert_eq!(INTERN_TEMP_ACT_ADD_ENTRY, 0x5a7b70);
+    }
+
+    #[test]
+    fn game_ctor_rva_1472f0_matches_initializer_list() {
+        // C_game() GAME RVA 0x1472f0 (VA 0x5472f0, game.h:560-569).
+        let state = GameCtorState::new();
+        assert!(!state.initialized());
+        assert_eq!(state.unknown_2eb0(), 0);
+        assert_eq!(state.unknown_2eb8(), 0);
+        assert_eq!(state.unknown_2ebc(), 0);
+        assert_eq!(state.unknown_2ec0(), 0);
+        assert!(!state.unknown_2ec4());
+        assert_eq!(GameCtorState::default(), state);
+    }
+
+    #[test]
+    fn rva_1a77c0_add_temporary_actor_reports_unsupported() {
+        // C_game::AddTemporaryActor GAME RVA 0x1a77c0 (VA 0x5a77c0): STUB.
+        assert_eq!(ADD_TEMPORARY_ACTOR_ENTRY, 0x5a77c0);
+        assert_eq!(
+            add_temporary_actor(7),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5a77c0 })
+        );
+    }
+
+    #[test]
+    fn rva_1a7ec0_remove_temporary_actor_private_reports_unsupported() {
+        // C_game::_RemoveTemporaryActor GAME RVA 0x1a7ec0 (VA 0x5a7ec0):
+        // STUB, distinct from RemoveTemporaryActor 0x5a79a0.
+        assert_eq!(REMOVE_TEMPORARY_ACTOR_PRIVATE_ENTRY, 0x5a7ec0);
+        assert_eq!(
+            remove_temporary_actor_private(7),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5a7ec0 })
+        );
+    }
+
+    #[test]
+    fn rva_1a84a0_new_shoot_reports_unsupported() {
+        // C_game::NewShoot GAME RVA 0x1a84a0 (VA 0x5a84a0): STUB.
+        assert_eq!(NEW_SHOOT_ENTRY, 0x5a84a0);
+        assert_eq!(
+            new_shoot(1, [0.0; 3], [1.0, 0.0, 0.0], 2.5, 0, 9, 0),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5a84a0 })
+        );
+    }
+
+    #[test]
+    fn rva_1aae10_new_explosion_reports_unsupported() {
+        // C_game::NewExplosion GAME RVA 0x1aae10 (VA 0x5aae10): STUB.
+        assert_eq!(NEW_EXPLOSION_ENTRY, 0x5aae10);
+        assert_eq!(
+            new_explosion(1, [0.0; 3], 1.0, 2.0, false, true, false, 0),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5aae10 })
+        );
+    }
+
+    #[test]
+    fn rva_1acc00_stop_3d_sound_reports_unsupported() {
+        // C_game::Stop3DSound GAME RVA 0x1acc00 (VA 0x5acc00): STUB.
+        assert_eq!(STOP_3D_SOUND_ENTRY, 0x5acc00);
+        assert_eq!(
+            stop_3d_sound(3, true, 1.5),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5acc00 })
+        );
+    }
+
+    #[test]
+    fn rva_1ad2a0_add_frame_for_shadow_reports_unsupported() {
+        // C_game::AddFrameForShadow GAME RVA 0x1ad2a0 (VA 0x5ad2a0): STUB.
+        assert_eq!(ADD_FRAME_FOR_SHADOW_ENTRY, 0x5ad2a0);
+        assert_eq!(
+            add_frame_for_shadow(4, 1, 2, Some(8), "semafor.i3d"),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ad2a0 })
+        );
+        assert_eq!(
+            add_frame_for_shadow(4, 1, 2, None, "semafor.i3d"),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ad2a0 })
+        );
+    }
+
+    #[test]
+    fn rva_1ad7c0_del_frame_for_shadow_reports_unsupported() {
+        // C_game::DelFrameForShadow GAME RVA 0x1ad7c0 (VA 0x5ad7c0): STUB.
+        assert_eq!(DEL_FRAME_FOR_SHADOW_ENTRY, 0x5ad7c0);
+        assert_eq!(
+            del_frame_for_shadow(4, 1),
+            Err(UnwrittenGameEntry::Unsupported { entry: 0x5ad7c0 })
+        );
     }
 }

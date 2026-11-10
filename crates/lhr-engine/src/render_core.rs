@@ -538,6 +538,14 @@ pub fn render_scene(
     I3D_OK
 }
 
+/// LS3DF RVA 0x1fac0, VA 0x1001fac0. `I3D_landpatch::Render` (mafia-re pin
+/// 113b5b6 `ls3df/I3D/visuals/I3d_landscape.cpp:308`; LS3DF11 RVA 0x1f5e0).
+/// Explicit unsupported boundary: locks `gLandVB`, recurses both base trees,
+/// unlocks, then pushes the world matrix and texture and issues the
+/// `DrawPrimitive` call. Needs the D3D vertex-buffer/texture device owners;
+/// none has a host carrier, so the host executes nothing.
+pub fn landpatch_render_stub() {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -572,6 +580,13 @@ mod tests {
         assert!(!state.live);
         close_render(&mut state, &mut backend);
         assert!(backend.events.is_empty());
+    }
+
+    #[test]
+    fn landpatch_render_0x1fac0_executes_no_host_device_call() {
+        // Explicit unsupported boundary: the D3D vertex-buffer/texture pass
+        // has no host carrier, so the stub performs no observable work.
+        landpatch_render_stub();
     }
 
     struct VisualLog {

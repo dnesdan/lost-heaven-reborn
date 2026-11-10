@@ -191,6 +191,49 @@ pub fn lensflare_fade_step(
         ],
     })
 }
+/// Working name for the game-only inlined `I3D_lensflare::SetSize`
+/// (mafia-re ls3df/I3D/I3D.h:3019-3023 at pin 113b5b6, `#ifndef
+/// LS3DF_EXPORTS`). The reference records no LS3DF FUNCTION address and no
+/// Game.exe out-of-line copy for it; the game inlines the plain store.
+/// Stores the size with no validation; the validated scene2 intake stays in
+/// `LensflareParameters::assign`. Pure, no device.
+pub fn lensflare_plain_set_size(params: &mut LensflareParameters, value: f32) {
+    params.size = value;
+}
+/// Working name for the game-only inlined `I3D_lensflare::SetIntensity`
+/// (mafia-re ls3df/I3D/I3D.h:3025-3028 at pin 113b5b6, `#ifndef
+/// LS3DF_EXPORTS`). The reference records no LS3DF FUNCTION address and no
+/// Game.exe out-of-line copy for it. Stores the intensity with no
+/// validation; pure, no device.
+pub fn lensflare_plain_set_intensity(params: &mut LensflareParameters, value: f32) {
+    params.intensity = value;
+}
+/// Working name for the game-only inlined `I3D_lensflare::SetTestInterval`
+/// (mafia-re ls3df/I3D/I3D.h:3029-3032 at pin 113b5b6, `#ifndef
+/// LS3DF_EXPORTS`). The reference records no LS3DF FUNCTION address and no
+/// Game.exe out-of-line copy for it. Stores the interval with no float
+/// conversion; the validated `__ftol` path stays in `assign`. Pure.
+pub fn lensflare_plain_set_test_interval(params: &mut LensflareParameters, value: u32) {
+    params.test_interval = value;
+}
+/// Working name for the game-only inlined `I3D_lensflare::SetFade`
+/// (mafia-re ls3df/I3D/I3D.h:3033-3039 at pin 113b5b6, `#ifndef
+/// LS3DF_EXPORTS`). The reference records no LS3DF FUNCTION address and no
+/// Game.exe out-of-line copy for it. Stores both fades in parameter order
+/// with no reachability check; the validated load path that preserves the
+/// reached store prefix stays in `assign`. Pure, no device.
+pub fn lensflare_plain_set_fade(params: &mut LensflareParameters, fade_in: f32, fade_out: f32) {
+    params.fade_in = fade_in;
+    params.fade_out = fade_out;
+}
+/// Working name for the game-only inlined `I3D_lensflare::SetRange`
+/// (mafia-re ls3df/I3D/I3D.h:3041-3044 at pin 113b5b6, `#ifndef
+/// LS3DF_EXPORTS`). The reference records no LS3DF FUNCTION address and no
+/// Game.exe out-of-line copy for it. Stores the range with no validation;
+/// pure, no device.
+pub fn lensflare_plain_set_range(params: &mut LensflareParameters, value: f32) {
+    params.range = value;
+}
 
 #[cfg(test)]
 mod tests {
@@ -329,5 +372,41 @@ mod tests {
         parameters.fade_out = 8.;
         assert!(parameters.assign(LensflareParameter::FadeOut, 7.).is_err());
         assert_eq!(parameters.fade_out, 8.);
+    }
+    #[test]
+    fn plain_game_setters_store_without_validation() {
+        // Working names for the game-only inlined lensflare setters
+        // (mafia-re ls3df/I3D/I3D.h:3017-3044): no LS3DF FUNCTION addresses
+        // exist. Plain stores, unlike the validated scene2 `assign` path.
+        let mut params = LensflareParameters::constructed();
+        lensflare_plain_set_size(&mut params, 2.5);
+        assert_eq!(params.size.to_bits(), 2.5f32.to_bits());
+        lensflare_plain_set_size(&mut params, f32::NAN);
+        assert!(params.size.is_nan());
+        lensflare_plain_set_intensity(&mut params, 0.25);
+        assert_eq!(params.intensity.to_bits(), 0.25f32.to_bits());
+        lensflare_plain_set_test_interval(&mut params, 9);
+        assert_eq!(params.test_interval, 9);
+        lensflare_plain_set_test_interval(&mut params, u32::MAX);
+        assert_eq!(params.test_interval, u32::MAX);
+        lensflare_plain_set_fade(&mut params, 3.0, 4.0);
+        assert_eq!((params.fade_in.to_bits(), params.fade_out.to_bits()), (3.0f32.to_bits(), 4.0f32.to_bits()));
+        lensflare_plain_set_fade(&mut params, f32::INFINITY, f32::NEG_INFINITY);
+        assert_eq!((params.fade_in, params.fade_out), (f32::INFINITY, f32::NEG_INFINITY));
+        lensflare_plain_set_range(&mut params, 42.0);
+        assert_eq!(params.range.to_bits(), 42.0f32.to_bits());
+        // Untouched fields keep their values through each plain store.
+        let mut fresh = LensflareParameters::constructed();
+        lensflare_plain_set_size(&mut fresh, 7.0);
+        assert_eq!(
+            (
+                fresh.intensity,
+                fresh.test_interval,
+                fresh.fade_in,
+                fresh.fade_out,
+                fresh.range
+            ),
+            (1.0, 150, 15.0, 8.0, 300.0)
+        );
     }
 }

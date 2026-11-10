@@ -40,6 +40,20 @@ impl ModelArena {
     pub fn original_name_pointer(&self, key: FrameKey) -> Result<OriginalFrameName, ModelError> {
         Ok(self.frame(key)?.name_pointer)
     }
+    /// Working name for the LS3DF-inlined `I3D_frame::GetOrigName` read
+    /// (mafia-re ls3df/I3D/I3D.h:589-593). The reference records no LS3DF
+    /// FUNCTION address for it and no Game.exe out-of-line copy either:
+    /// both binaries inline it. Reports the frame's own name (the model
+    /// prefix is stripped by the model propagation, not here); an unset
+    /// name reads as empty, like the native `m_pOrigName ? m_pOrigName
+    /// : ""`. No cache moves.
+    pub fn frame_orig_name(&self, key: FrameKey) -> Result<&[u8], ModelError> {
+        Ok(self
+            .frame(key)?
+            .original_name_bytes
+            .as_deref()
+            .unwrap_or(b""))
+    }
     fn insertion_name(&self, key: FrameKey) -> Result<&[u8], ModelError> {
         let frame = self.frame(key)?;
         if frame.name_is_null {
@@ -232,6 +246,19 @@ impl ModelArena {
     /// Base SetName, including allocation failure after registration and old
     /// allocation release. The released original pointer is inspectable safely.
     /// Model prefix propagation and sector-specific virtual naming are separate.
+    /// Original I3D_frame::SetName, PC RVA 0x1b6f0 (VA 0x1001b6f0; REA formed
+    /// Ghidra body FUN_1001b6f0 in LS3DF.dll e211c850...,
+    /// ev_1b3fb4e4bf065015af8a3de96414b95d185975b1f4b07cec057aab99078ce63f;
+    /// mafia-re ls3df/I3D/frames/I3d_frame.cpp:350-377 at pin 113b5b6).
+    /// Confirm-only on this pre-existing port. Order-exact:
+    /// content-equal names return I3D_OK without touching the tree (the
+    /// native pointer-identity arm is folded into the content compare: equal
+    /// pointers always compare equal, disclosed); otherwise the fast-tree
+    /// registration drops first, the old allocation releases, the new
+    /// len+1 bytes copy with OrigName aliased at the allocation start, and
+    /// the fast-find gate re-registers. A null name clears both pointers.
+    /// Allocation failure surfaces the host reservation error where the
+    /// native calls the fatal ErrorHandler (disclosed).
     pub fn set_frame_name_with_allocator(
         &mut self,
         key: FrameKey,
@@ -313,6 +340,66 @@ mod tests {
             OriginalFrameName::Null
         );
         assert!(arena.original_name_pointer(FrameKey(u32::MAX)).is_err());
+        arena.release(key).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn frame_orig_name_reads_unset_as_empty() {
+        // Working name for inlined I3D_frame::GetOrigName (I3D.h:589-593):
+        // no LS3DF FUNCTION address and no Game.exe copy exist.
+        let mut arena = ModelArena::default();
+        let key = arena.create_dummy_frame().unwrap();
+        assert_eq!(arena.frame_orig_name(key).unwrap(), b"");
+        arena.set_frame_name(key, Some(b"frame")).unwrap();
+        assert_eq!(arena.frame_orig_name(key).unwrap(), b"frame");
+        arena.set_frame_name(key, None).unwrap();
+        assert_eq!(arena.frame_orig_name(key).unwrap(), b"");
+        assert!(arena.frame_orig_name(FrameKey(u32::MAX)).is_err());
+        arena.release(key).unwrap();
+    }
+    #[test]
+    fn set_frame_name_rva_0x1b6f0_equal_noop_unregister_realloc_reregister() {
+        // PC RVA 0x1b6f0 (VA 0x1001b6f0; REA formed Ghidra body FUN_1001b6f0,
+        // ev_1b3fb4e4...; mafia-re I3d_frame.cpp:350-377): content-equal
+        // reassignment is a no-op (native pointer-then-strcmp arms folded
+        // into one content compare, disclosed); otherwise unregister, free,
+        // len+1 alloc with OrigName at the allocation start, and a fast-find
+        // gated re-registration. Null clears both pointers.
+        let mut arena = ModelArena::default();
+        arena.set_fast_find_enabled(true);
+        let key = arena.create_dummy_frame().unwrap();
+        // Null on a null name keeps the tree empty.
+        arena.set_frame_name(key, None).unwrap();
+        assert!(arena.fast_tree_root().is_none());
+        // Fresh names allocate len+1 bytes with OrigName at index zero and
+        // register in the enabled fast tree.
+        arena.set_frame_name(key, Some(b"name")).unwrap();
+        assert_eq!(arena.frame(key).unwrap().name_bytes, b"name");
+        assert_eq!(arena.frame_orig_name(key).unwrap(), b"name");
+        assert_eq!(
+            arena.original_name_pointer(key).unwrap(),
+            OriginalFrameName::Offset(0)
+        );
+        assert_eq!(arena.fast_tree_root(), Some(key));
+        // Content-equal reassignment registers nothing new.
+        let adds = arena.fast_tree_add_counter();
+        arena.set_frame_name(key, Some(b"name")).unwrap();
+        assert_eq!(arena.fast_tree_add_counter(), adds);
+        assert_eq!(arena.frame(key).unwrap().name_bytes, b"name");
+        // A new name unregisters, frees and reallocates with the new bytes.
+        arena.set_frame_name(key, Some(b"longer")).unwrap();
+        assert_eq!(arena.frame(key).unwrap().name_bytes, b"longer");
+        assert_eq!(arena.frame_orig_name(key).unwrap(), b"longer");
+        assert_eq!(arena.fast_tree_root(), Some(key));
+        // Null clears both pointers and drops the registration.
+        arena.set_frame_name(key, None).unwrap();
+        assert_eq!(
+            arena.original_name_pointer(key).unwrap(),
+            OriginalFrameName::Null
+        );
+        assert_eq!(arena.frame_orig_name(key).unwrap(), b"");
+        assert!(arena.fast_tree_root().is_none());
+        assert!(arena.set_frame_name(FrameKey(u32::MAX), Some(b"x")).is_err());
         arena.release(key).unwrap();
         assert_eq!(arena.live_frame_count(), 0);
     }

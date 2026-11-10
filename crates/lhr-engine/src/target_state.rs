@@ -208,6 +208,39 @@ impl I3dTargetState {
     pub fn flags(&self) -> u32 {
         self.flags
     }
+    /// I3D_target::target_flags words (mafia-re ls3df/I3D/I3D.h:2228-2234 at
+    /// pin 113b5b6; the member names are guessed there). Upstream working
+    /// names, not evidenced original symbols: the original exposes no named
+    /// accessors, and UpdateFrames tests the bits in place (mafia-re
+    /// ls3df/I3D/frames/I3d_target.cpp).
+    /// TARGETF_LOOKAT 0x1: turn the frames to the target (the default).
+    pub const TARGETF_LOOKAT: u32 = 0x1;
+    /// TARGETF_ROT 0x2: the frames take the target's world rotation.
+    pub const TARGETF_ROT: u32 = 0x2;
+    /// TARGETF_POS 0x4: the frames take the target's world position.
+    pub const TARGETF_POS: u32 = 0x4;
+    /// TARGETF_SCALE 0x8: the frames take the target's world scale.
+    pub const TARGETF_SCALE: u32 = 0x8;
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the TARGETF_LOOKAT bit (I3D.h:2231). No named original accessor.
+    pub fn target_lookat_enabled(&self) -> bool {
+        self.flags & Self::TARGETF_LOOKAT != 0
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the TARGETF_ROT bit (I3D.h:2232). No named original accessor.
+    pub fn target_rot_enabled(&self) -> bool {
+        self.flags & Self::TARGETF_ROT != 0
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the TARGETF_POS bit (I3D.h:2233). No named original accessor.
+    pub fn target_pos_enabled(&self) -> bool {
+        self.flags & Self::TARGETF_POS != 0
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the TARGETF_SCALE bit (I3D.h:2234). No named original accessor.
+    pub fn target_scale_enabled(&self) -> bool {
+        self.flags & Self::TARGETF_SCALE != 0
+    }
     /// Target::Duplicate copies this derived flag word without evaluating it.
     pub(crate) fn copy_duplicate_flags(&mut self, flags: u32) {
         self.flags = flags;
@@ -614,6 +647,46 @@ mod tests {
         I3dTargetState::default()
             .update_frames(FrameKey(3), |_| Err::<(), _>("unused"))
             .unwrap();
+    }
+
+    #[test]
+    fn target_lookat_reader_reports_only_bit_zero() {
+        let mut state = I3dTargetState::default();
+        assert!(state.target_lookat_enabled());
+        state.copy_duplicate_flags(0xe);
+        assert!(!state.target_lookat_enabled());
+        state.copy_duplicate_flags(0xf);
+        assert!(state.target_lookat_enabled());
+    }
+
+    #[test]
+    fn target_rot_reader_reports_only_bit_one() {
+        let mut state = I3dTargetState::default();
+        assert!(!state.target_rot_enabled());
+        state.copy_duplicate_flags(0x2);
+        assert!(state.target_rot_enabled());
+        state.copy_duplicate_flags(0xd);
+        assert!(!state.target_rot_enabled());
+    }
+
+    #[test]
+    fn target_pos_reader_reports_only_bit_two() {
+        let mut state = I3dTargetState::default();
+        assert!(!state.target_pos_enabled());
+        state.copy_duplicate_flags(0x4);
+        assert!(state.target_pos_enabled());
+        state.copy_duplicate_flags(0xb);
+        assert!(!state.target_pos_enabled());
+    }
+
+    #[test]
+    fn target_scale_reader_reports_only_bit_three() {
+        let mut state = I3dTargetState::default();
+        assert!(!state.target_scale_enabled());
+        state.copy_duplicate_flags(0x8);
+        assert!(state.target_scale_enabled());
+        state.copy_duplicate_flags(0x7);
+        assert!(!state.target_scale_enabled());
     }
 
     #[test]

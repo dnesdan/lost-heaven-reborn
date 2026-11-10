@@ -4673,8 +4673,8 @@
       "va": "0x10045a80",
       "name": "I3D_pose::SetDir pointer overload (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_dir_ptr",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:74-81 (null never calls backend); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_c37c4c213a + complete walk both branches (null -> clear 0x4|0x8 + RET 0xc; else quat CALL + set 0x4 + RET 0xc); port flag words 0x4/0x8 match native; pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4682,8 +4682,8 @@
       "va": "0x10045ac0",
       "name": "I3D_pose::SetDir reference overload (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_dir",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:86-90 (ROT bit preserved); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_8e5c8d5dfe + complete walk (quat CALL + OR 0x4 + RET 0xc, flags otherwise kept); port flag words 0x4/0x8 match native; pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4691,8 +4691,8 @@
       "va": "0x10045ae0",
       "name": "I3D_pose::SetDirAbs (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPose::set_dir_abs",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:94-98; tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_d44d7f9c53 + complete walk (quat CALL + clear 0x4/set 0x8 + RET 0xc); port flag words 0x4/0x8 match native; pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -4745,8 +4745,8 @@
       "va": "0x10045c80",
       "name": "I3D_pose_set::GetFrameName (working name)",
       "symbol": "lhr_engine::animation_pose::I3dPoseSet::frame_name",
-      "tier": "contract",
-      "evidence": "No Ghidra body (vtable-slot xref) + mafia-re I3d_pose.cpp:171-176 (empty fallback); tier contract per the unresolved-boundary rule"
+      "tier": "differential",
+      "evidence": "REA ev_efde124d3f + complete walk all branches (bounds/null -> default string; else slot load + RET 8); port flag words 0x4/0x8 match native; pin tests animation_pose 12 pass"
     },
     {
       "binary": "LS3DF.dll",
@@ -10429,12 +10429,12 @@
     },
     {
       "binary": "Game.exe",
-      "rva": "0x1b5180",
-      "va": "0x5b5180",
+      "rva": "0x1b5780",
+      "va": "0x5b5780",
       "name": "C_game::LightnessClear",
       "symbol": "lhr_engine::game_housekeeping::lightness_clear",
       "tier": "contract",
-      "evidence": "Lightness clear (GAME 0x5b5180). Marker-only contract; tests green on this tree."
+      "evidence": "Wrong-address remediation: reference FUNCTION GAME 0x5b5780 (was misfiled as RVA 0x1b5180). Lightness entries clear (GAME 0x5b5780). Marker-only contract; tests green on this tree."
     },
     {
       "binary": "Game.exe",
@@ -14188,6 +14188,2085 @@
       "symbol": "lhr_engine::mission_actor_lists::get_effects",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. Effects getter (GAME 0x47ae60)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x145ce0",
+      "va": "0x545ce0",
+      "name": "C_mission::FrmActBuff_StoreActor",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_store_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. StoreActor list (GAME 0x545ce0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1464d0",
+      "va": "0x5464d0",
+      "name": "C_mission::FrmActBuff_StoreActiveActor",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_store_active_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. StoreActiveActor (GAME 0x5464d0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1466e0",
+      "va": "0x5466e0",
+      "name": "C_mission::FrmActBuff_RemoveActiveActor",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_remove_active_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. RemoveActiveActor (GAME 0x5466e0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x146770",
+      "va": "0x546770",
+      "name": "C_mission::FrmActBuff_IsActiveActor",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_is_active_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. IsActiveActor (GAME 0x546770)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x146830",
+      "va": "0x546830",
+      "name": "C_mission::FrmActBuff_StoreActorSound",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_store_actor_sound",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. StoreActorSound (GAME 0x546830)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x146aa0",
+      "va": "0x546aa0",
+      "name": "C_mission::FrmActBuff_GetActorSound",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_get_actor_sound",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. GetActorSound (GAME 0x546aa0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x146b70",
+      "va": "0x546b70",
+      "name": "C_mission::FrmActBuff_ClearAll",
+      "symbol": "lhr_engine::mission_scene_loading::frm_act_buff_clear_all",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. ClearAll (GAME 0x546b70)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x166c0",
+      "va": "0x100166c0",
+      "name": "I3D_driver::DrawPoint",
+      "symbol": "lhr_engine::render_state::driver_draw_point",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x168f0",
+      "va": "0x100168f0",
+      "name": "I3D_driver::DrawPoint2D",
+      "symbol": "lhr_engine::render_state::driver_draw_point_2d",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x16b20",
+      "va": "0x10016b20",
+      "name": "I3D_driver::DrawLine",
+      "symbol": "lhr_engine::render_state::driver_draw_line",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x16d70",
+      "va": "0x10016d70",
+      "name": "I3D_driver::DrawLines",
+      "symbol": "lhr_engine::render_state::driver_draw_lines",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x16ff0",
+      "va": "0x10016ff0",
+      "name": "I3D_driver::DrawTriangles",
+      "symbol": "lhr_engine::render_state::driver_draw_triangles",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x17580",
+      "va": "0x10017580",
+      "name": "I3D_driver::DrawCircle2D",
+      "symbol": "lhr_engine::render_state::driver_draw_circle_2d",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x17890",
+      "va": "0x10017890",
+      "name": "I3D_driver::DrawText",
+      "symbol": "lhr_engine::render_state::driver_draw_text",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x17d40",
+      "va": "0x10017d40",
+      "name": "I3D_driver::DrawText2D",
+      "symbol": "lhr_engine::render_state::driver_draw_text_2d",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x182f0",
+      "va": "0x100182f0",
+      "name": "I3D_driver::DrawSprite",
+      "symbol": "lhr_engine::render_state::driver_draw_sprite",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x186a0",
+      "va": "0x100186a0",
+      "name": "I3D_driver::DrawBox",
+      "symbol": "lhr_engine::render_state::driver_draw_box",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x18cc0",
+      "va": "0x10018cc0",
+      "name": "I3D_driver::DrawSphere",
+      "symbol": "lhr_engine::render_state::driver_draw_sphere",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x464d0",
+      "va": "0x100464d0",
+      "name": "I3D_projector::AddFGroups",
+      "symbol": "lhr_engine::projector_pass::projector_add_fgroups_visual_contract",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D8 device/face-group owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17f550",
+      "va": "0x57f550",
+      "name": "C_human::Do_ChangeWeapon",
+      "symbol": "lhr_engine::human_actor::HumanState::change_weapon_entry",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. ChangeWeapon entry latch (GAME 0x57f550)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x185b40",
+      "va": "0x585b40",
+      "name": "C_human::Do_Reload",
+      "symbol": "lhr_engine::human_actor::HumanState::reload_fire_plan",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. Reload fire-table scan (GAME 0x585b40)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x185e80",
+      "va": "0x585e80",
+      "name": "C_human::Do_PlayAnim",
+      "symbol": "lhr_engine::human_actor::HumanState::do_play_anim_leaf",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. PlayAnim reset leaf (GAME 0x585e80)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x186190",
+      "va": "0x586190",
+      "name": "C_human::Do_Jump",
+      "symbol": "lhr_engine::human_actor::HumanState::jump_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. Jump entry gate (GAME 0x586190)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x186400",
+      "va": "0x586400",
+      "name": "C_human::Do_Climb",
+      "symbol": "lhr_engine::human_actor::HumanState::climb_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. Climb entry gate (GAME 0x586400)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x187040",
+      "va": "0x587040",
+      "name": "C_human::Do_SideJump",
+      "symbol": "lhr_engine::human_actor::HumanState::side_jump_select",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. SideJump select (GAME 0x587040)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x181eb0",
+      "va": "0x581eb0",
+      "name": "C_human::Do_ClimbInCarLR",
+      "symbol": "lhr_engine::human_actor::HumanState::climb_seat_target",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. ClimbInCarLR seat gate (GAME 0x581eb0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x183590",
+      "va": "0x583590",
+      "name": "C_human::Do_Shoot",
+      "symbol": "lhr_engine::human_actor::HumanState::shoot_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. Shoot entry gate (GAME 0x583590)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x183f40",
+      "va": "0x583f40",
+      "name": "C_human::Do_ThrowGrenade",
+      "symbol": "lhr_engine::human_actor::HumanState::throw_grenade_throw_dir",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. ThrowGrenade throw latch (GAME 0x583f40)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x189140",
+      "va": "0x589140",
+      "name": "C_human::Do_FuckingBox",
+      "symbol": "lhr_engine::human_actor::HumanState::fucking_box_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. FuckingBox entry gate (GAME 0x589140)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x189680",
+      "va": "0x589680",
+      "name": "C_human::Do_FuckingBoxCancel",
+      "symbol": "lhr_engine::human_actor::HumanState::fucking_box_cancel_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. FuckingBoxCancel entry gate (GAME 0x589680)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x189c20",
+      "va": "0x589c20",
+      "name": "C_human::Do_DeadBody",
+      "symbol": "lhr_engine::human_actor::HumanState::dead_body_entry_gate",
+      "tier": "contract",
+      "evidence": "Gate-slice port; full bodies deferred to scene/anim owners. Marker-only contract; tests green on this tree. DeadBody entry gate (GAME 0x589c20)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5ce0",
+      "va": "0x10005ce0",
+      "name": "I3D_area::LoadImage",
+      "symbol": "lhr_engine::frame_area::ModelArena::area_load_image",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (D3D device owners deferred; folded with sound-LoadImage). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x140520",
+      "va": "0x540520",
+      "name": "C_mission::GlobalProgramGameInit",
+      "symbol": "lhr_engine::mission_actor_lists::global_program_game_init",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. GlobalProgram GameInit loop (GAME 0x540520)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x140550",
+      "va": "0x540550",
+      "name": "C_mission::GlobalProgramGameDone",
+      "symbol": "lhr_engine::mission_actor_lists::global_program_game_done",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. GlobalProgram GameDone loop (GAME 0x540550)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b1e10",
+      "va": "0x5b1e10",
+      "name": "C_game::InventoryStackPush",
+      "symbol": "lhr_engine::game_housekeeping::inventory_stack_push",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b20b0",
+      "va": "0x5b20b0",
+      "name": "C_game::InventoryStackPop",
+      "symbol": "lhr_engine::game_housekeeping::inventory_stack_pop",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b2350",
+      "va": "0x5b2350",
+      "name": "C_game::FloatStackPush",
+      "symbol": "lhr_engine::game_housekeeping::float_stack_push",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b2530",
+      "va": "0x5b2530",
+      "name": "C_game::FloatStackPop",
+      "symbol": "lhr_engine::game_housekeeping::float_stack_pop",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b25c0",
+      "va": "0x5b25c0",
+      "name": "C_game::CharacterStackPush",
+      "symbol": "lhr_engine::game_housekeeping::character_stack_push",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b2740",
+      "va": "0x5b2740",
+      "name": "C_game::CharacterStackPop",
+      "symbol": "lhr_engine::game_housekeeping::character_stack_pop",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b4560",
+      "va": "0x5b4560",
+      "name": "C_game::DeathActorAdd",
+      "symbol": "lhr_engine::game_housekeeping::death_actor_add",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b4720",
+      "va": "0x5b4720",
+      "name": "C_game::DeathActorProcess",
+      "symbol": "lhr_engine::game_housekeeping::death_actor_process",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b4790",
+      "va": "0x5b4790",
+      "name": "C_game::GetActorFromGuid",
+      "symbol": "lhr_engine::game_housekeeping::get_actor_from_guid",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b0300",
+      "va": "0x5b0300",
+      "name": "C_game::AddFramePlacement",
+      "symbol": "lhr_engine::game_housekeeping::add_frame_placement",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a7b70",
+      "va": "0x5a7b70",
+      "name": "C_game::InternTempActAdd",
+      "symbol": "lhr_engine::game_housekeeping::intern_temp_act_add",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1b57e0",
+      "va": "0x5b57e0",
+      "name": "C_game::LightnessTick",
+      "symbol": "lhr_engine::game_housekeeping::lightness_tick",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/actor owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7af30",
+      "va": "0x47af30",
+      "name": "C_actor::GetPos",
+      "symbol": "lhr_engine::actor_world::BaseActorState::pos",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Pos read (GAME 0x47af30)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7af50",
+      "va": "0x47af50",
+      "name": "C_actor::SetPos",
+      "symbol": "lhr_engine::actor_world::BaseActorState::set_pos",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Pos write (GAME 0x47af50)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7af70",
+      "va": "0x47af70",
+      "name": "C_actor::GetDir",
+      "symbol": "lhr_engine::actor_world::BaseActorState::dir",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Dir read (GAME 0x47af70)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7af90",
+      "va": "0x47af90",
+      "name": "C_actor::SetDir",
+      "symbol": "lhr_engine::actor_world::BaseActorState::set_dir",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Dir write (GAME 0x47af90)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7afe0",
+      "va": "0x47afe0",
+      "name": "C_actor::SetOwnFrame",
+      "symbol": "lhr_engine::actor_world::BaseActorState::set_own_frame",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Own-frame latch (GAME 0x47afe0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x8040",
+      "va": "0x408040",
+      "name": "C_actor::GetWorldDir",
+      "symbol": "lhr_engine::actor_world::BaseActorState::world_dir",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. World dir (GAME 0x408040)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6dd0",
+      "va": "0x406dd0",
+      "name": "C_actor::Rebirth",
+      "symbol": "lhr_engine::actor_world::BaseActorState::rebirth",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Rebirth (GAME 0x406dd0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6590",
+      "va": "0x406590",
+      "name": "C_actor::Actor_SaveGameGetSize",
+      "symbol": "lhr_engine::actor_world::actor_savegame_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Savegame size (GAME 0x406590)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x147130",
+      "va": "0x547130",
+      "name": "C_actor::SetFrameActor",
+      "symbol": "lhr_engine::actor_world::set_frame_actor_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: frame user-data owner deferred (GAME 0x547130)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x204d90",
+      "va": "0x604d90",
+      "name": "C_actor::GetFrameActor",
+      "symbol": "lhr_engine::actor_world::get_frame_actor_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: frame user-data owner deferred (GAME 0x604d90)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7fb0",
+      "va": "0x407fb0",
+      "name": "C_actor::IsGlobalActor",
+      "symbol": "lhr_engine::actor_world::ActorWorld::is_global_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Global-actor check (GAME 0x407fb0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4e20",
+      "va": "0x404e20",
+      "name": "C_actor_shot::AddToCutscene",
+      "symbol": "lhr_engine::actor_shot::ActorShotState::add_to_cutscene",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Shot cutscene add (GAME 0x404e20)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x167430",
+      "va": "0x567430",
+      "name": "C_actor_shot::SetWeapon",
+      "symbol": "lhr_engine::actor_shot::set_weapon_marker",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. SetWeapon marker (GAME 0x567430)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4e40",
+      "va": "0x404e40",
+      "name": "C_actor_shot::PlayRecord",
+      "symbol": "lhr_engine::actor_shot::apply_shot_record_flags",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. PlayRecord flag tail (GAME 0x404e40)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5e60",
+      "va": "0x405e60",
+      "name": "C_actor::InternalPlacementReset",
+      "symbol": "lhr_engine::actor_world::snapshot_placement_for_reset",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Placement snapshot (GAME 0x405e60)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x5ee0",
+      "va": "0x405ee0",
+      "name": "C_actor::ResetPlacement",
+      "symbol": "lhr_engine::actor_world::restored_placement_flags",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Placement flags (GAME 0x405ee0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6d80",
+      "va": "0x406d80",
+      "name": "C_actor::SaveGameLoadGuid",
+      "symbol": "lhr_engine::actor_world::load_guid_number_for_version",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Guid number (GAME 0x406d80)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7cd0",
+      "va": "0x407cd0",
+      "name": "C_actor::DebustizeFrame",
+      "symbol": "lhr_engine::actor_world::debustize_frame_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: frame owner deferred (GAME 0x407cd0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7d10",
+      "va": "0x407d10",
+      "name": "C_actor::NoShadowFrame",
+      "symbol": "lhr_engine::actor_world::no_shadow_frame_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: frame owner deferred (GAME 0x407d10)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f9e0",
+      "va": "0x56f9e0",
+      "name": "C_human::SaveGameGetSize",
+      "symbol": "lhr_engine::human_actor::human_savegame_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Human savegame size (GAME 0x56f9e0)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1a050",
+      "va": "0x1001a050",
+      "name": "I3D_driver::EnumFFTree enumSubtree",
+      "symbol": "lhr_engine::frame_fast_lookup::I3dFastFrameTree::enum_fft_subtree",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Recursive FF-tree helper (LS3DF 0x1001a050)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xdec0",
+      "va": "0x1000dec0",
+      "name": "I3D_scene::TestColGeo",
+      "symbol": "lhr_engine::collision_scene::test_collision_geo_setup",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Ray setup words (LS3DF 0x1000dec0); distance-word helper alongside."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x11d60",
+      "va": "0x10011d60",
+      "name": "I3D_scene::TestColSphere",
+      "symbol": "lhr_engine::collision_scene::sphere_sweep_box",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Sweep-box words (LS3DF 0x10011d60); exclusion helper alongside."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x41df0",
+      "va": "0x10041df0",
+      "name": "CTP_EnumProcFirst",
+      "symbol": "lhr_engine::scene_visibility::ctp_enum_proc_first_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: CTP globals/D3D deferred (LS3DF 0x10041df0)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x437f0",
+      "va": "0x100437f0",
+      "name": "CullThruPortal",
+      "symbol": "lhr_engine::scene_visibility::cull_thru_portal_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: D3D deferred (LS3DF 0x100437f0)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x58540",
+      "va": "0x10058540",
+      "name": "ISND m_UpdateSound",
+      "symbol": "lhr_engine::vehicle_frame_backend::update_sound_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: DSound voice deferred (LS3DF 0x10058540)."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x1fac0",
+      "va": "0x1001fac0",
+      "name": "I3D_landpatch::Render",
+      "symbol": "lhr_engine::render_core::landpatch_render_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: gLandVB/D3D deferred (LS3DF 0x1001fac0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9e530",
+      "va": "0x49e530",
+      "name": "C_shvestky road-block enemies (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::count_free_road_block_enemies",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9e560",
+      "va": "0x49e560",
+      "name": "C_shvestky road-block iris take (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::take_free_road_block_iris",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9e610",
+      "va": "0x49e610",
+      "name": "C_shvestky random road-block enemy (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::take_random_free_road_block_enemy",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9d5b0",
+      "va": "0x49d5b0",
+      "name": "C_shvestky alerted record (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::human_record_alerted",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9d2e0",
+      "va": "0x49d2e0",
+      "name": "C_shvestky block-way kill (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_block_way_for_alerted_kill",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9cfd0",
+      "va": "0x49cfd0",
+      "name": "C_shvestky illegal path (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_car_illegal_path",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9d1a0",
+      "va": "0x49d1a0",
+      "name": "C_shvestky destroy signal (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_destroy_signal_mark",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0040",
+      "va": "0x4a0040",
+      "name": "C_shvestky hit policeman (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::apply_hit_policeman",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0150",
+      "va": "0x4a0150",
+      "name": "C_shvestky known car (working name)",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::refresh_record_known_car",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9e5a0",
+      "va": "0x49e5a0",
+      "name": "C_shvestky free iris STUB",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::free_road_block_iris",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa01c0",
+      "va": "0x4a01c0",
+      "name": "C_shvestky pursuit STUB",
+      "symbol": "lhr_engine::police_state::PoliceGameInitState::player_pursuit_active",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa0700",
+      "va": "0x4a0700",
+      "name": "C_sledovacka has car (working name)",
+      "symbol": "lhr_engine::police_state::SledovackaState::sledovacka_has_car",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9f7e0",
+      "va": "0x49f7e0",
+      "name": "C_shvestky raise state (working name)",
+      "symbol": "lhr_engine::police_state::raise_record_state_for_human",
+      "tier": "contract",
+      "evidence": "Marker-only contract; REA sample-decoded as code (Game.exe 08398317); tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16e370",
+      "va": "0x56e370",
+      "name": "ai_loc::Init",
+      "symbol": "lhr_engine::human_actor::ai_loc_init",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. AI loc init (GAME 0x56e370)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16e6f0",
+      "va": "0x56e6f0",
+      "name": "ai_loc add segment (working name)",
+      "symbol": "lhr_engine::human_actor::ai_loc_add_segment",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. AI loc segment add (GAME 0x56e6f0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16e950",
+      "va": "0x56e950",
+      "name": "ai_loc seg list update (working name)",
+      "symbol": "lhr_engine::human_actor::ai_loc_seg_list_update",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. AI loc seg update (GAME 0x56e950)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16ea00",
+      "va": "0x56ea00",
+      "name": "blob log push (working name)",
+      "symbol": "lhr_engine::human_actor::blob_log_push",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Blob log push (GAME 0x56ea00)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16ee60",
+      "va": "0x56ee60",
+      "name": "blob log get (working name)",
+      "symbol": "lhr_engine::human_actor::blob_log_get",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Blob log get (GAME 0x56ee60)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16eeb0",
+      "va": "0x56eeb0",
+      "name": "blob log clear (working name)",
+      "symbol": "lhr_engine::human_actor::blob_log_clear",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Blob log clear (GAME 0x56eeb0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16eed0",
+      "va": "0x56eed0",
+      "name": "ground delta Y STUB",
+      "symbol": "lhr_engine::human_actor::ground_delta_y",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: ground owner deferred (GAME 0x56eed0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16ef50",
+      "va": "0x56ef50",
+      "name": "ground delta nodyn Y STUB",
+      "symbol": "lhr_engine::human_actor::ground_delta_nodyn_y",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: ground owner deferred (GAME 0x56ef50)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f760",
+      "va": "0x56f760",
+      "name": "_ReadOldCharStruct",
+      "symbol": "lhr_engine::human_actor::read_old_char_struct",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Old char struct map (GAME 0x56f760)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f8c0",
+      "va": "0x56f8c0",
+      "name": "_ReadOldCharStructVer4",
+      "symbol": "lhr_engine::human_actor::read_old_char_struct_ver4",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Old char struct v4 (GAME 0x56f8c0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f210",
+      "va": "0x56f210",
+      "name": "human dtor stop anim (working name)",
+      "symbol": "lhr_engine::human_actor::human_dtor_stop_anim",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Dtor stop anim (GAME 0x56f210)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18cec0",
+      "va": "0x58cec0",
+      "name": "process death pos (working name)",
+      "symbol": "lhr_engine::human_actor::process_death_pos",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Death pos process (GAME 0x58cec0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18c4f0",
+      "va": "0x58c4f0",
+      "name": "push out of walls STUB",
+      "symbol": "lhr_engine::human_actor::push_out_of_walls_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: wall owner deferred (GAME 0x58c4f0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xef0d0",
+      "va": "0x4ef0d0",
+      "name": "C_Vehicle::SetSoundVolume",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_sound_volume",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1d810",
+      "va": "0x41d810",
+      "name": "C_car::SetOwner",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_owner_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ea00",
+      "va": "0x41ea00",
+      "name": "C_car::SetActualLevel",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_actual_level_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb00",
+      "va": "0x41eb00",
+      "name": "C_car::InitFFEffects",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_init_ff_effects_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eca0",
+      "va": "0x41eca0",
+      "name": "C_car::DoneFFEffects",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_done_ff_effects_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcd640",
+      "va": "0x4cd640",
+      "name": "C_Vehicle::SetProjectorSize",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_projector_size_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcb570",
+      "va": "0x4cb570",
+      "name": "C_Vehicle::SetSteeringLinearity",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_steering_linearity_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcb6a0",
+      "va": "0x4cb6a0",
+      "name": "C_Vehicle::SetSpeedLimit",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_set_speed_limit_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcb780",
+      "va": "0x4cb780",
+      "name": "C_Vehicle::EnableSounds",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_enable_sounds_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2ba10",
+      "va": "0x42ba10",
+      "name": "C_car::IsSeatLeft",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_is_seat_left_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB unless noted clean."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x19a10",
+      "va": "0x10019a10",
+      "name": "I3D_driver::FrameType2String",
+      "symbol": "lhr_engine::driver_strings::driver_frame_type_string",
+      "tier": "contract",
+      "evidence": "Trampoline forward to FrameType2StringFunc (LS3DF 0x10019a10, I3d_driver.cpp:1559-1563). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x145250",
+      "va": "0x545250",
+      "name": "TshiftElem::init",
+      "symbol": "lhr_engine::mission_lifecycle::TshiftElem::init",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Tshift elem init (GAME 0x545250)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x145280",
+      "va": "0x545280",
+      "name": "TshiftStore::add",
+      "symbol": "lhr_engine::mission_lifecycle::TshiftStore::add",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Tshift store add (GAME 0x545280)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x160410",
+      "va": "0x560410",
+      "name": "tshift elem tick (working name)",
+      "symbol": "lhr_engine::mission_lifecycle::tshift_elem_tick",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Tshift tick (GAME 0x560410)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x145fd0",
+      "va": "0x545fd0",
+      "name": "clear car seats (working name)",
+      "symbol": "lhr_engine::mission_lifecycle::clear_car_seats",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Car seats clear (GAME 0x545fd0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1472f0",
+      "va": "0x5472f0",
+      "name": "C_game::C_game",
+      "symbol": "lhr_engine::game_housekeeping::GameCtorState::new",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Game ctor state (GAME 0x5472f0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a77c0",
+      "va": "0x5a77c0",
+      "name": "C_game::AddTemporaryActor STUB",
+      "symbol": "lhr_engine::game_housekeeping::add_temporary_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: actor owner deferred (GAME 0x5a77c0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a7ec0",
+      "va": "0x5a7ec0",
+      "name": "C_game::RemoveTemporaryActor STUB",
+      "symbol": "lhr_engine::game_housekeeping::remove_temporary_actor_private",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: actor owner deferred (GAME 0x5a7ec0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1a84a0",
+      "va": "0x5a84a0",
+      "name": "C_game::NewShoot STUB",
+      "symbol": "lhr_engine::game_housekeeping::new_shoot",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x5a84a0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1aae10",
+      "va": "0x5aae10",
+      "name": "C_game::NewExplosion STUB",
+      "symbol": "lhr_engine::game_housekeeping::new_explosion",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x5aae10)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1acc00",
+      "va": "0x5acc00",
+      "name": "C_game::Stop3DSound STUB",
+      "symbol": "lhr_engine::game_housekeeping::stop_3d_sound",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: sound owner deferred (GAME 0x5acc00)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ad2a0",
+      "va": "0x5ad2a0",
+      "name": "C_game::AddFrameForShadow STUB",
+      "symbol": "lhr_engine::game_housekeeping::add_frame_for_shadow",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x5ad2a0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ad7c0",
+      "va": "0x5ad7c0",
+      "name": "C_game::DelFrameForShadow STUB",
+      "symbol": "lhr_engine::game_housekeeping::del_frame_for_shadow",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: owners deferred (GAME 0x5ad7c0)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1747d0",
+      "va": "0x5747d0",
+      "name": "C_human::ShiftAnimation",
+      "symbol": "lhr_engine::human_actor::HumanState::shift_animation_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_ab1f5d8648 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1748f0",
+      "va": "0x5748f0",
+      "name": "C_human::ChangeState",
+      "symbol": "lhr_engine::human_actor::HumanState::change_state_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_c3670db038 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x175ca0",
+      "va": "0x575ca0",
+      "name": "C_human::CreateDynColls",
+      "symbol": "lhr_engine::human_actor::HumanState::create_dyn_colls_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_055f91c523 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x175ed0",
+      "va": "0x575ed0",
+      "name": "C_human::EraseDynColls",
+      "symbol": "lhr_engine::human_actor::HumanState::erase_dyn_colls_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_13c83a4719 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x176040",
+      "va": "0x576040",
+      "name": "C_human::UpdateDynColl",
+      "symbol": "lhr_engine::human_actor::HumanState::update_dyn_coll_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_124430532c (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x179630",
+      "va": "0x579630",
+      "name": "C_human::PoseSetPoseNormal",
+      "symbol": "lhr_engine::human_actor::HumanState::pose_set_pose_normal_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_79f0757796 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x179ea0",
+      "va": "0x579ea0",
+      "name": "C_human::PoseSetPoseAimed",
+      "symbol": "lhr_engine::human_actor::HumanState::pose_set_pose_aimed_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_7ac60c53bf (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17ec20",
+      "va": "0x57ec20",
+      "name": "C_human::ChangeWeaponModel",
+      "symbol": "lhr_engine::human_actor::HumanState::change_weapon_model_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_7ae08a9c7a (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x17faa0",
+      "va": "0x57faa0",
+      "name": "C_human::DropOutItems",
+      "symbol": "lhr_engine::human_actor::HumanState::drop_out_items_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_9633696bce (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x180ca0",
+      "va": "0x580ca0",
+      "name": "C_human::ZasrateLezeniZAuta_ve2rano",
+      "symbol": "lhr_engine::human_actor::HumanState::zasrate_lezeni_ve2rano_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_100dc122a6 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x181220",
+      "va": "0x581220",
+      "name": "C_human::ZasrateVybliknutiZAuta_ve3rano",
+      "symbol": "lhr_engine::human_actor::HumanState::zasrate_vybliknuti_ve3rano_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_7adbd6935d (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1878d0",
+      "va": "0x5878d0",
+      "name": "C_human::_intern_ForceDeath",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_force_death_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_00221770ac (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x188b40",
+      "va": "0x588b40",
+      "name": "C_human::_intern_ThrowMeFromCar",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_throw_me_from_car_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_731f1ffcee (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18ac90",
+      "va": "0x58ac90",
+      "name": "C_human::Activate",
+      "symbol": "lhr_engine::human_actor::HumanState::activate_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_b4520c2de6 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18b330",
+      "va": "0x58b330",
+      "name": "C_human::Deactivate",
+      "symbol": "lhr_engine::human_actor::HumanState::deactivate_unsupported",
+      "tier": "contract",
+      "evidence": "REA ev_51eda226e6 (entry bytes decode as code, Game.exe 08398317). STUB: explicit Unsupported (frame/collision/mission/model/anim owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18d020",
+      "va": "0x58d020",
+      "name": "C_human::FreeHand",
+      "symbol": "lhr_engine::human_actor::HumanState::free_hand_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18d2c0",
+      "va": "0x58d2c0",
+      "name": "C_human::StartWeaponEffect",
+      "symbol": "lhr_engine::human_actor::HumanState::start_weapon_effect_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18da70",
+      "va": "0x58da70",
+      "name": "C_human::TickWeaponEffect",
+      "symbol": "lhr_engine::human_actor::HumanState::tick_weapon_effect_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18a5a0",
+      "va": "0x58a5a0",
+      "name": "C_human::EineMeineKleineAutoInLuft",
+      "symbol": "lhr_engine::human_actor::HumanState::eine_meine_kleine_auto_in_luft_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x187190",
+      "va": "0x587190",
+      "name": "C_human::_intern_ChangeModel",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_change_model_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x182180",
+      "va": "0x582180",
+      "name": "C_human::Use_Actor",
+      "symbol": "lhr_engine::human_actor::HumanState::use_actor_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18bf30",
+      "va": "0x58bf30",
+      "name": "C_human settle on ground (working name)",
+      "symbol": "lhr_engine::human_actor::settle_on_ground_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18c980",
+      "va": "0x58c980",
+      "name": "C_human slide off edge (working name)",
+      "symbol": "lhr_engine::human_actor::slide_off_edge_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16d130",
+      "va": "0x56d130",
+      "name": "C_human notify callback (working name)",
+      "symbol": "lhr_engine::human_actor::human_notify_callback_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29580",
+      "va": "0x429580",
+      "name": "C_car::SetEnterProtect",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_set_enter_protect_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29450",
+      "va": "0x429450",
+      "name": "C_car::ShowCarEnergy",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_show_car_energy_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e690",
+      "va": "0x41e690",
+      "name": "C_car::RepairPosition",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_repair_position_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c680",
+      "va": "0x41c680",
+      "name": "C_car::GetPlacementFromTCK1",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_placement_from_tck1_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x170570",
+      "va": "0x570570",
+      "name": "C_human::Death",
+      "symbol": "lhr_engine::human_actor::HumanState::death_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x170660",
+      "va": "0x570660",
+      "name": "C_human::Extern_AI_Update",
+      "symbol": "lhr_engine::human_actor::HumanState::extern_ai_update_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1716d0",
+      "va": "0x5716d0",
+      "name": "C_human::Intern_UseCar",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_use_car_flag_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x171b90",
+      "va": "0x571b90",
+      "name": "C_human::Intern_UseRailway",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_use_railway_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1721b0",
+      "va": "0x5721b0",
+      "name": "C_human::_intern_UseCarTruck",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_use_car_truck_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x172530",
+      "va": "0x572530",
+      "name": "C_human::ThrowFromCarTruck",
+      "symbol": "lhr_engine::human_actor::HumanState::throw_from_car_truck_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1757c0",
+      "va": "0x5757c0",
+      "name": "C_human::GameDone",
+      "symbol": "lhr_engine::human_actor::HumanState::human_game_done_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x184620",
+      "va": "0x584620",
+      "name": "C_human::Shooting",
+      "symbol": "lhr_engine::human_actor::HumanState::shooting_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18b8d0",
+      "va": "0x58b8d0",
+      "name": "C_human::RecompileDeathPos",
+      "symbol": "lhr_engine::human_actor::HumanState::recompile_death_pos_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16b8d0",
+      "va": "0x56b8d0",
+      "name": "C_human::PlayStep",
+      "symbol": "lhr_engine::human_actor::HumanState::play_step_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16c6e0",
+      "va": "0x56c6e0",
+      "name": "C_human::DumpRecords",
+      "symbol": "lhr_engine::human_actor::HumanState::dump_records_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xe780",
+      "va": "0x1000e780",
+      "name": "testVisual (static)",
+      "symbol": "lhr_engine::collision_scene::test_visual_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (C_VBuffer lock + mesh LOD owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x12520",
+      "va": "0x10012520",
+      "name": "sphTestVisual (static)",
+      "symbol": "lhr_engine::collision_scene::sphere_test_visual_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (C_VBuffer lock + mesh LOD owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16b1a0",
+      "va": "0x56b1a0",
+      "name": "C_human::RecordKey",
+      "symbol": "lhr_engine::human_actor::HumanState::record_key_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16b670",
+      "va": "0x56b670",
+      "name": "C_human::PlayRecord",
+      "symbol": "lhr_engine::human_actor::HumanState::play_record_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16bec0",
+      "va": "0x56bec0",
+      "name": "C_human::PlaceAtTime",
+      "symbol": "lhr_engine::human_actor::HumanState::place_at_time_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16c7c0",
+      "va": "0x56c7c0",
+      "name": "C_human::GetRecordPos",
+      "symbol": "lhr_engine::human_actor::HumanState::get_record_pos_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16cc70",
+      "va": "0x56cc70",
+      "name": "C_human::GetRecordRot",
+      "symbol": "lhr_engine::human_actor::HumanState::get_record_rot_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x23540",
+      "va": "0x423540",
+      "name": "C_car::GetMaterialID",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_material_id_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29a80",
+      "va": "0x429a80",
+      "name": "C_car::ChangeState",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_change_state_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29df0",
+      "va": "0x429df0",
+      "name": "C_car::SoundsChange",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_sounds_change_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2bdc0",
+      "va": "0x42bdc0",
+      "name": "C_car::SaveGameLoad",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_save_game_load_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2c010",
+      "va": "0x42c010",
+      "name": "C_car::RecordKey",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_record_key_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2c220",
+      "va": "0x42c220",
+      "name": "C_car::PlayRecord",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_play_record_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2c3e0",
+      "va": "0x42c3e0",
+      "name": "C_car::PlayStep",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_play_step_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2c7b0",
+      "va": "0x42c7b0",
+      "name": "C_car::AddToCutscene",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_add_to_cutscene_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x293e0",
+      "va": "0x4293e0",
+      "name": "C_car::GetInvModelMatrix",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_inv_model_matrix",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6ca80",
+      "va": "0x46ca80",
+      "name": "C_program::GetFloatReg",
+      "symbol": "lhr_engine::original_program::get_float_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::get_float_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cae0",
+      "va": "0x46cae0",
+      "name": "C_program::SetFloatReg",
+      "symbol": "lhr_engine::original_program::set_float_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::set_float_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6caa0",
+      "va": "0x46caa0",
+      "name": "C_program::GetFrameReg",
+      "symbol": "lhr_engine::original_program::get_frame_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::get_frame_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cb00",
+      "va": "0x46cb00",
+      "name": "C_program::SetFrameReg",
+      "symbol": "lhr_engine::original_program::set_frame_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::set_frame_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cac0",
+      "va": "0x46cac0",
+      "name": "C_program::GetActorReg",
+      "symbol": "lhr_engine::original_program::get_actor_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::get_actor_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cb20",
+      "va": "0x46cb20",
+      "name": "C_program::SetActorReg",
+      "symbol": "lhr_engine::original_program::set_actor_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::set_actor_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cec0",
+      "va": "0x46cec0",
+      "name": "C_program::InvalidateActorReg",
+      "symbol": "lhr_engine::original_program::invalidate_actor_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::invalidate_actor_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6ce70",
+      "va": "0x46ce70",
+      "name": "C_program::IsEventID",
+      "symbol": "lhr_engine::original_program::program_is_event_id",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_is_event_id (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b010",
+      "va": "0x47b010",
+      "name": "C_program::SetAIPriority",
+      "symbol": "lhr_engine::original_program::program_set_ai_priority",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_set_ai_priority (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6d380",
+      "va": "0x46d380",
+      "name": "C_program::FindActorLater",
+      "symbol": "lhr_engine::original_program::program_find_actor_later",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_find_actor_later (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6ccf0",
+      "va": "0x46ccf0",
+      "name": "C_program::ClearAfterEnd",
+      "symbol": "lhr_engine::original_program::program_clear_after_end",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_clear_after_end (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cef0",
+      "va": "0x46cef0",
+      "name": "C_program::SaveGameGetSize",
+      "symbol": "lhr_engine::original_program::program_save_game_size",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_save_game_size (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cf70",
+      "va": "0x46cf70",
+      "name": "C_program::SaveGameSave",
+      "symbol": "lhr_engine::original_program::program_save_game_save",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_save_game_save (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6d100",
+      "va": "0x46d100",
+      "name": "C_program::SaveGameLoad",
+      "symbol": "lhr_engine::original_program::program_save_game_load",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_save_game_load (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6b6e0",
+      "va": "0x1006b6e0",
+      "name": "TEV",
+      "symbol": "lhr_engine::original_system::tev_version_ok",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6b740",
+      "va": "0x1006b740",
+      "name": "GetIGraph",
+      "symbol": "lhr_engine::original_system::igraph_handle",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6b760",
+      "va": "0x1006b760",
+      "name": "I3DGetDriver",
+      "symbol": "lhr_engine::original_system::i3d_driver_handle",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6b750",
+      "va": "0x1006b750",
+      "name": "ISndGetDriver",
+      "symbol": "lhr_engine::original_system::sound_driver_handle",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c800",
+      "va": "0x1006c800",
+      "name": "IGraph::GetMainHWND",
+      "symbol": "lhr_engine::original_system::SystemState::main_window",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c810",
+      "va": "0x1006c810",
+      "name": "IGraph::GetChildHWND",
+      "symbol": "lhr_engine::original_system::SystemState::child_window",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c8f0",
+      "va": "0x1006c8f0",
+      "name": "IGraph::GetAppName",
+      "symbol": "lhr_engine::original_system::SystemState::app_name",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c820",
+      "va": "0x1006c820",
+      "name": "IGraph::SetAppName",
+      "symbol": "lhr_engine::original_system::SystemState::set_app_name",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c910",
+      "va": "0x1006c910",
+      "name": "IGraph::AddDlgHWND",
+      "symbol": "lhr_engine::original_system::SystemState::add_dialog_window",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c9a0",
+      "va": "0x1006c9a0",
+      "name": "IGraph::DeleteDlgHWND",
+      "symbol": "lhr_engine::original_system::SystemState::delete_dialog_window",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c7c0",
+      "va": "0x1006c7c0",
+      "name": "IGraph::SetTexture STUB",
+      "symbol": "lhr_engine::original_system::set_device_texture",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5240",
+      "va": "0x10005240",
+      "name": "frame/Scene Tick empty tail",
+      "symbol": "lhr_engine::frame_transform::frame_tick_noop",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xc31e0",
+      "va": "0x4c31e0",
+      "name": "C_Vehicle::Deactivate",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_deactivate_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcb7e0",
+      "va": "0x4cb7e0",
+      "name": "C_Vehicle::ExternalImpuls",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_external_impuls_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xce960",
+      "va": "0x4ce960",
+      "name": "C_Vehicle::CalmVehicle",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_calm_vehicle_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x21d60",
+      "va": "0x421d60",
+      "name": "C_car::CarExplosion",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_explosion_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x22ad0",
+      "va": "0x422ad0",
+      "name": "C_car::DeactivateCar",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_deactivate_car_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x22be0",
+      "va": "0x422be0",
+      "name": "C_car::Reset",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_reset_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x22ee0",
+      "va": "0x422ee0",
+      "name": "C_car::ResetCar",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_reset_car_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x248e0",
+      "va": "0x4248e0",
+      "name": "C_car::IsPossibleColl",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_is_possible_coll_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29e70",
+      "va": "0x429e70",
+      "name": "C_car::PrepareCarToShow",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_prepare_car_to_show_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2ba70",
+      "va": "0x42ba70",
+      "name": "C_car::OdjebajTuStrechu",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_odjebaj_tu_strechu_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2bbd0",
+      "va": "0x42bbd0",
+      "name": "C_car::SaveGameGetSize",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_save_game_get_size_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2bbf0",
+      "va": "0x42bbf0",
+      "name": "C_car::SaveGameSave",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_save_game_save_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2c7d0",
+      "va": "0x42c7d0",
+      "name": "C_car::PlaceAtTime",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_place_at_time_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2cad0",
+      "va": "0x42cad0",
+      "name": "C_car::GetRecordPos",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_record_pos_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16e3b0",
+      "va": "0x56e3b0",
+      "name": "ai_loc::Update",
+      "symbol": "lhr_engine::human_actor::HumanState::ai_loc_update_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16efd0",
+      "va": "0x56efd0",
+      "name": "C_human::C_human",
+      "symbol": "lhr_engine::human_actor::HumanState::ctor_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f350",
+      "va": "0x56f350",
+      "name": "C_human::Init",
+      "symbol": "lhr_engine::human_actor::HumanState::init_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f4e0",
+      "va": "0x56f4e0",
+      "name": "C_human::LoadData",
+      "symbol": "lhr_engine::human_actor::HumanState::load_data_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16fa20",
+      "va": "0x56fa20",
+      "name": "C_human::SaveGameSave",
+      "symbol": "lhr_engine::human_actor::HumanState::save_game_save_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16fd30",
+      "va": "0x56fd30",
+      "name": "C_human::SaveGameLoad",
+      "symbol": "lhr_engine::human_actor::HumanState::save_game_load_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x170740",
+      "va": "0x570740",
+      "name": "C_human::AI",
+      "symbol": "lhr_engine::human_actor::HumanState::ai_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x172b80",
+      "va": "0x572b80",
+      "name": "C_human::Update",
+      "symbol": "lhr_engine::human_actor::HumanState::update_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x173e50",
+      "va": "0x573e50",
+      "name": "C_human::PersonAnim",
+      "symbol": "lhr_engine::human_actor::HumanState::person_anim_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1762a0",
+      "va": "0x5762a0",
+      "name": "C_human::Hit",
+      "symbol": "lhr_engine::human_actor::HumanState::hit_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x178290",
+      "va": "0x578290",
+      "name": "C_human::HitInCar",
+      "symbol": "lhr_engine::human_actor::HumanState::hit_in_car_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1784a0",
+      "va": "0x5784a0",
+      "name": "C_human::Collision",
+      "symbol": "lhr_engine::human_actor::HumanState::collision_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c2650",
+      "va": "0x5c2650",
+      "name": "C_actor::GetBlockRecordsSize",
+      "symbol": "lhr_engine::mission_actor_lists::block_records_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Block records size (GAME 0x5c2650)."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c26a0",
+      "va": "0x5c26a0",
+      "name": "C_actor::GetRecordsSize",
+      "symbol": "lhr_engine::mission_actor_lists::total_records_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. Records size over blocks (GAME 0x5c26a0)."
     }
   ],
   "vm": {

@@ -3407,3 +3407,232 @@ fn setcitytrafficvisible_and_noanimpreload_record_game_flags() {
     );
     p.discard_runtime_host().unwrap();
 }
+
+#[test]
+fn rva_6ca80_get_float_reg_reads_bank_or_zero() {
+    // GAME VA 0x46ca80 (RVA 0x6ca80): in-range reads the bank, anything else
+    // reads 0.0.
+    let mut memory = Memory::default();
+    let mut p = program(b"commandblock 1\ndim_flt 2\ncommandblock 0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let fields = &p.runtime().unwrap().fields;
+    assert_eq!(fields.get_float_reg(0), 0.0);
+    assert_eq!(fields.get_float_reg(1), 0.0);
+    assert_eq!(fields.get_float_reg(2), 0.0);
+    assert_eq!(fields.get_float_reg(-1), 0.0);
+    assert_eq!(fields.get_float_reg(i32::MAX), 0.0);
+}
+
+#[test]
+fn rva_6cae0_set_float_reg_stores_in_range_only() {
+    // GAME VA 0x46cae0 (RVA 0x6cae0): negative, out-of-range and missing-bank
+    // stores are no-ops.
+    let mut memory = Memory::default();
+    let mut p = program(b"commandblock 1\ndim_flt 2\ncommandblock 0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let fields = &mut p.runtime.as_mut().unwrap().fields;
+    fields.set_float_reg(1, 2.5);
+    assert_eq!(fields.get_float_reg(1), 2.5);
+    fields.set_float_reg(2, 9.0);
+    fields.set_float_reg(-1, 9.0);
+    assert_eq!(fields.get_float_reg(0), 0.0);
+    assert_eq!(fields.get_float_reg(2), 0.0);
+    let mut bare = program(b"commandblock 1\ncommandblock 0", &mut memory);
+    bare.init_fresh_runtime(&mut memory).unwrap();
+    let bare_fields = &mut bare.runtime.as_mut().unwrap().fields;
+    bare_fields.set_float_reg(0, 1.0);
+    assert_eq!(bare_fields.get_float_reg(0), 0.0);
+}
+
+#[test]
+fn rva_6caa0_get_frame_reg_reads_reference_or_none() {
+    // GAME VA 0x46caa0 (RVA 0x6caa0): a stored reference reads back, empty
+    // slots and out-of-range indexes read as None.
+    let mut memory = Memory::default();
+    let mut p = program(b"commandblock 1\ndim_frm 2\ncommandblock 0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let frame = FrameReferenceId::from_existing(11);
+    let fields = &mut p.runtime.as_mut().unwrap().fields;
+    assert_eq!(fields.get_frame_reg(0), None);
+    fields.set_frame_reg(0, Some(frame));
+    assert_eq!(fields.get_frame_reg(0), Some(frame));
+    assert_eq!(fields.get_frame_reg(1), None);
+    assert_eq!(fields.get_frame_reg(2), None);
+    assert_eq!(fields.get_frame_reg(-1), None);
+}
+
+#[test]
+fn rva_6cb00_set_frame_reg_stores_reference_or_null() {
+    // GAME VA 0x46cb00 (RVA 0x6cb00): None stores the empty (native null)
+    // slot; out-of-range and missing-bank stores are no-ops.
+    let mut memory = Memory::default();
+    let mut p = program(b"commandblock 1\ndim_frm 1\ncommandblock 0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let frame = FrameReferenceId::from_existing(7);
+    let fields = &mut p.runtime.as_mut().unwrap().fields;
+    fields.set_frame_reg(0, Some(frame));
+    fields.set_frame_reg(0, None);
+    assert_eq!(fields.get_frame_reg(0), None);
+    fields.set_frame_reg(5, Some(frame));
+    fields.set_frame_reg(-1, Some(frame));
+    assert_eq!(fields.get_frame_reg(5), None);
+}
+
+#[test]
+fn rva_6cac0_get_actor_reg_reads_reference_or_none() {
+    // GAME VA 0x46cac0 (RVA 0x6cac0): a stored reference reads back, empty
+    // slots and out-of-range indexes read as None.
+    let mut memory = Memory::default();
+    let mut p = program(b"commandblock 1\ndim_act 2\ncommandblock 0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let actor = ActorReferenceId::from_existing(11);
+    let fields = &mut p.runtime.as_mut().unwrap().fields;
+    assert_eq!(fields.get_actor_reg(0), None);
+    fields.set_actor_reg(0, Some(actor));
+    assert_eq!(fields.get_actor_reg(0), Some(actor));
+    assert_eq!(fields.get_actor_reg(1), None);
+    assert_eq!(fields.get_actor_reg(2), None);
+    assert_eq!(fields.get_actor_reg(-1), None);
+}
+
+#[test]
+fn rva_6cb20_set_actor_reg_stores_reference_or_null() {
+    // GAME VA 0x46cb20 (RVA 0x6cb20): None stores the empty (native null)
+    // slot; out-of-range and missing-bank stores are no-ops.
+    let mut memory = Memory::default();
+    let mut p = program(b"commandblock 1\ndim_act 1\ncommandblock 0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let actor = ActorReferenceId::from_existing(13);
+    let fields = &mut p.runtime.as_mut().unwrap().fields;
+    fields.set_actor_reg(0, Some(actor));
+    fields.set_actor_reg(0, None);
+    assert_eq!(fields.get_actor_reg(0), None);
+    fields.set_actor_reg(4, Some(actor));
+    fields.set_actor_reg(-1, Some(actor));
+    assert_eq!(fields.get_actor_reg(4), None);
+}
+
+#[test]
+fn rva_6cec0_invalidate_actor_reg_clears_matching_slots() {
+    // GAME VA 0x46cec0 (RVA 0x6cec0): every register holding the actor goes
+    // back to empty; other slots keep their contents.
+    let mut memory = Memory::default();
+    let mut p = program(b"commandblock 1\ndim_act 3\ncommandblock 0", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let target = ActorReferenceId::from_existing(21);
+    let other = ActorReferenceId::from_existing(22);
+    let fields = &mut p.runtime.as_mut().unwrap().fields;
+    fields.set_actor_reg(0, Some(target));
+    fields.set_actor_reg(1, Some(other));
+    fields.set_actor_reg(2, Some(target));
+    fields.invalidate_actor_reg(target);
+    assert_eq!(fields.get_actor_reg(0), None);
+    assert_eq!(fields.get_actor_reg(1), Some(other));
+    assert_eq!(fields.get_actor_reg(2), None);
+    fields.invalidate_actor_reg(ActorReferenceId::from_existing(99));
+    assert_eq!(fields.get_actor_reg(1), Some(other));
+}
+
+#[test]
+fn rva_6ce70_program_is_event_id_scans_back_to_front() {
+    // GAME VA 0x46ce70 (RVA 0x6ce70): decoded EVENT ids report found with
+    // their stored extra (0 for a parameterless `event <id>`, like the
+    // native unconditional `*param = p[1]` write); anything else reports
+    // not found.
+    let mut memory = Memory::default();
+    let mut p = program(b"event 60001\nevent 60002\nlabel after", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    let runtime = p.runtime().unwrap();
+    assert_eq!(program_is_event_id(&runtime.instructions, 60001), (true, Some(0)));
+    assert_eq!(program_is_event_id(&runtime.instructions, 60002), (true, Some(0)));
+    assert_eq!(program_is_event_id(&runtime.instructions, 7), (false, None));
+}
+
+#[test]
+fn rva_6d380_program_find_actor_later_reports_unsupported() {
+    // GAME VA 0x46d380 (RVA 0x6d380): the game actor-by-GUID owner stays
+    // outside this contract.
+    assert_eq!(FIND_ACTOR_LATER_ENTRY, 0x46d380);
+    assert_eq!(
+        program_find_actor_later(0, 11),
+        Err(ProgramRegistryError::Unsupported {
+            entry: FIND_ACTOR_LATER_ENTRY
+        })
+    );
+}
+
+#[test]
+fn rva_6ccf0_program_clear_after_end_reports_unsupported() {
+    // GAME VA 0x46ccf0 (RVA 0x6ccf0): the saved-code chain and the program
+    // actor owners stay outside this contract.
+    assert_eq!(CLEAR_AFTER_END_ENTRY, 0x46ccf0);
+    assert_eq!(
+        program_clear_after_end(),
+        Err(ProgramRegistryError::Unsupported {
+            entry: CLEAR_AFTER_END_ENTRY
+        })
+    );
+}
+
+#[test]
+fn rva_6cef0_program_save_game_size_reports_unsupported() {
+    // GAME VA 0x46cef0 (RVA 0x6cef0): the original only logs; the save-chunk
+    // owner stays outside this contract.
+    assert_eq!(PROGRAM_SAVE_GAME_SIZE_ENTRY, 0x46cef0);
+    assert_eq!(
+        program_save_game_size(),
+        Err(ProgramRegistryError::Unsupported {
+            entry: PROGRAM_SAVE_GAME_SIZE_ENTRY
+        })
+    );
+}
+
+#[test]
+fn rva_6cf70_program_save_game_save_reports_unsupported() {
+    // GAME VA 0x46cf70 (RVA 0x6cf70): the original only logs; the save-chunk
+    // owner stays outside this contract.
+    assert_eq!(PROGRAM_SAVE_GAME_SAVE_ENTRY, 0x46cf70);
+    assert_eq!(
+        program_save_game_save(),
+        Err(ProgramRegistryError::Unsupported {
+            entry: PROGRAM_SAVE_GAME_SAVE_ENTRY
+        })
+    );
+}
+
+#[test]
+fn rva_6d100_program_save_game_load_reports_unsupported() {
+    // GAME VA 0x46d100 (RVA 0x6d100): the original only logs; the save-chunk
+    // owner stays outside this contract.
+    assert_eq!(PROGRAM_SAVE_GAME_LOAD_ENTRY, 0x46d100);
+    assert_eq!(
+        program_save_game_load(),
+        Err(ProgramRegistryError::Unsupported {
+            entry: PROGRAM_SAVE_GAME_LOAD_ENTRY
+        })
+    );
+}
+
+#[test]
+fn rva_7b010_program_set_ai_priority_stores_word() {
+    // GAME VA 0x47b010 (RVA 0x7b010): the caller-owned priority word store.
+    let mut slot = 0.0f32;
+    program_set_ai_priority(&mut slot, 2.5);
+    assert_eq!(slot, 2.5);
+    program_set_ai_priority(&mut slot, -1.0);
+    assert_eq!(slot, -1.0);
+}

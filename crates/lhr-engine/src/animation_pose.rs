@@ -26,6 +26,24 @@ pub const POSEF_ROT_ADD: u32 = 0x4;
 /// I3D.h:1139. Rotation replaces the animation's rotation.
 pub const POSEF_ROT: u32 = 0x8;
 
+/// Working name for the `POSEF_POS` bit test (mafia-re ls3df/I3D/I3D.h:1138).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is read by `I3D_interpolator::Update` (mafia-re
+/// ls3df/I3D/anim/I3d_interpolator.cpp:227,244) to decide whether the pose
+/// carries a position. Reports whether the pose value is active; no state
+/// moves.
+pub fn pose_pos_enabled(flags: u32) -> bool {
+    flags & POSEF_POS != 0
+}
+/// Working name for the `POSEF_SCALE` bit test (mafia-re ls3df/I3D/I3D.h:1139).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is read by `I3D_interpolator::Update` (mafia-re
+/// ls3df/I3D/anim/I3d_interpolator.cpp:229,251) to decide whether the pose
+/// carries a scale. Reports whether the pose value is active; no state moves.
+pub fn pose_scale_enabled(flags: u32) -> bool {
+    flags & POSEF_SCALE != 0
+}
+
 /// Initial `ref` stored by both constructors (0x45930, 0x45b90 dossiers).
 pub const POSE_INITIAL_REFCOUNT: i32 = 1;
 /// `C_list` growth quantum stored at set+0x14 by 0x45b90; used by 0x45cb0 growth.
@@ -565,6 +583,29 @@ mod tests {
         assert!(nan.is_nan());
         p.set_rot(Some([nan, 1.0, 2.0, 3.0]));
         assert_eq!(p.rot()[0].to_bits(), 0x7FC0_0001);
+    }
+
+    #[test]
+    fn pos_scale_predicates_read_pose_flags() {
+        assert!(pose_pos_enabled(POSEF_POS));
+        assert!(pose_pos_enabled(POSEF_POS | POSEF_SCALE | POSEF_ROT));
+        assert!(!pose_pos_enabled(0));
+        assert!(!pose_pos_enabled(POSEF_SCALE));
+        assert!(pose_scale_enabled(POSEF_SCALE));
+        assert!(pose_scale_enabled(POSEF_POS | POSEF_SCALE | POSEF_ROT_ADD));
+        assert!(!pose_scale_enabled(0));
+        assert!(!pose_scale_enabled(POSEF_POS));
+        // Round-trip through the setters: the predicates track the stores.
+        let mut p = I3dPose::new_in(unit());
+        assert!(!pose_pos_enabled(p.flags()));
+        assert!(!pose_scale_enabled(p.flags()));
+        p.set_pos(Some([1.0, 2.0, 3.0]));
+        assert!(pose_pos_enabled(p.flags()));
+        p.set_scale(Some([1.0, 1.0, 1.0]));
+        assert!(pose_scale_enabled(p.flags()));
+        p.set_pos(None);
+        assert!(!pose_pos_enabled(p.flags()));
+        assert!(pose_scale_enabled(p.flags()));
     }
 
     #[test]

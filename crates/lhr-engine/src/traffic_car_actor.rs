@@ -96,6 +96,140 @@ impl TrafficCarState {
         self.word(0x238)
     }
 
+    /// Working-name getter for the DuplicateFrom word at +0x21c.
+    /// No RVA claimed: the original reads the word directly in
+    /// DuplicateFrom/SaveData with no standalone C_traffic_car::Get*
+    /// FUNCTION copy (mafia-re 113b5b6 game/vehicles/C_trf_c.h:68).
+    pub fn field_21c_word(&self) -> u32 {
+        self.word(0x21c)
+    }
+
+    /// Working-name getter for the reserved word at +0x220.
+    /// No RVA claimed: the original zeroes the word in the constructor with
+    /// no standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:69).
+    pub fn reserved_220_word(&self) -> u32 {
+        self.word(0x220)
+    }
+
+    /// Working-name getter for the DuplicateFrom word at +0x228.
+    /// No RVA claimed: the original reads the word directly in
+    /// DuplicateFrom/SaveData with no standalone C_traffic_car::Get*
+    /// FUNCTION copy (mafia-re 113b5b6 game/vehicles/C_trf_c.h:71).
+    pub fn tuning_228_word(&self) -> u32 {
+        self.word(0x228)
+    }
+
+    /// Working-name getter for the DuplicateFrom word at +0x22c.
+    /// No RVA claimed: the original reads the word directly in
+    /// DuplicateFrom/SaveData with no standalone C_traffic_car::Get*
+    /// FUNCTION copy (mafia-re 113b5b6 game/vehicles/C_trf_c.h:72).
+    pub fn tuning_22c_word(&self) -> u32 {
+        self.word(0x22c)
+    }
+
+    /// Working-name getter for the reserved word at +0x230.
+    /// No RVA claimed: the original leaves the word untouched with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:73 unknown_230).
+    pub fn reserved_230_word(&self) -> u32 {
+        self.word(0x230)
+    }
+
+    /// Working-name read of the untouched tail at +0x23c (0x30 bytes).
+    /// No RVA claimed: the original leaves `unknown_23c` untouched with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:77; C_trf_c.cpp:73-90 copies only
+    /// +0x21c/+0x224/+0x228/+0x22c plus the counted name records).
+    pub fn tail_23c_bytes(&self) -> &[u8] {
+        &self.bytes[TRAFFIC_TAIL_23C_OFFSET..TRAFFIC_TAIL_23C_OFFSET + TRAFFIC_TAIL_23C_LEN]
+    }
+
+    /// Working-name indexed word read of the untouched tail at +0x23c.
+    /// No RVA claimed: the original reads no tail word through a standalone
+    /// C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:77). Index counts 4-byte little-endian words
+    /// from the tail start; out-of-range indices yield None.
+    pub fn tail_23c_word_at(&self, index: usize) -> Option<u32> {
+        let offset = TRAFFIC_TAIL_23C_OFFSET.checked_add(index.checked_mul(4)?)?;
+        if offset.checked_add(4)? > TRAFFIC_TAIL_23C_OFFSET + TRAFFIC_TAIL_23C_LEN {
+            return None;
+        }
+        Some(u32::from_le_bytes(
+            self.bytes[offset..offset + 4].try_into().ok()?,
+        ))
+    }
+
+    /// Working-name presence query over the counted name records.
+    /// No RVA claimed: the original tests `num_names` directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:74-76, C_trf_c.cpp:85-86).
+    pub fn has_names(&self) -> bool {
+        !self.elements.is_empty()
+    }
+
+    /// Working-name total size of the counted name payload in bytes.
+    /// No RVA claimed: the original sizes `TRAFFIC_NAME_SIZE * num_names`
+    /// inline with no standalone C_traffic_car::Get* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:87).
+    pub fn names_byte_len(&self) -> usize {
+        self.elements.len()
+    }
+
+    /// Working-name indexed read of one copied 0x20-byte name record.
+    /// No RVA claimed: the original indexes the name array per record with
+    /// no standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.cpp:88-89).
+    pub fn name_record_at(&self, index: usize) -> Option<[u8; TRAFFIC_NAME_SIZE]> {
+        let start = index.checked_mul(TRAFFIC_NAME_SIZE)?;
+        let bytes = self.elements.get(start..start.checked_add(TRAFFIC_NAME_SIZE)?)?;
+        let mut record = [0u8; TRAFFIC_NAME_SIZE];
+        record.copy_from_slice(bytes);
+        Some(record)
+    }
+
+    /// Working-name setter for the DuplicateFrom word at +0x21c.
+    /// No RVA claimed: the original writes the word directly in
+    /// DuplicateFrom with no standalone C_traffic_car::Set* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:78, C_trf_c.h:68).
+    pub fn set_field_21c_word(&mut self, value: u32) {
+        self.put_word(0x21c, value);
+    }
+
+    /// Working-name setter for the speed word at +0x224.
+    /// No RVA claimed: the original writes the word directly in
+    /// DuplicateFrom with no standalone C_traffic_car::Set* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:79, C_trf_c.h:70).
+    pub fn set_speed_word(&mut self, value: u32) {
+        self.put_word(0x224, value);
+    }
+
+    /// Working-name setter for the tuning word at +0x228.
+    /// No RVA claimed: the original writes the word directly in
+    /// DuplicateFrom with no standalone C_traffic_car::Set* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:81, C_trf_c.h:71).
+    pub fn set_tuning_228_word(&mut self, value: u32) {
+        self.put_word(0x228, value);
+    }
+
+    /// Working-name setter for the tuning word at +0x22c.
+    /// No RVA claimed: the original writes the word directly in
+    /// DuplicateFrom with no standalone C_traffic_car::Set* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:82, C_trf_c.h:72).
+    pub fn set_tuning_22c_word(&mut self, value: u32) {
+        self.put_word(0x22c, value);
+    }
+
+    /// Working-name setter for the name-count word at +0x238.
+    /// No RVA claimed: the original copies `num_names` directly in
+    /// DuplicateFrom with no standalone C_traffic_car::Set* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:85, C_trf_c.h:76).
+    /// This writes the word only; the element bytes stay owned separately
+    /// and are replaced through `replace_elements`.
+    pub fn set_count_word(&mut self, value: u32) {
+        self.put_word(0x238, value);
+    }
+
     pub(crate) fn replace_elements(&mut self, elements: Vec<u8>) {
         self.elements = elements;
     }
@@ -139,6 +273,54 @@ impl TrafficTuning {
     pub fn police_coeff_bits(&self) -> u32 {
         self.unit_floats[2]
     }
+
+    /// Working-name setter for the elems coefficient word (PC 0x63d7fc).
+    /// No RVA claimed: the original writes the static directly with no
+    /// standalone C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:93-94).
+    pub fn set_elems_coeff_bits(&mut self, bits: u32) {
+        self.unit_floats[0] = bits;
+    }
+
+    /// Working-name setter for the mafian coefficient word (PC 0x63d800).
+    /// No RVA claimed: the original writes the static directly with no
+    /// standalone C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:93-94).
+    pub fn set_mafian_coeff_bits(&mut self, bits: u32) {
+        self.unit_floats[1] = bits;
+    }
+
+    /// Working-name setter for the police coefficient word (PC 0x63d804).
+    /// No RVA claimed: the original writes the static directly with no
+    /// standalone C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:93-94).
+    pub fn set_police_coeff_bits(&mut self, bits: u32) {
+        self.unit_floats[2] = bits;
+    }
+
+    /// Working-name setter for the Init copy source word.
+    /// No RVA claimed: the original Init copies the word directly with no
+    /// standalone C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.cpp:59-64 stub context).
+    pub fn set_copy_source(&mut self, value: u32) {
+        self.copy_source = value;
+    }
+
+    /// Working-name getter for the Init copy source word.
+    /// No RVA claimed: the original reads the word directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:93-94 context).
+    pub fn copy_source_bits(&self) -> u32 {
+        self.copy_source
+    }
+
+    /// Working-name getter for the Init copy target word.
+    /// No RVA claimed: the original reads the word directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:93-94 context).
+    pub fn copy_target_bits(&self) -> u32 {
+        self.copy_target
+    }
 }
 
 /// Static traffic count at PC 0x63d810 (`count`, descriptive name).
@@ -162,6 +344,14 @@ impl TrafficCarCount {
         if self.0 < 0 {
             self.0 = 0;
         }
+    }
+
+    /// Working-name emptiness query over the static count word (PC 0x63d810).
+    /// No RVA claimed: the original has no standalone IsEmpty FUNCTION copy;
+    /// callers test the count word directly (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.cpp:35-39 DecrementCount context).
+    pub const fn is_empty(self) -> bool {
+        self.0 <= 0
     }
 }
 
@@ -199,6 +389,10 @@ pub fn decode_traffic_savegame_tag(bytes: &[u8]) -> Result<(), TrafficSaveGameEr
 
 /// Name record size for `SaveData` 0x4aabf0 (`TRAFFIC_NAME_SIZE`, mafia-re name).
 pub const TRAFFIC_NAME_SIZE: usize = 0x20;
+/// Byte offset of the untouched tail (`unknown_23c`, mafia-re name).
+pub const TRAFFIC_TAIL_23C_OFFSET: usize = 0x23c;
+/// Byte length of the untouched tail (0x26c - 0x23c).
+pub const TRAFFIC_TAIL_23C_LEN: usize = 0x30;
 /// Version word written by `SaveData` 0x4aabf0.
 pub const TRAFFIC_SAVEDATA_VERSION: u32 = 5;
 
@@ -313,6 +507,41 @@ pub struct TrafficListSlot {
     pub car: u32,
 }
 
+impl TrafficListSlot {
+    /// Working-name frame-presence query over one `S_ELEMENT` slot.
+    /// No RVA claimed: the original tests the `frame` member directly (NULL
+    /// means none, as in `Corovacka`/`SebraliMiKaaaruSvine` returning NULL)
+    /// with no standalone C_traffic_car::Get* FUNCTION copy (mafia-re
+    /// 113b5b6 game/vehicles/C_trf_c.h:56-61, C_trf_c.cpp:180-192).
+    pub fn has_frame(self) -> bool {
+        self.frame != 0
+    }
+
+    /// Working-name car-presence query over one `S_ELEMENT` slot.
+    /// No RVA claimed: the original tests the `car` member directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:56-61, C_trf_c.cpp:180-192).
+    pub fn has_car(self) -> bool {
+        self.car != 0
+    }
+
+    /// Working-name emptiness query over one `S_ELEMENT` slot.
+    /// No RVA claimed: both members are NULL with no standalone
+    /// C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:56-61).
+    pub fn is_empty(self) -> bool {
+        self.frame == 0 && self.car == 0
+    }
+
+    /// Working-name occupancy query over one `S_ELEMENT` slot.
+    /// No RVA claimed: either member set with no standalone
+    /// C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:56-61). This is the negation of [`Self::is_empty`].
+    pub fn is_occupied(self) -> bool {
+        !self.is_empty()
+    }
+}
+
 /// Owner of the two traffic-car lists: the parked cars (`v_elems_parking`,
 /// GAME 0x63d834) and the traffic's cars (`v_elems`, GAME 0x63d844). Native
 /// statics start empty; growth/shrink order is the caller's, this only owns
@@ -338,6 +567,189 @@ impl TrafficCarLists {
 
     pub fn elems_mut(&mut self) -> &mut Vec<TrafficListSlot> {
         &mut self.elems
+    }
+
+    /// Working-name length query over the parked-car list (PC 0x63d834).
+    /// No RVA claimed: the original uses std::vector::size directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64).
+    pub fn parking_len(&self) -> usize {
+        self.parking.len()
+    }
+
+    /// Working-name length query over the traffic-car list (PC 0x63d844).
+    /// No RVA claimed: the original uses std::vector::size directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:80-87).
+    pub fn elems_len(&self) -> usize {
+        self.elems.len()
+    }
+
+    /// Working-name emptiness query over the parked-car list.
+    /// No RVA claimed: the original tests the vector directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy.
+    pub fn is_parking_empty(&self) -> bool {
+        self.parking.is_empty()
+    }
+
+    /// Working-name emptiness query over the traffic-car list.
+    /// No RVA claimed: the original tests the vector directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy.
+    pub fn is_elems_empty(&self) -> bool {
+        self.elems.is_empty()
+    }
+
+    /// Working-name clear over the parked-car list.
+    /// No RVA claimed: the original uses std::vector::clear directly with no
+    /// standalone C_traffic_car::Set* FUNCTION copy.
+    pub fn clear_parking(&mut self) {
+        self.parking.clear();
+    }
+
+    /// Working-name clear over the traffic-car list.
+    /// No RVA claimed: the original uses std::vector::clear directly with no
+    /// standalone C_traffic_car::Set* FUNCTION copy.
+    pub fn clear_elems(&mut self) {
+        self.elems.clear();
+    }
+
+    /// Working-name indexed read over the parked-car list (PC 0x63d834).
+    /// No RVA claimed: the original indexes the vector directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64).
+    pub fn parking_car_at(&self, index: usize) -> Option<&TrafficListSlot> {
+        self.parking.get(index)
+    }
+
+    /// Working-name indexed read over the traffic-car list (PC 0x63d844).
+    /// No RVA claimed: the original indexes the vector directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:80-87).
+    pub fn elem_car_at(&self, index: usize) -> Option<&TrafficListSlot> {
+        self.elems.get(index)
+    }
+
+    /// Working-name push onto the parked-car list.
+    /// No RVA claimed: the original grows `v_elems_parking` with
+    /// `std::vector::push_back` directly and offers no standalone
+    /// C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64,79).
+    pub fn push_parking_slot(&mut self, slot: TrafficListSlot) {
+        self.parking.push(slot);
+    }
+
+    /// Working-name push onto the traffic-car list.
+    /// No RVA claimed: the original grows `v_elems` with
+    /// `std::vector::push_back` directly and offers no standalone
+    /// C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:80-87).
+    pub fn push_elem_slot(&mut self, slot: TrafficListSlot) {
+        self.elems.push(slot);
+    }
+
+    /// Working-name pop from the parked-car list.
+    /// No RVA claimed: the original shrinks the vector directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64).
+    pub fn pop_parking_slot(&mut self) -> Option<TrafficListSlot> {
+        self.parking.pop()
+    }
+
+    /// Working-name pop from the traffic-car list.
+    /// No RVA claimed: the original shrinks the vector directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:80-87).
+    pub fn pop_elem_slot(&mut self) -> Option<TrafficListSlot> {
+        self.elems.pop()
+    }
+
+    /// Working-name order-swapping removal from the parked-car list.
+    /// No RVA claimed: the original erases list entries directly with no
+    /// standalone C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64).
+    pub fn swap_remove_parking(&mut self, index: usize) -> Option<TrafficListSlot> {
+        if index >= self.parking.len() {
+            return None;
+        }
+        Some(self.parking.swap_remove(index))
+    }
+
+    /// Working-name order-swapping removal from the traffic-car list.
+    /// No RVA claimed: the original erases list entries directly with no
+    /// standalone C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:80-87).
+    pub fn swap_remove_elem(&mut self, index: usize) -> Option<TrafficListSlot> {
+        if index >= self.elems.len() {
+            return None;
+        }
+        Some(self.elems.swap_remove(index))
+    }
+
+    /// Working-name first-slot read over the parked-car list.
+    /// No RVA claimed: the original reads `v_elems_parking` through
+    /// `std::vector` front access directly with no standalone
+    /// C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64).
+    pub fn parking_first(&self) -> Option<&TrafficListSlot> {
+        self.parking.first()
+    }
+
+    /// Working-name last-slot read over the parked-car list.
+    /// No RVA claimed: the original reads `v_elems_parking` through
+    /// `std::vector` back access directly with no standalone
+    /// C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64).
+    pub fn parking_last(&self) -> Option<&TrafficListSlot> {
+        self.parking.last()
+    }
+
+    /// Working-name first-slot read over the traffic-car list.
+    /// No RVA claimed: the original reads `v_elems` through `std::vector`
+    /// front access directly with no standalone C_traffic_car::Get* FUNCTION
+    /// copy (mafia-re 113b5b6 game/vehicles/C_trf_c.h:80-87).
+    pub fn elem_first(&self) -> Option<&TrafficListSlot> {
+        self.elems.first()
+    }
+
+    /// Working-name last-slot read over the traffic-car list.
+    /// No RVA claimed: the original reads `v_elems` through `std::vector`
+    /// back access directly with no standalone C_traffic_car::Get* FUNCTION
+    /// copy (mafia-re 113b5b6 game/vehicles/C_trf_c.h:80-87).
+    pub fn elem_last(&self) -> Option<&TrafficListSlot> {
+        self.elems.last()
+    }
+
+    /// Working-name car-identity scan over the parked-car list.
+    /// No RVA claimed: callers scan `v_elems_parking` inline with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64, C_trf_c.cpp:29-33).
+    pub fn parking_contains_car(&self, car: u32) -> bool {
+        self.parking.iter().any(|slot| slot.car == car)
+    }
+
+    /// Working-name car-identity scan over the traffic-car list.
+    /// No RVA claimed: callers scan `v_elems` inline with no standalone
+    /// C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:80-87, C_trf_c.cpp:82-87).
+    pub fn elem_contains_car(&self, car: u32) -> bool {
+        self.elems.iter().any(|slot| slot.car == car)
+    }
+
+    /// Working-name length clamp over the parked-car list.
+    /// No RVA claimed: the original shrinks `v_elems_parking` through
+    /// `std::vector` truncation directly with no standalone
+    /// C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64).
+    pub fn truncate_parking(&mut self, len: usize) {
+        self.parking.truncate(len);
+    }
+
+    /// Working-name length clamp over the traffic-car list.
+    /// No RVA claimed: the original shrinks `v_elems` through `std::vector`
+    /// truncation directly with no standalone C_traffic_car::Set* FUNCTION
+    /// copy (mafia-re 113b5b6 game/vehicles/C_trf_c.h:80-87).
+    pub fn truncate_elems(&mut self, len: usize) {
+        self.elems.truncate(len);
     }
 }
 
@@ -788,5 +1200,440 @@ mod tests {
             traffic_load_data(),
             Err(TrafficOverrideError::Unsupported { entry: 0x4aad20 })
         );
+    }
+
+    #[test]
+    fn tuning_coeff_setters_round_trip() {
+        // Working-name setters: no RVA claimed (inline static writes).
+        let mut tuning = TrafficTuning::construction_defaults();
+        tuning.set_elems_coeff_bits(0x3f000000);
+        tuning.set_mafian_coeff_bits(0x3f800001);
+        tuning.set_police_coeff_bits(0x40000000);
+        assert_eq!(tuning.elems_coeff_bits(), 0x3f000000);
+        assert_eq!(tuning.mafian_coeff_bits(), 0x3f800001);
+        assert_eq!(tuning.police_coeff_bits(), 0x40000000);
+        tuning.set_elems_coeff_bits(0x3f800000);
+        assert_eq!(tuning.unit_floats, [0x3f800000, 0x3f800001, 0x40000000]);
+    }
+
+    #[test]
+    fn tuning_copy_source_feeds_init_copy() {
+        // Working-name setter: no RVA claimed (inline Init word write).
+        let mut tuning = TrafficTuning::construction_defaults();
+        tuning.set_copy_source(0xdeadbeef);
+        tuning.init_copy();
+        assert_eq!(tuning.copy_target, 0xdeadbeef);
+        tuning.set_copy_source(0);
+        tuning.init_copy();
+        assert_eq!(tuning.copy_target, 0);
+    }
+
+    #[test]
+    fn count_is_empty_agrees_with_value() {
+        // Working-name query: no RVA claimed (direct count-word test).
+        assert!(TrafficCarCount::new(0).is_empty());
+        assert!(TrafficCarCount::new(-3).is_empty());
+        assert!(!TrafficCarCount::new(1).is_empty());
+        let mut count = TrafficCarCount::new(1);
+        count.decrement();
+        assert!(count.is_empty());
+    }
+
+    #[test]
+    fn lists_len_and_emptiness_queries() {
+        // Working-name queries: no RVA claimed (direct vector tests).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.parking_len(), 0);
+        assert_eq!(lists.elems_len(), 0);
+        assert!(lists.is_parking_empty());
+        assert!(lists.is_elems_empty());
+        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 2 });
+        lists.elems_mut().push(TrafficListSlot { frame: 3, car: 4 });
+        lists.elems_mut().push(TrafficListSlot { frame: 5, car: 6 });
+        assert_eq!(lists.parking_len(), 1);
+        assert_eq!(lists.elems_len(), 2);
+        assert!(!lists.is_parking_empty());
+        assert!(!lists.is_elems_empty());
+        assert_eq!(get_parking_cars(&lists).len(), lists.parking_len());
+        assert_eq!(get_elems(&lists).len(), lists.elems_len());
+    }
+
+    #[test]
+    fn lists_clear_empties_both_vectors() {
+        // Working-name clears: no RVA claimed (direct vector clear).
+        let mut lists = TrafficCarLists::default();
+        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 1 });
+        lists.elems_mut().push(TrafficListSlot { frame: 2, car: 2 });
+        lists.clear_parking();
+        assert!(lists.is_parking_empty());
+        assert_eq!(lists.parking_len(), 0);
+        assert!(!lists.is_elems_empty());
+        lists.clear_elems();
+        assert!(lists.is_elems_empty());
+        assert_eq!(lists.elems_len(), 0);
+        lists.clear_parking();
+        lists.clear_elems();
+        assert!(lists.is_parking_empty() && lists.is_elems_empty());
+    }
+
+    #[test]
+    fn state_field_21c_and_reserved_220_words() {
+        // Working-name getters: no RVA claimed (direct word reads).
+        let mut state = constructed();
+        assert_eq!(state.field_21c_word(), 0);
+        assert_eq!(state.reserved_220_word(), 0);
+        state.put_load_word(0x21c, 0x11223344);
+        assert_eq!(state.field_21c_word(), 0x11223344);
+        assert_eq!(state.word(0x21c), state.field_21c_word());
+        // Constructor zero for 0x220 survives unrelated writes.
+        state.put_load_word(0x21c, 0xffffffff);
+        assert_eq!(state.reserved_220_word(), 0);
+    }
+
+    #[test]
+    fn state_tuning_228_and_22c_words() {
+        // Working-name getters: no RVA claimed (direct word reads).
+        let state = constructed();
+        assert_eq!(state.tuning_228_word(), 0x43160000);
+        assert_eq!(state.tuning_22c_word(), 0x432a0000);
+        let mut loaded = constructed();
+        loaded.put_load_word(0x228, 0x01020304);
+        loaded.put_load_word(0x22c, 0x05060708);
+        assert_eq!(loaded.tuning_228_word(), 0x01020304);
+        assert_eq!(loaded.tuning_22c_word(), 0x05060708);
+        assert_eq!(loaded.speed_word(), 0x43340000);
+    }
+
+    #[test]
+    fn state_reserved_230_word_round_trips() {
+        // Working-name getter: no RVA claimed (direct word read).
+        let mut state = constructed();
+        assert_eq!(state.reserved_230_word(), 0xaaaaaaaa);
+        state.put_load_word(0x230, 0x11223344);
+        assert_eq!(state.reserved_230_word(), 0x11223344);
+        assert_eq!(state.word(0x230), state.reserved_230_word());
+        state.put_load_word(0x21c, 0xffffffff);
+        assert_eq!(state.reserved_230_word(), 0x11223344);
+    }
+
+    #[test]
+    fn tuning_copy_bits_round_trip() {
+        // Working-name getters: no RVA claimed (direct word reads).
+        let mut tuning = TrafficTuning::construction_defaults();
+        assert_eq!(tuning.copy_source_bits(), 0);
+        assert_eq!(tuning.copy_target_bits(), 0);
+        tuning.set_copy_source(0x12345678);
+        assert_eq!(tuning.copy_source_bits(), 0x12345678);
+        assert_eq!(tuning.copy_target_bits(), 0);
+        tuning.init_copy();
+        assert_eq!(tuning.copy_target_bits(), 0x12345678);
+    }
+
+    #[test]
+    fn lists_indexed_reads_match_vectors() {
+        // Working-name indexed reads: no RVA claimed (direct vector index).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.parking_car_at(0), None);
+        assert_eq!(lists.elem_car_at(0), None);
+        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 2 });
+        lists.parking_cars_mut().push(TrafficListSlot { frame: 3, car: 4 });
+        lists.elems_mut().push(TrafficListSlot { frame: 7, car: 8 });
+        assert_eq!(
+            lists.parking_car_at(0),
+            Some(&TrafficListSlot { frame: 1, car: 2 })
+        );
+        assert_eq!(
+            lists.parking_car_at(1),
+            Some(&TrafficListSlot { frame: 3, car: 4 })
+        );
+        assert_eq!(lists.parking_car_at(2), None);
+        assert_eq!(
+            lists.elem_car_at(0),
+            Some(&TrafficListSlot { frame: 7, car: 8 })
+        );
+        assert_eq!(lists.elem_car_at(1), None);
+    }
+
+    #[test]
+    fn state_has_names_tracks_element_bytes() {
+        // Working-name presence query: no RVA claimed (direct num_names test).
+        let mut state = constructed();
+        assert!(!state.has_names());
+        state.replace_elements(vec![0u8; TRAFFIC_NAME_SIZE]);
+        assert!(state.has_names());
+        state.replace_elements(Vec::new());
+        assert!(!state.has_names());
+    }
+
+    #[test]
+    fn state_names_byte_len_counts_payload() {
+        // Working-name size query: no RVA claimed (inline SIZE * count).
+        let mut state = constructed();
+        assert_eq!(state.names_byte_len(), 0);
+        state.replace_elements(vec![0xabu8; TRAFFIC_NAME_SIZE * 3]);
+        assert_eq!(state.names_byte_len(), TRAFFIC_NAME_SIZE * 3);
+    }
+
+    #[test]
+    fn state_name_record_at_indexes_copied_records() {
+        // Working-name indexed read: no RVA claimed (per-record indexing).
+        let mut state = constructed();
+        assert_eq!(state.name_record_at(0), None);
+        let mut first = [0u8; TRAFFIC_NAME_SIZE];
+        first[..4].copy_from_slice(b"taxi");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&first);
+        bytes.extend_from_slice(&[0x5au8; TRAFFIC_NAME_SIZE]);
+        state.replace_elements(bytes);
+        assert_eq!(state.name_record_at(0), Some(first));
+        assert_eq!(state.name_record_at(1), Some([0x5au8; TRAFFIC_NAME_SIZE]));
+        assert_eq!(state.name_record_at(2), None);
+    }
+
+    #[test]
+    fn state_set_field_21c_word_round_trips() {
+        // Working-name setter: no RVA claimed (direct DuplicateFrom write).
+        let mut state = constructed();
+        state.set_field_21c_word(0x11223344);
+        assert_eq!(state.field_21c_word(), 0x11223344);
+        state.set_field_21c_word(0);
+        assert_eq!(state.field_21c_word(), 0);
+    }
+
+    #[test]
+    fn state_set_speed_word_round_trips() {
+        // Working-name setter: no RVA claimed (direct DuplicateFrom write).
+        let mut state = constructed();
+        assert_eq!(state.speed_word(), 0x43340000);
+        state.set_speed_word(0x01020304);
+        assert_eq!(state.speed_word(), 0x01020304);
+    }
+
+    #[test]
+    fn state_set_tuning_228_word_round_trips() {
+        // Working-name setter: no RVA claimed (direct DuplicateFrom write).
+        let mut state = constructed();
+        state.set_tuning_228_word(0x0a0b0c0d);
+        assert_eq!(state.tuning_228_word(), 0x0a0b0c0d);
+    }
+
+    #[test]
+    fn state_set_tuning_22c_word_round_trips() {
+        // Working-name setter: no RVA claimed (direct DuplicateFrom write).
+        let mut state = constructed();
+        state.set_tuning_22c_word(0x0e0f1011);
+        assert_eq!(state.tuning_22c_word(), 0x0e0f1011);
+    }
+
+    #[test]
+    fn state_set_count_word_writes_word_only() {
+        // Working-name setter: no RVA claimed (direct num_names write).
+        let mut state = constructed();
+        assert_eq!(state.count_word(), 0);
+        assert_eq!(state.element_count(), 0);
+        state.set_count_word(2);
+        assert_eq!(state.count_word(), 2);
+        // The word and the owned element bytes stay independent owners.
+        assert_eq!(state.element_count(), 0);
+        state.replace_elements(vec![0u8; TRAFFIC_NAME_SIZE * 2]);
+        assert_eq!(state.element_count(), 2);
+        assert_eq!(state.count_word(), 2);
+    }
+
+    #[test]
+    fn lists_push_parking_slot_appends() {
+        // Working-name push: no RVA claimed (direct vector push_back).
+        let mut lists = TrafficCarLists::default();
+        lists.push_parking_slot(TrafficListSlot { frame: 1, car: 2 });
+        lists.push_parking_slot(TrafficListSlot { frame: 3, car: 4 });
+        assert_eq!(lists.parking_len(), 2);
+        assert_eq!(lists.parking_car_at(0), Some(&TrafficListSlot { frame: 1, car: 2 }));
+        assert_eq!(get_parking_cars(&lists).len(), 2);
+    }
+
+    #[test]
+    fn lists_push_elem_slot_appends() {
+        // Working-name push: no RVA claimed (direct vector push_back).
+        let mut lists = TrafficCarLists::default();
+        lists.push_elem_slot(TrafficListSlot { frame: 7, car: 8 });
+        assert_eq!(lists.elems_len(), 1);
+        assert_eq!(lists.elem_car_at(0), Some(&TrafficListSlot { frame: 7, car: 8 }));
+        assert_eq!(get_elems(&lists), &[TrafficListSlot { frame: 7, car: 8 }]);
+    }
+
+    #[test]
+    fn lists_pop_parking_slot_returns_last() {
+        // Working-name pop: no RVA claimed (direct vector shrink).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.pop_parking_slot(), None);
+        lists.push_parking_slot(TrafficListSlot { frame: 1, car: 1 });
+        lists.push_parking_slot(TrafficListSlot { frame: 2, car: 2 });
+        assert_eq!(lists.pop_parking_slot(), Some(TrafficListSlot { frame: 2, car: 2 }));
+        assert_eq!(lists.parking_len(), 1);
+        assert_eq!(lists.pop_parking_slot(), Some(TrafficListSlot { frame: 1, car: 1 }));
+        assert!(lists.is_parking_empty());
+    }
+
+    #[test]
+    fn lists_pop_elem_slot_returns_last() {
+        // Working-name pop: no RVA claimed (direct vector shrink).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.pop_elem_slot(), None);
+        lists.push_elem_slot(TrafficListSlot { frame: 5, car: 6 });
+        assert_eq!(lists.pop_elem_slot(), Some(TrafficListSlot { frame: 5, car: 6 }));
+        assert!(lists.is_elems_empty());
+    }
+
+    #[test]
+    fn lists_swap_remove_parking_compacts() {
+        // Working-name removal: no RVA claimed (direct vector erase).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.swap_remove_parking(0), None);
+        lists.push_parking_slot(TrafficListSlot { frame: 1, car: 1 });
+        lists.push_parking_slot(TrafficListSlot { frame: 2, car: 2 });
+        lists.push_parking_slot(TrafficListSlot { frame: 3, car: 3 });
+        assert_eq!(
+            lists.swap_remove_parking(0),
+            Some(TrafficListSlot { frame: 1, car: 1 })
+        );
+        assert_eq!(lists.parking_len(), 2);
+        assert_eq!(lists.swap_remove_parking(5), None);
+        assert_eq!(lists.parking_len(), 2);
+    }
+
+    #[test]
+    fn lists_swap_remove_elem_compacts() {
+        // Working-name removal: no RVA claimed (direct vector erase).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.swap_remove_elem(0), None);
+        lists.push_elem_slot(TrafficListSlot { frame: 7, car: 7 });
+        lists.push_elem_slot(TrafficListSlot { frame: 8, car: 8 });
+        assert_eq!(
+            lists.swap_remove_elem(1),
+            Some(TrafficListSlot { frame: 8, car: 8 })
+        );
+        assert_eq!(lists.elems_len(), 1);
+        assert_eq!(lists.elem_car_at(0), Some(&TrafficListSlot { frame: 7, car: 7 }));
+    }
+
+    #[test]
+    fn state_tail_23c_stays_untouched_and_indexed() {
+        // Working-name tail reads: no RVA claimed (unknown_23c untouched).
+        let state = constructed();
+        assert_eq!(state.tail_23c_bytes().len(), TRAFFIC_TAIL_23C_LEN);
+        assert_eq!(TRAFFIC_TAIL_23C_OFFSET, 0x23c);
+        assert_eq!(TRAFFIC_TAIL_23C_LEN, 0x30);
+        // Untouched allocation survives outside the constructor writes.
+        assert!(state.tail_23c_bytes().iter().all(|&b| b == 0xaa));
+        for index in 0..(TRAFFIC_TAIL_23C_LEN / 4) {
+            assert_eq!(state.tail_23c_word_at(index), Some(0xaaaaaaaa));
+        }
+        assert_eq!(state.tail_23c_word_at(TRAFFIC_TAIL_23C_LEN / 4), None);
+        assert_eq!(state.tail_23c_word_at(usize::MAX), None);
+        let mut loaded = constructed();
+        loaded.put_load_word(0x23c, 0x11223344);
+        assert_eq!(loaded.tail_23c_word_at(0), Some(0x11223344));
+        assert_eq!(&loaded.tail_23c_bytes()[0..4], &[0x44, 0x33, 0x22, 0x11]);
+        // Unrelated writes leave the tail alone.
+        loaded.put_load_word(0x21c, 0xffffffff);
+        assert_eq!(loaded.tail_23c_word_at(1), Some(0xaaaaaaaa));
+    }
+
+    #[test]
+    fn slot_presence_queries_match_null_identity() {
+        // Working-name slot queries: no RVA claimed (direct member tests).
+        let empty = TrafficListSlot { frame: 0, car: 0 };
+        assert!(empty.is_empty());
+        assert!(!empty.is_occupied());
+        assert!(!empty.has_frame());
+        assert!(!empty.has_car());
+        let framed = TrafficListSlot { frame: 7, car: 0 };
+        assert!(!framed.is_empty());
+        assert!(framed.is_occupied());
+        assert!(framed.has_frame());
+        assert!(!framed.has_car());
+        let full = TrafficListSlot { frame: 1, car: 2 };
+        assert!(full.has_frame());
+        assert!(full.has_car());
+        assert!(full.is_occupied());
+        assert!(!full.is_empty());
+        assert!(!TrafficListSlot::default().is_occupied());
+    }
+
+    #[test]
+    fn lists_first_last_match_indexed_ends() {
+        // Working-name end reads: no RVA claimed (direct vector front/back).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.parking_first(), None);
+        assert_eq!(lists.parking_last(), None);
+        assert_eq!(lists.elem_first(), None);
+        assert_eq!(lists.elem_last(), None);
+        lists.push_parking_slot(TrafficListSlot { frame: 1, car: 2 });
+        lists.push_parking_slot(TrafficListSlot { frame: 3, car: 4 });
+        lists.push_elem_slot(TrafficListSlot { frame: 7, car: 8 });
+        assert_eq!(lists.parking_first(), Some(&TrafficListSlot { frame: 1, car: 2 }));
+        assert_eq!(lists.parking_last(), Some(&TrafficListSlot { frame: 3, car: 4 }));
+        assert_eq!(lists.elem_first(), Some(&TrafficListSlot { frame: 7, car: 8 }));
+        assert_eq!(lists.elem_last(), Some(&TrafficListSlot { frame: 7, car: 8 }));
+        assert_eq!(lists.parking_first(), lists.parking_car_at(0));
+    }
+
+    #[test]
+    fn lists_contains_car_scans_by_identity() {
+        // Working-name scans: no RVA claimed (inline vector search).
+        let mut lists = TrafficCarLists::default();
+        assert!(!lists.parking_contains_car(9));
+        assert!(!lists.elem_contains_car(9));
+        lists.push_parking_slot(TrafficListSlot { frame: 1, car: 9 });
+        lists.push_elem_slot(TrafficListSlot { frame: 2, car: 10 });
+        assert!(lists.parking_contains_car(9));
+        assert!(!lists.parking_contains_car(10));
+        assert!(lists.elem_contains_car(10));
+        assert!(!lists.elem_contains_car(9));
+        // Frame identity alone does not match a car scan.
+        lists.push_parking_slot(TrafficListSlot { frame: 10, car: 0 });
+        assert!(!lists.parking_contains_car(10));
+    }
+
+    #[test]
+    fn lists_truncate_clamps_length_only() {
+        // Working-name truncates: no RVA claimed (direct vector truncate).
+        let mut lists = TrafficCarLists::default();
+        lists.push_parking_slot(TrafficListSlot { frame: 1, car: 1 });
+        lists.push_parking_slot(TrafficListSlot { frame: 2, car: 2 });
+        lists.push_elem_slot(TrafficListSlot { frame: 3, car: 3 });
+        lists.push_elem_slot(TrafficListSlot { frame: 4, car: 4 });
+        lists.truncate_parking(1);
+        lists.truncate_elems(0);
+        assert_eq!(lists.parking_len(), 1);
+        assert_eq!(lists.elems_len(), 0);
+        assert_eq!(lists.parking_first(), Some(&TrafficListSlot { frame: 1, car: 1 }));
+        // Truncating past the end keeps the vector intact.
+        lists.truncate_parking(8);
+        lists.truncate_elems(8);
+        assert_eq!(lists.parking_len(), 1);
+        assert_eq!(lists.elems_len(), 0);
+        lists.truncate_parking(0);
+        assert!(lists.is_parking_empty());
+    }
+}
+
+/// Working-name empty tick for the linker's folded C_traffic_car::NetDirect
+/// slot (GAME 0x4ab130; mafia-re game/vehicles/C_trf_c.cpp:112-114 at pin
+/// 113b5b6 carries no FUNCTION tag, so no distinct RVA is claimed): the
+/// reference describes a folded empty out-of-line body, hence an explicit
+/// no-op boundary with no scene/device owners and no state.
+pub fn traffic_net_direct_empty(_time_ms: u32) {}
+
+#[cfg(test)]
+mod traffic_net_direct_empty_tests {
+    use super::*;
+
+    #[test]
+    fn net_direct_working_name_is_empty_noop() {
+        // No FUNCTION tag in mafia-re (C_trf_c.cpp:112-114); working name only.
+        traffic_net_direct_empty(0);
+        traffic_net_direct_empty(16);
+        traffic_net_direct_empty(u32::MAX);
     }
 }

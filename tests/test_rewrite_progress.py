@@ -153,7 +153,7 @@ class RewriteProgressTests(unittest.TestCase):
         # +4 vehicle materials latch (CloseMaterials 0x4c5c80 / GetHeadPos
         # 0x4cc620 / SetMaterials 0x4c5c10 / SetParticles 0x4cc0).
         # +10 housekeeping/mission slice, all contract (cbFindTaxiPoints
-        # 0x5b6e0 / LightnessClear 0x5b5180 / ScoreSet 0x5b9fe0 / ScoreSetOn
+        # 0x5b6e0 / LightnessClear 0x5b5780 (remediated from misfiled 0x5b5180)
         # 0x5b9fa0 (remediated from misfiled 0x5f9a0) / InternTempActDel 0x5a79f0
         # cbScreamArea 0x5b9110 / ShowProgress 0x540950 / SceneErrFnc 0x540fd0
         # / GetTShift 0x547120).
@@ -387,7 +387,57 @@ class RewriteProgressTests(unittest.TestCase):
         # +3 mission getter contracts (GetParticles/GetActors/GetEffects;
         # ScoreSetOn wrong-address remediated 0x5f9a0->0x1b9fa0; 8 working-name
         # helpers uncredited; marker-only, tests green).
-        self.assertEqual(game["ported"], 149 + 670)
+        # +7 FrmActBuff contracts (StoreActor/StoreActive/RemoveActive/
+        # IsActive/StoreSound/GetSound/ClearAll; 4 working-name helpers
+        # uncredited; marker-only, tests green).
+        # +12 human gate contracts (ChangeWeapon/Reload/PlayAnim/Jump/Climb/
+        # SideJump/ClimbInCarLR/Shoot/ThrowGrenade/FuckingBox x2/DeadBody entry
+        # gates; full bodies deferred; 1 working-name uncredited).
+        # +2 GlobalProgram contracts (GameInit/GameDone loops; 13 working-name
+        # helpers uncredited; marker-only, tests green).
+        # +12 stack/death/placement contracts (Inventory/Float/Character x2,
+        # DeathActor x2, GetActorFromGuid, AddFramePlacement, InternTempActAdd,
+        # LightnessTick STUBs; FrmActBuff_GetModel ledger-duplicate held;
+        # LightnessClear wrong-address remediated 0x1b5180->0x1b5780).
+        # +12 actor accessor contracts (GetPos/SetPos/GetDir/SetDir/
+        # SetOwnFrame/GetWorldDir/Rebirth/SaveGameSize/FrameActor x2 STUBs/
+        # IsGlobalActor/shot AddToCutscene; 1 working-name uncredited).
+        # +8 placement/shot contracts (InternalPlacementReset/ResetPlacement/
+        # SaveGameLoadGuid/DebustizeFrame+NoShadowFrame STUBs/shot SetWeapon+
+        # PlayRecord/human SaveGameGetSize; 4 working-name uncredited).
+        # +13 police pursuit contracts (road-block/alerted/illegal-path/
+        # destroy-signal/hit/known-car/sledovacka/state; 2 STUBs; working
+        # names, sample-decoded as code; marker-only, tests green).
+        # +13 ai-loc/blob/char-struct contracts (ai_loc x3, blob x3,
+        # ground-delta STUBs x2, ReadOldCharStruct x2, dtor/death/push STUBs;
+        # 2 subagent test bugs fixed; marker-only, tests green).
+        # +10 vehicle setter contracts (sound-volume clean + 9 STUBs; 4 ledger
+        # duplicates held unfiled with docs+tests clarified).
+        # +12 Tshift/ctor/shadow-sound contracts (TshiftElem/Store/tick/
+        # clearCarSeats/GameCtor/add-remove-temporary/NewShoot/NewExplosion/
+        # Stop3DSound/Add-DelFrameForShadow STUBs; 2 working-name uncredited).
+        # +15 human anim STUB contracts (ShiftAnimation/ChangeState/DynColls x3/
+        # PoseSetPose x2/ChangeWeaponModel/DropOutItems/Zasrate x2/ForceDeath/
+        # ThrowMeFromCar/Activate/Deactivate; all STUBs).
+        # +13 weapon/use STUB contracts (FreeHand/WeaponEffect x2/EineMeine/
+        # ChangeModel/Use_Actor/settle/slide/notify/EnterProtect/Energy/
+        # Repair/Placement; all STUBs held as contract).
+        # +11 lifecycle STUB contracts (Death/ExternAI/UseCar x2/Truck x2/
+        # Done/Shooting/Recompile/PlayStep/DumpRecords; 2 working-name
+        # empties uncredited; all STUBs held as contract).
+        # +14 record/cutscene STUB contracts (RecordKey/PlayRecord/PlaceAtTime/
+        # GetRecordPos/GetRecordRot x2 + GetMaterialID/ChangeState/Sounds/
+        # SaveLoad/PlayStep/AddToCutscene/GetInvModelMatrix car STUBs;
+        # all held as contract).
+        # +14 program register contracts (Get/SetFloat/Frame/ActorReg,
+        # InvalidateActorReg/IsEventID/SetAIPriority/STUBs x5;
+        # owned_runtime symbols shortened per validator module rules).
+        # +12 lifecycle STUB contracts (ai_loc::Update/ctor/Init/LoadData/
+        # SaveGame x2/AI/Update/PersonAnim/Hit/HitInCar/Collision;
+        # all STUBs held as contract).
+        # +2 cutscene size contracts (GetBlockRecordsSize/GetRecordsSize;
+        # 11 working-name helpers uncredited; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 866)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
@@ -550,8 +600,25 @@ class RewriteProgressTests(unittest.TestCase):
         # ReadKey/ReadKeys/GetShiftKeys/TranslateKey loops held).
         # +5 pose batch (Clear/SetRot/SetRotAbs/SetPos/SetScale complete
         # walks; pin tests animation_pose 12 pass).
-        self.assertEqual(ls3df["ported"], 145 + 852)
-        self.assertEqual(ls3df["verified"], 145 + 454)
+        # +12 driver/projector STUB contracts (DrawPoint/Point2D/Line/Lines/
+        # Triangles/Circle2D/Text/Text2D/Sprite/Box/Sphere + AddFGroups;
+        # device owners deferred; marker-only, tests green).
+        # +1 area LoadImage STUB contract (folded with sound-LoadImage;
+        # 14 working-name helpers uncredited; marker-only, tests green).
+        # +4 pose SetDir/GetFrameName differential (complete walks; port
+        # flag words 0x4/0x8 match native; pin tests animation_pose 12).
+        # +7 collision/driver STUB contracts (enumSubtree/TestColGeo/
+        # TestColSphere/CTPFirst/CullThruPortal/UpdateSound/landpatch Render;
+        # phase slices + device STUBs; marker-only, tests green).
+        # +1 FrameType2String trampoline contract (0x19a10; 12 working-name
+        # helpers uncredited; 2 subagent mut bugs fixed).
+        # +2 collision static STUB contracts (testVisual/sphTestVisual;
+        # 13 colf working-name predicates uncredited; marker-only, green).
+        # +12 IGraph/global contracts (TEV/GetIGraph/drivers/HWND x2/AppName x2/
+        # DlgHWND x2/SetTexture STUB + Tick-empty tail; VA-form fixed in docs;
+        # 11 working-name uncredited; marker-only, tests green).
+        self.assertEqual(ls3df["ported"], 145 + 887)
+        self.assertEqual(ls3df["verified"], 145 + 458)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):
         script = load_script()

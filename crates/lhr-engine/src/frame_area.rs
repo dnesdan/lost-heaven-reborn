@@ -204,6 +204,34 @@ impl AreaFrame {
     pub fn get_switch_fade_time(&self) -> u32 {
         self.switch_fade_time
     }
+    /// Working name for the vertex-count word read (mafia-re
+    /// ls3df/I3D/frames/I3d_area.cpp:158-181 Build/num_verts; I3D.h area
+    /// member). The reference records no LS3DF FUNCTION address for a
+    /// standalone reader; the word is written by Build and read in place by
+    /// UpdateV/CheckPoint. Reports the owned local vertex count.
+    pub fn vertex_count_of(&self) -> u32 {
+        self.vertex_count
+    }
+    /// Working name for the face-count word read (same provenance as
+    /// `vertex_count_of`). Reports the owned face count.
+    pub fn face_count_of(&self) -> u32 {
+        self.face_count
+    }
+    /// Working name for the scene-ring previous link at +0x154 (mafia-re
+    /// ls3df/I3D/I3D.h:2473: the scene's ring of areas). The reference
+    /// records no LS3DF FUNCTION address for a standalone reader: only
+    /// `AddToRemoveFromSceneRing` links it. Reports the previous area, if
+    /// linked; no state moves.
+    pub fn previous_of(&self) -> Option<AreaKey> {
+        self.previous
+    }
+    /// Working name for the scene-ring next link at +0x158 (mafia-re
+    /// ls3df/I3D/I3D.h:2474). Same inline-only status as `previous_of`: no
+    /// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here.
+    /// Reports the next area, if linked; no state moves.
+    pub fn next_of(&self) -> Option<AreaKey> {
+        self.next
+    }
     /// Exact four-array allocation/copy order of Build5880. Typed input slices
     /// are the caller's bounds-checked copy spans; face indices remain raw.
     pub(crate) fn build(
@@ -454,6 +482,32 @@ impl crate::model_loading::ModelArena {
             .find(|a| a.key == key)
             .ok_or_else(|| AreaError::UnknownArea(key.frame()).into())
     }
+    /// Working name for the `last_update_count` read at +0x164 (mafia-re
+    /// ls3df/I3D/I3D.h:2477; `-1` while the sounds changed, per the
+    /// member comment). The reference records no LS3DF FUNCTION address for
+    /// a standalone reader; the word is stored by the constructor
+    /// (`I3D_area::I3D_area`, mafia-re ls3df/I3D/frames/I3d_area.cpp:32) and
+    /// by `AddSound`/`DeleteSound` (I3d_area.cpp:201/214, RVAs 0x5a30/0x5b90
+    /// already occupied, not claimed here). Reports the stored word with no
+    /// backend effects. Same availability guard as `area`.
+    pub fn area_last_update_count(
+        &self,
+        key: AreaKey,
+    ) -> Result<i32, crate::model_loading::ModelError> {
+        Ok(self.area(key)?.unknown_164)
+    }
+    /// Working name for the direct `scene` link read on `I3D_area`
+    /// (mafia-re ls3df/I3D/I3D.h:2476 `I3D_scene *scene` at +0x160; the
+    /// scene's area-ring member, set by `AddToRemoveFromSceneRing`, PC RVA
+    /// 0x5440, already occupied, not claimed here). The reference records no LS3DF FUNCTION address for a
+    /// standalone reader; the ring setter is the only writer. A detached
+    /// area reads as None (native NULL). Same availability guard as `area`.
+    pub fn area_scene_of(
+        &self,
+        key: AreaKey,
+    ) -> Result<Option<crate::scene_ownership::SceneKey>, crate::model_loading::ModelError> {
+        Ok(self.area(key)?.scene)
+    }
     pub(crate) fn area_mut(
         &mut self,
         key: AreaKey,
@@ -538,6 +592,30 @@ impl crate::model_loading::ModelArena {
     /// The exact FrameType2String spelling is unverified (OPEN) so only the
     /// numeric type crosses the boundary — never an invented string.
     pub fn area_save_image(
+        &self,
+        key: AreaKey,
+        sink: &mut impl AreaImageDiagnostic,
+    ) -> Result<(), crate::model_loading::ModelError> {
+        self.area(key)?;
+        let frame = key.frame();
+        sink.unsupported_area_image(14, &self.frame(frame)?.name_bytes);
+        Ok(())
+    }
+    /// Original I3D_area::LoadImage, LS3DF RVA 0x5ce0, VA 0x10005ce0.
+    /// Evidenced original name `?LoadImage@I3D_area@@UAEXXZ` from the
+    /// `FUNCTION: LS3DF 0x10005ce0` marker (mafia-re ls3df/I3D/I3D.h:2489 at
+    /// pin 113b5b6; LS3DF11 cross-marker VA 0x10005cd0 at I3D.h:2492). The
+    /// marker lives in I3D.h because the original keeps this file's copy
+    /// folded with I3D_sound::LoadImage, which is the same code
+    /// (I3D.h:2487-2488). Order-exact mirror of `area_save_image`
+    /// (RVA 0x5ca0): areas are not loaded; the native
+    /// dbgPrintf("** nepodporovany typ:%s  LoadImage()  %s",
+    /// FrameType2String(m_Type), GetName()) becomes one backend call carrying
+    /// the evidenced type word (14, AREA from the 0x51a0 ctor store) and the
+    /// live name bytes. No state is touched. The exact FrameType2String
+    /// spelling is unverified (OPEN), so only the numeric type crosses the
+    /// boundary, never an invented string.
+    pub fn area_load_image(
         &self,
         key: AreaKey,
         sink: &mut impl AreaImageDiagnostic,
@@ -811,6 +889,56 @@ mod tests {
         assert_eq!(arena.area_storage().live_bytes(), 0);
     }
     #[test]
+    fn area_last_update_count_reads_ctor_zero_word() {
+        // Working name for the `last_update_count` read at +0x164
+        // (I3D.h:2477): no LS3DF FUNCTION address exists for a
+        // standalone reader; only the constructor (0) and AddSound /
+        // DeleteSound (-1) store it.
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        assert_eq!(arena.area_last_update_count(key).unwrap(), 0);
+        arena.release(key.frame()).unwrap();
+        assert!(arena.area_last_update_count(key).is_err());
+    }
+    #[test]
+    fn area_ring_links_read_ctor_none_then_linked_ring() {
+        // Working names for the scene-ring links at +0x154/+0x158
+        // (I3D.h:2473-2474): no LS3DF FUNCTION addresses exist for standalone
+        // readers; only AddToRemoveFromSceneRing links them.
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        assert_eq!(arena.area(key).unwrap().previous_of(), None);
+        assert_eq!(arena.area(key).unwrap().next_of(), None);
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0].frame();
+        let a = arena.create_area().unwrap();
+        let b = arena.create_area().unwrap();
+        arena.link_frame(a.frame(), Some(sector), 0).unwrap();
+        arena.link_frame(b.frame(), Some(sector), 0).unwrap();
+        assert_eq!(arena.area(a).unwrap().previous_of(), Some(b));
+        assert_eq!(arena.area(a).unwrap().next_of(), Some(b));
+        assert_eq!(arena.area(b).unwrap().previous_of(), Some(a));
+        assert_eq!(arena.area(b).unwrap().next_of(), Some(a));
+    }
+    #[test]
+    fn area_scene_reader_reports_ring_membership() {
+        // Working name for the direct `scene` link read (I3D.h:2476,
+        // +0x160): no LS3DF FUNCTION address exists for a standalone
+        // reader; the ring setter (PC RVA 0x5440) is the only writer.
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        assert_eq!(arena.area_scene_of(key).unwrap(), None);
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0].frame();
+        arena.link_frame(key.frame(), Some(sector), 0).unwrap();
+        assert_eq!(arena.area_scene_of(key).unwrap(), Some(scene));
+        arena.release(key.frame()).unwrap();
+        assert!(arena.area_scene_of(key).is_err());
+        let mut foreign = ModelArena::default();
+        let other = foreign.create_area().unwrap();
+        assert!(arena.area_scene_of(other).is_err());
+    }
+    #[test]
     fn destructor_unlinks_both_sides_before_freeing_geometry_and_ring() {
         let mut arena = ModelArena::default();
         let audio = crate::runtime_audio::RuntimeAudio::default();
@@ -1049,6 +1177,34 @@ mod tests {
         assert_eq!(arena.area(key).unwrap().vertex_count, 0);
         arena.release(key.frame()).unwrap();
     }
+    #[test]
+    fn load_image_emits_unsupported_once_without_touching_state_rva_0x5ce0() {
+        struct Rec {
+            calls: u32,
+            ty: u32,
+            name: Vec<u8>,
+        }
+        impl AreaImageDiagnostic for Rec {
+            fn unsupported_area_image(&mut self, frame_type: u32, name: &[u8]) {
+                self.calls += 1;
+                self.ty = frame_type;
+                self.name = name.to_vec();
+            }
+        }
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        let before_calls = arena.area_storage().allocation_calls();
+        let mut rec = Rec {
+            calls: 0,
+            ty: 0,
+            name: Vec::new(),
+        };
+        arena.area_load_image(key, &mut rec).unwrap();
+        assert_eq!((rec.calls, rec.ty), (1, 14));
+        assert_eq!(arena.area_storage().allocation_calls(), before_calls);
+        assert_eq!(arena.area(key).unwrap().vertex_count, 0);
+        arena.release(key.frame()).unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -1069,5 +1225,24 @@ mod area_switch_fade_time_rva_0x5280_tests {
         assert_eq!(arena.area(key).unwrap().get_switch_fade_time(), 750);
         arena.area_mut(key).unwrap().set_switch_fade_time(u32::MAX);
         assert_eq!(arena.area(key).unwrap().get_switch_fade_time(), u32::MAX);
+    }
+
+    #[test]
+    fn area_count_readers_report_build_words() {
+        // Working names for inlined count reads (I3d_area.cpp:158-181): no
+        // LS3DF FUNCTION addresses exist for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_area().unwrap();
+        assert_eq!(arena.area(key).unwrap().vertex_count_of(), 0);
+        assert_eq!(arena.area(key).unwrap().face_count_of(), 0);
+        arena
+            .area_build(
+                key,
+                &[[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]],
+                &[[0, 1, 2]],
+            )
+            .unwrap();
+        assert_eq!(arena.area(key).unwrap().vertex_count_of(), 3);
+        assert_eq!(arena.area(key).unwrap().face_count_of(), 1);
     }
 }

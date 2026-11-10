@@ -8,6 +8,66 @@ use crate::scene_ownership::{FrameOwner, SceneKey, SectorKey};
 use crate::script_scheduler::FrameReferenceId;
 
 pub const OCCLUDER_WORDS: usize = 0x5ec / 4;
+
+/// Working name for `OCCLF_ACTIVE` (mafia-re ls3df/I3D/I3D.h:2350 at pin
+/// 113b5b6: `UpdateShadow` made the occluder volume this frame and nothing
+/// hides it). The reference records no LS3DF FUNCTION address for a
+/// standalone reader; the word is stored by the occupied `Build`/`UpdateV`
+/// bodies (PC RVAs 0x3ac60/0x3a800, already ported, not claimed here).
+pub const OCCLF_ACTIVE: u32 = 0x2;
+/// Working name for `OCCLF_PORTAL` (mafia-re ls3df/I3D/I3D.h:2351 at pin
+/// 113b5b6: the camera is on both sides of the sector portals, so the
+/// occluder hides no portal). Same inline-only status as `OCCLF_ACTIVE`:
+/// no standalone LS3DF FUNCTION entry exists, so no RVA is claimed here.
+pub const OCCLF_PORTAL: u32 = 0x4;
+/// Working name for `OCCLFF_FACING` (mafia-re ls3df/I3D/I3D.h:2356 at pin
+/// 113b5b6: the face turns toward the camera). Same inline-only status as
+/// `OCCLF_ACTIVE`, over the per-face `face_flags` words (+0x168) instead of
+/// the `occl_flags` word (+0x5c4).
+pub const OCCLFF_FACING: u32 = 0x1;
+
+/// Working name for the `OCCLF_ACTIVE` bit test over the `occl_flags` word
+/// (+0x5c4; mafia-re ls3df/I3D/I3D.h:2400 at pin 113b5b6). The reference
+/// records no LS3DF FUNCTION address for a standalone reader (same status
+/// as the `occluder_occl_flags_of` word read below). Exact bit test on the
+/// caller-supplied word; no owner or backend is consulted.
+pub fn occl_is_active(occl_flags: u32) -> bool {
+    occl_flags & OCCLF_ACTIVE != 0
+}
+
+/// Working name for the `OCCLF_PORTAL` bit test over the `occl_flags` word
+/// (+0x5c4; mafia-re ls3df/I3D/I3D.h:2400 at pin 113b5b6). Same inline-only
+/// status as `occl_is_active`: no standalone LS3DF FUNCTION entry exists,
+/// so no RVA is claimed here. Reports whether portal hiding is suppressed;
+/// no cache moves.
+pub fn occl_hides_no_portal(occl_flags: u32) -> bool {
+    occl_flags & OCCLF_PORTAL != 0
+}
+
+/// Working name for the `OCCLFF_FACING` bit test over one `face_flags` word
+/// (+0x168; mafia-re ls3df/I3D/I3D.h:2394 at pin 113b5b6). Same inline-only
+/// status as `occl_is_active`. Reports whether that face turns toward the
+/// camera; no cache moves.
+pub fn occl_face_is_facing(face_flags: u32) -> bool {
+    face_flags & OCCLFF_FACING != 0
+}
+
+/// Working name for `OCCL_MAX_PLANES` (mafia-re ls3df/I3D/I3D.h:2354 at pin
+/// 113b5b6: `UpdateShadow` gives up past so many side or face planes; the
+/// side/face arrays have room for one face more). The reference records no
+/// LS3DF FUNCTION address for it (it is a `#define` for the
+/// `side_planes`/`face_planes` capacities, not a function), so no RVA is
+/// claimed here. Reports the native plane budget; no owner is consulted.
+pub const OCCL_MAX_PLANES: usize = 32;
+
+/// Working name for the `OCCL_MAX_PLANES` budget check (mafia-re
+/// ls3df/I3D/I3D.h:2352-2354 at pin 113b5b6). Same inline-only status as the
+/// `OCCL_MAX_PLANES` capacity word: no standalone LS3DF FUNCTION entry
+/// exists, so no RVA is claimed here. Reports whether a plane count fits the
+/// native side/face arrays; no cache moves.
+pub fn occluder_within_max_planes(count: usize) -> bool {
+    count <= OCCL_MAX_PLANES
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OccluderKey {
     frame: FrameKey,
@@ -327,6 +387,134 @@ impl ModelArena {
     }
     pub fn occluder(&self, key: OccluderKey) -> Result<&OccluderFrame, ModelError> {
         Ok(&self.occluders[self.occluder_index(key)?])
+    }
+    /// Working name for the `occl_flags` word read at +0x5c4 (mafia-re
+    /// ls3df/I3D/I3D.h:2400, `OCCLF_*`). The reference records no LS3DF
+    /// FUNCTION address for a standalone reader; the word is stored by
+    /// `Build`/`UpdateV`/`UpdateShadow` (RVAs already occupied, not claimed
+    /// here). Reports the stored word with no backend effects.
+    pub fn occluder_occl_flags_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<u32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x5c4))
+    }
+    /// Working name for the `center` read at +0x5cc (mafia-re
+    /// ls3df/I3D/I3D.h:2402; the vertices' box center in world space).
+    /// Same provenance as `occluder_occl_flags_of`: no getter body exists;
+    /// the words are stored by the taken update path. Native order is kept.
+    pub fn occluder_center_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<[f32; 3]>, ModelError> {
+        let frame = self.occluder(key)?;
+        Ok(match (frame.word(0x5cc), frame.word(0x5d0), frame.word(0x5d4)) {
+            (Some(x), Some(y), Some(z)) => Some([
+                f32::from_bits(x),
+                f32::from_bits(y),
+                f32::from_bits(z),
+            ]),
+            _ => None,
+        })
+    }
+    /// Working name for the `radius` read at +0x5d8 (mafia-re
+    /// ls3df/I3D/I3D.h:2403; of the sphere around the occluder; `Build`
+    /// sets 1, 0 means never built). Same provenance as
+    /// `occluder_occl_flags_of`.
+    pub fn occluder_radius_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<f32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x5d8).map(f32::from_bits))
+    }
+    /// Working name for the `radius_2` read at +0x5dc (mafia-re
+    /// ls3df/I3D/I3D.h:2404; the squared radius). Same provenance as
+    /// `occluder_radius_of`.
+    pub fn occluder_radius_squared_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<f32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x5dc).map(f32::from_bits))
+    }
+    /// Working name for the `dist` read at +0x5e8 (mafia-re
+    /// ls3df/I3D/I3D.h:2407; from the camera, nearer occluders first in
+    /// `CullOcclsEachOther`). Same provenance as
+    /// `occluder_occl_flags_of`.
+    pub fn occluder_dist_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<f32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x5e8).map(f32::from_bits))
+    }
+    /// Working name for the `num_side_planes` read at +0x39c (mafia-re
+    /// ls3df/I3D/I3D.h:2396). Same provenance as
+    /// `occluder_occl_flags_of`; the count is stored by the taken
+    /// `UpdateShadow` path.
+    pub fn occluder_num_side_planes_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<i32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x39c).map(|v| v as i32))
+    }
+    /// Working name for the `num_face_planes` read at +0x5b0 (mafia-re
+    /// ls3df/I3D/I3D.h:2398). Same provenance as
+    /// `occluder_num_side_planes_of`.
+    pub fn occluder_num_face_planes_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<i32>, ModelError> {
+        Ok(self.occluder(key)?.word(0x5b0).map(|v| v as i32))
+    }
+    /// Working name for the scene-ring link read at +0x5c8 (mafia-re
+    /// ls3df/I3D/I3D.h:2401: the scene whose ring the occluder is in). The
+    /// reference records no LS3DF FUNCTION address for a standalone reader;
+    /// only `AddToRemoveFromSceneRing` links it (occupied RVA 0x3a650, not
+    /// claimed here). Reports the owning scene, if linked; no state moves.
+    pub fn occluder_scene_of(&self, key: OccluderKey) -> Result<Option<SceneKey>, ModelError> {
+        Ok(self.occluder(key)?.scene)
+    }
+    /// Working name for the hull-sector link read at +0x5e4 (mafia-re
+    /// ls3df/I3D/I3D.h:2406: the sector whose hull this occluder is, set by
+    /// `I3D_sector::MakeReady`). Same inline-only status as
+    /// `occluder_scene_of`: no standalone LS3DF FUNCTION entry exists, so
+    /// no RVA is claimed here. Reports the sector, if linked; no state
+    /// moves.
+    pub fn occluder_sector_of(&self, key: OccluderKey) -> Result<Option<SectorKey>, ModelError> {
+        Ok(self.occluder(key)?.sector)
+    }
+    /// Working name for the previous scene-ring link read at +0x154
+    /// (mafia-re ls3df/I3D/I3D.h:2389: the scene's ring of occluders). Same
+    /// inline-only status as `occluder_scene_of`: no standalone LS3DF
+    /// FUNCTION entry exists, so no RVA is claimed here. Reports the
+    /// previous occluder, if ring-linked; no state moves.
+    pub fn occluder_previous_in_scene_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<OccluderKey>, ModelError> {
+        Ok(self.occluder(key)?.previous)
+    }
+    /// Working name for the next scene-ring link read at +0x158 (mafia-re
+    /// ls3df/I3D/I3D.h:2390). Same inline-only status as
+    /// `occluder_previous_in_scene_of`: no standalone LS3DF FUNCTION entry
+    /// exists, so no RVA is claimed here. Reports the next occluder, if
+    /// ring-linked; no state moves.
+    pub fn occluder_next_in_scene_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<OccluderKey>, ModelError> {
+        Ok(self.occluder(key)?.next)
+    }
+    /// Working name for the sector-list link read at +0x5e0 (mafia-re
+    /// ls3df/I3D/I3D.h:2405: the sector's list of occluders in it, through
+    /// this link). Same inline-only status as `occluder_sector_of`: no
+    /// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here.
+    /// Reports the next occluder in the sector list, if linked; no state
+    /// moves.
+    pub fn occluder_next_in_sector_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<OccluderKey>, ModelError> {
+        Ok(self.occluder(key)?.next_in_sector)
     }
     pub fn occluder_update_v(&mut self, key: OccluderKey) -> Result<(), ModelError> {
         let index = self.occluder_index(key)?;
@@ -1294,6 +1482,111 @@ mod tests {
             .collect()
     }
     #[test]
+    fn occluder_state_words_read_ctor_zeroed_members() {
+        // Working names for the `occl_flags` (+0x5c4), `center` (+0x5cc),
+        // `radius` (+0x5d8), `radius_2` (+0x5dc), `dist` (+0x5e8),
+        // `num_side_planes` (+0x39c) and `num_face_planes` (+0x5b0) reads
+        // (I3D.h:2397-2408): no LS3DF FUNCTION addresses exist for
+        // standalone readers; the constructor zeroes them and the taken
+        // Build/UpdateV/UpdateShadow path stores them.
+        let mut arena = ModelArena::default();
+        let key = arena.create_occluder().unwrap();
+        assert_eq!(arena.occluder_occl_flags_of(key).unwrap(), Some(0));
+        assert_eq!(
+            arena.occluder_center_of(key).unwrap(),
+            Some([0., 0., 0.])
+        );
+        assert_eq!(arena.occluder_radius_of(key).unwrap(), Some(0.));
+        assert_eq!(arena.occluder_radius_squared_of(key).unwrap(), Some(0.));
+        assert_eq!(arena.occluder_dist_of(key).unwrap(), Some(0.));
+        assert_eq!(arena.occluder_num_side_planes_of(key).unwrap(), Some(0));
+        assert_eq!(arena.occluder_num_face_planes_of(key).unwrap(), Some(0));
+        arena.release(key.frame()).unwrap();
+        assert!(arena.occluder_occl_flags_of(key).is_err());
+        assert!(arena.occluder_center_of(key).is_err());
+        assert!(arena.occluder_radius_of(key).is_err());
+        assert!(arena.occluder_radius_squared_of(key).is_err());
+        assert!(arena.occluder_dist_of(key).is_err());
+        assert!(arena.occluder_num_side_planes_of(key).is_err());
+        assert!(arena.occluder_num_face_planes_of(key).is_err());
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn occluder_link_readers_report_ring_sector_and_next_in_sector() {
+        // Working names for the scene/sector links (+0x5c8/+0x5e4), the
+        // scene-ring links (+0x154/+0x158) and the sector-list link (+0x5e0)
+        // (mafia-re ls3df/I3D/I3D.h:2389-2390,2401,2405-2406 at pin
+        // 113b5b6): the reference records no LS3DF FUNCTION address for
+        // standalone readers; the ring and sector owners store them.
+        let mut world = World::new();
+        let a = world.occluder();
+        let b = world.occluder();
+        assert_eq!(world.arena.occluder_scene_of(a).unwrap(), None);
+        assert_eq!(world.arena.occluder_sector_of(a).unwrap(), None);
+        assert_eq!(world.arena.occluder_previous_in_scene_of(a).unwrap(), None);
+        assert_eq!(world.arena.occluder_next_in_scene_of(a).unwrap(), None);
+        assert_eq!(world.arena.occluder_next_in_sector_of(a).unwrap(), None);
+        world.arena.occluder_set_scene_ring(a, Some(world.scene)).unwrap();
+        world.arena.occluder_set_scene_ring(b, Some(world.scene)).unwrap();
+        assert_eq!(world.arena.occluder_scene_of(a).unwrap(), Some(world.scene));
+        assert_eq!(world.arena.occluder_previous_in_scene_of(a).unwrap(), Some(b));
+        assert_eq!(world.arena.occluder_next_in_scene_of(a).unwrap(), Some(b));
+        assert_eq!(world.arena.occluder_previous_in_scene_of(b).unwrap(), Some(a));
+        assert_eq!(world.arena.occluder_next_in_scene_of(b).unwrap(), Some(a));
+        let sector = world.arena.scene(world.scene).unwrap().sectors[0];
+        let ai = world.arena.occluder_index(a).unwrap();
+        world.arena.occluders[ai].sector = Some(sector);
+        world.arena.occluders[ai].next_in_sector = Some(b);
+        assert_eq!(world.arena.occluder_sector_of(a).unwrap(), Some(sector));
+        assert_eq!(world.arena.occluder_next_in_sector_of(a).unwrap(), Some(b));
+        assert_eq!(world.arena.occluder_sector_of(b).unwrap(), None);
+        world.arena.release(a.frame()).unwrap();
+        world.arena.release(b.frame()).unwrap();
+        assert!(world.arena.occluder_scene_of(a).is_err());
+        assert!(world.arena.occluder_sector_of(a).is_err());
+        assert!(world.arena.occluder_previous_in_scene_of(a).is_err());
+        assert!(world.arena.occluder_next_in_scene_of(a).is_err());
+        assert!(world.arena.occluder_next_in_sector_of(a).is_err());
+        world.destroy();
+    }
+    #[test]
+    fn occluder_radius_words_follow_build_preset_then_update_v() {
+        // `Build` presets `radius` to 1.0 (I3d_occluder.cpp, taken RVA
+        // family); `UpdateV` replaces `radius`/`radius_2` with the exact
+        // sphere (words 0x3f3504f3/0x3effffff for the V/F triangle). The
+        // other state words keep their constructor zeros.
+        let mut arena = ModelArena::default();
+        let key = arena.create_occluder().unwrap();
+        assert_eq!(arena.occluder_build(key, &V, &F).unwrap(), 0);
+        assert_eq!(arena.occluder_radius_of(key).unwrap(), Some(1.));
+        assert_eq!(arena.occluder_radius_squared_of(key).unwrap(), Some(0.));
+        arena.occluder_update_v(key).unwrap();
+        assert_eq!(
+            arena.occluder(key).unwrap().word(0x5d8),
+            Some(0x3f3504f3)
+        );
+        assert_eq!(
+            arena.occluder_radius_of(key).unwrap(),
+            Some(f32::from_bits(0x3f3504f3))
+        );
+        assert_eq!(
+            arena.occluder(key).unwrap().word(0x5dc),
+            Some(0x3effffff)
+        );
+        assert_eq!(
+            arena.occluder_radius_squared_of(key).unwrap(),
+            Some(f32::from_bits(0x3effffff))
+        );
+        assert_eq!(
+            arena.occluder_center_of(key).unwrap(),
+            Some([0.5, 0.5, 0.])
+        );
+        assert_eq!(arena.occluder_dist_of(key).unwrap(), Some(0.));
+        assert_eq!(arena.occluder_occl_flags_of(key).unwrap(), Some(0));
+        arena.release(key.frame()).unwrap();
+        assert_eq!(arena.occluder_storage().live_allocations(), 0);
+    }
+    #[test]
     fn genuine_driver_scene_ownership_close_and_last_release_return_cpu_baseline() {
         let mut world = World::new();
         let key = world.occluder();
@@ -1755,5 +2048,55 @@ mod tests {
         assert_eq!(world.arena.sector_occluder_links(sct).unwrap().0, Some(key));
         world.arena.release(key.frame()).unwrap();
         world.destroy();
+    }
+    #[test]
+    fn occl_active_reports_only_its_bit() {
+        // Working names for OCCLF_ACTIVE (I3D.h:2350): no LS3DF FUNCTION
+        // address for a standalone reader; the word is stored by the taken
+        // Build/UpdateV/UpdateShadow paths.
+        assert_eq!(OCCLF_ACTIVE, 0x2);
+        assert!(occl_is_active(OCCLF_ACTIVE));
+        assert!(occl_is_active(OCCLF_ACTIVE | OCCLF_PORTAL));
+        assert!(occl_is_active(u32::MAX));
+        assert!(!occl_is_active(0));
+        assert!(!occl_is_active(OCCLF_PORTAL));
+        assert!(!occl_is_active(OCCLFF_FACING));
+        assert!(!occl_is_active(u32::MAX & !OCCLF_ACTIVE));
+    }
+    #[test]
+    fn occl_portal_reports_only_its_bit() {
+        // Working name for OCCLF_PORTAL (I3D.h:2351): same inline-only
+        // status as OCCLF_ACTIVE.
+        assert_eq!(OCCLF_PORTAL, 0x4);
+        assert!(occl_hides_no_portal(OCCLF_PORTAL));
+        assert!(occl_hides_no_portal(OCCLF_ACTIVE | OCCLF_PORTAL));
+        assert!(occl_hides_no_portal(u32::MAX));
+        assert!(!occl_hides_no_portal(0));
+        assert!(!occl_hides_no_portal(OCCLF_ACTIVE));
+        assert!(!occl_hides_no_portal(OCCLFF_FACING));
+        assert!(!occl_hides_no_portal(u32::MAX & !OCCLF_PORTAL));
+    }
+    #[test]
+    fn occl_facing_reports_only_its_bit() {
+        // Working name for OCCLFF_FACING (I3D.h:2356): same inline-only
+        // status, over a per-face face_flags word (+0x168).
+        assert_eq!(OCCLFF_FACING, 0x1);
+        assert!(occl_face_is_facing(OCCLFF_FACING));
+        assert!(occl_face_is_facing(u32::MAX));
+        assert!(!occl_face_is_facing(0));
+        assert!(!occl_face_is_facing(OCCLF_ACTIVE));
+        assert!(!occl_face_is_facing(OCCLF_PORTAL));
+        assert!(!occl_face_is_facing(u32::MAX & !OCCLFF_FACING));
+    }
+    #[test]
+    fn occl_max_planes_budget_reports_native_capacity() {
+        // Working name for OCCL_MAX_PLANES (I3D.h:2354): no LS3DF FUNCTION
+        // entry for a standalone reader (array capacity define).
+        assert_eq!(OCCL_MAX_PLANES, 32);
+        assert!(occluder_within_max_planes(0));
+        assert!(occluder_within_max_planes(31));
+        assert!(occluder_within_max_planes(OCCL_MAX_PLANES));
+        assert!(!occluder_within_max_planes(OCCL_MAX_PLANES + 1));
+        assert!(!occluder_within_max_planes(usize::MAX));
     }
 }

@@ -68,6 +68,168 @@ fn length(v: [f32; 3]) -> Out<f32> {
     }
 }
 
+/// I3D_LIGHTNESS_TESTCOL 0x1 (mafia-re ls3df/I3D/I3D.h:1325-1326 at pin 113b5b6):
+/// GetLightness only counts what reaches the point unoccluded.
+pub const LIGHTNESS_TESTCOL: u32 = 0x1;
+/// Working name for the I3D_LIGHTNESS_TESTCOL bit test (mafia-re ls3df/I3D/I3D.h:1326).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only consumed inline by `I3D_scene::GetLightness` flags.
+/// Reports occlusion testing; no state moves.
+pub fn lightness_tests_collision(flags: u32) -> bool {
+    flags & LIGHTNESS_TESTCOL != 0
+}
+
+/// Working name for the `I3D_scene::GetLightness` no-contribution type gate
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:344-348 at pin 113b5b6:
+/// `I3DLIGHT_NULL/FOG/POINTAMBIENT/POINTFOG` fall into `continue`).
+/// Type words come from `I3D_LIGHTTYPE` (mafia-re ls3df/I3D/I3D.h:1878-1886:
+/// NULL=0, POINT=1, SPOT=2, DIRECTIONAL=3, AMBIENT=4, FOG=5, POINTAMBIENT=6,
+/// POINTFOG=7). The reference records the GetLightness body at PC RVA 0x49560,
+/// already occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Reports whether the kind contributes nothing; no state moves.
+pub fn lightness_type_skipped(kind: u32) -> bool {
+    matches!(kind, 0 | 5 | 6 | 7)
+}
+
+/// Working name for the `I3D_scene::GetLightness` ambient arm gate (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:322-324 at pin 113b5b6: `I3DLIGHT_AMBIENT` adds `f`
+/// to the ambient sum and continues). Same occupied-body status as
+/// `lightness_type_skipped`: no RVA is claimed here. Reports whether the kind
+/// feeds the ambient sum instead of the direct sum; no state moves.
+pub fn lightness_type_is_ambient(kind: u32) -> bool {
+    kind == 4
+}
+
+/// Working name for the `I3D_scene::GetLightness` spot-cone arm gate (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:325-333 at pin 113b5b6: `I3DLIGHT_SPOT` normalizes
+/// the offset, dots it with the light direction and tests the cosines before
+/// falling through to the point arm). Same occupied-body status as
+/// `lightness_type_skipped`: no RVA is claimed here. Reports whether the kind
+/// runs the cone test; no state moves.
+pub fn lightness_type_has_spot_cone(kind: u32) -> bool {
+    kind == 2
+}
+
+/// Working name for the `I3D_scene::GetLightness` distance-falloff arm gate
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:335-341 at pin 113b5b6: the
+/// `I3DLIGHT_SPOT` fallthrough and `I3DLIGHT_POINT` arm measure the distance
+/// and scale `f` past the near range). Same occupied-body status as
+/// `lightness_type_skipped`: no RVA is claimed here. Reports whether the kind
+/// runs the range test; no state moves.
+pub fn lightness_type_has_distance_falloff(kind: u32) -> bool {
+    matches!(kind, 1 | 2)
+}
+
+/// Working name for the `I3D_scene::GetLightness` directional arm gate
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:342-343 at pin 113b5b6:
+/// `I3DLIGHT_DIRECTIONAL` breaks with `f` verbatim: no cone, no range, no
+/// accumulation choice). Same occupied-body status as
+/// `lightness_type_skipped`: no RVA is claimed here. Reports whether the kind
+/// keeps the luminance unchanged; no state moves.
+pub fn lightness_type_is_directional(kind: u32) -> bool {
+    kind == 3
+}
+
+/// Working name for the `I3D_scene::GetLightness` outer-cone rejection
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:329-330 at pin 113b5b6:
+/// `if (a <= lt->outer_cos) continue`). Same occupied-body status as
+/// `lightness_type_skipped`: no RVA is claimed here. Pure `f32 <=`
+/// comparison, so NaN reports false on both sides exactly like the native
+/// unordered branch; the normalize/dot that produced `cosine` stay
+/// caller-owned.
+pub fn lightness_spot_outside_cone(cosine: f32, outer_cos: f32) -> bool {
+    cosine <= outer_cos
+}
+
+/// Working name for the `I3D_scene::GetLightness` inner-cone partial gate
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:331-332 at pin 113b5b6:
+/// `if (a <= lt->inner_cos) f *= ...`, else `f` stays full). Same
+/// occupied-body status and comparison exactness as
+/// `lightness_spot_outside_cone`: no RVA is claimed here. Only meaningful for
+/// a cosine that passed the outer gate; reports whether the partial cone
+/// scale applies; no state moves.
+pub fn lightness_spot_needs_cone_scale(cosine: f32, inner_cos: f32) -> bool {
+    cosine <= inner_cos
+}
+
+/// Working name for the `I3D_scene::GetLightness` far-range rejection
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:337-338 at pin 113b5b6:
+/// `if (dist >= lt->far_range) continue`). Same occupied-body status and
+/// comparison exactness as `lightness_spot_outside_cone`: no RVA is claimed
+/// here. The distance measure stays caller-owned; reports whether the light
+/// contributes nothing; no state moves.
+pub fn lightness_range_beyond_far(distance: f32, far_range: f32) -> bool {
+    distance >= far_range
+}
+
+/// Working name for the `I3D_scene::GetLightness` near-range full gate
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:339-340 at pin 113b5b6:
+/// `if (dist > lt->near_range) f *= ...`, else `f` stays full). Same
+/// occupied-body status and comparison exactness as
+/// `lightness_spot_outside_cone`: no RVA is claimed here. Only meaningful for
+/// a distance inside the far range; reports whether the falloff scale
+/// applies; no state moves.
+pub fn lightness_range_needs_falloff(distance: f32, near_range: f32) -> bool {
+    distance > near_range
+}
+
+/// Working name for the `I3D_scene::GetLightness` cone partial scale
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:332 at pin 113b5b6:
+/// `f *= (a - lt->outer_cos) * lt->cone_scale`). Same occupied-body status as
+/// `lightness_type_skipped`: no RVA is claimed here. The subtraction runs
+/// before the scaling and the product scales `f` last, mirroring the native
+/// association through the module PC24 wrappers; the gate checks stay with
+/// the caller.
+pub fn lightness_spot_cone_scaled(
+    f: f32,
+    cosine: f32,
+    outer_cos: f32,
+    cone_scale: f32,
+) -> Out<f32> {
+    mul(f, mul(sub(cosine, outer_cos)?, cone_scale)?)
+}
+
+/// Working name for the `I3D_scene::GetLightness` range falloff scale
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:340 at pin 113b5b6:
+/// `f *= (lt->far_range - dist) / (lt->far_range - lt->near_range)`). Same
+/// occupied-body status as `lightness_spot_cone_scaled`: no RVA is claimed
+/// here. Both differences run before the division and the quotient scales `f`
+/// last, mirroring the native association; the gate checks stay with the
+/// caller.
+pub fn lightness_range_attenuated(
+    f: f32,
+    far_range: f32,
+    distance: f32,
+    near_range: f32,
+) -> Out<f32> {
+    mul(f, div(sub(far_range, distance)?, sub(far_range, near_range)?)?)
+}
+
+/// Working name for the `I3D_scene::GetLightness` final sum (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:363 at pin 113b5b6:
+/// `float ret = lightness + ambient`). Same occupied-body status as
+/// `lightness_spot_cone_scaled`: no RVA is claimed here. Single PC24 addition
+/// in native operand order; the clamp stays with the caller.
+pub fn lightness_combine_direct_ambient(direct: f32, ambient: f32) -> Out<f32> {
+    add(direct, ambient)
+}
+
+/// Working name for the `I3D_scene::GetLightness` result clamp (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:364-366 at pin 113b5b6: below zero returns zero,
+/// below one returns the sum, else one). Same occupied-body status as
+/// `lightness_type_skipped`: no RVA is claimed here. Pure comparisons, so NaN
+/// fails both and returns 1.0 exactly like the native branches;
+/// no state moves.
+pub fn lightness_clamp_result(ret: f32) -> f32 {
+    if ret < 0.0 {
+        0.0
+    } else if ret < 1.0 {
+        ret
+    } else {
+        1.0
+    }
+}
+
 /// Original GetLightness(scene,position,NULL,0,NULL), spilled to binary32 by
 /// C_Vehicle::Update. Reverse light order, luminance association and the two
 /// separate sums follow the supplied PC instructions.
@@ -206,6 +368,122 @@ mod tests {
         let primary = arena.scene(scene).unwrap().sectors[0];
         arena.sector_add_light(primary, light).unwrap();
         light
+    }
+    #[test]
+    fn lightness_flag_reports_only_occlusion_bit() {
+        // Working name for I3D_LIGHTNESS_TESTCOL (I3D.h:1326): no LS3DF FUNCTION entry.
+        assert_eq!(LIGHTNESS_TESTCOL, 0x1);
+        assert!(lightness_tests_collision(LIGHTNESS_TESTCOL));
+        assert!(lightness_tests_collision(u32::MAX));
+        assert!(!lightness_tests_collision(0));
+        assert!(!lightness_tests_collision(0x2));
+        assert!(!lightness_tests_collision(u32::MAX & !LIGHTNESS_TESTCOL));
+    }
+    #[test]
+    fn lightness_type_gates_cover_all_eight_light_kinds() {
+        // Working names for the GetLightness switch arms
+        // (I3d_scene.cpp:321-349 at pin 113b5b6): the body lives at occupied
+        // PC RVA 0x49560, so no RVA is claimed here.
+        for kind in [0u32, 5, 6, 7] {
+            assert!(lightness_type_skipped(kind), "kind {kind}");
+            assert!(!lightness_type_is_ambient(kind));
+            assert!(!lightness_type_has_spot_cone(kind));
+            assert!(!lightness_type_has_distance_falloff(kind));
+            assert!(!lightness_type_is_directional(kind));
+        }
+        assert!(lightness_type_is_ambient(4));
+        assert!(!lightness_type_skipped(4));
+        assert!(lightness_type_has_spot_cone(2));
+        assert!(lightness_type_has_distance_falloff(2));
+        assert!(lightness_type_has_distance_falloff(1));
+        assert!(!lightness_type_has_spot_cone(1));
+        assert!(lightness_type_is_directional(3));
+        assert!(!lightness_type_skipped(3));
+        // Unknown kinds (shadow-only 8, unmapped words) take no arm.
+        for kind in [8u32, 9, u32::MAX] {
+            assert!(!lightness_type_skipped(kind));
+            assert!(!lightness_type_is_ambient(kind));
+            assert!(!lightness_type_has_spot_cone(kind));
+            assert!(!lightness_type_has_distance_falloff(kind));
+            assert!(!lightness_type_is_directional(kind));
+        }
+    }
+    #[test]
+    fn lightness_cone_gates_follow_native_unordered_comparisons() {
+        // Working names for I3d_scene.cpp:329-332: pure `<=`, so NaN is
+        // false on both sides exactly like the native branch.
+        assert!(lightness_spot_outside_cone(0.5, 0.5));
+        assert!(lightness_spot_outside_cone(0.4, 0.5));
+        assert!(!lightness_spot_outside_cone(0.6, 0.5));
+        assert!(!lightness_spot_outside_cone(f32::NAN, 0.5));
+        assert!(!lightness_spot_outside_cone(0.5, f32::NAN));
+        assert!(lightness_spot_needs_cone_scale(0.7, 0.7));
+        assert!(lightness_spot_needs_cone_scale(0.6, 0.7));
+        assert!(!lightness_spot_needs_cone_scale(0.8, 0.7));
+        assert!(!lightness_spot_needs_cone_scale(f32::NAN, 0.7));
+    }
+    #[test]
+    fn lightness_range_gates_follow_native_ordered_comparisons() {
+        // Working names for I3d_scene.cpp:337-340: `>=` rejects at the far
+        // edge, `>` keeps full strength at the near edge.
+        assert!(lightness_range_beyond_far(10.0, 10.0));
+        assert!(lightness_range_beyond_far(11.0, 10.0));
+        assert!(!lightness_range_beyond_far(9.9, 10.0));
+        assert!(!lightness_range_beyond_far(f32::NAN, 10.0));
+        assert!(lightness_range_needs_falloff(2.1, 2.0));
+        assert!(!lightness_range_needs_falloff(2.0, 2.0));
+        assert!(!lightness_range_needs_falloff(1.9, 2.0));
+        assert!(!lightness_range_needs_falloff(f32::NAN, 2.0));
+    }
+    #[test]
+    fn lightness_cone_partial_scale_mirrors_native_association() {
+        // Working name for I3d_scene.cpp:332 `f *= (a - outer) * scale`:
+        // dyadic values keep the PC24 wrappers exact.
+        assert_eq!(
+            lightness_spot_cone_scaled(2.0, 0.75, 0.5, 4.0).unwrap(),
+            2.0
+        );
+        assert_eq!(
+            lightness_spot_cone_scaled(8.0, 1.0, 0.5, 0.5).unwrap(),
+            2.0
+        );
+        assert_eq!(
+            lightness_spot_cone_scaled(3.0, 0.5, 0.5, 7.0).unwrap(),
+            0.0
+        );
+    }
+    #[test]
+    fn lightness_range_falloff_mirrors_native_quotient_order() {
+        // Working name for I3d_scene.cpp:340
+        // `f *= (far - dist) / (far - near)`: dyadic values stay exact.
+        assert_eq!(
+            lightness_range_attenuated(8.0, 10.0, 6.0, 2.0).unwrap(),
+            4.0
+        );
+        assert_eq!(
+            lightness_range_attenuated(5.0, 10.0, 2.0, 2.0).unwrap(),
+            5.0
+        );
+        assert_eq!(
+            lightness_range_attenuated(5.0, 10.0, 10.0, 2.0).unwrap(),
+            0.0
+        );
+    }
+    #[test]
+    fn lightness_sum_and_clamp_match_native_tail() {
+        // Working names for I3d_scene.cpp:363-366: the sum runs before the
+        // two ordered clamp branches; NaN fails both and returns 1.0 natively.
+        assert_eq!(
+            lightness_combine_direct_ambient(0.25, 0.5).unwrap(),
+            0.75
+        );
+        assert_eq!(lightness_clamp_result(-0.5), 0.0);
+        assert_eq!(lightness_clamp_result(0.0), 0.0);
+        assert_eq!(lightness_clamp_result(0.3), 0.3);
+        assert_eq!(lightness_clamp_result(1.0), 1.0);
+        assert_eq!(lightness_clamp_result(1.5), 1.0);
+        // NaN fails both native comparisons, so it returns 1.0 like the original.
+        assert_eq!(lightness_clamp_result(f32::NAN), 1.0);
     }
     #[test]
     fn empty_and_disabled_registered_lights_retain_original_zero_result() {

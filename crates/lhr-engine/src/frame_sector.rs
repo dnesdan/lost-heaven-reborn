@@ -1,7 +1,8 @@
 //! Original loaded I3D_sector CPU ownership, LS3DF e211c850...178a6.
 //! RVAs4ed30/505c0/4f260/4ee80; preparation/math methods follow separately.
+use crate::frame_occluder::OccluderKey;
 use crate::frame_portal::{PortalError, PortalKey};
-use crate::frame_transform::{FrameKind, I3dFrameState};
+use crate::frame_transform::{FrameKey, FrameKind, I3dFrameState};
 use crate::model_loading::{ModelArena, ModelError};
 use crate::scene_ownership::{SceneKey, SectorFrame, SectorKey};
 #[path = "frame_sector_math.rs"]
@@ -23,6 +24,383 @@ pub enum SectorError {
 impl From<SectorError> for ModelError {
     fn from(e: SectorError) -> Self {
         Self::Sector(e)
+    }
+}
+/// SCTF_VISIBLE 0x1 (mafia-re ls3df/I3D/I3D.h:902): the portal walk found the
+/// sector in the view depth range this frame.
+pub const SCTF_VISIBLE: u32 = 0x01;
+/// SCTF_PREPARED 0x4 (mafia-re ls3df/I3D/I3D.h:905): MakeReady ran, so the
+/// sector owns its hull planes.
+pub const SCTF_PREPARED: u32 = 0x04;
+/// SCTF_IN_WALK 0x2 (mafia-re ls3df/I3D/I3D.h:904): the sector is on the
+/// portal walk stack (ParsePortalsInSector).
+pub const SCTF_IN_WALK: u32 = 0x02;
+/// SCTF_CULLED 0x10 (mafia-re ls3df/I3D/I3D.h:906): the sector frames were
+/// culled this frame (CullThruPortal CTP_EnumProcFirst).
+pub const SCTF_CULLED: u32 = 0x10;
+/// SCTF_OCCLUDER 0x40 (mafia-re ls3df/I3D/I3D.h:907): MakeReady made an
+/// occluder of the sector hull.
+pub const SCTF_OCCLUDER: u32 = 0x40;
+/// SCTF_OCCLUDER_OFF 0x80 (mafia-re ls3df/I3D/I3D.h:908-909): the walk came
+/// back into the sector through a portal without a twin, so the hull
+/// occluder hides nothing (ProcessOccluders).
+pub const SCTF_OCCLUDER_OFF: u32 = 0x80;
+/// SCTF_FAR_NO_CHILDREN 0x100 (mafia-re ls3df/I3D/I3D.h:910-912): kept by
+/// Duplicate; seen through a portal past its range the walk culls the
+/// sector frames but not their children (CTP_PartlyOffPortal/CTP_EnumProc).
+pub const SCTF_FAR_NO_CHILDREN: u32 = 0x100;
+/// SCTF_PRIMARY 0x200 (mafia-re ls3df/I3D/I3D.h:913): the scene primary
+/// sector, assigned by the scene constructor.
+pub const SCTF_PRIMARY: u32 = 0x200;
+/// SCTF_SOUND_FADE_IN 0x400 (mafia-re ls3df/I3D/I3D.h:914): the renderer
+/// blends into the sector sound environment, not out of it.
+pub const SCTF_SOUND_FADE_IN: u32 = 0x400;
+/// SCTF_SOUND_CHANGED 0x800 (mafia-re ls3df/I3D/I3D.h:915): the sector sound
+/// properties are to be given to the listener.
+pub const SCTF_SOUND_CHANGED: u32 = 0x800;
+/// SCTF_BACKDROP 0x1000 (mafia-re ls3df/I3D/I3D.h:916): the scene backdrop
+/// sector, assigned by the scene constructor.
+pub const SCTF_BACKDROP: u32 = 0x1000;
+/// SCTF_OMNI 0x2000 (mafia-re ls3df/I3D/I3D.h:917): the scene omni sector,
+/// assigned by the scene constructor.
+pub const SCTF_OMNI: u32 = 0x2000;
+/// SCTF_NEAR 0x4000 (mafia-re ls3df/I3D/I3D.h:918): the scene near sector,
+/// assigned by the scene constructor.
+pub const SCTF_NEAR: u32 = 0x4000;
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_VISIBLE bit. The reference records no LS3DF FUNCTION address for
+/// a standalone reader (I3D.h:902; set by the portal walk). Reports whether
+/// the sector was found in view this frame; no state moves.
+pub fn sector_is_visible(sector_flags: u32) -> bool {
+    sector_flags & SCTF_VISIBLE != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_PREPARED bit. The reference records no LS3DF FUNCTION address
+/// for a standalone reader (I3D.h:905; set by `MakeReady`, mafia-re
+/// ls3df/I3D/frames/I3d_sector.cpp:333-348). Reports whether the sector hull
+/// is prepared; no state moves.
+pub fn sector_is_prepared(sector_flags: u32) -> bool {
+    sector_flags & SCTF_PREPARED != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_IN_WALK bit. The reference records no LS3DF FUNCTION address for
+/// a standalone reader (I3D.h:904; maintained by the portal walk
+/// ParsePortalsInSector). Reports whether the sector is on the walk stack;
+/// no state moves.
+pub fn sector_is_in_walk(sector_flags: u32) -> bool {
+    sector_flags & SCTF_IN_WALK != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_CULLED bit. The reference records no LS3DF FUNCTION address for
+/// a standalone reader (I3D.h:906; set by the CullThruPortal first pass).
+/// Reports whether the sector frames were culled this frame; no state moves.
+pub fn sector_is_culled(sector_flags: u32) -> bool {
+    sector_flags & SCTF_CULLED != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_OCCLUDER bit. The reference records no LS3DF FUNCTION address
+/// for a standalone reader (I3D.h:907; set by `MakeReady`). Reports whether
+/// the sector hull has a generated occluder; no state moves.
+pub fn sector_has_occluder(sector_flags: u32) -> bool {
+    sector_flags & SCTF_OCCLUDER != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_OCCLUDER_OFF bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:908-909; set by ProcessOccluders
+/// when the walk re-enters through a twinless portal). Reports whether the
+/// hull occluder is disabled; no state moves.
+pub fn sector_occluder_off(sector_flags: u32) -> bool {
+    sector_flags & SCTF_OCCLUDER_OFF != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_FAR_NO_CHILDREN bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:910-912; loaded from the file and
+/// kept by Duplicate). Reports the past-range portal mode where the walk
+/// culls frames but not their children; no state moves.
+pub fn sector_far_no_children(sector_flags: u32) -> bool {
+    sector_flags & SCTF_FAR_NO_CHILDREN != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_PRIMARY bit. The reference records no LS3DF FUNCTION address for
+/// a standalone reader (I3D.h:913; assigned by the scene constructor,
+/// mafia-re ls3df/I3D/I3d_scene.cpp:118-123). Reports the primary sector;
+/// no state moves.
+pub fn sector_is_primary(sector_flags: u32) -> bool {
+    sector_flags & SCTF_PRIMARY != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_SOUND_FADE_IN bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:914; consumed by the renderer
+/// sound blend). Reports the fade-in blend direction; no state moves.
+pub fn sector_sound_fade_in(sector_flags: u32) -> bool {
+    sector_flags & SCTF_SOUND_FADE_IN != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_SOUND_CHANGED bit. The reference records no LS3DF FUNCTION
+/// address for a standalone reader (I3D.h:915; set when sound properties
+/// change, cleared by `m_UpdateSoundProperties`, mafia-re
+/// ls3df/I3D/I3d_scene.cpp:852-854). Reports whether the listener still
+/// needs the sector environment; no state moves.
+pub fn sector_sound_changed(sector_flags: u32) -> bool {
+    sector_flags & SCTF_SOUND_CHANGED != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_BACKDROP bit. The reference records no LS3DF FUNCTION address
+/// for a standalone reader (I3D.h:916; assigned by the scene constructor).
+/// Reports the backdrop sector; no state moves.
+pub fn sector_is_backdrop(sector_flags: u32) -> bool {
+    sector_flags & SCTF_BACKDROP != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_OMNI bit. The reference records no LS3DF FUNCTION address for a
+/// standalone reader (I3D.h:917; assigned by the scene constructor).
+/// Reports the omni sector; no state moves.
+pub fn sector_is_omni(sector_flags: u32) -> bool {
+    sector_flags & SCTF_OMNI != 0
+}
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the SCTF_NEAR bit. The reference records no LS3DF FUNCTION address for a
+/// standalone reader (I3D.h:918; assigned by the scene constructor).
+/// Reports the near sector; no state moves.
+pub fn sector_is_near(sector_flags: u32) -> bool {
+    sector_flags & SCTF_NEAR != 0
+}
+/// Upstream working name, not an evidenced original symbol: retained-sector
+/// predicate over SCTF_PRIMARY|BACKDROP|OMNI|NEAR. The reference records no
+/// LS3DF FUNCTION address for a standalone reader; the four bits are the
+/// scene constructor retained sectors (I3D.h:913,916-918; mafia-re
+/// ls3df/I3D/I3d_scene.cpp:118-140). Reports whether the flags mark any
+/// retained scene sector; no state moves.
+pub fn sector_is_retained(sector_flags: u32) -> bool {
+    sector_flags & (SCTF_PRIMARY | SCTF_BACKDROP | SCTF_OMNI | SCTF_NEAR) != 0
+}
+/// Upstream working name, not an evidenced original symbol: the hint gate
+/// of `I3D_scene::GetSector` (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:491-494: `hint && !(hint->sct_flags &
+/// SCTF_PRIMARY) && hint->CheckPoint(pos)`). The reference records the
+/// body at PC RVA 0x4a1d0, which is already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. A primary
+/// hint never short-circuits the ring walk; any other hint is accepted
+/// only when the point is inside it. The containment test and the walk
+/// stay caller-owned; no state moves.
+pub fn sector_hint_accepts(hint_is_primary: bool, hint_contains: bool) -> bool {
+    !hint_is_primary && hint_contains
+}
+/// Upstream working name, not an evidenced original symbol: hull-occluder
+/// gate SCTF_OCCLUDER without SCTF_OCCLUDER_OFF. The reference records no
+/// LS3DF FUNCTION address for a standalone reader; the gate follows
+/// I3D.h:907-909 (ProcessOccluders disables a twinless re-entry hull).
+/// Reports whether the hull occluder currently hides anything; no state
+/// moves.
+pub fn sector_occluder_hides(sector_flags: u32) -> bool {
+    sector_flags & SCTF_OCCLUDER != 0 && sector_flags & SCTF_OCCLUDER_OFF == 0
+}
+/// Upstream working name, not an evidenced original symbol: partial-cull
+/// mode SCTF_CULLED with SCTF_FAR_NO_CHILDREN. The reference records no
+/// LS3DF FUNCTION address for a standalone reader; the combination follows
+/// I3D.h:906 plus I3D.h:910-912 (past-range walk culls frames only).
+/// Reports the frames-only cull mode; no state moves.
+pub fn sector_culls_frames_only(sector_flags: u32) -> bool {
+    sector_flags & SCTF_CULLED != 0 && sector_flags & SCTF_FAR_NO_CHILDREN != 0
+}
+impl ModelArena {
+    /// Working name for the whole `sct_flags` word read at +0x1d0
+    /// (mafia-re ls3df/I3D/I3D.h:966, SCTF_*). The reference records no
+    /// LS3DF FUNCTION address for a whole-word getter: only single-bit
+    /// tests are inlined, and the word itself is stored by the constructor
+    /// (`sct_flags = SCTF_VISIBLE | SCTF_SOUND_CHANGED`, mafia-re
+    /// ls3df/I3D/frames/I3d_sector.cpp:109), `MakeReady`, `Duplicate` and
+    /// the loader. Reports the live word; no state moves.
+    pub fn sector_flags_word(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.sector_flags)
+    }
+    /// Working name for the sector light-list count at +0x144
+    /// (mafia-re ls3df/I3D/I3D.h:962). The reference records no LS3DF
+    /// FUNCTION address for a count getter: only `AddLight`/`DeleteLight`
+    /// mutate the list. Reports the live count; no state moves.
+    pub fn sector_light_count(&self, key: SectorKey) -> Result<usize, ModelError> {
+        Ok(self.sector(key)?.lights.len())
+    }
+    /// Working name for the sector light-list slice at +0x144
+    /// (mafia-re ls3df/I3D/I3D.h:962: the lights that reach into it). The
+    /// reference records no LS3DF FUNCTION address for a list getter: only
+    /// `AddLight`/`DeleteLight` mutate the list. Reports the live borrowed
+    /// list; no state moves.
+    pub fn sector_lights_of(&self, key: SectorKey) -> Result<&[FrameKey], ModelError> {
+        Ok(&self.sector(key)?.lights)
+    }
+    /// Working name for the sector sound-list count at +0x158
+    /// (mafia-re ls3df/I3D/I3D.h:964). The reference records no LS3DF
+    /// FUNCTION address for a count getter: only `AddSound`/`DeleteSound`
+    /// mutate the list. Reports the live count; no state moves.
+    pub fn sector_sound_count(&self, key: SectorKey) -> Result<usize, ModelError> {
+        Ok(self.sector(key)?.sounds.len())
+    }
+    /// Working name for the sector sound-list slice at +0x158
+    /// (mafia-re ls3df/I3D/I3D.h:964). The reference records no LS3DF
+    /// FUNCTION address for a list getter: only `AddSound`/`DeleteSound`
+    /// mutate the list. Reports the live borrowed list; no state moves.
+    pub fn sector_sounds_of(&self, key: SectorKey) -> Result<&[FrameKey], ModelError> {
+        Ok(&self.sector(key)?.sounds)
+    }
+    /// Working name for the sound-environment blend word at +0x1e8
+    /// (mafia-re ls3df/I3D/I3D.h:972: the renderer's blend into the sound
+    /// environment, 0 to 1). The reference records no LS3DF FUNCTION address
+    /// for a standalone reader: only `m_UpdateSoundProperties` advances it.
+    /// Reports the stored float bits verbatim with no float-domain claim;
+    /// no state moves.
+    pub fn sector_sound_blend_of(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.sound_words_1e8_1ec[0])
+    }
+    /// Working name for the blend-step time word at +0x1ec (mafia-re
+    /// ls3df/I3D/I3D.h:974: the time of the blend's last step, in ms). Same
+    /// inline-only status as `sector_sound_blend_of`: no standalone LS3DF
+    /// FUNCTION entry exists, so no RVA is claimed here. Reports the stored
+    /// milliseconds; no state moves.
+    pub fn sector_sound_blend_time_of(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.sound_words_1e8_1ec[1])
+    }
+    /// Working name for the `num_fog_lights` fog-selection count at +0x154
+    /// (mafia-re ls3df/I3D/I3D.h:963). The reference records no LS3DF
+    /// FUNCTION address for a count getter: the word is maintained by the
+    /// `AddLight`/fog-select paths. Reports the live word; no state moves.
+    pub fn sector_num_fog_lights(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.num_fog_lights)
+    }
+    /// Working name for the sector-to-scene link at +0x214 (mafia-re
+    /// ls3df/I3D/I3D.h:978). The reference records no LS3DF FUNCTION address
+    /// for a standalone reader: only `AddToRemoveFromSceneRing` and the
+    /// constructor store it. Reports the owning scene, if any.
+    pub fn sector_scene_of(&self, key: SectorKey) -> Result<Option<SceneKey>, ModelError> {
+        Ok(self.sector(key)?.scene)
+    }
+    /// Working name for the selected fog light at +0x1f0 (mafia-re
+    /// ls3df/I3D/I3D.h:975: the fog light of the lights that is on). The
+    /// reference records no LS3DF FUNCTION address for a standalone reader:
+    /// only `AddLight`/light `UpdateV`/fog selection store it. Reports the
+    /// live light frame, if one is selected; no state moves.
+    pub fn sector_fog_light_of(&self, key: SectorKey) -> Result<Option<FrameKey>, ModelError> {
+        Ok(self.sector(key)?.fog_light)
+    }
+    /// Working name for the MakeReady-made hull occluder at +0x22c
+    /// (mafia-re ls3df/I3D/I3D.h:985). The reference records no LS3DF
+    /// FUNCTION address for a standalone reader: only `MakeReady` stores it
+    /// (with SCTF_OCCLUDER) and the destructor path clears it. Reports the
+    /// live hull occluder, if one was made; no state moves.
+    pub fn sector_hull_occluder_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<OccluderKey>, ModelError> {
+        Ok(self.sector(key)?.hull_occluder)
+    }
+    /// Working name for the head of the sector occluder list at +0x228
+    /// (mafia-re ls3df/I3D/I3D.h:983: the occluders in it, linked through
+    /// their next_in_sector). The reference records no LS3DF FUNCTION
+    /// address for a standalone reader: only `OCCL_UpdateOcclLists` links
+    /// it. Reports the live list head, if any; no state moves.
+    pub fn sector_occluder_list_head(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<OccluderKey>, ModelError> {
+        Ok(self.sector(key)?.occluder_list)
+    }
+    /// Working name for the last visual to render at +0x230 (mafia-re
+    /// ls3df/I3D/I3D.h:986: the last of its visuals to render, the sector
+    /// itself while there are none). The reference records no LS3DF FUNCTION
+    /// address for a standalone reader: the rendering maintains it. Reports
+    /// the live frame, if any; no state moves.
+    pub fn sector_next_visual_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<FrameKey>, ModelError> {
+        Ok(self.sector(key)?.next_visual)
+    }
+    /// Working name for the hierarchy bound-volume box field (mafia-re
+    /// ls3df/I3D/I3D.h:986-adjacent `SetBoundVolume` coverage notes only
+    /// primary/backdrop sectors receive bounds). The reference records no
+    /// LS3DF FUNCTION address for a standalone reader. Reports the stored
+    /// box; None is the untouched invalid constructor bounds, not a valid
+    /// empty box. No state moves.
+    pub fn sector_bounds_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<[[f32; 3]; 2]>, ModelError> {
+        Ok(self.sector(key)?.bounds)
+    }
+    /// Working name for the bound-sphere field kept next to the box (center
+    /// plus radius). The reference records no LS3DF FUNCTION address for a
+    /// standalone reader. Reports the stored sphere; None matches the
+    /// untouched bounds. No state moves.
+    pub fn sector_bounding_sphere_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<[f32; 4]>, ModelError> {
+        Ok(self.sector(key)?.bounding_sphere)
+    }
+    /// Working name for the hull vertex count at +0x1d8 (mafia-re
+    /// ls3df/I3D/I3D.h:968: the hull's vertex count). The reference records
+    /// no LS3DF FUNCTION address for a standalone count reader: only the
+    /// loader and `Duplicate` store it. Reports the live count; no state
+    /// moves.
+    pub fn sector_vertex_count_of(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.geometry.vertex_count)
+    }
+    /// Working name for the hull face count at +0x1dc (mafia-re
+    /// ls3df/I3D/I3D.h:969: three vertex indices each). Same inline-only
+    /// status as `sector_vertex_count_of`: no standalone LS3DF getter body
+    /// exists, so no RVA is claimed here. Reports the live count; no state
+    /// moves.
+    pub fn sector_face_count_of(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.geometry.face_count)
+    }
+    /// Working name for the world-space hull plane count at +0x218
+    /// (mafia-re ls3df/I3D/I3D.h:979: the hull's planes in world space,
+    /// `UpdateCHPlanesW`). Same inline-only status as
+    /// `sector_vertex_count_of`: no standalone LS3DF getter body exists, so
+    /// no RVA is claimed here. Reports the live count; no state moves.
+    pub fn sector_plane_count_of(&self, key: SectorKey) -> Result<u32, ModelError> {
+        Ok(self.sector(key)?.geometry.plane_count)
+    }
+    /// Working name for the own-portals list slice at +0x1f4
+    /// (mafia-re ls3df/I3D/I3D.h:976: its own portals, leading out of the
+    /// sector). The reference records no LS3DF FUNCTION address for a list
+    /// getter: only the portal interconnection links them (occupied bodies,
+    /// not claimed here). Reports the live borrowed list; no state moves.
+    pub fn sector_portals_of(&self, key: SectorKey) -> Result<&[PortalKey], ModelError> {
+        Ok(&self.sector(key)?.geometry.portals)
+    }
+    /// Working name for the incoming-portals list slice at +0x204
+    /// (mafia-re ls3df/I3D/I3D.h:977: the other sectors' portals that lead
+    /// into this sector). Same inline-only status as `sector_portals_of`:
+    /// no standalone LS3DF FUNCTION entry exists, so no RVA is claimed
+    /// here. Reports the live borrowed list; no state moves.
+    pub fn sector_incoming_portals_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<&[PortalKey], ModelError> {
+        Ok(&self.sector(key)?.geometry.incoming_portals)
+    }
+    /// Working name for the previous scene-ring link at +0x224
+    /// (mafia-re ls3df/I3D/I3D.h:982: the scene's ring of sectors). The
+    /// reference records no LS3DF FUNCTION address for a standalone reader:
+    /// only `AddToRemoveFromSceneRing` links it (occupied body, not claimed
+    /// here). Reports the previous sector, if ring-linked; no state moves.
+    pub fn sector_previous_in_scene_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<SectorKey>, ModelError> {
+        Ok(self.sector(key)?.geometry.previous)
+    }
+    /// Working name for the next scene-ring link at +0x220
+    /// (mafia-re ls3df/I3D/I3D.h:981). Same inline-only status as
+    /// `sector_previous_in_scene_of`: no standalone LS3DF FUNCTION entry
+    /// exists, so no RVA is claimed here. Reports the next sector, if
+    /// ring-linked; no state moves.
+    pub fn sector_next_in_scene_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<SectorKey>, ModelError> {
+        Ok(self.sector(key)?.geometry.next)
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1083,6 +1461,262 @@ mod tests {
         assert_eq!(arena.sector_storage.live_allocations(), 0);
     }
     #[test]
+    fn sector_visible_reports_only_bit_zero() {
+        assert_eq!(SCTF_VISIBLE, 0x01);
+        assert!(sector_is_visible(SCTF_VISIBLE));
+        assert!(sector_is_visible(u32::MAX));
+        assert!(!sector_is_visible(0));
+        assert!(!sector_is_visible(SCTF_PREPARED));
+        assert!(!sector_is_visible(u32::MAX & !SCTF_VISIBLE));
+    }
+    #[test]
+    fn sector_link_and_visual_state_readers_report_ctor_and_stores() {
+        // Working names for the +0x214 scene link, +0x1f0 fog light, +0x22c
+        // hull occluder, +0x228 occluder list head, +0x230 last visual, and
+        // the bounds/sphere fields (mafia-re ls3df/I3D/I3D.h:975-986): no
+        // LS3DF FUNCTION addresses exist for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        assert_eq!(arena.sector_scene_of(key), Ok(None));
+        assert_eq!(arena.sector_fog_light_of(key), Ok(None));
+        assert_eq!(arena.sector_hull_occluder_of(key), Ok(None));
+        assert_eq!(arena.sector_occluder_list_head(key), Ok(None));
+        assert_eq!(arena.sector_next_visual_of(key), Ok(None));
+        assert_eq!(arena.sector_bounds_of(key), Ok(None));
+        assert_eq!(arena.sector_bounding_sphere_of(key), Ok(None));
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let light = arena.create_light().unwrap();
+        let occluder = arena.create_occluder().unwrap();
+        let si = arena.sector_index(key).unwrap();
+        arena.sectors[si].scene = Some(scene);
+        arena.sectors[si].fog_light = Some(light);
+        arena.sectors[si].hull_occluder = Some(occluder);
+        arena.sectors[si].occluder_list = Some(occluder);
+        arena.sectors[si].next_visual = Some(key.frame());
+        arena.sectors[si].bounds = Some([[-1.; 3], [1.; 3]]);
+        arena.sectors[si].bounding_sphere = Some([0., 0., 0., 2.]);
+        assert_eq!(arena.sector_scene_of(key), Ok(Some(scene)));
+        assert_eq!(arena.sector_fog_light_of(key), Ok(Some(light)));
+        assert_eq!(arena.sector_hull_occluder_of(key), Ok(Some(occluder)));
+        assert_eq!(arena.sector_occluder_list_head(key), Ok(Some(occluder)));
+        assert_eq!(arena.sector_next_visual_of(key), Ok(Some(key.frame())));
+        assert_eq!(arena.sector_bounds_of(key), Ok(Some([[-1.; 3], [1.; 3]])));
+        assert_eq!(
+            arena.sector_bounding_sphere_of(key),
+            Ok(Some([0., 0., 0., 2.]))
+        );
+        let unknown = SectorKey(FrameKey(u32::MAX));
+        assert!(arena.sector_scene_of(unknown).is_err());
+        assert!(arena.sector_fog_light_of(unknown).is_err());
+        assert!(arena.sector_hull_occluder_of(unknown).is_err());
+        assert!(arena.sector_occluder_list_head(unknown).is_err());
+        assert!(arena.sector_next_visual_of(unknown).is_err());
+        assert!(arena.sector_bounds_of(unknown).is_err());
+        assert!(arena.sector_bounding_sphere_of(unknown).is_err());
+    }
+
+    #[test]
+    fn sector_word_and_list_counts_read_ctor_state() {
+        // Working names for the sct_flags word (+0x1d0), the light/sound
+        // list counts (+0x144/+0x158) and num_fog_lights (+0x154): no LS3DF
+        // FUNCTION addresses exist for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        assert_eq!(arena.sector_flags_word(key), Ok(0x801));
+        assert_eq!(arena.sector_light_count(key), Ok(0));
+        assert_eq!(arena.sector_sound_count(key), Ok(0));
+        assert_eq!(arena.sector_num_fog_lights(key), Ok(0));
+        let unknown = SectorKey(crate::frame_transform::FrameKey(u32::MAX));
+        assert!(arena.sector_flags_word(unknown).is_err());
+        assert!(arena.sector_light_count(unknown).is_err());
+        assert!(arena.sector_sound_count(unknown).is_err());
+        assert!(arena.sector_num_fog_lights(unknown).is_err());
+    }
+    #[test]
+    fn sector_list_and_blend_words_read_live_stores() {
+        // Working names for the light/sound lists (+0x144/+0x158) and the
+        // sound blend words (+0x1e8/+0x1ec, I3D.h:972-974): no LS3DF
+        // FUNCTION addresses exist for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        assert!(arena.sector_lights_of(key).unwrap().is_empty());
+        assert!(arena.sector_sounds_of(key).unwrap().is_empty());
+        assert_eq!(arena.sector_sound_blend_of(key), Ok(0));
+        assert_eq!(arena.sector_sound_blend_time_of(key), Ok(0));
+        let light = key.frame();
+        let si = arena.sector_index(key).unwrap();
+        arena.sectors[si].lights.push(light);
+        arena.sectors[si].sounds.push(light);
+        arena.sectors[si].sound_words_1e8_1ec = [0x3f80_0000, 41];
+        assert_eq!(arena.sector_lights_of(key).unwrap(), &[light][..]);
+        assert_eq!(arena.sector_sounds_of(key).unwrap(), &[light][..]);
+        assert_eq!(arena.sector_sound_blend_of(key), Ok(0x3f80_0000));
+        assert_eq!(arena.sector_sound_blend_time_of(key), Ok(41));
+        let unknown = SectorKey(crate::frame_transform::FrameKey(u32::MAX));
+        assert!(arena.sector_lights_of(unknown).is_err());
+        assert!(arena.sector_sounds_of(unknown).is_err());
+        assert!(arena.sector_sound_blend_of(unknown).is_err());
+        assert!(arena.sector_sound_blend_time_of(unknown).is_err());
+    }
+    #[test]
+    fn sector_prepared_reports_only_bit_two() {
+        assert_eq!(SCTF_PREPARED, 0x04);
+        assert!(sector_is_prepared(SCTF_PREPARED));
+        assert!(sector_is_prepared(u32::MAX));
+        assert!(!sector_is_prepared(0));
+        assert!(!sector_is_prepared(SCTF_VISIBLE));
+        assert!(!sector_is_prepared(u32::MAX & !SCTF_PREPARED));
+    }
+    #[test]
+    fn sector_in_walk_reports_only_bit_one() {
+        // Working name for SCTF_IN_WALK (I3D.h:904): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_IN_WALK, 0x02);
+        assert!(sector_is_in_walk(SCTF_IN_WALK));
+        assert!(sector_is_in_walk(u32::MAX));
+        assert!(!sector_is_in_walk(0));
+        assert!(!sector_is_in_walk(SCTF_VISIBLE));
+        assert!(!sector_is_in_walk(u32::MAX & !SCTF_IN_WALK));
+    }
+    #[test]
+    fn sector_culled_reports_only_bit_four() {
+        // Working name for SCTF_CULLED (I3D.h:906): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_CULLED, 0x10);
+        assert!(sector_is_culled(SCTF_CULLED));
+        assert!(sector_is_culled(u32::MAX));
+        assert!(!sector_is_culled(0));
+        assert!(!sector_is_culled(SCTF_VISIBLE));
+        assert!(!sector_is_culled(u32::MAX & !SCTF_CULLED));
+    }
+    #[test]
+    fn sector_occluder_reports_only_bit_six() {
+        // Working name for SCTF_OCCLUDER (I3D.h:907): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_OCCLUDER, 0x40);
+        assert!(sector_has_occluder(SCTF_OCCLUDER));
+        assert!(sector_has_occluder(u32::MAX));
+        assert!(!sector_has_occluder(0));
+        assert!(!sector_has_occluder(SCTF_VISIBLE));
+        assert!(!sector_has_occluder(u32::MAX & !SCTF_OCCLUDER));
+    }
+    #[test]
+    fn sector_occluder_off_reports_only_bit_seven() {
+        // Working name for SCTF_OCCLUDER_OFF (I3D.h:908-909): no LS3DF entry.
+        assert_eq!(SCTF_OCCLUDER_OFF, 0x80);
+        assert!(sector_occluder_off(SCTF_OCCLUDER_OFF));
+        assert!(sector_occluder_off(u32::MAX));
+        assert!(!sector_occluder_off(0));
+        assert!(!sector_occluder_off(SCTF_VISIBLE));
+        assert!(!sector_occluder_off(u32::MAX & !SCTF_OCCLUDER_OFF));
+    }
+    #[test]
+    fn sector_far_no_children_reports_only_bit_eight() {
+        // Working name for SCTF_FAR_NO_CHILDREN (I3D.h:910-912): no entry.
+        assert_eq!(SCTF_FAR_NO_CHILDREN, 0x100);
+        assert!(sector_far_no_children(SCTF_FAR_NO_CHILDREN));
+        assert!(sector_far_no_children(u32::MAX));
+        assert!(!sector_far_no_children(0));
+        assert!(!sector_far_no_children(SCTF_VISIBLE));
+        assert!(!sector_far_no_children(
+            u32::MAX & !SCTF_FAR_NO_CHILDREN
+        ));
+    }
+    #[test]
+    fn sector_primary_reports_only_bit_nine() {
+        // Working name for SCTF_PRIMARY (I3D.h:913): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_PRIMARY, 0x200);
+        assert!(sector_is_primary(SCTF_PRIMARY));
+        assert!(sector_is_primary(u32::MAX));
+        assert!(!sector_is_primary(0));
+        assert!(!sector_is_primary(SCTF_VISIBLE));
+        assert!(!sector_is_primary(u32::MAX & !SCTF_PRIMARY));
+    }
+    #[test]
+    fn sector_sound_fade_in_reports_only_bit_ten() {
+        // Working name for SCTF_SOUND_FADE_IN (I3D.h:914): no LS3DF entry.
+        assert_eq!(SCTF_SOUND_FADE_IN, 0x400);
+        assert!(sector_sound_fade_in(SCTF_SOUND_FADE_IN));
+        assert!(sector_sound_fade_in(u32::MAX));
+        assert!(!sector_sound_fade_in(0));
+        assert!(!sector_sound_fade_in(SCTF_VISIBLE));
+        assert!(!sector_sound_fade_in(u32::MAX & !SCTF_SOUND_FADE_IN));
+    }
+    #[test]
+    fn sector_sound_changed_reports_only_bit_eleven() {
+        // Working name for SCTF_SOUND_CHANGED (I3D.h:915): no LS3DF entry.
+        assert_eq!(SCTF_SOUND_CHANGED, 0x800);
+        assert!(sector_sound_changed(SCTF_SOUND_CHANGED));
+        assert!(sector_sound_changed(u32::MAX));
+        assert!(!sector_sound_changed(0));
+        assert!(!sector_sound_changed(SCTF_VISIBLE));
+        assert!(!sector_sound_changed(u32::MAX & !SCTF_SOUND_CHANGED));
+    }
+    #[test]
+    fn sector_backdrop_reports_only_bit_twelve() {
+        // Working name for SCTF_BACKDROP (I3D.h:916): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_BACKDROP, 0x1000);
+        assert!(sector_is_backdrop(SCTF_BACKDROP));
+        assert!(sector_is_backdrop(u32::MAX));
+        assert!(!sector_is_backdrop(0));
+        assert!(!sector_is_backdrop(SCTF_VISIBLE));
+        assert!(!sector_is_backdrop(u32::MAX & !SCTF_BACKDROP));
+    }
+    #[test]
+    fn sector_omni_reports_only_bit_thirteen() {
+        // Working name for SCTF_OMNI (I3D.h:917): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_OMNI, 0x2000);
+        assert!(sector_is_omni(SCTF_OMNI));
+        assert!(sector_is_omni(u32::MAX));
+        assert!(!sector_is_omni(0));
+        assert!(!sector_is_omni(SCTF_VISIBLE));
+        assert!(!sector_is_omni(u32::MAX & !SCTF_OMNI));
+    }
+    #[test]
+    fn sector_near_reports_only_bit_fourteen() {
+        // Working name for SCTF_NEAR (I3D.h:918): no LS3DF FUNCTION entry.
+        assert_eq!(SCTF_NEAR, 0x4000);
+        assert!(sector_is_near(SCTF_NEAR));
+        assert!(sector_is_near(u32::MAX));
+        assert!(!sector_is_near(0));
+        assert!(!sector_is_near(SCTF_VISIBLE));
+        assert!(!sector_is_near(u32::MAX & !SCTF_NEAR));
+    }
+    #[test]
+    fn sector_retained_reports_any_ctor_sector() {
+        // Working name for the retained-sector predicate: no LS3DF entry.
+        assert!(sector_is_retained(SCTF_PRIMARY));
+        assert!(sector_is_retained(SCTF_BACKDROP));
+        assert!(sector_is_retained(SCTF_OMNI));
+        assert!(sector_is_retained(SCTF_NEAR));
+        assert!(sector_is_retained(u32::MAX));
+        assert!(!sector_is_retained(0));
+        assert!(!sector_is_retained(SCTF_VISIBLE | SCTF_PREPARED));
+        assert!(!sector_is_retained(
+            u32::MAX & !(SCTF_PRIMARY | SCTF_BACKDROP | SCTF_OMNI | SCTF_NEAR)
+        ));
+    }
+    #[test]
+    fn sector_occluder_hides_needs_hull_without_off() {
+        // Working name for the occluder gate: no LS3DF FUNCTION entry.
+        assert!(sector_occluder_hides(SCTF_OCCLUDER));
+        assert!(!sector_occluder_hides(0));
+        assert!(!sector_occluder_hides(SCTF_OCCLUDER_OFF));
+        assert!(!sector_occluder_hides(
+            SCTF_OCCLUDER | SCTF_OCCLUDER_OFF
+        ));
+        assert!(!sector_occluder_hides(SCTF_VISIBLE));
+    }
+    #[test]
+    fn sector_frames_only_cull_needs_both_bits() {
+        // Working name for the partial-cull mode: no LS3DF FUNCTION entry.
+        assert!(sector_culls_frames_only(
+            SCTF_CULLED | SCTF_FAR_NO_CHILDREN
+        ));
+        assert!(sector_culls_frames_only(u32::MAX));
+        assert!(!sector_culls_frames_only(0));
+        assert!(!sector_culls_frames_only(SCTF_CULLED));
+        assert!(!sector_culls_frames_only(SCTF_FAR_NO_CHILDREN));
+        assert!(!sector_culls_frames_only(SCTF_VISIBLE));
+    }
+    #[test]
     fn get_sector_honors_hint_before_ring_but_does_not_filter_ring_primary_flag() {
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
@@ -1563,6 +2197,45 @@ mod tests {
         assert_eq!(arena.live_frame_count(), 5); // scene root + 4 retained sectors
     }
     #[test]
+    fn sector_ring_and_portal_lists_report_live_links() {
+        // Working names for the ring links (+0x220/+0x224) and the portal
+        // lists (+0x1f4/+0x204) (mafia-re ls3df/I3D/I3D.h:976-977,981-982
+        // at pin 113b5b6): the reference records no LS3DF FUNCTION address
+        // for standalone readers; the ring setter and the portal
+        // interconnection own the stores.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let a = arena.create_sector_frame().unwrap();
+        let b = arena.create_sector_frame().unwrap();
+        assert_eq!(arena.sector_previous_in_scene_of(a).unwrap(), None);
+        assert_eq!(arena.sector_next_in_scene_of(a).unwrap(), None);
+        assert!(arena.sector_portals_of(a).unwrap().is_empty());
+        assert!(arena.sector_incoming_portals_of(a).unwrap().is_empty());
+        arena.sector_add_to_scene_ring(a, Some(scene)).unwrap();
+        arena.sector_add_to_scene_ring(b, Some(scene)).unwrap();
+        assert_eq!(arena.sector_previous_in_scene_of(a).unwrap(), Some(b));
+        assert_eq!(arena.sector_next_in_scene_of(a).unwrap(), Some(b));
+        assert_eq!(arena.sector_previous_in_scene_of(b).unwrap(), Some(a));
+        assert_eq!(arena.sector_next_in_scene_of(b).unwrap(), Some(a));
+        let p0 = arena.create_portal([0u8; 0x150]).unwrap();
+        let p1 = arena.create_portal([0u8; 0x150]).unwrap();
+        let ai = arena.sector_index(a).unwrap();
+        arena.sectors[ai].geometry.portals.push(p0);
+        arena.sectors[ai].geometry.incoming_portals.push(p1);
+        assert_eq!(arena.sector_portals_of(a).unwrap(), &[p0][..]);
+        assert_eq!(arena.sector_incoming_portals_of(a).unwrap(), &[p1][..]);
+        assert!(arena.sector_portals_of(b).unwrap().is_empty());
+        let unknown = SectorKey(FrameKey(u32::MAX));
+        assert!(arena.sector_portals_of(unknown).is_err());
+        assert!(arena.sector_incoming_portals_of(unknown).is_err());
+        assert!(arena.sector_previous_in_scene_of(unknown).is_err());
+        assert!(arena.sector_next_in_scene_of(unknown).is_err());
+        // Ringed sectors with live portal vectors stay owned by the arena
+        // for teardown (release rejects frames with portal records, and the
+        // readers under test borrow them); destruction is covered by the
+        // dtor test below.
+    }
+    #[test]
     fn sector_dtor_clears_ring_and_buffers() {
         crate::native_precision::Pc24PrecisionState::default().run(|| {
             let mut arena = ModelArena::default();
@@ -1725,5 +2398,34 @@ mod tests {
             arena.release(key.frame()).unwrap();
             assert_eq!(arena.live_frame_count(), 0);
         });
+    }
+    #[test]
+    fn hull_count_readers_report_live_geometry_words() {
+        // Working names for the inlined hull count reads (mafia-re
+        // ls3df/I3D/I3D.h:968-969,979): no LS3DF FUNCTION addresses exist
+        // for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_sector_frame().unwrap();
+        assert_eq!(arena.sector_vertex_count_of(key).unwrap(), 0);
+        assert_eq!(arena.sector_face_count_of(key).unwrap(), 0);
+        assert_eq!(arena.sector_plane_count_of(key).unwrap(), 0);
+        let si = arena.sector_index(key).unwrap();
+        arena.sectors[si].geometry.vertex_count = 7;
+        arena.sectors[si].geometry.face_count = 3;
+        arena.sectors[si].geometry.plane_count = 1;
+        assert_eq!(arena.sector_vertex_count_of(key).unwrap(), 7);
+        assert_eq!(arena.sector_face_count_of(key).unwrap(), 3);
+        assert_eq!(arena.sector_plane_count_of(key).unwrap(), 1);
+        arena.release(key.frame()).unwrap();
+    }
+    #[test]
+    fn sector_hint_gate_prefers_non_primary_container() {
+        // Working name for the GetSector hint gate (I3d_scene.cpp:493):
+        // the body lives at PC RVA 0x4a1d0, already occupied in
+        // docs/rewrite-overlay.json, so no RVA is claimed here.
+        assert!(sector_hint_accepts(false, true));
+        assert!(!sector_hint_accepts(true, true));
+        assert!(!sector_hint_accepts(false, false));
+        assert!(!sector_hint_accepts(true, false));
     }
 }

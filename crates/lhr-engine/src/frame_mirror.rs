@@ -34,6 +34,198 @@ pub const MIRF_VISIBLE: u32 = 0x100;
 pub const MIRF_REFLECT: u32 = 0x200;
 pub const VISF_BOUND_VALID: u32 = 0x0002_0000;
 pub const VISF_WBOUND_VALID: u32 = 0x0004_0000;
+/// VISF_INV_MAT_VALID 0x100000 (mafia-re ls3df/I3D/I3D.h:2706): inv_matrix is
+/// up to date; set by the inlined `I3D_visual::GetInvMatrix`.
+pub const VISF_INV_MAT_VALID: u32 = 0x0010_0000;
+/// Working name for the VISF_BOUND_VALID bit test (mafia-re ls3df/I3D/I3D.h:2703).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `I3D_visual::GetBoundVolume` (mafia-re ls3df/I3D/I3D.h:2771-2778)
+/// refreshes through it. Reports whether the local bound volume is up to
+/// date; no cache moves.
+pub fn vis_bound_valid(visual_flags: u32) -> bool {
+    visual_flags & VISF_BOUND_VALID != 0
+}
+/// Working name for the VISF_WBOUND_VALID bit test (mafia-re ls3df/I3D/I3D.h:2704).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `I3D_visual::GetWBoundVolume` (mafia-re ls3df/I3D/I3D.h:2762-2769)
+/// refreshes through it. Reports whether the world bound volume is up to
+/// date; no cache moves.
+pub fn vis_wbound_valid(visual_flags: u32) -> bool {
+    visual_flags & VISF_WBOUND_VALID != 0
+}
+/// Working name for the VISF_INV_MAT_VALID bit test (mafia-re ls3df/I3D/I3D.h:2706).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `I3D_visual::GetInvMatrix` (mafia-re ls3df/I3D/I3D.h:2780-2790)
+/// sets it after the inverse. Reports whether the inverse matrix is up to
+/// date; no cache moves.
+pub fn vis_inv_mat_valid(visual_flags: u32) -> bool {
+    visual_flags & VISF_INV_MAT_VALID != 0
+}
+/// VISF_WORLD_SPACE 0x40 (mafia-re ls3df/I3D/I3D.h:2690 at pin 113b5b6):
+/// the vertices are in world space (SetSpace); a move invalidates nothing.
+pub const VISF_WORLD_SPACE: u32 = 0x0000_0040;
+/// Working name for the VISF_WORLD_SPACE bit test (mafia-re ls3df/I3D/I3D.h:2690).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the inlined `I3D_visual::GetInvMatrix` (I3D.h:2780-2790),
+/// `I3D_visual::GetRenderMatrix` (I3D.h:2796-2801) and the world-bound update
+/// branch on it instead of the world matrix. Reports whether the visual
+/// renders from world-space vertices; no cache moves.
+pub fn visual_is_world_space(visual_flags: u32) -> bool {
+    visual_flags & VISF_WORLD_SPACE != 0
+}
+/// VISF_COLOR_CHANGED 0x4 (mafia-re ls3df/I3D/I3D.h:2683-2684 at pin 113b5b6):
+/// a particle color or transparency changed; m_AddFGroups writes it into
+/// the lod vertices.
+pub const VISF_COLOR_CHANGED: u32 = 0x0000_0004;
+/// Working name for the VISF_COLOR_CHANGED bit test (mafia-re ls3df/I3D/I3D.h:2683).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only tested inline by the visual group builder. Reports a
+/// pending color rewrite; no cache moves.
+pub fn visual_color_changed(visual_flags: u32) -> bool {
+    visual_flags & VISF_COLOR_CHANGED != 0
+}
+/// VISF_TEXTURE_LOD 0x10 (mafia-re ls3df/I3D/I3D.h:2685-2687 at pin 113b5b6):
+/// the level of detail follows the loaded textures.
+pub const VISF_TEXTURE_LOD: u32 = 0x0000_0010;
+/// Working name for the VISF_TEXTURE_LOD bit test (mafia-re ls3df/I3D/I3D.h:2685).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only tested inline by the LOD selector. Reports texture-driven
+/// LOD; no cache moves.
+pub fn visual_texture_lod(visual_flags: u32) -> bool {
+    visual_flags & VISF_TEXTURE_LOD != 0
+}
+/// VISF_NO_MIRROR 0x20 (mafia-re ls3df/I3D/I3D.h:2688-2689 at pin 113b5b6):
+/// the mirrors do not reflect it; tested by CollectVisuals.
+pub const VISF_NO_MIRROR: u32 = 0x0000_0020;
+/// Working name for the VISF_NO_MIRROR bit test (mafia-re ls3df/I3D/I3D.h:2688).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only tested inline by mirror collection. Reports mirror
+/// exclusion; no cache moves.
+pub fn visual_no_mirror(visual_flags: u32) -> bool {
+    visual_flags & VISF_NO_MIRROR != 0
+}
+/// VISF_AVERAGE_LIGHT 0x80 (mafia-re ls3df/I3D/I3D.h:2691 at pin 113b5b6):
+/// the lighting gives every vertex its average color.
+pub const VISF_AVERAGE_LIGHT: u32 = 0x0000_0080;
+/// Working name for the VISF_AVERAGE_LIGHT bit test (mafia-re ls3df/I3D/I3D.h:2691).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only consumed inline by the lighting pass. Reports average
+/// lighting; no cache moves.
+pub fn visual_average_light(visual_flags: u32) -> bool {
+    visual_flags & VISF_AVERAGE_LIGHT != 0
+}
+/// VISF_ZBIAS 0x100 (mafia-re ls3df/I3D/I3D.h:2692 at pin 113b5b6):
+/// drawn with a z-bias of 2.
+pub const VISF_ZBIAS: u32 = 0x0000_0100;
+/// Working name for the VISF_ZBIAS bit test (mafia-re ls3df/I3D/I3D.h:2692).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only consumed inline by the sorted draw pass. Reports depth
+/// bias; no cache moves.
+pub fn visual_zbias(visual_flags: u32) -> bool {
+    visual_flags & VISF_ZBIAS != 0
+}
+/// VISF_SHADOW 0x200 (mafia-re ls3df/I3D/I3D.h:2693 at pin 113b5b6):
+/// SHADOW_MODE 1 or 2 shadows fall on it.
+pub const VISF_SHADOW: u32 = 0x0000_0200;
+/// Working name for the VISF_SHADOW bit test (mafia-re ls3df/I3D/I3D.h:2693).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the mode setters maintain it inline. Reports shadow reception; no cache
+/// moves.
+pub fn visual_shadow(visual_flags: u32) -> bool {
+    visual_flags & VISF_SHADOW != 0
+}
+/// VISF_SHADOW_2 0x400 (mafia-re ls3df/I3D/I3D.h:2694 at pin 113b5b6):
+/// SHADOW_MODE 2.
+pub const VISF_SHADOW_2: u32 = 0x0000_0400;
+/// Working name for the VISF_SHADOW_2 bit test (mafia-re ls3df/I3D/I3D.h:2694).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the mode setters maintain it inline. Reports the second shadow mode; no
+/// cache moves.
+pub fn visual_shadow_2(visual_flags: u32) -> bool {
+    visual_flags & VISF_SHADOW_2 != 0
+}
+/// VISF_OBJECT 0x800 (mafia-re ls3df/I3D/I3D.h:2695-2696 at pin 113b5b6):
+/// an I3D_object or derived visual; set by its constructor, SetMesh and
+/// Duplicate.
+pub const VISF_OBJECT: u32 = 0x0000_0800;
+/// Working name for the VISF_OBJECT bit test (mafia-re ls3df/I3D/I3D.h:2695).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit only gates object casts inline. Reports object kind; no cache
+/// moves.
+pub fn visual_is_object(visual_flags: u32) -> bool {
+    visual_flags & VISF_OBJECT != 0
+}
+/// VISF_COL_OPTIONAL 0x1000 (mafia-re ls3df/I3D/I3D.h:2697-2698 at pin 113b5b6):
+/// the collision tests leave it out with COLF_SKIP_OPTIONAL.
+pub const VISF_COL_OPTIONAL: u32 = 0x0000_1000;
+/// Working name for the VISF_COL_OPTIONAL bit test (mafia-re ls3df/I3D/I3D.h:2697).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only tested inline by the collision walk. Reports optional
+/// collision; no cache moves.
+pub fn visual_col_optional(visual_flags: u32) -> bool {
+    visual_flags & VISF_COL_OPTIONAL != 0
+}
+/// VISF_PROJECTOR 0x2000 (mafia-re ls3df/I3D/I3D.h:2699 at pin 113b5b6):
+/// projector mode 1 or 2 projectors fall on it.
+pub const VISF_PROJECTOR: u32 = 0x0000_2000;
+/// Working name for the VISF_PROJECTOR bit test (mafia-re ls3df/I3D/I3D.h:2699).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the mode setters maintain it inline. Reports projector reception; no
+/// cache moves.
+pub fn visual_projector(visual_flags: u32) -> bool {
+    visual_flags & VISF_PROJECTOR != 0
+}
+/// VISF_PROJECTOR_2 0x4000 (mafia-re ls3df/I3D/I3D.h:2700 at pin 113b5b6):
+/// projector mode 2 projectors fall on it.
+pub const VISF_PROJECTOR_2: u32 = 0x0000_4000;
+/// Working name for the VISF_PROJECTOR_2 bit test (mafia-re ls3df/I3D/I3D.h:2700).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the projector mode setters maintain it inline. Reports the second
+/// projector reception bit; no cache moves.
+pub fn visual_projector_2(visual_flags: u32) -> bool {
+    visual_flags & VISF_PROJECTOR_2 != 0
+}
+/// VISF_NO_FOG 0x8000 (mafia-re ls3df/I3D/I3D.h:2701 at pin 113b5b6):
+/// never fogged.
+pub const VISF_NO_FOG: u32 = 0x0000_8000;
+/// Working name for the VISF_NO_FOG bit test (mafia-re ls3df/I3D/I3D.h:2701).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only consumed inline by the sorted draw pass. Reports the fog
+/// exemption; no cache moves.
+pub fn visual_no_fog(visual_flags: u32) -> bool {
+    visual_flags & VISF_NO_FOG != 0
+}
+/// VISF_PROXY 0x10000 (mafia-re ls3df/I3D/I3D.h:2702 at pin 113b5b6):
+/// renders the face groups of the visual in m_UserData.
+pub const VISF_PROXY: u32 = 0x0001_0000;
+/// Working name for the VISF_PROXY bit test (mafia-re ls3df/I3D/I3D.h:2702).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the face-group queue arms test it inline. Reports proxy rendering; no
+/// cache moves.
+pub fn visual_proxy(visual_flags: u32) -> bool {
+    visual_flags & VISF_PROXY != 0
+}
+/// VISF_UNKNOWN_80000 0x80000 (mafia-re ls3df/I3D/I3D.h:2705 at pin 113b5b6):
+/// cleared with VISF_WBOUND_VALID when the frame moves; nothing in LS3DF
+/// tests it.
+pub const VISF_UNKNOWN_80000: u32 = 0x0008_0000;
+/// Working name for the VISF_UNKNOWN_80000 bit test (mafia-re
+/// ls3df/I3D/I3D.h:2705). The reference records no LS3DF FUNCTION address for
+/// a standalone reader; the flag word is only cleared alongside
+/// VISF_WBOUND_VALID on frame moves. Reports the bit; no cache moves.
+pub fn visual_unknown_80000(visual_flags: u32) -> bool {
+    visual_flags & VISF_UNKNOWN_80000 != 0
+}
+/// VISF_LOD_CHANGED 0x2000000 (mafia-re ls3df/I3D/I3D.h:2707 at pin 113b5b6):
+/// GetObjectLOD changed a VISF_TEXTURE_LOD visual's level.
+pub const VISF_LOD_CHANGED: u32 = 0x0200_0000;
+/// Working name for the VISF_LOD_CHANGED bit test (mafia-re ls3df/I3D/I3D.h:2707).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// only the object level-of-detail selection sets it. Reports the level
+/// change; no cache moves.
+pub fn visual_lod_changed(visual_flags: u32) -> bool {
+    visual_flags & VISF_LOD_CHANGED != 0
+}
 pub const MIRROR_UPDATE_CLEAR_MASK: u32 = 0x001c_0000;
 pub const MIRROR_DIRTY_TEST: u32 = 0x4000_2000;
 /// Evidenced ctor stores: 'MIRR' at +0x1d4, 100.0f at +0x2d8, residue at +0x1f0.
@@ -1062,6 +1254,74 @@ impl ModelArena {
     pub fn mirror_state(&self, key: FrameKey) -> Result<&I3dMirrorState, ModelError> {
         self.mirror_state_ref(key)
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the clamped color triple the occupied `SetColor` setter (PC RVA
+    /// 0x319f0; mafia-re ls3df/I3D/visuals/I3d_mirror.cpp at pin 113b5b6)
+    /// stores. The original exposes no `I3D_mirror::GetColor` (that file
+    /// defines only `SetColor`/`SetViewBox`); same guard as `mirror_state`.
+    pub fn mirror_color_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.mirror_state(key)?.color)
+    }
+    /// Upstream working name, not an evidenced original symbol: gated read
+    /// of the `view_box` the occupied `SetViewBox` setter (PC RVA 0x331b0)
+    /// stores, reported only while the `MIRF_VIEW_BOX` flag it sets is
+    /// present. The original exposes no `I3D_mirror::GetViewBox`; same guard
+    /// as `mirror_state`.
+    pub fn mirror_view_box_of(&self, key: FrameKey) -> Result<Option<SMatrix>, ModelError> {
+        let state = self.mirror_state(key)?;
+        if state.has_view_box() {
+            Ok(Some(state.view_box))
+        } else {
+            Ok(None)
+        }
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the reflection range (mafia-re ls3df/I3D/I3D.h:3830 `float range`
+    /// at +0x2d8, constructor default 100; I3d_mirror.cpp:28 at pin 113b5b6).
+    /// The original exposes no `I3D_mirror::GetRange` (that file defines only
+    /// `SetColor`/`SetViewBox` plus the rendering verbs); the occupied
+    /// `Duplicate`/`LoadImage` bodies (PC RVAs 0x31ab0/0x332e0) copy it
+    /// verbatim. Same guard as `mirror_state`.
+    pub fn mirror_range_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.mirror_state(key)?.range)
+    }
+    /// Upstream working name, not an evidenced original symbol: `MIRF_VISIBLE`
+    /// bit test (mafia-re ls3df/I3D/I3D.h:3784: the camera sees its front,
+    /// set by `UpdateVisibility`, PC RVA 0x321b0, occupied). The reference
+    /// records no LS3DF FUNCTION address for a standalone reader; the render
+    /// pass reads the flag in place (render.cpp:536). Exact bit test; same
+    /// guard as `mirror_state`.
+    pub fn mirror_is_visible_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.mirror_state(key)?.mirror_flags & MIRF_VISIBLE != 0)
+    }
+    /// Upstream working name, not an evidenced original symbol: `MIRF_REFLECT`
+    /// bit test (mafia-re ls3df/I3D/I3D.h:3785: near enough to render what it
+    /// reflects, set by `UpdateVisibility`, PC RVA 0x321b0, occupied). Same
+    /// inline-only status as `mirror_is_visible_of`: no standalone LS3DF
+    /// FUNCTION entry exists, so no RVA is claimed here. Exact bit test;
+    /// same guard as `mirror_state`.
+    pub fn mirror_reflects_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.mirror_state(key)?.mirror_flags & MIRF_REFLECT != 0)
+    }
+    /// Upstream working name, not an evidenced original symbol: count of the
+    /// reflected-visual copies (mafia-re ls3df/I3D/I3D.h:3822
+    /// `C_list<I3D_visual *> copies` at +0x1e4). The reference records no
+    /// LS3DF FUNCTION address for a count reader; the occupied
+    /// `CollectVisuals`/`PrepareReflection` bodies (PC RVAs 0x32500/0x32730)
+    /// fill and consume the list. Reports the owned copy count; same guard
+    /// as `mirror_state`.
+    pub fn mirror_copy_count_of(&self, key: FrameKey) -> Result<usize, ModelError> {
+        Ok(self.mirror_state(key)?.copies.len())
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the scene link (mafia-re ls3df/I3D/I3D.h:3821 `I3D_scene *scene` at
+    /// +0x1e0, the scene's `AddMirror`). The reference records no LS3DF
+    /// FUNCTION address for a link reader; the occupied `AddMirror` setter
+    /// (PC RVA 0x4a6f0) stores it. Missing link reads as None (native NULL).
+    /// Same guard as `mirror_state`.
+    pub fn mirror_scene_of(&self, key: FrameKey) -> Result<Option<SceneKey>, ModelError> {
+        Ok(self.mirror_state(key)?.scene)
+    }
 }
 
 #[cfg(test)]
@@ -1104,6 +1364,22 @@ mod tests {
     }
 
     #[test]
+    fn world_space_reader_reports_only_bit_six() {
+        // Working name for VISF_WORLD_SPACE (I3D.h:2690): no LS3DF FUNCTION
+        // address for a standalone reader; the visual inverse/render matrix
+        // inlines branch on it.
+        assert_eq!(VISF_WORLD_SPACE, 0x40);
+        assert!(visual_is_world_space(VISF_WORLD_SPACE));
+        assert!(visual_is_world_space(
+            VISF_WORLD_SPACE | VISF_BOUND_VALID
+        ));
+        assert!(visual_is_world_space(u32::MAX));
+        assert!(!visual_is_world_space(0));
+        assert!(!visual_is_world_space(VISF_BOUND_VALID));
+        assert!(!visual_is_world_space(u32::MAX & !VISF_WORLD_SPACE));
+    }
+
+    #[test]
     fn ctor_stores_native_words_in_order() {
         let mut arena = ModelArena::default();
         let key = arena.create_mirror_frame().unwrap();
@@ -1117,6 +1393,63 @@ mod tests {
         assert_eq!(s.color, [0.; 3]);
         assert!(s.scene.is_none() && s.copies.is_empty());
         assert!(arena.frame(key).unwrap().visual_bounds.is_none());
+    }
+
+    #[test]
+    fn mirror_color_reader_reports_ctor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_mirror_frame().unwrap();
+        assert_eq!(arena.mirror_color_of(key).unwrap(), [0.; 3]);
+        arena.set_mirror_color(key, [0.25, 0.5, 0.75]).unwrap();
+        assert_eq!(arena.mirror_color_of(key).unwrap(), [0.25, 0.5, 0.75]);
+        arena.set_mirror_color(key, [-1.0, 2.0, f32::NAN]).unwrap();
+        let color = arena.mirror_color_of(key).unwrap();
+        assert_eq!(color[0].to_bits(), 0.0f32.to_bits());
+        assert_eq!(color[1].to_bits(), 1.0f32.to_bits());
+        assert!(color[2].is_nan());
+    }
+
+    #[test]
+    fn mirror_view_box_reader_is_none_until_set_view_box_stores() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_mirror_frame().unwrap();
+        assert_eq!(arena.mirror_view_box_of(key).unwrap(), None);
+        assert!(arena
+            .mirror_store_view_box(key, [-1., -1., -1.], [1., 1., 1.], SMatrix::identity())
+            .unwrap());
+        assert_eq!(
+            arena.mirror_view_box_of(key).unwrap(),
+            Some(SMatrix::identity())
+        );
+    }
+
+    #[test]
+    fn mirror_state_readers_report_ctor_defaults_then_word_stores() {
+        // Working-name readers for the range/flag/copy/scene words
+        // (I3D.h:3781-3785,3820-3830): no LS3DF FUNCTION address exists for
+        // standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_mirror_frame().unwrap();
+        assert_eq!(arena.mirror_range_of(key).unwrap(), 100.);
+        assert!(!arena.mirror_is_visible_of(key).unwrap());
+        assert!(!arena.mirror_reflects_of(key).unwrap());
+        assert_eq!(arena.mirror_copy_count_of(key).unwrap(), 0);
+        assert_eq!(arena.mirror_scene_of(key).unwrap(), None);
+        let bad = FrameKey(u32::MAX);
+        assert!(arena.mirror_range_of(bad).is_err());
+        assert!(arena.mirror_is_visible_of(bad).is_err());
+        assert!(arena.mirror_reflects_of(bad).is_err());
+        assert!(arena.mirror_copy_count_of(bad).is_err());
+        assert!(arena.mirror_scene_of(bad).is_err());
+        arena.mirror_state_mut(key).unwrap().mirror_flags = MIRF_VISIBLE | MIRF_REFLECT;
+        assert!(arena.mirror_is_visible_of(key).unwrap());
+        assert!(arena.mirror_reflects_of(key).unwrap());
+        let copy = arena.create_mirror_frame().unwrap();
+        arena.mirror_state_mut(key).unwrap().copies.push(copy);
+        assert_eq!(arena.mirror_copy_count_of(key).unwrap(), 1);
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        arena.mirror_state_mut(key).unwrap().scene = Some(scene);
+        assert_eq!(arena.mirror_scene_of(key).unwrap(), Some(scene));
     }
 
     #[test]
@@ -1466,6 +1799,185 @@ mod tests {
             [0.0, 0.0, 0.0]
         )
         .unwrap());
+    }
+
+    #[test]
+    fn vis_bound_valid_reports_only_bit_seventeen() {
+        assert_eq!(VISF_BOUND_VALID, 0x0002_0000);
+        assert!(vis_bound_valid(VISF_BOUND_VALID));
+        assert!(vis_bound_valid(u32::MAX));
+        assert!(!vis_bound_valid(0));
+        assert!(!vis_bound_valid(VISF_WBOUND_VALID));
+        assert!(!vis_bound_valid(u32::MAX & !VISF_BOUND_VALID));
+    }
+    #[test]
+    fn vis_wbound_valid_reports_only_bit_eighteen() {
+        assert_eq!(VISF_WBOUND_VALID, 0x0004_0000);
+        assert!(vis_wbound_valid(VISF_WBOUND_VALID));
+        assert!(vis_wbound_valid(u32::MAX));
+        assert!(!vis_wbound_valid(0));
+        assert!(!vis_wbound_valid(VISF_INV_MAT_VALID));
+        assert!(!vis_wbound_valid(u32::MAX & !VISF_WBOUND_VALID));
+    }
+    #[test]
+    fn vis_inv_mat_valid_reports_only_bit_twenty() {
+        assert_eq!(VISF_INV_MAT_VALID, 0x0010_0000);
+        assert!(vis_inv_mat_valid(VISF_INV_MAT_VALID));
+        assert!(vis_inv_mat_valid(u32::MAX));
+        assert!(!vis_inv_mat_valid(0));
+        assert!(!vis_inv_mat_valid(VISF_BOUND_VALID));
+        assert!(!vis_inv_mat_valid(u32::MAX & !VISF_INV_MAT_VALID));
+    }
+    #[test]
+    fn visual_color_changed_reports_only_bit_two() {
+        // Working name for VISF_COLOR_CHANGED (I3D.h:2683): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_COLOR_CHANGED, 0x0000_0004);
+        assert!(visual_color_changed(VISF_COLOR_CHANGED));
+        assert!(visual_color_changed(u32::MAX));
+        assert!(!visual_color_changed(0));
+        assert!(!visual_color_changed(VISF_TEXTURE_LOD));
+        assert!(!visual_color_changed(u32::MAX & !VISF_COLOR_CHANGED));
+    }
+    #[test]
+    fn visual_texture_lod_reports_only_bit_four() {
+        // Working name for VISF_TEXTURE_LOD (I3D.h:2685): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_TEXTURE_LOD, 0x0000_0010);
+        assert!(visual_texture_lod(VISF_TEXTURE_LOD));
+        assert!(visual_texture_lod(u32::MAX));
+        assert!(!visual_texture_lod(0));
+        assert!(!visual_texture_lod(VISF_NO_MIRROR));
+        assert!(!visual_texture_lod(u32::MAX & !VISF_TEXTURE_LOD));
+    }
+    #[test]
+    fn visual_no_mirror_reports_only_bit_five() {
+        // Working name for VISF_NO_MIRROR (I3D.h:2688): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_NO_MIRROR, 0x0000_0020);
+        assert!(visual_no_mirror(VISF_NO_MIRROR));
+        assert!(visual_no_mirror(u32::MAX));
+        assert!(!visual_no_mirror(0));
+        assert!(!visual_no_mirror(VISF_WORLD_SPACE));
+        assert!(!visual_no_mirror(u32::MAX & !VISF_NO_MIRROR));
+    }
+    #[test]
+    fn visual_average_light_reports_only_bit_seven() {
+        // Working name for VISF_AVERAGE_LIGHT (I3D.h:2691): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_AVERAGE_LIGHT, 0x0000_0080);
+        assert!(visual_average_light(VISF_AVERAGE_LIGHT));
+        assert!(visual_average_light(u32::MAX));
+        assert!(!visual_average_light(0));
+        assert!(!visual_average_light(VISF_ZBIAS));
+        assert!(!visual_average_light(u32::MAX & !VISF_AVERAGE_LIGHT));
+    }
+    #[test]
+    fn visual_zbias_reports_only_bit_eight() {
+        // Working name for VISF_ZBIAS (I3D.h:2692): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_ZBIAS, 0x0000_0100);
+        assert!(visual_zbias(VISF_ZBIAS));
+        assert!(visual_zbias(u32::MAX));
+        assert!(!visual_zbias(0));
+        assert!(!visual_zbias(VISF_SHADOW));
+        assert!(!visual_zbias(u32::MAX & !VISF_ZBIAS));
+    }
+    #[test]
+    fn visual_shadow_reports_only_bit_nine() {
+        // Working name for VISF_SHADOW (I3D.h:2693): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_SHADOW, 0x0000_0200);
+        assert!(visual_shadow(VISF_SHADOW));
+        assert!(visual_shadow(u32::MAX));
+        assert!(!visual_shadow(0));
+        assert!(!visual_shadow(VISF_SHADOW_2));
+        assert!(!visual_shadow(u32::MAX & !VISF_SHADOW));
+    }
+    #[test]
+    fn visual_shadow_2_reports_only_bit_ten() {
+        // Working name for VISF_SHADOW_2 (I3D.h:2694): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_SHADOW_2, 0x0000_0400);
+        assert!(visual_shadow_2(VISF_SHADOW_2));
+        assert!(visual_shadow_2(u32::MAX));
+        assert!(!visual_shadow_2(0));
+        assert!(!visual_shadow_2(VISF_SHADOW));
+        assert!(!visual_shadow_2(u32::MAX & !VISF_SHADOW_2));
+    }
+    #[test]
+    fn visual_is_object_reports_only_bit_eleven() {
+        // Working name for VISF_OBJECT (I3D.h:2695): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_OBJECT, 0x0000_0800);
+        assert!(visual_is_object(VISF_OBJECT));
+        assert!(visual_is_object(u32::MAX));
+        assert!(!visual_is_object(0));
+        assert!(!visual_is_object(VISF_COL_OPTIONAL));
+        assert!(!visual_is_object(u32::MAX & !VISF_OBJECT));
+    }
+    #[test]
+    fn visual_col_optional_reports_only_bit_twelve() {
+        // Working name for VISF_COL_OPTIONAL (I3D.h:2697): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_COL_OPTIONAL, 0x0000_1000);
+        assert!(visual_col_optional(VISF_COL_OPTIONAL));
+        assert!(visual_col_optional(u32::MAX));
+        assert!(!visual_col_optional(0));
+        assert!(!visual_col_optional(VISF_OBJECT));
+        assert!(!visual_col_optional(u32::MAX & !VISF_COL_OPTIONAL));
+    }
+    #[test]
+    fn visual_projector_reports_only_bit_thirteen() {
+        // Working name for VISF_PROJECTOR (I3D.h:2699): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_PROJECTOR, 0x0000_2000);
+        assert!(visual_projector(VISF_PROJECTOR));
+        assert!(visual_projector(u32::MAX));
+        assert!(!visual_projector(0));
+        assert!(!visual_projector(VISF_COL_OPTIONAL));
+        assert!(!visual_projector(u32::MAX & !VISF_PROJECTOR));
+    }
+    #[test]
+    fn visual_projector_2_reports_only_bit_fourteen() {
+        // Working name for VISF_PROJECTOR_2 (I3D.h:2700): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_PROJECTOR_2, 0x0000_4000);
+        assert!(visual_projector_2(VISF_PROJECTOR_2));
+        assert!(visual_projector_2(u32::MAX));
+        assert!(!visual_projector_2(0));
+        assert!(!visual_projector_2(VISF_PROJECTOR));
+        assert!(!visual_projector_2(u32::MAX & !VISF_PROJECTOR_2));
+    }
+    #[test]
+    fn visual_no_fog_reports_only_bit_fifteen() {
+        // Working name for VISF_NO_FOG (I3D.h:2701): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_NO_FOG, 0x0000_8000);
+        assert!(visual_no_fog(VISF_NO_FOG));
+        assert!(visual_no_fog(u32::MAX));
+        assert!(!visual_no_fog(0));
+        assert!(!visual_no_fog(VISF_PROJECTOR_2));
+        assert!(!visual_no_fog(u32::MAX & !VISF_NO_FOG));
+    }
+    #[test]
+    fn visual_proxy_reports_only_bit_sixteen() {
+        // Working name for VISF_PROXY (I3D.h:2702): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_PROXY, 0x0001_0000);
+        assert!(visual_proxy(VISF_PROXY));
+        assert!(visual_proxy(u32::MAX));
+        assert!(!visual_proxy(0));
+        assert!(!visual_proxy(VISF_NO_FOG));
+        assert!(!visual_proxy(u32::MAX & !VISF_PROXY));
+    }
+    #[test]
+    fn visual_lod_changed_reports_only_bit_twenty_five() {
+        // Working name for VISF_LOD_CHANGED (I3D.h:2707): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_LOD_CHANGED, 0x0200_0000);
+        assert!(visual_lod_changed(VISF_LOD_CHANGED));
+        assert!(visual_lod_changed(u32::MAX));
+        assert!(!visual_lod_changed(0));
+        assert!(!visual_lod_changed(VISF_TEXTURE_LOD));
+        assert!(!visual_lod_changed(u32::MAX & !VISF_LOD_CHANGED));
+    }
+    #[test]
+    fn visual_unknown_80000_reports_only_bit_nineteen() {
+        // Working name for VISF_UNKNOWN_80000 (I3D.h:2705): no LS3DF FUNCTION
+        // entry for a standalone reader.
+        assert_eq!(VISF_UNKNOWN_80000, 0x0008_0000);
+        assert!(visual_unknown_80000(VISF_UNKNOWN_80000));
+        assert!(visual_unknown_80000(u32::MAX));
+        assert!(!visual_unknown_80000(0));
+        assert!(!visual_unknown_80000(VISF_PROXY));
+        assert!(!visual_unknown_80000(u32::MAX & !VISF_UNKNOWN_80000));
     }
 
     #[test]

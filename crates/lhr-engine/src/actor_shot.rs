@@ -105,6 +105,41 @@ impl ActorShotState {
     pub fn particle(&self) -> i32 {
         self.word(0x88) as i32
     }
+    /// GAME 0x404e20 (RVA 0x4e20) C_actor_shot::AddToCutscene (mafia-re
+    /// 113b5b6 game/actors/C_actor.cpp:631-637): the shot actor files one
+    /// record kind of `sizeof(S_actor_shot_record)` bytes (0x10 per
+    /// game/actors/C_actor_shot.h:5-13) and no other kinds, then reports
+    /// true. The recorder call stays with the cutscene owner (DEFERRED);
+    /// this leaf stages the three size words plus the constant verdict, in
+    /// (sizes, verdict) order, mirroring the base-actor leaf.
+    pub fn add_to_cutscene(&self) -> ([u32; 3], bool) {
+        ([0x10, 0, 0], true)
+    }
+}
+
+/// GAME 0x567430 (RVA 0x167430) C_actor_shot::SetWeapon marker (mafia-re
+/// 113b5b6 game/actors/C_actor_shot.cpp:87-91 and
+/// game/actors/C_actor_shot.h:54-55): the reference body is an empty
+/// STUB, so the port stores no word and changes no latch. The item and
+/// weapon-effect owners stay DEFERRED.
+pub fn set_weapon_marker() {}
+
+/// GAME 0x404e40 (RVA 0x4e40) C_actor_shot::PlayRecord flag-write tail
+/// (mafia-re 113b5b6 game/actors/C_actor.cpp:639-668 and
+/// game/actors/C_actor_shot.h:15-21): shot_time goes to -1 and the
+/// firing/shoots latches follow the staged record flags word
+/// (SHOT_REC_FIRING 0x1000, SHOT_REC_SHOOTS 0x8000). The particle
+/// start/stop branch (frame plus effects owners) and the SetWeapon handoff
+/// stay DEFERRED; the caller writes the returned (shot_time, firing,
+/// shoots) words.
+pub fn apply_shot_record_flags(flags: u32) -> (i32, bool, bool) {
+    const SHOT_REC_FIRING: u32 = 0x1000;
+    const SHOT_REC_SHOOTS: u32 = 0x8000;
+    (
+        -1,
+        flags & SHOT_REC_FIRING != 0,
+        flags & SHOT_REC_SHOOTS != 0,
+    )
 }
 
 #[cfg(test)]
@@ -148,5 +183,45 @@ mod tests {
         assert!(state.firing());
         assert!(!state.shoots());
         assert_eq!(state.particle(), 7);
+    }
+
+    #[test]
+    // GAME 0x404e20 (RVA 0x4e20) C_actor_shot::AddToCutscene (mafia-re 113b5b6
+    // game/actors/C_actor.cpp:631-637): one 0x10-byte shot-record kind, no
+    // other kinds, constant true; the recorder call stays DEFERRED.
+    fn add_to_cutscene_rva_4e20_files_shot_record_size() {
+        let state = constructed();
+        assert_eq!(state.add_to_cutscene(), ([0x10, 0, 0], true));
+    }
+
+    #[test]
+    // GAME 0x567430 (RVA 0x167430) C_actor_shot::SetWeapon (mafia-re 113b5b6
+    // game/actors/C_actor_shot.cpp:87-91): the reference body is empty, so
+    // the marker stores nothing; latched words survive the call.
+    fn set_weapon_rva_167430_marker_stores_nothing() {
+        let mut state = constructed();
+        state.set_shot_time(120);
+        state.set_firing(true);
+        state.set_shoots(true);
+        state.set_particle(7);
+        set_weapon_marker();
+        assert_eq!(state.shot_time(), 120);
+        assert!(state.firing());
+        assert!(state.shoots());
+        assert_eq!(state.particle(), 7);
+    }
+
+    #[test]
+    // GAME 0x404e40 (RVA 0x4e40) C_actor_shot::PlayRecord flag tail
+    // (mafia-re 113b5b6 game/actors/C_actor.cpp:639-668): shot_time is -1
+    // while firing/shoots follow SHOT_REC_FIRING (0x1000) and
+    // SHOT_REC_SHOOTS (0x8000); other flag bits are ignored.
+    fn shot_record_flags_rva_4e40_tail_follows_firing_and_shoots_bits() {
+        assert_eq!(apply_shot_record_flags(0), (-1, false, false));
+        assert_eq!(apply_shot_record_flags(0x1000), (-1, true, false));
+        assert_eq!(apply_shot_record_flags(0x8000), (-1, false, true));
+        assert_eq!(apply_shot_record_flags(0x9000), (-1, true, true));
+        assert_eq!(apply_shot_record_flags(0x6fff), (-1, false, false));
+        assert_eq!(apply_shot_record_flags(0xffff), (-1, true, true));
     }
 }

@@ -1184,6 +1184,38 @@ impl ModelArena {
     pub fn emitor_state(&self, key: FrameKey) -> Result<&I3dEmitorState, ModelError> {
         self.emitor_state_ref(key)
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the driver-assigned id (mafia-re ls3df/I3D/I3D.h:2186 `ushort id`
+    /// at +0x140, "from the driver: the particles' sort_group"; assigned by
+    /// the occupied ctor, PC RVA 0x3de50, via `next_emitor_id++`,
+    /// I3d_particle.cpp:339-340 at pin 113b5b6). The reference records no
+    /// LS3DF FUNCTION address for a standalone reader. Same availability
+    /// guard as `emitor_state`.
+    pub fn emitor_id_of(&self, key: FrameKey) -> Result<u16, ModelError> {
+        Ok(self.emitor_state(key)?.id)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the emitted-particle counter (mafia-re ls3df/I3D/I3D.h:2192
+    /// `int num_emitted` at +0x164). No named original getter; the occupied
+    /// `Tick` body (PC RVA 0x3eb30) bumps it while `SetOn`/`Reset`/ctor clear
+    /// it. Reports the stored count verbatim (native `int`, always
+    /// non-negative on this path). Same availability guard as `emitor_state`.
+    pub fn emitor_emitted_count_of(&self, key: FrameKey) -> Result<u32, ModelError> {
+        Ok(self.emitor_state(key)?.num_emitted)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the cached sector link (mafia-re ls3df/I3D/I3D.h:2193
+    /// `I3D_sector *sector` at +0x168, "the first sector above it, where the
+    /// particles go"). No named original getter; the occupied `UpdateV`
+    /// (PC RVA 0x3eb10) clears it on a move and the occupied `Tick` (PC RVA
+    /// 0x3eb30) resolves it again. A sector-less emitter reads as None
+    /// (native NULL). Same availability guard as `emitor_state`.
+    pub fn emitor_sector_of(
+        &self,
+        key: FrameKey,
+    ) -> Result<Option<crate::scene_ownership::SectorKey>, ModelError> {
+        Ok(self.emitor_state(key)?.sector)
+    }
 }
 
 #[cfg(test)]
@@ -1493,6 +1525,36 @@ mod tests {
         arena.graph.projected_state_mut(key).unwrap().flags = 0x4000_0000;
         arena.emitor_update(key).unwrap();
         assert!(arena.emitor_state(key).unwrap().sector.is_none());
+    }
+
+    #[test]
+    fn emitor_word_readers_report_driver_id_and_tick_stores() {
+        // Working-name readers for the id/counter/sector words (I3D.h:
+        // 2186 `ushort id`, 2192 `int num_emitted`, 2193 `I3D_sector
+        // *sector`): no LS3DF FUNCTION address exists for standalone
+        // readers; the occupied ctor/Tick bodies (PC RVAs 0x3de50/0x3eb30)
+        // are the only writers, not claimed here.
+        let mut arena = ModelArena::default();
+        let mut backend = log();
+        backend.next_id = 7;
+        let key = arena.create_emitor_frame(&mut backend).unwrap();
+        assert_eq!(arena.emitor_id_of(key).unwrap(), 7);
+        assert_eq!(arena.emitor_emitted_count_of(key).unwrap(), 0);
+        assert_eq!(arena.emitor_sector_of(key).unwrap(), None);
+        let bad = FrameKey(u32::MAX);
+        assert!(arena.emitor_id_of(bad).is_err());
+        assert!(arena.emitor_emitted_count_of(bad).is_err());
+        assert!(arena.emitor_sector_of(bad).is_err());
+        // Tick past sector resolve bumps the counter and caches the sector.
+        backend.samples = vec![0.0; 64];
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        arena.link_frame_base(key, Some(sector.frame()), 0).unwrap();
+        arena.emitor_set_param(key, 20, 1, &mut backend).unwrap();
+        arena.emitor_set_param(key, 0, 10, &mut backend).unwrap();
+        arena.tick_emitor(key, 100, &mut backend).unwrap();
+        assert_eq!(arena.emitor_emitted_count_of(key).unwrap(), 2);
+        assert_eq!(arena.emitor_sector_of(key).unwrap(), Some(sector));
     }
 
     #[test]

@@ -98,6 +98,237 @@ impl LightCrtRandom {
 pub(crate) fn light_is_fog_kind(kind: u32) -> bool {
     matches!(kind, 5..=7)
 }
+/// I3DLIGHTMODE_VERTEX 0x1 (mafia-re ls3df/I3D/I3D.h:1893 at pin 113b5b6):
+/// vertex lighting arm.
+pub const LIGHTMODE_VERTEX: u32 = 0x1;
+/// Working name for the I3DLIGHTMODE_VERTEX bit test (mafia-re
+/// ls3df/I3D/I3D.h:1893). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; the lighting arms test the mode word inline.
+/// Reports vertex lighting; no cache moves.
+pub fn light_vertex_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_VERTEX != 0
+}
+/// I3DLIGHTMODE_LIGHTMAP 0x2 (mafia-re ls3df/I3D/I3D.h:1894 at pin 113b5b6):
+/// lightmap arm.
+pub const LIGHTMODE_LIGHTMAP: u32 = 0x2;
+/// Working name for the I3DLIGHTMODE_LIGHTMAP bit test (mafia-re
+/// ls3df/I3D/I3D.h:1894). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; the lighting arms test the mode word inline.
+/// Reports lightmap lighting; no cache moves.
+pub fn light_lightmap_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_LIGHTMAP != 0
+}
+/// I3DLIGHTMODE_DYNAMIC_SHADOW 0x8 (mafia-re ls3df/I3D/I3D.h:1895 at pin
+/// 113b5b6): the shadows take the light.
+pub const LIGHTMODE_DYNAMIC_SHADOW: u32 = 0x8;
+/// Working name for the I3DLIGHTMODE_DYNAMIC_SHADOW bit test (mafia-re
+/// ls3df/I3D/I3D.h:1895). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; the shadow arms test the mode word inline.
+/// Reports shadow participation; no cache moves.
+pub fn light_dynamic_shadow_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_DYNAMIC_SHADOW != 0
+}
+/// I3DLIGHTMODE_DYNAMIC_LM 0x10 (mafia-re ls3df/I3D/I3D.h:1896 at pin
+/// 113b5b6): lights the lit objects' lightmapped levels per vertex, over
+/// their lightmaps.
+pub const LIGHTMODE_DYNAMIC_LM: u32 = 0x10;
+/// Working name for the I3DLIGHTMODE_DYNAMIC_LM bit test (mafia-re
+/// ls3df/I3D/I3D.h:1896). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; the lit-object arms test the mode word inline.
+/// Reports per-vertex lit lighting; no cache moves.
+pub fn light_dynamic_lm_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_DYNAMIC_LM != 0
+}
+/// I3DLIGHTMODE_SHADOW 0x20 (mafia-re ls3df/I3D/I3D.h:1899 at pin 113b5b6):
+/// the lightmaps test rays to the light.
+pub const LIGHTMODE_SHADOW: u32 = 0x20;
+/// Working name for the I3DLIGHTMODE_SHADOW bit test (mafia-re
+/// ls3df/I3D/I3D.h:1899). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; the lightmap ray arms test the mode word
+/// inline. Reports ray-tested shadows; no cache moves.
+pub fn light_shadow_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_SHADOW != 0
+}
+/// I3DLIGHTMODE_LIGHTNESS 0x40 (mafia-re ls3df/I3D/I3D.h:1900 at pin
+/// 113b5b6): taken by I3D_scene::GetLightness.
+pub const LIGHTMODE_LIGHTNESS: u32 = 0x40;
+/// Working name for the I3DLIGHTMODE_LIGHTNESS bit test (mafia-re
+/// ls3df/I3D/I3D.h:1900). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; GetLightness consumes the mode word inline.
+/// Reports lightness sampling; no cache moves.
+pub fn light_lightness_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_LIGHTNESS != 0
+}
+/// I3DLIGHTMODE_DEFAULT 0xff6b (mafia-re ls3df/I3D/I3D.h:1901 at pin
+/// 113b5b6): a new light's mode, every bit but 0x4, 0x10 and 0x80.
+pub const LIGHTMODE_DEFAULT: u32 = 0xff6b;
+/// Working name for the `I3DLIGHTMODE_DEFAULT` word read (mafia-re
+/// ls3df/I3D/I3D.h:1901). The reference records no LS3DF FUNCTION address
+/// for it (it is a `#define` for the constructor store, not a function), so
+/// no RVA is claimed here. Reports the constructor default mode word; no
+/// cache moves.
+pub fn light_default_mode_value() -> u32 {
+    LIGHTMODE_DEFAULT
+}
+/// Working name for the `I3DLIGHTMODE_DEFAULT` word test (mafia-re
+/// ls3df/I3D/I3D.h:1901). Same inline-only status as
+/// `light_default_mode_value`: no standalone LS3DF FUNCTION entry exists, so
+/// no RVA is claimed here. Reports whether a stored mode word equals the
+/// constructor default; no cache moves.
+pub fn light_mode_is_default(mode: u32) -> bool {
+    mode == LIGHTMODE_DEFAULT
+}
+/// Working name for the `I3DLIGHT_NULL` type test (mafia-re ls3df/I3D/I3D.h:1879
+/// at pin 113b5b6). The reference records no LS3DF FUNCTION address for a
+/// standalone reader; the value is an enum word (0), tested in place by the
+/// setters and `UpdateV`. Reports whether the stored type word denotes a null
+/// light; no state moves.
+pub fn light_is_null_type(kind: u32) -> bool {
+    kind == 0
+}
+/// Working name for the `I3DLIGHT_POINT` type test (mafia-re ls3df/I3D/I3D.h:1880
+/// at pin 113b5b6). Same inline-only status as `light_is_null_type`: the enum
+/// word (1) has no LS3DF FUNCTION entry. Reports a point light; no state moves.
+pub fn light_is_point_type(kind: u32) -> bool {
+    kind == 1
+}
+/// Working name for the `I3DLIGHT_SPOT` type test (mafia-re ls3df/I3D/I3D.h:1881
+/// at pin 113b5b6). Same inline-only status as `light_is_null_type`: the enum
+/// word (2) has no LS3DF FUNCTION entry. Reports a spot light; no state moves.
+pub fn light_is_spot_type(kind: u32) -> bool {
+    kind == 2
+}
+/// Working name for the `I3DLIGHT_DIRECTIONAL` type test (mafia-re
+/// ls3df/I3D/I3D.h:1882 at pin 113b5b6). Same inline-only status as
+/// `light_is_null_type`: the enum word (3) has no LS3DF FUNCTION entry.
+/// Reports a directional light (the constructor default); no state moves.
+pub fn light_is_directional_type(kind: u32) -> bool {
+    kind == 3
+}
+/// Working name for the `I3DLIGHT_AMBIENT` type test (mafia-re ls3df/I3D/I3D.h:1883
+/// at pin 113b5b6). Same inline-only status as `light_is_null_type`: the enum
+/// word (4) has no LS3DF FUNCTION entry. Reports an ambient light; no state
+/// moves.
+pub fn light_is_ambient_type(kind: u32) -> bool {
+    kind == 4
+}
+/// Working name for the single `I3DLIGHT_FOG` type test (mafia-re
+/// ls3df/I3D/I3D.h:1884 at pin 113b5b6). Same inline-only status as
+/// `light_is_null_type`: the enum word (5) has no LS3DF FUNCTION entry. This is
+/// the single-type gate, distinct from the existing `light_is_fog_kind` range
+/// gate (5..=7) shared by the sector fog arms; no state moves.
+pub fn light_is_fog_type(kind: u32) -> bool {
+    kind == 5
+}
+/// Working name for the `I3DLIGHT_POINTAMBIENT` type test (mafia-re
+/// ls3df/I3D/I3D.h:1885 at pin 113b5b6). Same inline-only status as
+/// `light_is_null_type`: the enum word (6) has no LS3DF FUNCTION entry.
+/// Reports a point-ambient light; no state moves.
+pub fn light_is_point_ambient_type(kind: u32) -> bool {
+    kind == 6
+}
+/// Working name for the `I3DLIGHT_POINTFOG` type test (mafia-re
+/// ls3df/I3D/I3D.h:1886 at pin 113b5b6). Same inline-only status as
+/// `light_is_null_type`: the enum word (7) has no LS3DF FUNCTION entry.
+/// Reports a point-fog light; no state moves.
+pub fn light_is_point_fog_type(kind: u32) -> bool {
+    kind == 7
+}
+/// Working name for the `I3DLIGHT_UNKNOWN_8` type test (mafia-re
+/// ls3df/I3D/I3D.h:1887-1888 at pin 113b5b6). Same inline-only status as
+/// `light_is_null_type`: the enum word (8) has no LS3DF FUNCTION entry. Only
+/// the shadows treat it as a point light without direction; no state moves.
+pub fn light_is_unknown_8_type(kind: u32) -> bool {
+    kind == 8
+}
+
+/// Working name for the `SetRange` far clamp (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:132-133 at pin 113b5b6:
+/// `far_range = far1 > near1 ? far1 : near1`). The `SetRange` body lives at
+/// LS3DF RVA 0x20b20 (VA 0x10020b20), already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. Only the stored
+/// far word is modeled; the sector loops, scaled stores and spot-radius
+/// refresh stay caller-owned. Unordered comparison (either side NaN) takes
+/// the near branch like the native `>` test. No state moves.
+pub fn light_far_clamped(near: f32, far: f32) -> f32 {
+    if far > near {
+        far
+    } else {
+        near
+    }
+}
+
+/// Working name for the `SetCone` cone-scale reciprocal (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:40-43 and 158-162 at pin 113b5b6:
+/// `d = inner_cos - outer_cos; cone_scale = d > 0.0f ? 1.0f / d : 0.0f`).
+/// The `SetCone` body lives at LS3DF RVA 0x20c30 (VA 0x10020c30), already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here. Only
+/// the reciprocal word is modeled; the cosine stores, sector loops and spot
+/// radius stay caller-owned. Unordered delta (NaN) yields zero like the
+/// native `>` test. No state moves.
+pub fn light_cone_scale_from_delta(delta: f32) -> f32 {
+    if delta > 0.0 {
+        1.0 / delta
+    } else {
+        0.0
+    }
+}
+
+/// Working name for the `SetOn` early-out gate (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:243-251 at pin 113b5b6: matching requested
+/// and stored `FRMFLAGS_ON` returns without calling `UpdateV`). The `SetOn`
+/// body lives at LS3DF RVA 0x21400 (VA 0x10021400), already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. Only the gate is
+/// modeled; the flag store and `UpdateV` call stay caller-owned. No state
+/// moves.
+pub fn light_set_on_changes_state(current_on: bool, requested_on: bool) -> bool {
+    current_on != requested_on
+}
+
+/// Working name for the `SetMode` early-out gate (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:259-260 at pin 113b5b6:
+/// `if (mode == m) return`). The `SetMode` body lives at LS3DF RVA 0x21440
+/// (VA 0x10021440), already occupied in `docs/rewrite-overlay.json`, so no
+/// RVA is claimed here. Only the gate is modeled; the mode store, sector
+/// loops and update-count bump stay caller-owned. No state moves.
+pub fn light_mode_change_applies(old_mode: u32, new_mode: u32) -> bool {
+    old_mode != new_mode
+}
+
+/// Working name for the `SetLightType` early-out gate (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:68-69 at pin 113b5b6:
+/// `if (ltype == type) return`). The `SetLightType` body lives at LS3DF RVA
+/// 0x20800 (VA 0x10020800), already occupied in `docs/rewrite-overlay.json`,
+/// so no RVA is claimed here. Only the gate is modeled; the fog-kind branch,
+/// sector add/delete walks, cone-radius refresh and update-count bump stay
+/// caller-owned. This tests a pair for equality, unlike the single-word
+/// `light_is_*_type` readers. No state moves.
+pub fn light_type_change_is_noop(old_type: u32, new_type: u32) -> bool {
+    old_type == new_type
+}
+
+/// Working name for the `SetDiffuse` scaled-color channel (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:97 and 121 at pin 113b5b6:
+/// `color = diffuse * power`). The `SetDiffuse`/`SetDiffusePower` bodies live
+/// at LS3DF RVAs 0x20930/0x209e0/0x20a90 (already occupied in
+/// `docs/rewrite-overlay.json`), so no RVA is claimed here. Only one channel
+/// product is modeled; the sector loops and update-count bump stay
+/// caller-owned. Plain host `f32` multiply with native pass-through of
+/// non-finite inputs. No state moves.
+pub fn light_scaled_color_channel(diffuse: f32, power: f32) -> f32 {
+    diffuse * power
+}
+
+/// Working name for the scaled range-delta word (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:138, 187 and 196 at pin 113b5b6:
+/// `range_delta = range_f - range_n`). The `SetRange`/`UpdateV` bodies live
+/// at LS3DF RVAs 0x20b20/0x20d10 (already occupied in
+/// `docs/rewrite-overlay.json`), so no RVA is claimed here. Only the delta
+/// is modeled; the range stores, sector loops and spot-sphere refresh stay
+/// caller-owned. Plain host `f32` subtract. No state moves.
+pub fn light_range_delta_from_scaled(far_scaled: f32, near_scaled: f32) -> f32 {
+    far_scaled - near_scaled
+}
 fn numeric(_: crate::native_matrix::MatrixArithmeticUnavailable) -> FrameError {
     FrameError::NumericDomain("Light")
 }
@@ -439,6 +670,161 @@ impl ModelArena {
         }
         Ok(state)
     }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the light-type member (I3D.h:1931 `I3DLIGHTTYPE ltype`; mafia-re
+    /// ls3df/I3D/I3D.h at pin 113b5b6). The original exposes no named getter:
+    /// the light virtuals are setters plus UpdateV (I3D.h:1915-1926), and
+    /// callers read the member in place. Same availability guard as `light`.
+    pub fn light_type_of(&self, key: FrameKey) -> Result<u32, ModelError> {
+        Ok(self.light(key)?.light_type)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the light-mode member (I3D.h:1930 `uint mode, I3DLIGHTMODE_*`;
+    /// mafia-re ls3df/I3D/I3D.h at pin 113b5b6). No named original getter;
+    /// same availability guard as `light`.
+    pub fn light_mode_of(&self, key: FrameKey) -> Result<u32, ModelError> {
+        Ok(self.light(key)?.mode)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the diffuse store (I3D.h:1933 `S_vector diffuse`; SetDiffuse writes
+    /// `color`, which this projection keeps as the diffuse word triple).
+    /// No named original getter; same availability guard as `light`.
+    pub fn light_diffuse_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.light(key)?.color)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the power store (I3D.h:1932 `float power`; SetDiffusePower writes
+    /// `intensity`). No named original getter; same availability guard as
+    /// `light`.
+    pub fn light_power_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.light(key)?.intensity)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the range store (I3D.h:1934 `float near_range, far_range`; SetRange
+    /// writes `range`). No named original getter; same availability guard as
+    /// `light`.
+    pub fn light_range_of(&self, key: FrameKey) -> Result<[f32; 2], ModelError> {
+        Ok(self.light(key)?.range)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the cone store (I3D.h:1936 `float cone_in, cone_out`; SetCone writes
+    /// `cone`). No named original getter; same availability guard as `light`.
+    pub fn light_cone_of(&self, key: FrameKey) -> Result<[f32; 2], ModelError> {
+        Ok(self.light(key)?.cone)
+    }
+    /// Working name for the `C_list` sector count on `I3D_light`
+    /// (mafia-re ls3df/I3D/I3D.h:1928 `sectors` at +0x140, the sectors the
+    /// light reaches). The reference records no LS3DF FUNCTION address for
+    /// a count reader; the list is mutated in place by the occupied
+    /// `AddLight`/`DeleteLight` bodies (PC RVAs 0x4f3d0/0x4f550), not
+    /// claimed here. Reports how many sectors currently reference the
+    /// light; same availability guard as `light`.
+    pub fn light_sector_count(&self, key: FrameKey) -> Result<usize, ModelError> {
+        Ok(self.light(key)?.sectors.len())
+    }
+    /// Working name for the `C_list` sector slice on `I3D_light`
+    /// (mafia-re ls3df/I3D/I3D.h:1928 `sectors` at +0x140, the sectors the
+    /// light reaches). Same inline-only status as `light_sector_count`: no
+    /// LS3DF FUNCTION address exists for a list getter; the occupied
+    /// `AddLight`/`DeleteLight` bodies (PC RVAs 0x4f3d0/0x4f550) mutate it
+    /// in place, not claimed here. Reports the live borrowed list; no state
+    /// moves.
+    pub fn light_sectors_of(&self, key: FrameKey) -> Result<&[FrameKey], ModelError> {
+        Ok(self.light(key)?.sectors.as_slice())
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the frame on-flag word the occupied `SetOn` setter (PC RVA 0x21400;
+    /// mafia-re ls3df/I3D/frames/I3d_light.cpp:241-253 at pin 113b5b6) tests
+    /// first (`flags & 1`). The original exposes no `I3D_light::GetOn`: the
+    /// light virtuals are setters plus UpdateV (I3D.h:1915-1926), and callers
+    /// read the member in place. Same availability guard as `light`.
+    pub fn light_on_of(&self, key: FrameKey) -> Result<bool, ModelError> {
+        Ok(self.state(key)?.flags & 1 != 0)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the world-space position cache (I3D.h:1937 `S_vector w_pos` at
+    /// +0x178; mafia-re ls3df/I3D/I3D.h at pin 113b5b6). The original exposes
+    /// no `I3D_light::GetWorldPos` beyond the frame inline (GAME 0x47a730);
+    /// `UpdateV` (PC RVA 0x20d10, already occupied, not claimed here) stores
+    /// this word for point and spot kinds. Same availability guard as `light`.
+    pub fn light_world_position_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.light(key)?.position)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the world-space direction cache (I3D.h:1938 `S_vector w_dir` at
+    /// +0x184; mafia-re ls3df/I3D/I3D.h at pin 113b5b6). No named original
+    /// getter; `UpdateV` (PC RVA 0x20d10, occupied) stores it for spot and
+    /// directional kinds. Same availability guard as `light`.
+    pub fn light_world_direction_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.light(key)?.direction)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the power-applied color cache (I3D.h:1939 `S_vector color` at +0x190;
+    /// mafia-re ls3df/I3D/I3D.h at pin 113b5b6). No named original getter;
+    /// the occupied `SetDiffuse`/`SetDiffusePower` setters (PC RVAs
+    /// 0x20930/0x209e0/0x20a90) maintain it. Same availability guard as
+    /// `light`.
+    pub fn light_scaled_color_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.light(key)?.scaled_color)
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the world-scaled range pair (I3D.h:1940 `float range_n` at +0x19c
+    /// and I3D.h:1947 `float range_f` at +0x1d0; mafia-re ls3df/I3D/I3D.h at
+    /// pin 113b5b6). No named original getter; `UpdateV` and the occupied
+    /// `SetRange` setter (PC RVA 0x20b20) maintain both words. Same
+    /// availability guard as `light`.
+    pub fn light_scaled_range_of(&self, key: FrameKey) -> Result<[f32; 2], ModelError> {
+        let state = self.light(key)?;
+        Ok([state.near_scaled, state.far_scaled])
+    }
+    /// Upstream working name, not an evidenced original symbol: direct read
+    /// of the spot bound-sphere cache (I3D.h:1951 `I3D_bsphere bsphere` at
+    /// +0x1e0; mafia-re ls3df/I3D/I3D.h at pin 113b5b6). No named original
+    /// getter; only the spot arm of `UpdateV` (PC RVA 0x20d10, occupied)
+    /// refreshes it, so other kinds report their stale store verbatim, as
+    /// natively. Same availability guard as `light`.
+    pub fn light_spot_sphere_of(
+        &self,
+        key: FrameKey,
+    ) -> Result<([f32; 3], f32), ModelError> {
+        let state = self.light(key)?;
+        Ok((state.sphere_center, state.sphere_radius))
+    }
+    /// Working name for the direct `outer_cos` cache read at +0x1a0 (mafia-re
+    /// ls3df/I3D/I3D.h:1941 `float outer_cos` at pin 113b5b6). The reference
+    /// records no LS3DF FUNCTION address for a standalone reader; the word is
+    /// maintained by the occupied `SetCone`/`UpdateV` bodies (PC RVAs
+    /// 0x20c30/0x20d10), not claimed here. Reports the stored spot outer
+    /// cosine; same availability guard as `light`.
+    pub fn light_outer_cos_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.light(key)?.outer_cos)
+    }
+    /// Working name for the direct `inner_cos` cache read at +0x1b0 (mafia-re
+    /// ls3df/I3D/I3D.h:1943 `float inner_cos` at pin 113b5b6). Same inline-only
+    /// status as `light_outer_cos_of`: the occupied `SetCone`/`UpdateV` bodies
+    /// are the only writers, not claimed here. Reports the stored spot inner
+    /// cosine; same availability guard as `light`.
+    pub fn light_inner_cos_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.light(key)?.inner_cos)
+    }
+    /// Working name for the direct `cone_scale` cache read at +0x1c0 (mafia-re
+    /// ls3df/I3D/I3D.h:1945 `float cone_scale` at pin 113b5b6, kept here as
+    /// `cone_reciprocal`). Same inline-only status as `light_outer_cos_of`:
+    /// no standalone LS3DF FUNCTION entry exists. Reports
+    /// `1 / (inner_cos - outer_cos)` as stored; same availability guard as
+    /// `light`.
+    pub fn light_cone_scale_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.light(key)?.cone_reciprocal)
+    }
+    /// Working name for the direct `cone_radius` cache read at +0x1dc (mafia-re
+    /// ls3df/I3D/I3D.h:1950 `float cone_radius` at pin 113b5b6). Same
+    /// inline-only status as `light_outer_cos_of`: the constructor and the
+    /// occupied spot `UpdateV` arm are the only writers, not claimed here.
+    /// Reports the stored unscaled spot-cone sphere radius; same availability
+    /// guard as `light`.
+    pub fn light_cone_radius_of(&self, key: FrameKey) -> Result<f32, ModelError> {
+        Ok(self.light(key)?.cone_radius)
+    }
     pub fn light_random_state(&mut self) -> &mut LightCrtRandom {
         &mut self.light_random
     }
@@ -576,6 +962,212 @@ mod tests {
         assert_eq!(arena.state(key).unwrap().update_count, count);
         // Unsupported light kinds stay explicit when runtime Update is requested.
         assert!(arena.graph.update(key).is_err());
+    }
+    #[test]
+    fn light_sector_count_reports_live_list_length() {
+        // Working name for the light-side `sectors` list (I3D.h:1928): no
+        // LS3DF FUNCTION address exists for a count reader.
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_sector_count(key).unwrap(), 0);
+        assert!(arena.light_sector_count(FrameKey(u32::MAX)).is_err());
+    }
+    #[test]
+    fn light_sectors_reader_reports_live_slice() {
+        // Working name for the light-side sector list slice (+0x140, mafia-re
+        // ls3df/I3D/I3D.h:1928 at pin 113b5b6): no LS3DF FUNCTION address
+        // exists for a list getter; the occupied AddLight/DeleteLight bodies
+        // (PC RVAs 0x4f3d0/0x4f550) mutate it, not claimed here.
+        let mut arena = ModelArena::default();
+        let light = arena.create_light().unwrap();
+        assert!(arena.light_sectors_of(light).unwrap().is_empty());
+        let sector = arena.create_sector_frame().unwrap();
+        arena.sector_add_light(sector, light).unwrap();
+        assert_eq!(arena.light_sectors_of(light).unwrap(), &[sector.frame()][..]);
+        assert!(arena.light_sectors_of(FrameKey(u32::MAX)).is_err());
+        arena.release(light).unwrap();
+    }
+    #[test]
+    fn light_on_reader_reports_flag_word_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        arena.set_light_on(key, false).unwrap();
+        assert!(!arena.light_on_of(key).unwrap());
+        arena.set_light_on(key, true).unwrap();
+        assert!(arena.light_on_of(key).unwrap());
+    }
+    #[test]
+    fn light_update_cache_readers_report_ctor_stores_then_update_tracks() {
+        // Working-name readers for the UpdateV-maintained words (I3D.h:
+        // 1937-1951, I3d_light.cpp:31-49 ctor + 176-215 UpdateV): no LS3DF
+        // FUNCTION address exists for standalone readers.
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_world_position_of(key).unwrap(), [0., 0., 0.]);
+        assert_eq!(arena.light_scaled_color_of(key).unwrap(), [1., 1., 1.]);
+        assert_eq!(arena.light_scaled_range_of(key).unwrap(), [1., 100.]);
+        assert!(arena.light_world_direction_of(key).unwrap() != [0., 0., 0.]);
+        let bad = FrameKey(u32::MAX);
+        assert!(arena.light_world_position_of(bad).is_err());
+        assert!(arena.light_world_direction_of(bad).is_err());
+        assert!(arena.light_scaled_color_of(bad).is_err());
+        assert!(arena.light_scaled_range_of(bad).is_err());
+        assert!(arena.light_spot_sphere_of(bad).is_err());
+        // The spot arm refreshes the caches from the world matrix: the
+        // position stays at the origin while the direction tracks the
+        // already-ported frame world-direction word.
+        arena.graph.set_light_type(key, 2).unwrap();
+        arena.graph.update_light_v(key).unwrap();
+        assert_eq!(arena.light_world_position_of(key).unwrap(), [0., 0., 0.]);
+        let dir = arena.graph.frame_world_direction(key).unwrap();
+        assert_eq!(arena.light_world_direction_of(key).unwrap(), dir);
+        let (center, radius) = arena.light_spot_sphere_of(key).unwrap();
+        assert!(radius > 0.);
+        assert_eq!(center, [dir[0] * radius, dir[1] * radius, dir[2] * radius]);
+        // The diffuse/range setters retrack their own words.
+        arena.graph.set_light_diffuse(key, [0.5, 0.25, 1.]).unwrap();
+        assert_eq!(
+            arena.light_scaled_color_of(key).unwrap(),
+            [0.5, 0.25, 1.]
+        );
+        arena.graph.set_light_range(key, 2., 50.).unwrap();
+        assert_eq!(arena.light_scaled_range_of(key).unwrap(), [2., 50.]);
+    }
+    #[test]
+    fn light_type_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_type_of(key).unwrap(), 3);
+        arena.graph.set_light_type(key, 2).unwrap();
+        assert_eq!(arena.light_type_of(key).unwrap(), 2);
+    }
+    #[test]
+    fn light_mode_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_mode_of(key).unwrap(), 0xff6b);
+        arena.graph.set_light_mode(key, 0x21).unwrap();
+        assert_eq!(arena.light_mode_of(key).unwrap(), 0x21);
+    }
+    #[test]
+    fn light_vertex_mode_reports_only_bit_zero() {
+        // Working name for I3DLIGHTMODE_VERTEX (I3D.h:1893): no LS3DF
+        // FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_VERTEX, 0x1);
+        assert!(light_vertex_mode(LIGHTMODE_VERTEX));
+        assert!(light_vertex_mode(u32::MAX));
+        assert!(!light_vertex_mode(0));
+        assert!(!light_vertex_mode(LIGHTMODE_LIGHTMAP));
+        assert!(!light_vertex_mode(u32::MAX & !LIGHTMODE_VERTEX));
+        assert!(light_vertex_mode(0xff6b));
+    }
+    #[test]
+    fn light_lightmap_mode_reports_only_bit_one() {
+        // Working name for I3DLIGHTMODE_LIGHTMAP (I3D.h:1894): no LS3DF
+        // FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_LIGHTMAP, 0x2);
+        assert!(light_lightmap_mode(LIGHTMODE_LIGHTMAP));
+        assert!(light_lightmap_mode(u32::MAX));
+        assert!(!light_lightmap_mode(0));
+        assert!(!light_lightmap_mode(LIGHTMODE_VERTEX));
+        assert!(!light_lightmap_mode(u32::MAX & !LIGHTMODE_LIGHTMAP));
+        assert!(light_lightmap_mode(0xff6b));
+    }
+    #[test]
+    fn light_dynamic_shadow_mode_reports_only_bit_three() {
+        // Working name for I3DLIGHTMODE_DYNAMIC_SHADOW (I3D.h:1895): no
+        // LS3DF FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_DYNAMIC_SHADOW, 0x8);
+        assert!(light_dynamic_shadow_mode(LIGHTMODE_DYNAMIC_SHADOW));
+        assert!(light_dynamic_shadow_mode(u32::MAX));
+        assert!(!light_dynamic_shadow_mode(0));
+        assert!(!light_dynamic_shadow_mode(LIGHTMODE_LIGHTMAP));
+        assert!(!light_dynamic_shadow_mode(u32::MAX & !LIGHTMODE_DYNAMIC_SHADOW));
+        assert!(light_dynamic_shadow_mode(0xff6b));
+    }
+    #[test]
+    fn light_dynamic_lm_mode_reports_only_bit_four() {
+        // Working name for I3DLIGHTMODE_DYNAMIC_LM (I3D.h:1896): no LS3DF
+        // FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_DYNAMIC_LM, 0x10);
+        assert!(light_dynamic_lm_mode(LIGHTMODE_DYNAMIC_LM));
+        assert!(light_dynamic_lm_mode(u32::MAX));
+        assert!(!light_dynamic_lm_mode(0));
+        assert!(!light_dynamic_lm_mode(LIGHTMODE_DYNAMIC_SHADOW));
+        assert!(!light_dynamic_lm_mode(u32::MAX & !LIGHTMODE_DYNAMIC_LM));
+        assert!(!light_dynamic_lm_mode(0xff6b));
+    }
+    #[test]
+    fn light_shadow_mode_reports_only_bit_five() {
+        // Working name for I3DLIGHTMODE_SHADOW (I3D.h:1899): no LS3DF
+        // FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_SHADOW, 0x20);
+        assert!(light_shadow_mode(LIGHTMODE_SHADOW));
+        assert!(light_shadow_mode(u32::MAX));
+        assert!(!light_shadow_mode(0));
+        assert!(!light_shadow_mode(LIGHTMODE_DYNAMIC_LM));
+        assert!(!light_shadow_mode(u32::MAX & !LIGHTMODE_SHADOW));
+        assert!(light_shadow_mode(0xff6b));
+    }
+    #[test]
+    fn light_lightness_mode_reports_only_bit_six() {
+        // Working name for I3DLIGHTMODE_LIGHTNESS (I3D.h:1900): no LS3DF
+        // FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_LIGHTNESS, 0x40);
+        assert!(light_lightness_mode(LIGHTMODE_LIGHTNESS));
+        assert!(light_lightness_mode(u32::MAX));
+        assert!(!light_lightness_mode(0));
+        assert!(!light_lightness_mode(LIGHTMODE_SHADOW));
+        assert!(!light_lightness_mode(u32::MAX & !LIGHTMODE_LIGHTNESS));
+        assert!(light_lightness_mode(0xff6b));
+    }
+    #[test]
+    fn light_default_mode_word_reports_constructor_default() {
+        // Working name for I3DLIGHTMODE_DEFAULT (I3D.h:1901): no LS3DF
+        // FUNCTION entry exists (constructor-store define, not a function).
+        assert_eq!(LIGHTMODE_DEFAULT, 0xff6b);
+        assert_eq!(light_default_mode_value(), 0xff6b);
+        assert!(light_mode_is_default(LIGHTMODE_DEFAULT));
+        assert!(light_mode_is_default(0xff6b));
+        assert!(!light_mode_is_default(0));
+        assert!(!light_mode_is_default(LIGHTMODE_LIGHTNESS));
+        assert!(!light_mode_is_default(u32::MAX));
+        assert!(!light_mode_is_default(LIGHTMODE_DEFAULT & !0x40));
+    }
+    #[test]
+    fn light_diffuse_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_diffuse_of(key).unwrap(), [1.; 3]);
+        arena.graph.set_light_diffuse(key, [0.25, 0.5, 0.75]).unwrap();
+        assert_eq!(arena.light_diffuse_of(key).unwrap(), [0.25, 0.5, 0.75]);
+    }
+    #[test]
+    fn light_power_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_power_of(key).unwrap(), 1.);
+        arena.graph.set_light_diffuse_power(key, 2.).unwrap();
+        assert_eq!(arena.light_power_of(key).unwrap(), 2.);
+    }
+    #[test]
+    fn light_range_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(arena.light_range_of(key).unwrap(), [1., 100.]);
+        arena.graph.set_light_range(key, 5., 50.).unwrap();
+        assert_eq!(arena.light_range_of(key).unwrap(), [5., 50.]);
+    }
+    #[test]
+    fn light_cone_reader_reports_constructor_default_then_setter_store() {
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        assert_eq!(
+            arena.light_cone_of(key).unwrap(),
+            [f32::from_bits(0x3eb2b8c3), f32::from_bits(0x3f32b8c3)]
+        );
+        arena.graph.set_light_cone(key, 0.3, 0.9).unwrap();
+        assert_eq!(arena.light_cone_of(key).unwrap(), [0.3, 0.9]);
     }
     #[test]
     fn interrupted_numeric_effect_never_becomes_a_valid_light_cache() {
@@ -817,5 +1409,190 @@ mod tests {
         arena.release(first).unwrap();
         arena.release(second).unwrap();
         arena.release(plain).unwrap();
+    }
+    #[test]
+    fn light_type_predicates_cover_all_enum_words() {
+        // Working names for the I3DLIGHTTYPE enum words (mafia-re
+        // ls3df/I3D/I3D.h:1878-1888): the values are enum words (0..8), not
+        // functions, so no LS3DF RVA is claimed here.
+        assert!(light_is_null_type(0));
+        assert!(light_is_point_type(1));
+        assert!(light_is_spot_type(2));
+        assert!(light_is_directional_type(3));
+        assert!(light_is_ambient_type(4));
+        assert!(light_is_fog_type(5));
+        assert!(light_is_point_ambient_type(6));
+        assert!(light_is_point_fog_type(7));
+        assert!(light_is_unknown_8_type(8));
+        // Each word matches exactly one predicate.
+        for kind in 0..=8u32 {
+            let hits = [
+                light_is_null_type(kind),
+                light_is_point_type(kind),
+                light_is_spot_type(kind),
+                light_is_directional_type(kind),
+                light_is_ambient_type(kind),
+                light_is_fog_type(kind),
+                light_is_point_ambient_type(kind),
+                light_is_point_fog_type(kind),
+                light_is_unknown_8_type(kind),
+            ]
+            .into_iter()
+            .filter(|hit| *hit)
+            .count();
+            assert_eq!(hits, 1);
+        }
+        // Out-of-range words match none; the single-fog gate stays narrower
+        // than the existing 5..=7 fog-kind range gate.
+        for kind in [9, 42, u32::MAX] {
+            assert!(!light_is_null_type(kind));
+            assert!(!light_is_point_type(kind));
+            assert!(!light_is_spot_type(kind));
+            assert!(!light_is_directional_type(kind));
+            assert!(!light_is_ambient_type(kind));
+            assert!(!light_is_fog_type(kind));
+            assert!(!light_is_point_ambient_type(kind));
+            assert!(!light_is_point_fog_type(kind));
+            assert!(!light_is_unknown_8_type(kind));
+        }
+        assert!(!light_is_fog_type(6));
+        assert!(!light_is_fog_type(7));
+        assert!(light_is_fog_kind(5));
+        assert!(light_is_fog_kind(6));
+        assert!(light_is_fog_kind(7));
+        assert!(!light_is_fog_kind(3));
+    }
+    #[test]
+    fn light_cache_readers_report_live_stores_and_reject_unknown() {
+        // Working names for the spot cache words at +0x1a0/+0x1b0/+0x1c0/+0x1dc
+        // (mafia-re ls3df/I3D/I3D.h:1941/1943/1945/1950): no standalone LS3DF
+        // FUNCTION entries exist; the occupied SetCone/UpdateV bodies write
+        // them. Readers borrow the live arena stores verbatim.
+        let mut arena = ModelArena::default();
+        let key = arena.create_light().unwrap();
+        let state = arena.light(key).unwrap().clone();
+        assert_eq!(arena.light_outer_cos_of(key).unwrap(), state.outer_cos);
+        assert_eq!(arena.light_inner_cos_of(key).unwrap(), state.inner_cos);
+        assert_eq!(
+            arena.light_cone_scale_of(key).unwrap(),
+            state.cone_reciprocal
+        );
+        assert_eq!(
+            arena.light_cone_radius_of(key).unwrap(),
+            state.cone_radius
+        );
+        // The constructor leaves a positive cone/sphere setup for the default
+        // spot-capable caches.
+        assert!(state.cone_reciprocal > 0.0);
+        assert!(state.cone_radius > 0.0);
+        assert!(arena.light_outer_cos_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
+        assert!(arena.light_inner_cos_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
+        assert!(arena.light_cone_scale_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
+        assert!(arena.light_cone_radius_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
+        arena.release(key).unwrap();
+    }
+    #[test]
+    fn light_cone_caches_follow_spot_setter_updates() {
+        // The occupied SetCone body (PC RVA 0x20c30) refreshes the cosine pair
+        // and the reciprocal; the spot radius follows for spot lights. Readers
+        // observe the setter-written words without moving state themselves.
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut arena = ModelArena::default();
+            let key = arena.create_light().unwrap();
+            arena.graph.set_light_type(key, 2).unwrap();
+            arena.graph.set_light_cone(key, 0.3, 0.9).unwrap();
+            let state = arena.light(key).unwrap().clone();
+            assert_eq!(arena.light_outer_cos_of(key).unwrap(), state.outer_cos);
+            assert_eq!(arena.light_inner_cos_of(key).unwrap(), state.inner_cos);
+            assert_eq!(
+                arena.light_cone_scale_of(key).unwrap(),
+                state.cone_reciprocal
+            );
+            assert_eq!(
+                arena.light_cone_radius_of(key).unwrap(),
+                state.cone_radius
+            );
+            assert!(state.outer_cos < state.inner_cos);
+            assert!(state.cone_reciprocal > 0.0);
+            assert!(state.cone_radius > 0.0);
+            arena.release(key).unwrap();
+        });
+    }
+    #[test]
+    fn light_far_clamp_keeps_greater_far_and_falls_back_to_near() {
+        // Working name for the SetRange far clamp (I3d_light.cpp:132-133):
+        // no standalone LS3DF FUNCTION exists for the clamp word.
+        assert_eq!(light_far_clamped(1.0, 100.0).to_bits(), 100.0f32.to_bits());
+        assert_eq!(light_far_clamped(100.0, 1.0).to_bits(), 100.0f32.to_bits());
+        assert_eq!(light_far_clamped(5.0, 5.0).to_bits(), 5.0f32.to_bits());
+        // Unordered comparisons take the near branch like native `>`.
+        assert_eq!(
+            light_far_clamped(f32::NAN, 1.0).to_bits(),
+            f32::NAN.to_bits()
+        );
+        assert!(light_far_clamped(2.0, f32::NAN).to_bits() == 2.0f32.to_bits());
+        assert!(light_far_clamped(f32::NAN, f32::NAN).is_nan());
+    }
+    #[test]
+    fn light_cone_scale_reports_reciprocal_only_for_positive_delta() {
+        // Working name for the SetCone reciprocal (I3d_light.cpp:40-43):
+        // no standalone LS3DF FUNCTION exists for the word.
+        assert_eq!(light_cone_scale_from_delta(0.5), 2.0);
+        assert_eq!(light_cone_scale_from_delta(1.0), 1.0);
+        assert_eq!(light_cone_scale_from_delta(0.0), 0.0);
+        assert_eq!(light_cone_scale_from_delta(-1.0), 0.0);
+        assert_eq!(light_cone_scale_from_delta(f32::NAN), 0.0);
+        assert_eq!(light_cone_scale_from_delta(f32::INFINITY), 0.0);
+    }
+    #[test]
+    fn light_set_on_gate_reports_only_transitions() {
+        // Working name for the SetOn early-out (I3d_light.cpp:243-251):
+        // no standalone LS3DF FUNCTION exists for the gate.
+        assert!(!light_set_on_changes_state(false, false));
+        assert!(!light_set_on_changes_state(true, true));
+        assert!(light_set_on_changes_state(false, true));
+        assert!(light_set_on_changes_state(true, false));
+    }
+    #[test]
+    fn light_mode_gate_reports_only_changes() {
+        // Working name for the SetMode early-out (I3d_light.cpp:259-260):
+        // no standalone LS3DF FUNCTION exists for the gate.
+        assert!(!light_mode_change_applies(0xff6b, 0xff6b));
+        assert!(!light_mode_change_applies(0, 0));
+        assert!(light_mode_change_applies(0xff6b, 0));
+        assert!(light_mode_change_applies(0, 1));
+        assert!(light_mode_change_applies(u32::MAX, 0));
+    }
+    #[test]
+    fn light_type_gate_reports_noop_only_for_equal_words() {
+        // Working name for the SetLightType early-out (I3d_light.cpp:68-69):
+        // no standalone LS3DF FUNCTION exists for the gate; this pair test
+        // differs from the single-word `light_is_*_type` readers.
+        assert!(light_type_change_is_noop(3, 3));
+        assert!(light_type_change_is_noop(0, 0));
+        assert!(!light_type_change_is_noop(3, 2));
+        assert!(!light_type_change_is_noop(5, 6));
+        assert!(!light_type_change_is_noop(0, u32::MAX));
+    }
+    #[test]
+    fn light_scaled_channel_multiplies_diffuse_by_power() {
+        // Working name for the SetDiffuse channel product (I3d_light.cpp:97):
+        // no standalone LS3DF FUNCTION exists for one channel.
+        assert_eq!(light_scaled_color_channel(1.5, 2.0).to_bits(), 3.0f32.to_bits());
+        assert_eq!(light_scaled_color_channel(0.0, 99.0).to_bits(), 0.0f32.to_bits());
+        assert_eq!(light_scaled_color_channel(-0.0, 1.0).to_bits(), (-0.0f32).to_bits());
+        assert!(light_scaled_color_channel(f32::NAN, 1.0).is_nan());
+        // inf * 0.0 is NaN with an unspecified sign bit (const-folded vs
+        // runtime multiplies differ), so only NaN-ness is asserted.
+        assert!(light_scaled_color_channel(f32::INFINITY, 0.0).is_nan());
+    }
+    #[test]
+    fn light_range_delta_subtracts_near_from_far() {
+        // Working name for the scaled range delta (I3d_light.cpp:138):
+        // no standalone LS3DF FUNCTION exists for the word.
+        assert_eq!(light_range_delta_from_scaled(100.0, 1.0).to_bits(), 99.0f32.to_bits());
+        assert_eq!(light_range_delta_from_scaled(1.0, 1.0).to_bits(), 0.0f32.to_bits());
+        assert_eq!(light_range_delta_from_scaled(0.0, 5.0).to_bits(), (-5.0f32).to_bits());
+        assert!(light_range_delta_from_scaled(f32::NAN, 1.0).is_nan());
     }
 }

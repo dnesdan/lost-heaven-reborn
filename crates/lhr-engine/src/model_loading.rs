@@ -788,6 +788,18 @@ impl ModelArena {
         }
         Ok(())
     }
+    /// Original I3D_model::I3D_model, PC RVA 0x33410 (VA 0x10033410; REA
+    /// formed Ghidra body FUN_10033410 in LS3DF.dll
+    /// e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// ev_2f374fe72c2b5cca29b5acebad74fd30adffa48b28cbf21f0c486f745f23937d;
+    /// mafia-re ls3df/I3D/frames/I3d_model.cpp:14-21 at pin 113b5b6).
+    /// Confirm-only on this pre-existing constructor: the three
+    /// derived words are file_name NULL, ipol_set NULL and m_Type
+    /// FRAME_MODEL on top of the base-frame projection (the live kind,
+    /// identity local/world matrices, unit scale, identity rotation, ctor
+    /// flags and empty name stores are covered by `I3dFrameState::model`).
+    /// Host growth accounting (native_capacity/growth, lifecycle epoch,
+    /// close cursor) stays a host allocation discipline, disclosed.
     pub fn create_model(&mut self) -> Result<ModelKey, ModelError> {
         self.models
             .try_reserve(1)
@@ -1029,6 +1041,33 @@ impl ModelArena {
             .and_then(Option::as_ref)
             .map(|record| record.bytes())
             .unwrap_or(b""))
+    }
+    /// Working name for the `m_pOwner` read at +0x10c (mafia-re
+    /// ls3df/I3D/I3D.h:672: the model or scene the frame is in). No LS3DF
+    /// FUNCTION address exists for a standalone reader: ownership is only
+    /// read in place by `DeleteFromOwner` (PC RVA 0x1ab00, already ported).
+    /// Reports the live owner without claiming or moving it.
+    pub fn frame_owner_of(
+        &self,
+        key: FrameKey,
+    ) -> Result<Option<crate::scene_ownership::FrameOwner>, ModelError> {
+        Ok(self.frame(key)?.owner)
+    }
+    /// Working name for the `renderState[RS_FAST_FIND]` gate read (mafia-re
+    /// ls3df/I3D/I3D.h:1337-1340; consumed inline by `SetName`, `SetModelName`,
+    /// `LoadImage` and `Duplicate`, PC RVAs 0x1b6f0/0x1b800/0x1d1c0/0x1c5b0).
+    /// No LS3DF FUNCTION address exists for a standalone reader. Reports
+    /// whether name registrations currently land in the fast tree.
+    pub fn fast_find_enabled(&self) -> bool {
+        self.fast_tree.enabled
+    }
+    /// Working name for the `lastDestroyedFrame` global read (mafia-re
+    /// ls3df/I3D/frames/I3d_frame.cpp:21; written by the frame destructor,
+    /// PC RVA 0x1a9a0, and consumed by the `EnumFrames`/`Update` child
+    /// guards). No LS3DF FUNCTION address exists for a standalone reader.
+    /// Reports the most recently destroyed frame key, if any.
+    pub fn last_destroyed_frame(&self) -> Option<FrameKey> {
+        self.last_destroyed_frame
     }
     /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
     /// RVA 0x1b3c0. Upstream working name I3D_frame::SetCallback
@@ -3342,6 +3381,16 @@ impl ModelArena {
         self.sectors.retain(|sector| sector.key.frame() != key);
         Ok(())
     }
+    /// Original I3D_model::AddFrame, PC RVA 0x33680 (VA 0x10033680; REA
+    /// formed Ghidra body FUN_10033680 in LS3DF.dll
+    /// e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// ev_7a3de2472f0f6fa90b1c7b307831b08f2238b4cb449c582b632f7aa51238ca89;
+    /// mafia-re ls3df/I3D/frames/I3d_model.cpp:80-88 at pin 113b5b6).
+    /// Confirm-only on this pre-existing port. Order-exact core: AddRef
+    /// first (so moving the sole reference through DeleteFromOwner cannot
+    /// destroy the frame), DeleteFromOwner, push_back, owner store. Host
+    /// ownership-cycle, closing-model, capacity-growth and failure-prefix
+    /// guards are disclosed host hardening around that core.
     pub fn add_frame(&mut self, model: ModelKey, key: FrameKey) -> Result<(), ModelError> {
         self.check_scene_frame_available(key)?;
         let mi = self.model_index(model)?;
@@ -3396,6 +3445,17 @@ impl ModelArena {
         self.frames[fi].owner = Some(model.into());
         Ok(())
     }
+    /// Original I3D_model::DeleteFrame, PC RVA 0x33720 (VA 0x10033720; REA
+    /// formed Ghidra body FUN_10033720 in LS3DF.dll
+    /// e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+    /// ev_0a4945379b3fe6bd2cf6d09e92e09fd748dc5e590ae49b248e05054089d54327;
+    /// mafia-re ls3df/I3D/frames/I3d_model.cpp:90-104 at pin 113b5b6).
+    /// Confirm-only on this pre-existing port. Order-exact core: list
+    /// remove (swap-remove here), owner NULL, Release on a positive
+    /// reference count, I3D_OK; a miss returns the not-found word. Host
+    /// deviations, disclosed: a non-member maps to `FrameNotOwned` (not
+    /// the native OBJECTNOTFOUND), and the release runs through the
+    /// destruction-guarded host path instead of a bare conditional call.
     pub fn delete_frame(&mut self, model: ModelKey, key: FrameKey) -> Result<(), ModelError> {
         let mi = self.model_index(model)?;
         let fi = self.frame_index(key)?;
@@ -4772,6 +4832,80 @@ pub(crate) mod tests {
             0x7fc01234
         );
         assert!(loaded.storage_bytes().unwrap() > 0);
+    }
+    #[test]
+    fn model_ctor_rva_0x33410_sets_null_filename_null_controller_model_kind() {
+        // PC RVA 0x33410 (VA 0x10033410; REA formed Ghidra body FUN_10033410,
+        // ev_2f374fe7...; mafia-re I3d_model.cpp:14-21): the three derived
+        // words are file_name NULL, ipol_set NULL and m_Type FRAME_MODEL on
+        // top of the base-frame projection.
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let mi = arena.model_index(model).unwrap();
+        assert!(arena.models[mi].filename.is_none());
+        assert!(arena.models[mi].original_ipol_set.is_none());
+        assert_eq!(
+            arena.state(model.root()).unwrap().kind,
+            crate::frame_transform::FrameKind::Model
+        );
+        // Base projection words ride along: identity matrices, unit scale,
+        // identity rotation, ctor flags and empty name stores.
+        let state = arena.state(model.root()).unwrap();
+        assert_eq!(state.scale, [1., 1., 1.]);
+        assert_eq!(state.flags, 0x4000003d);
+        arena.release(model.root()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn model_add_delete_frame_rvas_0x33680_0x33720_order_and_residue() {
+        // PC RVAs 0x33680/0x33720 (VAs 0x10033680/0x10033720; REA formed
+        // Ghidra bodies FUN_10033680/FUN_10033720; mafia-re
+        // I3d_model.cpp:80-104): AddFrame retains first, then deletes from
+        // the previous owner, pushes and stores the owner; DeleteFrame
+        // swap-removes, nulls the owner and releases on a positive count.
+        // A miss maps to FrameNotOwned (native OBJECTNOTFOUND, disclosed).
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let member = arena.create_dummy_frame().unwrap();
+        assert_eq!(arena.frame(member).unwrap().references, 1);
+        arena.add_frame(model, member).unwrap();
+        assert_eq!(arena.frame(member).unwrap().references, 2);
+        assert_eq!(arena.frame_owner_of(member).unwrap(), Some(model.into()));
+        arena.delete_frame(model, member).unwrap();
+        assert_eq!(arena.frame(member).unwrap().references, 1);
+        assert_eq!(arena.frame_owner_of(member).unwrap(), None);
+        assert!(matches!(
+            arena.delete_frame(model, member),
+            Err(ModelError::FrameNotOwned { .. })
+        ));
+        arena.release(member).unwrap();
+        arena.release(model.root()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn working_name_owner_fastfind_lastdestroyed_readers() {
+        // Working names, no LS3DF FUNCTION addresses: m_pOwner at +0x10c
+        // (delete path only, RVA 0x1ab00), renderState[RS_FAST_FIND] (name
+        // verbs only) and the lastDestroyedFrame global (dtor/Enum guards).
+        let mut arena = ModelArena::default();
+        assert!(!arena.fast_find_enabled());
+        arena.set_fast_find_enabled(true);
+        assert!(arena.fast_find_enabled());
+        assert_eq!(arena.last_destroyed_frame(), None);
+        let model = arena.create_model().unwrap();
+        let member = arena.create_dummy_frame().unwrap();
+        assert_eq!(arena.frame_owner_of(member).unwrap(), None);
+        arena.add_frame(model, member).unwrap();
+        assert_eq!(arena.frame_owner_of(member).unwrap(), Some(model.into()));
+        assert!(arena
+            .frame_owner_of(crate::frame_transform::FrameKey(u32::MAX))
+            .is_err());
+        let temp = arena.create_dummy_frame().unwrap();
+        arena.release(temp).unwrap();
+        assert_eq!(arena.last_destroyed_frame(), Some(temp));
+        arena.release(member).unwrap();
+        arena.release(model.root()).unwrap();
+        assert_eq!(arena.live_frame_count(), 0);
     }
     #[test]
     fn materializes_joint_hierarchy_without_inventing_binding_or_cache_values() {

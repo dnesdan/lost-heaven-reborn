@@ -296,6 +296,156 @@ pub fn find_actor_by_name<'a>(
     None
 }
 
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:124` at pin 113b5b6, `anim_models` at
+/// +0x14): reads the staged animation-model count. The native size is read
+/// inline at each loop bound (`Mission.cpp:163,180,193,564`) with no
+/// dedicated getter, so no RVA is claimed.
+pub fn anim_model_count(models: &[AnimModel]) -> usize {
+    models.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline membership
+/// test, mafia-re `game/mission/Mission.cpp:163-166,180-183` at pin 113b5b6,
+/// `AddAnimModel`/`DelAnimModel` guards): reports whether the model is
+/// staged. The native guards scan back to front and stop at the first match,
+/// so this follows the same direction with no RVA claimed.
+pub fn has_anim_model(models: &[AnimModel], model: ModelId) -> bool {
+    for index in (0..models.len()).rev() {
+        if models[index].model == model {
+            return true;
+        }
+    }
+    false
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline flag count,
+/// mafia-re `game/mission/Mission.cpp:192-204` at pin 113b5b6,
+/// `ClearGameAnimModels` scan): counts staged entries flagged as game models.
+/// The native clear scans forward testing `game_model`; only the count is
+/// owned here, so no RVA is claimed.
+pub fn count_game_anim_models(models: &[AnimModel]) -> usize {
+    models.iter().filter(|entry| entry.game_model).count()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:129` at pin 113b5b6, `actors` at +0x34):
+/// reads the staged actor count. The native size is read inline at each loop
+/// bound (`Mission.cpp:305,333,357,391,415,442,467`) with no dedicated
+/// getter, so no RVA is claimed.
+pub fn actor_count(actors: &[ActorId]) -> usize {
+    actors.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:132` at pin 113b5b6, `not_me_actors` at
+/// +0x44): reads the staged not-me actor count. The native size is read
+/// inline (`Mission.cpp:313,361,415,447`) with no dedicated getter, so no RVA
+/// is claimed.
+pub fn not_me_actor_count(not_me_actors: &[ActorId]) -> usize {
+    not_me_actors.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline membership
+/// test, mafia-re `game/mission/Mission.cpp:303-325` at pin 113b5b6,
+/// `AddActor` guard): reports whether the actor is staged. The native guard
+/// scans back to front, so this follows the same direction with no RVA
+/// claimed.
+pub fn has_actor(actors: &[ActorId], actor: ActorId) -> bool {
+    for index in (0..actors.len()).rev() {
+        if actors[index] == actor {
+            return true;
+        }
+    }
+    false
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline membership
+/// test, mafia-re `game/mission/Mission.cpp:303-325,355-385` at pin 113b5b6,
+/// `AddActor`/`DelActor` not-me scans): reports whether the actor is staged
+/// in the not-me list. The native scans run back to front, so this follows
+/// the same direction with no RVA claimed.
+pub fn has_not_me_actor(not_me_actors: &[ActorId], actor: ActorId) -> bool {
+    for index in (0..not_me_actors.len()).rev() {
+        if not_me_actors[index] == actor {
+            return true;
+        }
+    }
+    false
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:134` at pin 113b5b6, `programs` at
+/// +0x54): reads the staged whole-game script count. The native size is read
+/// inline at each loop bound (`Mission.cpp:479,487,496`) with no dedicated
+/// getter, so no RVA is claimed.
+pub fn program_count<P>(programs: &[P]) -> usize {
+    programs.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:153` at pin 113b5b6, `t_transparent` at
+/// +0x80): reads the staged fade-object count. The native size is read
+/// inline (`Mission.cpp:568,726`) with no dedicated getter, so no RVA is
+/// claimed.
+pub fn transparent_entry_count(entries: &[TransparentEntry]) -> usize {
+    entries.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline membership
+/// test, mafia-re `game/mission/Mission.cpp:1726-1730` at pin 113b5b6,
+/// `FinishTimeTransparentObjects` scan): reports whether the object is staged
+/// for fading. The native finish scan runs back to front, so this follows the
+/// same direction with no RVA claimed.
+pub fn has_transparent_object(entries: &[TransparentEntry], object: u32) -> bool {
+    for index in (0..entries.len()).rev() {
+        if entries[index].object == object {
+            return true;
+        }
+    }
+    false
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:156` at pin 113b5b6, `active_actors` at
+/// +0xbc): reads the staged stay-in-game actor count. The native size is read
+/// inline at each loop bound with no dedicated getter, so no RVA is claimed.
+pub fn active_actor_count<P>(active_actors: &[P]) -> usize {
+    active_actors.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline membership
+/// test, mafia-re `game/mission/Mission.h:156` at pin 113b5b6,
+/// `active_actors` at +0xbc, `StoreActiveActor`/`RemoveActiveActor` guards):
+/// reports whether the actor stays staged in the game. The native guards scan
+/// back to front, so this follows the same direction with no RVA claimed.
+pub fn has_active_actor(active_actors: &[ActorId], actor: ActorId) -> bool {
+    for index in (0..active_actors.len()).rev() {
+        if active_actors[index] == actor {
+            return true;
+        }
+    }
+    false
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:155` at pin 113b5b6,
+/// `frame_actor_buffer` at +0xac, `S_frame_actor_buffer` 0x10 bytes): reads
+/// the staged kept-between-missions entry count. The native size is read
+/// inline at each loop bound with no dedicated getter, so no RVA is claimed.
+pub fn frame_actor_buffer_count<P>(entries: &[P]) -> usize {
+    entries.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:157` at pin 113b5b6,
+/// `actor_sound_buffer` at +0xcc, `S_actor_sound_buffer` 0xc bytes): reads the
+/// staged kept actor-sound count. The native size is read inline at each loop
+/// bound with no dedicated getter, so no RVA is claimed.
+pub fn actor_sound_buffer_count<P>(entries: &[P]) -> usize {
+    entries.len()
+}
+
 /// Opaque effects-manager handle. Native `C_effects*` identity is the
 /// caller's concern; `None` is the native NULL.
 pub type EffectsHandle = u32;
@@ -314,6 +464,99 @@ pub fn get_actors(actors: &[ActorId]) -> &[ActorId] {
 /// (DEFERRED); `None` is the native NULL.
 pub fn get_effects(effects: Option<EffectsHandle>) -> Option<EffectsHandle> {
     effects
+}
+
+/// Opaque game-manager handle. Native `C_game*` identity is the caller's
+/// concern; `None` is the native NULL.
+pub type GameHandle = u32;
+
+/// Working name (no outline RVA is claimed): reads the staged game-manager
+/// handle (`C_mission::GetGame`, mafia-re `game/mission/Mission.h:230-233`
+/// at pin 113b5b6). The header only notes the outline copy is "most likely"
+/// the getter at 0x47ae50, which does not verify an entry, so no RVA is
+/// claimed. The game object stays with its owner (DEFERRED).
+pub fn get_game(game: Option<GameHandle>) -> Option<GameHandle> {
+    game
+}
+
+/// Opaque scene handle. Native `I3D_scene*` identity is the caller's
+/// concern; `None` is the native NULL.
+pub type SceneHandle = u32;
+
+/// Working name (no outline RVA is claimed): reads the staged scene handle
+/// (`C_mission::GetScene`, mafia-re `game/mission/Mission.h:279-281` at pin
+/// 113b5b6). The header carries no `FUNCTION` marker for it, so no outline
+/// entry exists to claim. The scene stays with its owner (DEFERRED).
+pub fn get_scene(scene: Option<SceneHandle>) -> Option<SceneHandle> {
+    scene
+}
+
+/// FUNCTION: GAME RVA 0x140520, VA 0x540520 (mafia-re
+/// `game/mission/Mission.cpp:476-481`, `C_mission::GlobalProgramGameInit`):
+/// inits every staged whole-game script, from the last one to the first.
+/// The program objects and their `Init` stay with the caller behind `init`.
+pub fn global_program_game_init<P>(programs: &mut [P], mut init: impl FnMut(&mut P)) {
+    for index in (0..programs.len()).rev() {
+        init(&mut programs[index]);
+    }
+}
+
+/// FUNCTION: GAME RVA 0x140550, VA 0x540550 (mafia-re
+/// `game/mission/Mission.cpp:483-488`, `C_mission::GlobalProgramGameDone`):
+/// runs `Done` on every staged whole-game script, from the last one to the
+/// first. The program objects and their `Done` stay with the caller behind
+/// `done`.
+pub fn global_program_game_done<P>(programs: &mut [P], mut done: impl FnMut(&mut P)) {
+    for index in (0..programs.len()).rev() {
+        done(&mut programs[index]);
+    }
+}
+
+/// Scalar actor-numbering counter behind `C_mission::last_actor_number`
+/// (mafia-re `game/mission/Mission.h:119-121` at pin 113b5b6): the last
+/// number `C_actor::Init` gave an actor, which `Open`
+/// (`Mission.cpp:626`) clears. Only the clear and the read are owned here;
+/// the numbering itself stays with the actor owner (DEFERRED).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MissionActorNumberState {
+    last_actor_number: i32,
+}
+
+impl MissionActorNumberState {
+    /// Working name (no outline RVA; inline store, mafia-re
+    /// `game/mission/Mission.cpp:626`, `C_mission::Open`): clears the last
+    /// actor number, as `Open` does before `Close`. No Game.exe function
+    /// entry is claimed.
+    pub fn reset_last_actor_number(&mut self) {
+        self.last_actor_number = 0;
+    }
+
+    /// Working name (no outline RVA; counter read, mafia-re
+    /// `game/mission/Mission.h:119-121`): reads the last number an actor
+    /// was given. No Game.exe function entry is claimed.
+    pub fn last_actor_number(&self) -> i32 {
+        self.last_actor_number
+    }
+
+    /// Working name (no outline RVA; counter stage, mafia-re
+    /// `game/mission/Mission.h:119-121` at pin 113b5b6,
+    /// `C_mission::last_actor_number` at +0x8): stages the number
+    /// `C_actor::Init` assigns. The numbering itself stays with the actor
+    /// owner (DEFERRED); `Open` (`Mission.cpp:626`) only clears it via
+    /// `reset_last_actor_number`. No dedicated mission setter exists, so no
+    /// Game.exe function entry is claimed.
+    pub fn set_last_actor_number(&mut self, value: i32) {
+        self.last_actor_number = value;
+    }
+
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:119-121`): whether any actor number has been
+    /// staged (nonzero). The native word is tested inline where the actor
+    /// registry consumes it, with no dedicated flag getter, so no Game.exe
+    /// function entry is claimed.
+    pub fn has_last_actor_number(&self) -> bool {
+        self.last_actor_number != 0
+    }
 }
 
 /// Cutscene flag bits of `C_actor::act_flags` (mafia-re pin 113b5b6,
@@ -364,6 +607,79 @@ pub fn update_cutscene_flags(flags: &mut i32) {
     if (*flags & ACTF_CUTSCENE_PLAY) != 0 {
         *flags = *flags & !ACTF_CUTSCENE_PLAY | ACTF_CUTSCENE_PLAYED;
     }
+}
+
+/// End-of-block marker of the cutscene record walks (mafia-re pin 113b5b6,
+/// `game/mission/C_recorder.h:81`: `RECORDS_BLOCK_END 0xeeeeeeee`).
+pub const RECORDS_BLOCK_END: i32 = 0xeeee_eeeeu32 as i32;
+
+/// One staged cutscene record for the `C_actor::GetRecordsSize` walks
+/// (mafia-re pin 113b5b6, `game/mission/C_recorder.h:83-87`:
+/// `S_cutscene_record` with `time` at +0x0 and `type` at +0x4).
+/// `size_bytes` is the `C_cutscene_records::record_sizes[type]` entry the
+/// native walk adds per record; the table lookup itself is staged by the
+/// caller (the records owner keeps the table), so the walks below only add
+/// staged sizes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StagedCutsceneRecord {
+    pub time: i32,
+    pub size_bytes: u32,
+}
+
+/// FUNCTION: GAME RVA 0x1c2650, VA 0x5c2650 (mafia-re pin 113b5b6,
+/// `game/mission/C_cutscene_records.cpp:43-55`,
+/// `C_actor::GetBlockRecordsSize`).
+/// Byte size of one record block up to the last key, the stop entry
+/// included: walk while `time < last_key_time`, stop at the
+/// `RECORDS_BLOCK_END` marker, then add the stop entry's size to the walked
+/// bytes. The marker's staged `size_bytes` is the `record_sizes[]` word past
+/// its time stamp (uninitialized block tail in the original; the caller
+/// stages it, the raw-bytes owner stays DEFERRED). A block slice that ends
+/// before any stop entry is a staged-model boundary (the native keeps
+/// reading raw block memory); the walked bytes are returned.
+pub fn block_records_size(block: &[StagedCutsceneRecord], last_key_time: i32) -> u32 {
+    let mut bytes = 0u32;
+    let mut index = 0usize;
+    while index < block.len() && block[index].time < last_key_time {
+        bytes += block[index].size_bytes;
+        index += 1;
+        if index < block.len() && block[index].time == RECORDS_BLOCK_END {
+            break;
+        }
+    }
+    if index < block.len() {
+        bytes += block[index].size_bytes;
+    }
+    bytes
+}
+
+/// FUNCTION: GAME RVA 0x1c26a0, VA 0x5c26a0 (mafia-re pin 113b5b6,
+/// `game/mission/C_cutscene_records.cpp:57-80`, `C_actor::GetRecordsSize`).
+/// Byte size of the records up to the last key over all blocks: per block
+/// walk while `time < last_key_time`; a `RECORDS_BLOCK_END` marker closes
+/// the block without contributing (only the bytes walked so far count) and
+/// the walk continues with the next block; the first entry whose time
+/// equals the last key ends the walk with its size added. Empty input
+/// reports zero (the native `!first_block` early return). A block slice
+/// that ends before any stop entry is a staged-model boundary (see
+/// [`block_records_size`]); the walked bytes are returned.
+pub fn total_records_size(blocks: &[&[StagedCutsceneRecord]], last_key_time: i32) -> u32 {
+    let mut total = 0u32;
+    for block in blocks {
+        let mut index = 0usize;
+        while index < block.len() && block[index].time < last_key_time {
+            total += block[index].size_bytes;
+            index += 1;
+            if index < block.len() && block[index].time == RECORDS_BLOCK_END {
+                index = block.len();
+            }
+        }
+        if index < block.len() && block[index].time == last_key_time {
+            total += block[index].size_bytes;
+            return total;
+        }
+    }
+    total
 }
 
 /// Entry of `C_mission::t_transparent` (mafia-re `game/mission/Mission.h`).
@@ -544,14 +860,17 @@ pub fn prepare_base_blocks() -> Result<(), GameStartupUnsupported> {
 }
 
 /// Scalar mission counters behind the `C_mission` inline accessors
-/// (`Mission.h:239-266` at pin 113b5b6). The scene, actors, scripts and game
-/// objects stay with their owners; only the mission-number pair and the
-/// skip-frames count these inlines read or write are owned here.
+/// (`Mission.h:239-266` at pin 113b5b6) plus the render-number latch
+/// (`Mission.h:123-124`). The scene, actors, scripts and game
+/// objects stay with their owners; only the mission-number pair, the
+/// skip-frames count these inlines read or write, and the render-number
+/// latch `Tick` copies each frame are owned here.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct MissionCounterState {
     next_mission_number: i32,
     mission_number: i32,
     skip_frames: i32,
+    render_number: i32,
 }
 
 impl MissionCounterState {
@@ -607,16 +926,73 @@ impl MissionCounterState {
         self.next_mission_number = 0;
         self.mission_number = 0;
     }
+
+    /// Working name (no outline RVA; latch write, mafia-re
+    /// `game/mission/Mission.h:123-124`, `C_mission::render_number` at
+    /// +0x64): stages the scene render number `Tick` copies each frame.
+    /// The native copy is inline in `Tick` with no dedicated function, so
+    /// no Game.exe function entry is claimed.
+    pub fn set_render_number(&mut self, value: i32) {
+        self.render_number = value;
+    }
+
+    /// Working name (no outline RVA; latch read, mafia-re
+    /// `game/mission/Mission.h:123-124`): reads the staged render number.
+    /// No dedicated native function exists, so no RVA is claimed.
+    pub fn get_render_number(&self) -> i32 {
+        self.render_number
+    }
+
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:141-144`, `next_mission_number` at +0x70):
+    /// whether a next-mission number is pending (`SETMISSIONNUMBER` wrote a
+    /// nonzero value). The native pending slot is tested inline where
+    /// `KeepMissionNumber`/`CHANGE_MISSION` consumes it, with no dedicated
+    /// flag getter, so no Game.exe function entry is claimed.
+    pub fn has_pending_mission_number(&self) -> bool {
+        self.next_mission_number != 0
+    }
+
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:145-148`, `skip_frames` at +0x78): whether any
+    /// skip-frames remain. `Open` clears the count (`Mission.cpp:628`) and
+    /// `Tick` counts it down (`Mission.cpp:553`); the nonzero test is inline
+    /// with no dedicated getter, so no Game.exe function entry is claimed.
+    pub fn has_skip_frames(&self) -> bool {
+        self.skip_frames != 0
+    }
+
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:123-124`, `C_mission::render_number` at
+    /// +0x64): whether a render number is staged (nonzero). `Tick` copies
+    /// the scene number each frame and tests it inline with no dedicated
+    /// flag getter, so no Game.exe function entry is claimed.
+    pub fn has_render_number(&self) -> bool {
+        self.render_number != 0
+    }
+
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:140-143`, `C_mission::mission_number` at +0x74):
+    /// whether a current mission number is staged (nonzero). The native word
+    /// is read by `GetMissionNumber` and consumed where `CHANGE_MISSION`
+    /// applies it, with no dedicated nonzero getter, so no Game.exe function
+    /// entry is claimed.
+    pub fn has_mission_number(&self) -> bool {
+        self.mission_number != 0
+    }
 }
 
 /// Presence flag behind `C_mission::opened` (mafia-re
-/// `game/mission/Mission.h:119-122`). The scene, actors, scripts and game
+/// `game/mission/Mission.h:119-122`) plus the restore-volume latch
+/// (`Mission.h:149-153`). The scene, actors, scripts and game
 /// objects stay with their owners; only the flag `Open` sets and `Close`
-/// checks-then-clears (`Mission.cpp:512-513`) is owned here.
+/// checks-then-clears (`Mission.cpp:512-513`) and the volume latch `Open`
+/// sets and `Tick` consumes are owned here.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MissionPresenceState {
     opened: bool,
     mission_name: Option<String>,
+    restore_volume: bool,
 }
 
 impl MissionPresenceState {
@@ -652,6 +1028,33 @@ impl MissionPresenceState {
     /// copy and the `UnInit` delete stay with the mission owner.
     pub fn stage_mission_name(&mut self, name: Option<String>) {
         self.mission_name = name;
+    }
+
+    /// Working name (no outline RVA; latch read, mafia-re
+    /// `game/mission/Mission.h:149-153`, `C_mission::restore_volume` at
+    /// +0x7c): whether `Tick` still owes the post-load volume restore.
+    /// `Open` sets it while muting, `Tick` consumes it once `skip_frames`
+    /// drops below 1 (see `tick_consume_restore_volume`); no dedicated
+    /// native getter exists, so no RVA is claimed.
+    pub fn restore_volume(&self) -> bool {
+        self.restore_volume
+    }
+
+    /// Working name (no outline RVA; latch write, mafia-re
+    /// `game/mission/Mission.h:149-153`): stages the volume-restore latch.
+    /// The mute/apply sequencing stays with the sound owner.
+    pub fn set_restore_volume(&mut self, restore: bool) {
+        self.restore_volume = restore;
+    }
+
+    /// Working name (no outline RVA; null check, mafia-re
+    /// `game/mission/Mission.h:137-138`, `mission_name` at +0x68): whether an
+    /// open-mission name is staged. `Open` (`Mission.cpp:638-639`) stores a
+    /// copy and `UnInit` (`Mission.cpp:152-156`) deletes a non-null name; the
+    /// null test is inline with no dedicated getter, so no Game.exe function
+    /// entry is claimed.
+    pub fn has_mission_name(&self) -> bool {
+        self.mission_name.is_some()
     }
 }
 
@@ -1048,6 +1451,47 @@ mod tests {
         assert_eq!(idle, 0);
     }
 
+    fn staged(time: i32, size_bytes: u32) -> StagedCutsceneRecord {
+        StagedCutsceneRecord { time, size_bytes }
+    }
+
+    #[test]
+    // GAME 0x5c2650 (RVA 0x1c2650) C_actor::GetBlockRecordsSize (mafia-re
+    // 113b5b6 game/mission/C_cutscene_records.cpp:43-55): walk while time
+    // is below the last key, then add the stop entry.
+    fn block_records_size_rva_1c2650_walks_to_stop_entry() {
+        // Stops at the entry whose time reaches the last key, included.
+        let block = [staged(0, 8), staged(40, 12), staged(100, 16)];
+        assert_eq!(block_records_size(&block, 100), 36);
+        // Stops at the block-end marker, adding the staged marker tail.
+        let marked = [staged(0, 8), staged(40, 12), staged(RECORDS_BLOCK_END, 4)];
+        assert_eq!(block_records_size(&marked, 100), 24);
+        // A first entry at or past the last key contributes alone.
+        let head = [staged(100, 16), staged(140, 16)];
+        assert_eq!(block_records_size(&head, 100), 16);
+        // No entries: nothing walked.
+        assert_eq!(block_records_size(&[], 100), 0);
+    }
+
+    #[test]
+    // GAME 0x5c26a0 (RVA 0x1c26a0) C_actor::GetRecordsSize (mafia-re 113b5b6
+    // game/mission/C_cutscene_records.cpp:57-80): markers close their block
+    // without contributing; the last-key entry ends the walk.
+    fn total_records_size_rva_1c26a0_sums_blocks_to_last_key() {
+        let first: &[StagedCutsceneRecord] =
+            &[staged(0, 8), staged(40, 12), staged(RECORDS_BLOCK_END, 0)];
+        let second: &[StagedCutsceneRecord] = &[staged(80, 12), staged(100, 16)];
+        assert_eq!(total_records_size(&[first, second], 100), 48);
+        // Single block ending exactly at the last key.
+        let single: &[StagedCutsceneRecord] = &[staged(0, 8), staged(100, 16)];
+        assert_eq!(total_records_size(&[single], 100), 24);
+        // No blocks: the native !first_block early zero.
+        assert_eq!(total_records_size(&[], 100), 0);
+        // Truncated staging (no last-key entry): walked bytes only.
+        let partial: &[StagedCutsceneRecord] = &[staged(0, 8), staged(40, 12)];
+        assert_eq!(total_records_size(&[partial], 100), 20);
+    }
+
     #[test]
     fn set_mission_number_rva_7ae70_stores_pending_number() {
         // C_mission::SetMissionNumber GAME RVA 0x7ae70 (VA 0x47ae70).
@@ -1156,5 +1600,364 @@ mod tests {
         assert_eq!(presence.mission_name(), Some("mise01"));
         presence.stage_mission_name(None);
         assert_eq!(presence.mission_name(), None);
+    }
+
+    #[test]
+    fn global_program_game_init_rva_140520_inits_from_last() {
+        // C_mission::GlobalProgramGameInit GAME RVA 0x140520 (VA 0x540520).
+        let mut programs = vec![1u32, 2, 3];
+        let mut order = Vec::new();
+        global_program_game_init(&mut programs, |program| order.push(*program));
+        assert_eq!(order, vec![3, 2, 1]);
+        let mut empty: Vec<u32> = Vec::new();
+        global_program_game_init(&mut empty, |_| panic!("no program to init"));
+    }
+
+    #[test]
+    fn global_program_game_done_rva_140550_dones_from_last() {
+        // C_mission::GlobalProgramGameDone GAME RVA 0x140550 (VA 0x540550).
+        let mut programs = vec![7u32, 9];
+        let mut order = Vec::new();
+        global_program_game_done(&mut programs, |program| order.push(*program));
+        assert_eq!(order, vec![9, 7]);
+        let mut empty: Vec<u32> = Vec::new();
+        global_program_game_done(&mut empty, |_| panic!("no program to done"));
+    }
+
+    #[test]
+    fn game_and_scene_working_name_round_trip_handles() {
+        // C_mission::GetGame (Mission.h:230-233, outline copy only "most
+        // likely" at 0x47ae50) and C_mission::GetScene (Mission.h:279-281,
+        // no FUNCTION marker): no outline RVA is claimed for either.
+        assert_eq!(get_game(Some(11)), Some(11));
+        assert_eq!(get_game(None), None);
+        assert_eq!(get_scene(Some(13)), Some(13));
+        assert_eq!(get_scene(None), None);
+    }
+
+    #[test]
+    fn actor_number_working_name_reset_and_read() {
+        // C_mission::last_actor_number (Mission.h:119-121), cleared by Open
+        // (Mission.cpp:626): no outline RVA is claimed.
+        let mut state = MissionActorNumberState::default();
+        assert_eq!(state.last_actor_number(), 0);
+        state.reset_last_actor_number();
+        assert_eq!(state.last_actor_number(), 0);
+    }
+
+    #[test]
+    fn render_number_working_name_stages_tick_latch() {
+        // C_mission::render_number (Mission.h:123-124, +0x64); Tick copies
+        // the scene number inline, no outline RVA is claimed.
+        let mut state = MissionCounterState::default();
+        assert_eq!(state.get_render_number(), 0);
+        state.set_render_number(44);
+        assert_eq!(state.get_render_number(), 44);
+        state.set_render_number(-1);
+        assert_eq!(state.get_render_number(), -1);
+        // Other counters are untouched.
+        assert_eq!(state.get_mission_number(), 0);
+        assert_eq!(state.get_skip_frames(), 0);
+    }
+
+    #[test]
+    fn restore_volume_working_name_stages_latch() {
+        // C_mission::restore_volume (Mission.h:149-153, +0x7c); Open sets,
+        // Tick consumes, no outline RVA is claimed.
+        let mut presence = MissionPresenceState::default();
+        assert!(!presence.restore_volume());
+        presence.set_restore_volume(true);
+        assert!(presence.restore_volume());
+        presence.set_restore_volume(false);
+        assert!(!presence.restore_volume());
+        // Presence flag and name staging are untouched.
+        assert!(!presence.is_opened());
+        assert_eq!(presence.mission_name(), None);
+    }
+
+    #[test]
+    fn anim_model_count_working_name_reports_length() {
+        // Inline anim_models size (Mission.h:124); no outline RVA is claimed.
+        let empty: Vec<AnimModel> = Vec::new();
+        assert_eq!(anim_model_count(&empty), 0);
+        let models = vec![
+            AnimModel {
+                model: 1,
+                game_model: false,
+            },
+            AnimModel {
+                model: 2,
+                game_model: true,
+            },
+        ];
+        assert_eq!(anim_model_count(&models), 2);
+    }
+
+    #[test]
+    fn has_anim_model_working_name_scans_back_to_front() {
+        // AddAnimModel/DelAnimModel guards (Mission.cpp:163-166,180-183).
+        let models = vec![
+            AnimModel {
+                model: 1,
+                game_model: false,
+            },
+            AnimModel {
+                model: 2,
+                game_model: true,
+            },
+            AnimModel {
+                model: 3,
+                game_model: false,
+            },
+        ];
+        assert!(has_anim_model(&models, 1));
+        assert!(has_anim_model(&models, 3));
+        assert!(!has_anim_model(&models, 9));
+        let empty: Vec<AnimModel> = Vec::new();
+        assert!(!has_anim_model(&empty, 1));
+    }
+
+    #[test]
+    fn count_game_anim_models_working_name_counts_flagged() {
+        // ClearGameAnimModels scan (Mission.cpp:192-204).
+        let models = vec![
+            AnimModel {
+                model: 1,
+                game_model: false,
+            },
+            AnimModel {
+                model: 2,
+                game_model: true,
+            },
+            AnimModel {
+                model: 3,
+                game_model: true,
+            },
+        ];
+        assert_eq!(count_game_anim_models(&models), 2);
+        let empty: Vec<AnimModel> = Vec::new();
+        assert_eq!(count_game_anim_models(&empty), 0);
+        assert_eq!(
+            count_game_anim_models(&models[0..1]),
+            0
+        );
+    }
+
+    #[test]
+    fn actor_count_working_name_reports_length() {
+        // Inline actors size (Mission.h:129, +0x34).
+        let actors = vec![1u32, 2, 3];
+        assert_eq!(actor_count(&actors), 3);
+        let empty: Vec<ActorId> = Vec::new();
+        assert_eq!(actor_count(&empty), 0);
+    }
+
+    #[test]
+    fn not_me_actor_count_working_name_reports_length() {
+        // Inline not_me_actors size (Mission.h:132, +0x44).
+        let not_me = vec![2u32];
+        assert_eq!(not_me_actor_count(&not_me), 1);
+        let empty: Vec<ActorId> = Vec::new();
+        assert_eq!(not_me_actor_count(&empty), 0);
+    }
+
+    #[test]
+    fn has_actor_working_name_matches_add_guard() {
+        // AddActor guard (Mission.cpp:303-325), back to front.
+        let actors = vec![4u32, 5, 6];
+        assert!(has_actor(&actors, 4));
+        assert!(has_actor(&actors, 6));
+        assert!(!has_actor(&actors, 9));
+        let empty: Vec<ActorId> = Vec::new();
+        assert!(!has_actor(&empty, 4));
+    }
+
+    #[test]
+    fn has_not_me_actor_working_name_matches_lists() {
+        // AddActor/DelActor not-me scans (Mission.cpp:303-325,355-385).
+        let not_me = vec![7u32, 8];
+        assert!(has_not_me_actor(&not_me, 7));
+        assert!(has_not_me_actor(&not_me, 8));
+        assert!(!has_not_me_actor(&not_me, 9));
+        let empty: Vec<ActorId> = Vec::new();
+        assert!(!has_not_me_actor(&empty, 7));
+    }
+
+    #[test]
+    fn program_count_working_name_reports_length() {
+        // Inline programs size (Mission.h:134; Mission.cpp:479,487,496).
+        let programs = vec![10u32, 11, 12];
+        assert_eq!(program_count(&programs), 3);
+        let empty: Vec<u32> = Vec::new();
+        assert_eq!(program_count(&empty), 0);
+    }
+
+    #[test]
+    fn transparent_entry_count_working_name_reports_length() {
+        // Inline t_transparent size (Mission.h:153; Mission.cpp:568,726).
+        let entries = vec![
+            TransparentEntry {
+                object: 21,
+                time: 0,
+                fade_time: 10,
+            },
+            TransparentEntry {
+                object: 22,
+                time: 5,
+                fade_time: 10,
+            },
+        ];
+        assert_eq!(transparent_entry_count(&entries), 2);
+        let empty: Vec<TransparentEntry> = Vec::new();
+        assert_eq!(transparent_entry_count(&empty), 0);
+    }
+
+    #[test]
+    fn has_transparent_object_working_name_scans_back_to_front() {
+        // FinishTimeTransparentObjects scan (Mission.cpp:1726-1730).
+        let entries = vec![
+            TransparentEntry {
+                object: 31,
+                time: 0,
+                fade_time: 10,
+            },
+            TransparentEntry {
+                object: 32,
+                time: 1,
+                fade_time: 10,
+            },
+        ];
+        assert!(has_transparent_object(&entries, 31));
+        assert!(has_transparent_object(&entries, 32));
+        assert!(!has_transparent_object(&entries, 99));
+        let empty: Vec<TransparentEntry> = Vec::new();
+        assert!(!has_transparent_object(&empty, 31));
+    }
+
+    #[test]
+    fn has_pending_mission_number_working_name_tracks_pending_slot() {
+        // next_mission_number at +0x70 (Mission.h:141-144).
+        let mut state = MissionCounterState::default();
+        assert!(!state.has_pending_mission_number());
+        state.set_mission_number(5);
+        assert!(state.has_pending_mission_number());
+        state.keep_mission_number();
+        assert!(!state.has_pending_mission_number());
+        assert_eq!(state.get_mission_number(), 5);
+        state.reset_mission_numbers();
+        assert!(!state.has_pending_mission_number());
+    }
+
+    #[test]
+    fn has_skip_frames_working_name_tracks_count() {
+        // skip_frames at +0x78 (Mission.h:145-148; Mission.cpp:553,628).
+        let mut state = MissionCounterState::default();
+        assert!(!state.has_skip_frames());
+        state.set_skip_frames(10);
+        assert!(state.has_skip_frames());
+        assert_eq!(state.get_skip_frames(), 10);
+        state.set_skip_frames(0);
+        assert!(!state.has_skip_frames());
+    }
+
+    #[test]
+    fn actor_number_stage_working_name_stores_number() {
+        // last_actor_number at +0x8 (Mission.h:119-121); C_actor::Init
+        // stages it, Open clears it (Mission.cpp:626). No outline RVA.
+        let mut state = MissionActorNumberState::default();
+        assert_eq!(state.last_actor_number(), 0);
+        state.set_last_actor_number(41);
+        assert_eq!(state.last_actor_number(), 41);
+        state.reset_last_actor_number();
+        assert_eq!(state.last_actor_number(), 0);
+    }
+
+    #[test]
+    fn has_last_actor_number_working_name_tracks_presence() {
+        // Nonzero test of last_actor_number; no dedicated getter in the
+        // reference, so no RVA is claimed.
+        let mut state = MissionActorNumberState::default();
+        assert!(!state.has_last_actor_number());
+        state.set_last_actor_number(7);
+        assert!(state.has_last_actor_number());
+        state.set_last_actor_number(0);
+        assert!(!state.has_last_actor_number());
+    }
+
+    #[test]
+    fn has_render_number_working_name_tracks_staged_latch() {
+        // render_number at +0x64 (Mission.h:123-124); Tick copies it.
+        // No dedicated flag getter, so no RVA is claimed.
+        let mut state = MissionCounterState::default();
+        assert!(!state.has_render_number());
+        state.set_render_number(44);
+        assert!(state.has_render_number());
+        assert_eq!(state.get_render_number(), 44);
+        state.set_render_number(0);
+        assert!(!state.has_render_number());
+    }
+
+    #[test]
+    fn has_mission_number_working_name_tracks_current_slot() {
+        // mission_number at +0x74 (Mission.h:140-143); KeepMissionNumber
+        // writes it. No dedicated nonzero getter, so no RVA is claimed.
+        let mut state = MissionCounterState::default();
+        assert!(!state.has_mission_number());
+        state.set_mission_number(6);
+        state.keep_mission_number();
+        assert!(state.has_mission_number());
+        assert_eq!(state.get_mission_number(), 6);
+        state.reset_mission_numbers();
+        assert!(!state.has_mission_number());
+    }
+
+    #[test]
+    fn has_mission_name_working_name_tracks_staged_name() {
+        // mission_name at +0x68 (Mission.h:137-138; Mission.cpp:638-639).
+        let mut presence = MissionPresenceState::default();
+        assert!(!presence.has_mission_name());
+        presence.stage_mission_name(Some("mise01".to_owned()));
+        assert!(presence.has_mission_name());
+        assert_eq!(presence.mission_name(), Some("mise01"));
+        presence.stage_mission_name(None);
+        assert!(!presence.has_mission_name());
+    }
+
+    #[test]
+    fn active_actor_count_working_name_reports_length() {
+        // Inline active_actors size (Mission.h:156, +0xbc).
+        let active = vec![4u32, 5, 6];
+        assert_eq!(active_actor_count(&active), 3);
+        let empty: Vec<ActorId> = Vec::new();
+        assert_eq!(active_actor_count(&empty), 0);
+    }
+
+    #[test]
+    fn has_active_actor_working_name_matches_stay_in_game_list() {
+        // Stay-in-game list (Mission.h:156, Store/RemoveActiveActor guards).
+        let active = vec![7u32, 8];
+        assert!(has_active_actor(&active, 7));
+        assert!(has_active_actor(&active, 8));
+        assert!(!has_active_actor(&active, 9));
+        let empty: Vec<ActorId> = Vec::new();
+        assert!(!has_active_actor(&empty, 7));
+    }
+
+    #[test]
+    fn frame_actor_buffer_count_working_name_reports_length() {
+        // Inline frame_actor_buffer size (Mission.h:155, +0xac).
+        let entries = vec![1u32, 2, 3, 4];
+        assert_eq!(frame_actor_buffer_count(&entries), 4);
+        let empty: Vec<u32> = Vec::new();
+        assert_eq!(frame_actor_buffer_count(&empty), 0);
+    }
+
+    #[test]
+    fn actor_sound_buffer_count_working_name_reports_length() {
+        // Inline actor_sound_buffer size (Mission.h:157, +0xcc).
+        let entries = vec![11u32, 12];
+        assert_eq!(actor_sound_buffer_count(&entries), 2);
+        let empty: Vec<u32> = Vec::new();
+        assert_eq!(actor_sound_buffer_count(&empty), 0);
     }
 }

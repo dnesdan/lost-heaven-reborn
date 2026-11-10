@@ -12,6 +12,50 @@ use crate::{
 
 /// JOINTF_LOADED 0x1 (I3D.h:2033): bone_matrix and index came from the file.
 pub const JOINTF_LOADED: u32 = 0x1;
+/// JOINTF_JMAT_VALID 0x10 (mafia-re ls3df/I3D/I3D.h:2054 at pin 113b5b6):
+/// joint_matrix is up to date; GetJointMatrix tests this bit (I3D.h:2071).
+pub const JOINTF_JMAT_VALID: u32 = 0x10;
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the JOINTF_JMAT_VALID bit (I3D.h:2054) that GetJointMatrix tests
+/// (I3D.h:2071; mafia-re ls3df/I3D/I3D.h at pin 113b5b6). The original
+/// exposes no named accessor: the joint virtuals are Duplicate, UpdateV and
+/// LoadImage only (I3D.h:2066-2068), and the matrix decision reads the flag
+/// word in place.
+pub fn joint_matrix_valid(flags: u32) -> bool {
+    flags & JOINTF_JMAT_VALID != 0
+}
+
+/// JOINTF_UNKNOWN_4 0x4 (mafia-re ls3df/I3D/I3D.h:2052 at pin 113b5b6):
+/// cleared with JOINTF_JMAT_VALID when the joint moves.
+pub const JOINTF_UNKNOWN_4: u32 = 0x4;
+/// JOINTF_UNKNOWN_8 0x8 (mafia-re ls3df/I3D/I3D.h:2053 at pin 113b5b6).
+/// The reference records no role for this bit.
+pub const JOINTF_UNKNOWN_8: u32 = 0x8;
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the JOINTF_UNKNOWN_4 bit (I3D.h:2052). The reference records no LS3DF
+/// FUNCTION address for a standalone reader; the bit is only cleared with
+/// JOINTF_JMAT_VALID when the joint moves (joint UpdateV stores).
+pub fn joint_unknown_4_set(flags: u32) -> bool {
+    flags & JOINTF_UNKNOWN_4 != 0
+}
+
+/// Upstream working name, not an evidenced original symbol: direct read of
+/// the JOINTF_UNKNOWN_8 bit (I3D.h:2053). The reference records no LS3DF
+/// FUNCTION address for a standalone reader and no role for the bit.
+pub fn joint_unknown_8_set(flags: u32) -> bool {
+    flags & JOINTF_UNKNOWN_8 != 0
+}
+
+/// Working name for the JOINTF_LOADED bit test (mafia-re ls3df/I3D/I3D.h:2051;
+/// set by LoadImage at ls3df/I3D/frames/I3d_joint.cpp:71-79 at pin 113b5b6).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is tested in place by Duplicate (I3d_joint.cpp:62-69). Reports
+/// whether the bone matrix and index came from the file.
+pub fn joint_is_loaded(flags: u32) -> bool {
+    flags & JOINTF_LOADED != 0
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct I3dJointState {
@@ -140,6 +184,54 @@ mod tests {
         assert_eq!(state.singlemesh, Some(FrameKey(7)));
     }
 
+    #[test]
+    fn joint_matrix_valid_reads_only_the_jmat_valid_bit() {
+        assert!(joint_matrix_valid(JOINTF_JMAT_VALID));
+        assert!(joint_matrix_valid(JOINTF_LOADED | JOINTF_JMAT_VALID));
+        assert!(joint_matrix_valid(u32::MAX));
+        assert!(!joint_matrix_valid(0));
+        assert!(!joint_matrix_valid(JOINTF_LOADED));
+        assert!(!joint_matrix_valid(0x0f));
+    }
+
+    #[test]
+    fn joint_loaded_reader_reports_only_the_loaded_bit() {
+        // Working name for the I3D.h:2051 bit: no LS3DF FUNCTION address.
+        assert!(joint_is_loaded(JOINTF_LOADED));
+        assert!(joint_is_loaded(JOINTF_LOADED | JOINTF_JMAT_VALID));
+        assert!(joint_is_loaded(u32::MAX));
+        assert!(!joint_is_loaded(0));
+        assert!(!joint_is_loaded(JOINTF_JMAT_VALID));
+        assert!(!joint_is_loaded(0xfffffffe));
+    }
+
+    #[test]
+    fn joint_unknown_4_reader_reports_only_its_bit() {
+        // Working name for the I3D.h:2052 bit: no LS3DF FUNCTION address for
+        // a standalone reader; cleared with JOINTF_JMAT_VALID on joint move.
+        assert_eq!(JOINTF_UNKNOWN_4, 0x4);
+        assert!(joint_unknown_4_set(JOINTF_UNKNOWN_4));
+        assert!(joint_unknown_4_set(JOINTF_UNKNOWN_4 | JOINTF_JMAT_VALID));
+        assert!(joint_unknown_4_set(u32::MAX));
+        assert!(!joint_unknown_4_set(0));
+        assert!(!joint_unknown_4_set(JOINTF_LOADED));
+        assert!(!joint_unknown_4_set(JOINTF_UNKNOWN_8));
+        assert!(!joint_unknown_4_set(0xfffffffb));
+    }
+
+    #[test]
+    fn joint_unknown_8_reader_reports_only_its_bit() {
+        // Working name for the I3D.h:2053 bit: no LS3DF FUNCTION address for
+        // a standalone reader; the reference records no role for the bit.
+        assert_eq!(JOINTF_UNKNOWN_8, 0x8);
+        assert!(joint_unknown_8_set(JOINTF_UNKNOWN_8));
+        assert!(joint_unknown_8_set(JOINTF_UNKNOWN_8 | JOINTF_JMAT_VALID));
+        assert!(joint_unknown_8_set(u32::MAX));
+        assert!(!joint_unknown_8_set(0));
+        assert!(!joint_unknown_8_set(JOINTF_LOADED));
+        assert!(!joint_unknown_8_set(JOINTF_UNKNOWN_4));
+        assert!(!joint_unknown_8_set(0xfffffff7));
+    }
     #[test]
     fn changed_only_invalidates_joint_while_update_requests_singlemesh_work() {
         for (frame_flags, flags, target) in [
