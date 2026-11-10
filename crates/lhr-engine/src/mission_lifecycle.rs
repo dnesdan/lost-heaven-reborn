@@ -356,6 +356,125 @@ impl MissionLifecycle {
     pub fn mission_number_word(&self) -> i32 {
         self.word(0x74) as i32
     }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:124`, `C_mission::anim_models` at
+    /// +0x14, `S_anim_model` entries): reads the staged animation-model
+    /// vector word. The native size is read inline at each loop bound with
+    /// no dedicated getter, so no RVA is claimed.
+    pub fn anim_models_word(&self) -> u32 {
+        self.word(0x14)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:129`, `C_mission::actors` at +0x34):
+    /// reads the staged actor vector word. The native size is read inline
+    /// at each loop bound with no dedicated getter, so no RVA is claimed.
+    pub fn actors_word(&self) -> u32 {
+        self.word(0x34)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:132`, `C_mission::not_me_actors` at
+    /// +0x44): reads the staged not-me actor vector word. The native size
+    /// is read inline with no dedicated getter, so no RVA is claimed.
+    pub fn not_me_actors_word(&self) -> u32 {
+        self.word(0x44)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:134`, `C_mission::programs` at
+    /// +0x54): reads the staged whole-game script vector word. The native
+    /// size is read inline at each loop bound with no dedicated getter, so
+    /// no RVA is claimed.
+    pub fn programs_word(&self) -> u32 {
+        self.word(0x54)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:153`, `C_mission::t_transparent` at
+    /// +0x80, `S_t_transparent` entries): reads the staged fade-object
+    /// vector word. The native size is read inline with no dedicated
+    /// getter, so no RVA is claimed.
+    pub fn t_transparent_word(&self) -> u32 {
+        self.word(0x80)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:155`, `C_mission::frame_actor_buffer`
+    /// at +0xac, `S_frame_actor_buffer` 0x10-byte entries): reads the staged
+    /// kept-between-missions vector word. The native size is read inline at
+    /// each loop bound with no dedicated getter, so no RVA is claimed.
+    pub fn frame_actor_buffer_word(&self) -> u32 {
+        self.word(0xac)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:156`, `C_mission::active_actors` at
+    /// +0xbc): reads the staged stay-in-game actor vector word. The native
+    /// size is read inline at each loop bound with no dedicated getter, so
+    /// no RVA is claimed.
+    pub fn active_actors_word(&self) -> u32 {
+        self.word(0xbc)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; raw word,
+    /// mafia-re `game/mission/Mission.h:157`, `C_mission::actor_sound_buffer`
+    /// at +0xcc, `S_actor_sound_buffer` 0xc-byte entries): reads the staged
+    /// kept actor-sound vector word. The native size is read inline at each
+    /// loop bound with no dedicated getter, so no RVA is claimed.
+    pub fn actor_sound_buffer_word(&self) -> u32 {
+        self.word(0xcc)
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:129`, `actors` at +0x34): whether an
+    /// actor vector word is staged. The native size is tested inline where
+    /// the actor registry consumes it, with no dedicated flag getter, so no
+    /// Game.exe function entry is claimed.
+    pub fn has_actors_staged(&self) -> bool {
+        self.word(0x34) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:132`, `not_me_actors` at +0x44):
+    /// whether a not-me actor vector word is staged. Inline native use
+    /// only, so no RVA is claimed.
+    pub fn has_not_me_actors_staged(&self) -> bool {
+        self.word(0x44) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:134`, `programs` at +0x54): whether
+    /// a whole-game script vector word is staged. Inline native use only,
+    /// so no RVA is claimed.
+    pub fn has_programs_staged(&self) -> bool {
+        self.word(0x54) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:153`, `t_transparent` at +0x80):
+    /// whether a fade-object vector word is staged. Inline native use only,
+    /// so no RVA is claimed.
+    pub fn has_t_transparent_staged(&self) -> bool {
+        self.word(0x80) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:156`, `active_actors` at +0xbc):
+    /// whether a stay-in-game actor vector word is staged. Inline native
+    /// use only, so no RVA is claimed.
+    pub fn has_active_actors_staged(&self) -> bool {
+        self.word(0xbc) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:157`, `actor_sound_buffer` at +0xcc):
+    /// whether a kept actor-sound vector word is staged. Inline native use
+    /// only, so no RVA is claimed.
+    pub fn has_actor_sound_buffer_staged(&self) -> bool {
+        self.word(0xcc) != 0
+    }
     pub fn pending_scene(&self) -> Option<SceneKey> {
         self.pending_scene
     }
@@ -2484,5 +2603,81 @@ mod tests {
         mission.reset_mission_numbers();
         assert_eq!(mission.next_mission_number_word(), 0);
         assert_eq!(mission.mission_number_word(), 0);
+    }
+
+    #[test]
+    fn mission_list_words_working_name_read_staged_vectors() {
+        // Working names: C_mission actors (+0x34), not_me_actors (+0x44),
+        // programs (+0x54) and t_transparent (+0x80) vector words
+        // (Mission.h:129,132,134,153); inline-only reads with no outline
+        // RVA claimed.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert_eq!(mission.actors_word(), 0);
+        assert_eq!(mission.not_me_actors_word(), 0);
+        assert_eq!(mission.programs_word(), 0);
+        assert_eq!(mission.t_transparent_word(), 0);
+        mission.put_word(0x34, 0x1111_1111);
+        mission.put_word(0x44, 0x2222_2222);
+        mission.put_word(0x54, 0x3333_3333);
+        mission.put_word(0x80, 0x4444_4444);
+        assert_eq!(mission.actors_word(), 0x1111_1111);
+        assert_eq!(mission.not_me_actors_word(), 0x2222_2222);
+        assert_eq!(mission.programs_word(), 0x3333_3333);
+        assert_eq!(mission.t_transparent_word(), 0x4444_4444);
+        assert_eq!(mission.actors_word(), mission.word(0x34));
+        assert_eq!(mission.programs_word(), mission.word(0x54));
+    }
+
+    #[test]
+    fn kept_buffer_words_working_name_read_staged_vectors() {
+        // Working names: C_mission anim_models (+0x14), frame_actor_buffer
+        // (+0xac), active_actors (+0xbc) and actor_sound_buffer (+0xcc)
+        // vector words (Mission.h:124,155-157); inline-only reads with no
+        // outline RVA claimed.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert_eq!(mission.anim_models_word(), 0);
+        assert_eq!(mission.frame_actor_buffer_word(), 0);
+        assert_eq!(mission.active_actors_word(), 0);
+        assert_eq!(mission.actor_sound_buffer_word(), 0);
+        mission.put_word(0x14, 0x5555_5555);
+        mission.put_word(0xac, 0x6666_6666);
+        mission.put_word(0xbc, 0x7777_7777);
+        mission.put_word(0xcc, 0x8888_8888);
+        assert_eq!(mission.anim_models_word(), 0x5555_5555);
+        assert_eq!(mission.frame_actor_buffer_word(), 0x6666_6666);
+        assert_eq!(mission.active_actors_word(), 0x7777_7777);
+        assert_eq!(mission.actor_sound_buffer_word(), 0x8888_8888);
+    }
+
+    #[test]
+    fn staged_list_presence_working_name_tracks_nonzero_words() {
+        // Working names: nonzero tests of the staged actor (+0x34), not-me
+        // (+0x44), program (+0x54), fade (+0x80), stay-in-game (+0xbc) and
+        // actor-sound (+0xcc) vector words; inline-only with no outline RVA
+        // claimed.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_actors_staged());
+        assert!(!mission.has_not_me_actors_staged());
+        assert!(!mission.has_programs_staged());
+        assert!(!mission.has_t_transparent_staged());
+        assert!(!mission.has_active_actors_staged());
+        assert!(!mission.has_actor_sound_buffer_staged());
+        mission.put_word(0x34, 1);
+        mission.put_word(0x44, 2);
+        mission.put_word(0x54, 3);
+        mission.put_word(0x80, 4);
+        mission.put_word(0xbc, 5);
+        mission.put_word(0xcc, 6);
+        assert!(mission.has_actors_staged());
+        assert!(mission.has_not_me_actors_staged());
+        assert!(mission.has_programs_staged());
+        assert!(mission.has_t_transparent_staged());
+        assert!(mission.has_active_actors_staged());
+        assert!(mission.has_actor_sound_buffer_staged());
+        mission.put_word(0x34, 0);
+        mission.put_word(0xcc, 0);
+        assert!(!mission.has_actors_staged());
+        assert!(mission.has_programs_staged());
+        assert!(!mission.has_actor_sound_buffer_staged());
     }
 }
