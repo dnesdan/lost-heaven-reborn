@@ -496,6 +496,15 @@ impl ObjectResources {
     pub fn object_lightness_of(&self, object: ObjectResourceKey) -> Result<f32, ObjectError> {
         Ok(self.object(object)?.lightness)
     }
+    /// Working name for the direct `transparency` member read on `I3D_object`
+    /// (mafia-re ls3df/I3D/I3D.h:2923 `float transparency` at +0x214, 1.0
+    /// opaque, written by `SetTransparency`). The original reads the public
+    /// member with no accessor, so no LS3DF FUNCTION address exists and none
+    /// is claimed. Reports the stored factor; same availability guard as
+    /// `object_lightness_of`.
+    pub fn object_transparency_of(&self, object: ObjectResourceKey) -> Result<f32, ObjectError> {
+        Ok(self.object(object)?.transparency)
+    }
     /// I3D_singlemesh and I3D_singlemorph inherit I3D_object mesh ownership.
     /// The graph separately owns joint binding, morph weights and CPU pose.
     pub fn create_singlemesh_resources(
@@ -1876,6 +1885,37 @@ mod tests {
         assert_eq!(r.object_lightness_of(object).unwrap(), 0.25);
         assert_eq!(
             r.object_lightness_of(foreign),
+            Err(ObjectError::ForeignArena)
+        );
+    }
+    #[test]
+    fn object_transparency_reader_reports_constructor_default_and_store() {
+        // Working name for the direct `transparency` member read on
+        // I3D_object (I3D.h:2923): the original reads the public member
+        // with no accessor, so no LS3DF FUNCTION address exists and none
+        // is claimed.
+        let mut r = ObjectResources::new().unwrap();
+        let mut b = Backend::default();
+        let bare = r.create_object_resources(None).unwrap();
+        assert_eq!(r.object_transparency_of(bare).unwrap(), 1.);
+        // Meshless objects are a setter no-op (native early return).
+        r.set_object_transparency(bare, 0.5).unwrap();
+        assert_eq!(r.object_transparency_of(bare).unwrap(), 1.);
+        let (mesh, _, _) = shared_mesh(&mut r, &mut b);
+        let object = r.create_object_resources(Some(mesh)).unwrap();
+        let first = r.create_plain_lod().unwrap();
+        r.adopt_plain_lod(object, 0, first).unwrap();
+        r.set_object_transparency(object, 0.5).unwrap();
+        assert_eq!(
+            r.object_transparency_of(object).unwrap().to_bits(),
+            0.5f32.to_bits()
+        );
+        let foreign = ObjectResources::new()
+            .unwrap()
+            .create_object_resources(None)
+            .unwrap();
+        assert_eq!(
+            r.object_transparency_of(foreign),
             Err(ObjectError::ForeignArena)
         );
     }

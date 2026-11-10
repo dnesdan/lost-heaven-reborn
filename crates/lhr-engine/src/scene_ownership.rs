@@ -1588,6 +1588,14 @@ impl ModelArena {
     pub fn scene_mirrors(&self, scene: SceneKey) -> Result<&[FrameKey], ModelError> {
         Ok(&self.scene(scene)?.mirrors)
     }
+    /// Working name for the owned-frame list at scene +0x22c
+    /// (mafia-re `ls3df/I3D/I3D.h:1569`). The reference records no LS3DF
+    /// FUNCTION address for a list getter: only `AddFrame` and
+    /// `DeleteFrame` have code addresses, both already ported. Borrows the
+    /// live list; no state moves.
+    pub fn scene_owned_frames(&self, scene: SceneKey) -> Result<&[FrameKey], ModelError> {
+        Ok(&self.scene(scene)?.frames)
+    }
     /// Working name for the tick-list capacity at scene +0x148
     /// (mafia-re `ls3df/I3D/I3D.h:1554`; grown by `AddTickFrame`,
     /// RVA 0x49f90, already ported). No LS3DF FUNCTION address exists
@@ -2078,6 +2086,22 @@ mod tests {
         assert!(arena.scene_owned_frame_count(bad).is_err());
         assert!(arena.scene_owned_capacity_of(bad).is_err());
         assert!(arena.scene_owned_growth_of(bad).is_err());
+    }
+    #[test]
+    fn scene_owned_frames_borrows_live_list_and_rejects_unknown_scene() {
+        // Working name for the +0x22c owned-frame list borrow
+        // (mafia-re ls3df/I3D/I3D.h:1569): no LS3DF FUNCTION address
+        // exists for a standalone list getter.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert!(arena.scene_owned_frames(scene).unwrap().is_empty());
+        let frame = arena
+            .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        arena.scene_add_frame(scene, frame).unwrap();
+        assert_eq!(arena.scene_owned_frames(scene).unwrap(), &[frame][..]);
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_owned_frames(bad).is_err());
     }
     #[test]
     fn scene_empty_vfunc_66_and_sector_head_read_ctor_state() {

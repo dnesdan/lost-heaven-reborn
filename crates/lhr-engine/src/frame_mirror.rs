@@ -175,6 +175,46 @@ pub const VISF_PROJECTOR: u32 = 0x0000_2000;
 pub fn visual_projector(visual_flags: u32) -> bool {
     visual_flags & VISF_PROJECTOR != 0
 }
+/// VISF_PROJECTOR_2 0x4000 (mafia-re ls3df/I3D/I3D.h:2700 at pin 113b5b6):
+/// projector mode 2 projectors fall on it.
+pub const VISF_PROJECTOR_2: u32 = 0x0000_4000;
+/// Working name for the VISF_PROJECTOR_2 bit test (mafia-re ls3df/I3D/I3D.h:2700).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the projector mode setters maintain it inline. Reports the second
+/// projector reception bit; no cache moves.
+pub fn visual_projector_2(visual_flags: u32) -> bool {
+    visual_flags & VISF_PROJECTOR_2 != 0
+}
+/// VISF_NO_FOG 0x8000 (mafia-re ls3df/I3D/I3D.h:2701 at pin 113b5b6):
+/// never fogged.
+pub const VISF_NO_FOG: u32 = 0x0000_8000;
+/// Working name for the VISF_NO_FOG bit test (mafia-re ls3df/I3D/I3D.h:2701).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only consumed inline by the sorted draw pass. Reports the fog
+/// exemption; no cache moves.
+pub fn visual_no_fog(visual_flags: u32) -> bool {
+    visual_flags & VISF_NO_FOG != 0
+}
+/// VISF_PROXY 0x10000 (mafia-re ls3df/I3D/I3D.h:2702 at pin 113b5b6):
+/// renders the face groups of the visual in m_UserData.
+pub const VISF_PROXY: u32 = 0x0001_0000;
+/// Working name for the VISF_PROXY bit test (mafia-re ls3df/I3D/I3D.h:2702).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the face-group queue arms test it inline. Reports proxy rendering; no
+/// cache moves.
+pub fn visual_proxy(visual_flags: u32) -> bool {
+    visual_flags & VISF_PROXY != 0
+}
+/// VISF_LOD_CHANGED 0x2000000 (mafia-re ls3df/I3D/I3D.h:2707 at pin 113b5b6):
+/// GetObjectLOD changed a VISF_TEXTURE_LOD visual's level.
+pub const VISF_LOD_CHANGED: u32 = 0x0200_0000;
+/// Working name for the VISF_LOD_CHANGED bit test (mafia-re ls3df/I3D/I3D.h:2707).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// only the object level-of-detail selection sets it. Reports the level
+/// change; no cache moves.
+pub fn visual_lod_changed(visual_flags: u32) -> bool {
+    visual_flags & VISF_LOD_CHANGED != 0
+}
 pub const MIRROR_UPDATE_CLEAR_MASK: u32 = 0x001c_0000;
 pub const MIRROR_DIRTY_TEST: u32 = 0x4000_2000;
 /// Evidenced ctor stores: 'MIRR' at +0x1d4, 100.0f at +0x2d8, residue at +0x1f0.
@@ -1876,6 +1916,46 @@ mod tests {
         assert!(!visual_projector(0));
         assert!(!visual_projector(VISF_COL_OPTIONAL));
         assert!(!visual_projector(u32::MAX & !VISF_PROJECTOR));
+    }
+    #[test]
+    fn visual_projector_2_reports_only_bit_fourteen() {
+        // Working name for VISF_PROJECTOR_2 (I3D.h:2700): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_PROJECTOR_2, 0x0000_4000);
+        assert!(visual_projector_2(VISF_PROJECTOR_2));
+        assert!(visual_projector_2(u32::MAX));
+        assert!(!visual_projector_2(0));
+        assert!(!visual_projector_2(VISF_PROJECTOR));
+        assert!(!visual_projector_2(u32::MAX & !VISF_PROJECTOR_2));
+    }
+    #[test]
+    fn visual_no_fog_reports_only_bit_fifteen() {
+        // Working name for VISF_NO_FOG (I3D.h:2701): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_NO_FOG, 0x0000_8000);
+        assert!(visual_no_fog(VISF_NO_FOG));
+        assert!(visual_no_fog(u32::MAX));
+        assert!(!visual_no_fog(0));
+        assert!(!visual_no_fog(VISF_PROJECTOR_2));
+        assert!(!visual_no_fog(u32::MAX & !VISF_NO_FOG));
+    }
+    #[test]
+    fn visual_proxy_reports_only_bit_sixteen() {
+        // Working name for VISF_PROXY (I3D.h:2702): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_PROXY, 0x0001_0000);
+        assert!(visual_proxy(VISF_PROXY));
+        assert!(visual_proxy(u32::MAX));
+        assert!(!visual_proxy(0));
+        assert!(!visual_proxy(VISF_NO_FOG));
+        assert!(!visual_proxy(u32::MAX & !VISF_PROXY));
+    }
+    #[test]
+    fn visual_lod_changed_reports_only_bit_twenty_five() {
+        // Working name for VISF_LOD_CHANGED (I3D.h:2707): no LS3DF FUNCTION entry.
+        assert_eq!(VISF_LOD_CHANGED, 0x0200_0000);
+        assert!(visual_lod_changed(VISF_LOD_CHANGED));
+        assert!(visual_lod_changed(u32::MAX));
+        assert!(!visual_lod_changed(0));
+        assert!(!visual_lod_changed(VISF_TEXTURE_LOD));
+        assert!(!visual_lod_changed(u32::MAX & !VISF_LOD_CHANGED));
     }
 
     #[test]

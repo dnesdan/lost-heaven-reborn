@@ -98,6 +98,67 @@ impl LightCrtRandom {
 pub(crate) fn light_is_fog_kind(kind: u32) -> bool {
     matches!(kind, 5..=7)
 }
+/// I3DLIGHTMODE_VERTEX 0x1 (mafia-re ls3df/I3D/I3D.h:1893 at pin 113b5b6):
+/// vertex lighting arm.
+pub const LIGHTMODE_VERTEX: u32 = 0x1;
+/// Working name for the I3DLIGHTMODE_VERTEX bit test (mafia-re
+/// ls3df/I3D/I3D.h:1893). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; the lighting arms test the mode word inline.
+/// Reports vertex lighting; no cache moves.
+pub fn light_vertex_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_VERTEX != 0
+}
+/// I3DLIGHTMODE_LIGHTMAP 0x2 (mafia-re ls3df/I3D/I3D.h:1894 at pin 113b5b6):
+/// lightmap arm.
+pub const LIGHTMODE_LIGHTMAP: u32 = 0x2;
+/// Working name for the I3DLIGHTMODE_LIGHTMAP bit test (mafia-re
+/// ls3df/I3D/I3D.h:1894). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; the lighting arms test the mode word inline.
+/// Reports lightmap lighting; no cache moves.
+pub fn light_lightmap_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_LIGHTMAP != 0
+}
+/// I3DLIGHTMODE_DYNAMIC_SHADOW 0x8 (mafia-re ls3df/I3D/I3D.h:1895 at pin
+/// 113b5b6): the shadows take the light.
+pub const LIGHTMODE_DYNAMIC_SHADOW: u32 = 0x8;
+/// Working name for the I3DLIGHTMODE_DYNAMIC_SHADOW bit test (mafia-re
+/// ls3df/I3D/I3D.h:1895). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; the shadow arms test the mode word inline.
+/// Reports shadow participation; no cache moves.
+pub fn light_dynamic_shadow_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_DYNAMIC_SHADOW != 0
+}
+/// I3DLIGHTMODE_DYNAMIC_LM 0x10 (mafia-re ls3df/I3D/I3D.h:1896 at pin
+/// 113b5b6): lights the lit objects' lightmapped levels per vertex, over
+/// their lightmaps.
+pub const LIGHTMODE_DYNAMIC_LM: u32 = 0x10;
+/// Working name for the I3DLIGHTMODE_DYNAMIC_LM bit test (mafia-re
+/// ls3df/I3D/I3D.h:1896). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; the lit-object arms test the mode word inline.
+/// Reports per-vertex lit lighting; no cache moves.
+pub fn light_dynamic_lm_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_DYNAMIC_LM != 0
+}
+/// I3DLIGHTMODE_SHADOW 0x20 (mafia-re ls3df/I3D/I3D.h:1899 at pin 113b5b6):
+/// the lightmaps test rays to the light.
+pub const LIGHTMODE_SHADOW: u32 = 0x20;
+/// Working name for the I3DLIGHTMODE_SHADOW bit test (mafia-re
+/// ls3df/I3D/I3D.h:1899). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; the lightmap ray arms test the mode word
+/// inline. Reports ray-tested shadows; no cache moves.
+pub fn light_shadow_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_SHADOW != 0
+}
+/// I3DLIGHTMODE_LIGHTNESS 0x40 (mafia-re ls3df/I3D/I3D.h:1900 at pin
+/// 113b5b6): taken by I3D_scene::GetLightness.
+pub const LIGHTMODE_LIGHTNESS: u32 = 0x40;
+/// Working name for the I3DLIGHTMODE_LIGHTNESS bit test (mafia-re
+/// ls3df/I3D/I3D.h:1900). The reference records no LS3DF FUNCTION address
+/// for a standalone reader; GetLightness consumes the mode word inline.
+/// Reports lightness sampling; no cache moves.
+pub fn light_lightness_mode(mode: u32) -> bool {
+    mode & LIGHTMODE_LIGHTNESS != 0
+}
 fn numeric(_: crate::native_matrix::MatrixArithmeticUnavailable) -> FrameError {
     FrameError::NumericDomain("Light")
 }
@@ -757,6 +818,78 @@ mod tests {
         assert_eq!(arena.light_mode_of(key).unwrap(), 0xff6b);
         arena.graph.set_light_mode(key, 0x21).unwrap();
         assert_eq!(arena.light_mode_of(key).unwrap(), 0x21);
+    }
+    #[test]
+    fn light_vertex_mode_reports_only_bit_zero() {
+        // Working name for I3DLIGHTMODE_VERTEX (I3D.h:1893): no LS3DF
+        // FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_VERTEX, 0x1);
+        assert!(light_vertex_mode(LIGHTMODE_VERTEX));
+        assert!(light_vertex_mode(u32::MAX));
+        assert!(!light_vertex_mode(0));
+        assert!(!light_vertex_mode(LIGHTMODE_LIGHTMAP));
+        assert!(!light_vertex_mode(u32::MAX & !LIGHTMODE_VERTEX));
+        assert!(light_vertex_mode(0xff6b));
+    }
+    #[test]
+    fn light_lightmap_mode_reports_only_bit_one() {
+        // Working name for I3DLIGHTMODE_LIGHTMAP (I3D.h:1894): no LS3DF
+        // FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_LIGHTMAP, 0x2);
+        assert!(light_lightmap_mode(LIGHTMODE_LIGHTMAP));
+        assert!(light_lightmap_mode(u32::MAX));
+        assert!(!light_lightmap_mode(0));
+        assert!(!light_lightmap_mode(LIGHTMODE_VERTEX));
+        assert!(!light_lightmap_mode(u32::MAX & !LIGHTMODE_LIGHTMAP));
+        assert!(light_lightmap_mode(0xff6b));
+    }
+    #[test]
+    fn light_dynamic_shadow_mode_reports_only_bit_three() {
+        // Working name for I3DLIGHTMODE_DYNAMIC_SHADOW (I3D.h:1895): no
+        // LS3DF FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_DYNAMIC_SHADOW, 0x8);
+        assert!(light_dynamic_shadow_mode(LIGHTMODE_DYNAMIC_SHADOW));
+        assert!(light_dynamic_shadow_mode(u32::MAX));
+        assert!(!light_dynamic_shadow_mode(0));
+        assert!(!light_dynamic_shadow_mode(LIGHTMODE_LIGHTMAP));
+        assert!(!light_dynamic_shadow_mode(u32::MAX & !LIGHTMODE_DYNAMIC_SHADOW));
+        assert!(light_dynamic_shadow_mode(0xff6b));
+    }
+    #[test]
+    fn light_dynamic_lm_mode_reports_only_bit_four() {
+        // Working name for I3DLIGHTMODE_DYNAMIC_LM (I3D.h:1896): no LS3DF
+        // FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_DYNAMIC_LM, 0x10);
+        assert!(light_dynamic_lm_mode(LIGHTMODE_DYNAMIC_LM));
+        assert!(light_dynamic_lm_mode(u32::MAX));
+        assert!(!light_dynamic_lm_mode(0));
+        assert!(!light_dynamic_lm_mode(LIGHTMODE_DYNAMIC_SHADOW));
+        assert!(!light_dynamic_lm_mode(u32::MAX & !LIGHTMODE_DYNAMIC_LM));
+        assert!(!light_dynamic_lm_mode(0xff6b));
+    }
+    #[test]
+    fn light_shadow_mode_reports_only_bit_five() {
+        // Working name for I3DLIGHTMODE_SHADOW (I3D.h:1899): no LS3DF
+        // FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_SHADOW, 0x20);
+        assert!(light_shadow_mode(LIGHTMODE_SHADOW));
+        assert!(light_shadow_mode(u32::MAX));
+        assert!(!light_shadow_mode(0));
+        assert!(!light_shadow_mode(LIGHTMODE_DYNAMIC_LM));
+        assert!(!light_shadow_mode(u32::MAX & !LIGHTMODE_SHADOW));
+        assert!(light_shadow_mode(0xff6b));
+    }
+    #[test]
+    fn light_lightness_mode_reports_only_bit_six() {
+        // Working name for I3DLIGHTMODE_LIGHTNESS (I3D.h:1900): no LS3DF
+        // FUNCTION entry exists for a standalone reader.
+        assert_eq!(LIGHTMODE_LIGHTNESS, 0x40);
+        assert!(light_lightness_mode(LIGHTMODE_LIGHTNESS));
+        assert!(light_lightness_mode(u32::MAX));
+        assert!(!light_lightness_mode(0));
+        assert!(!light_lightness_mode(LIGHTMODE_SHADOW));
+        assert!(!light_lightness_mode(u32::MAX & !LIGHTMODE_LIGHTNESS));
+        assert!(light_lightness_mode(0xff6b));
     }
     #[test]
     fn light_diffuse_reader_reports_constructor_default_then_setter_store() {
