@@ -1264,8 +1264,11 @@ fn program_set_event_via_world_sets_jump_and_act_state() {
     prog.set_source_code(Some(b"event 60001\nlabel after"), &mut prog_mem)
         .unwrap();
     // Minimal runtime backend for init
-    struct RuntimeMem;
+    struct RuntimeMem(crate::game_housekeeping::GameClock);
     impl crate::original_program::RuntimeBackend for RuntimeMem {
+        fn game_clock(&self) -> Option<crate::game_housekeeping::GameClockSource> {
+            Some(self.0.reader())
+        }
         fn effect(
             &mut self,
             _: crate::original_program::RuntimeView<'_>,
@@ -1275,7 +1278,7 @@ fn program_set_event_via_world_sets_jump_and_act_state() {
             Ok(())
         }
     }
-    let mut rt_mem = RuntimeMem;
+    let mut rt_mem = RuntimeMem(crate::game_housekeeping::GameClock::default());
     prog.init_fresh_runtime(&mut rt_mem).unwrap();
     world.return_entity_program(actor, Some(prog)).unwrap();
     assert_eq!(world.state(actor).unwrap().state_1c, 5);

@@ -27,6 +27,9 @@ pub enum SessionActorProgramError {
 }
 
 impl RuntimeBackend for SessionProgramEffects<'_> {
+    fn game_clock(&self) -> Option<crate::game_housekeeping::GameClockSource> {
+        Some(self.game.game_clock())
+    }
     fn effect(
         &mut self,
         _fields: RuntimeView<'_>,
@@ -108,6 +111,16 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
 }
 
 impl MissionLoadSession {
+    /// Explicit host clock step, once per caller-selected game tick, never per
+    /// program or actor pass. This does not implement native Game scheduling.
+    pub fn advance_owned_game_time(&mut self, delta: u32) -> Result<i32, SessionActorProgramError> {
+        self.global_program_source_admission()
+            .map_err(SessionActorProgramError::SourceUnavailable)?;
+        let time = self.game_inline.get_game_time().wrapping_add(delta as i32);
+        self.game_inline.set_game_time(time);
+        Ok(time)
+    }
+
     /// Read the authoritative represented game fields. This is a borrow, not
     /// an inspector copy used as a replacement gameplay owner.
     pub fn game_state(&self) -> &GameInlineState {

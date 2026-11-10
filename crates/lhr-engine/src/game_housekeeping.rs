@@ -22,6 +22,10 @@
 //! - `SaveGame*` (GAME region near `game.h:612`) needs the save-game owner.
 #![forbid(unsafe_code)]
 
+#[path = "game_clock.rs"]
+mod game_clock;
+pub use game_clock::{GameClock, GameClockSource};
+
 /// Opaque frame handle. Native `I3D_frame*` identity is the caller's concern.
 pub type FrameId = u32;
 
@@ -745,7 +749,7 @@ pub const RACE6_STATE_END: i32 = 10;
 pub struct GameInlineState {
     player: Option<ActorId>,
     clear_diff_data: bool,
-    game_time: i32,
+    game_time: GameClock,
     init_frames: u32,
     timeout_program: u32,
     timeout_event: i32,
@@ -817,13 +821,18 @@ impl GameInlineState {
     /// FUNCTION: GAME 0x47b560 (RVA 0x7b560, VA 0x47b560; `game.h:868-873`,
     /// `C_game::GetGameTime`): reads the game's time.
     pub fn get_game_time(&self) -> i32 {
-        self.game_time
+        self.game_time.get()
     }
 
     /// Staging for [`GameInlineState::get_game_time`]; the `Tick` advance
     /// itself stays with the game-tick owner.
     pub fn set_game_time(&mut self, game_time: i32) {
-        self.game_time = game_time;
+        self.game_time.set(game_time);
+    }
+
+    /// Non-owning live clock source for programs retained by this game.
+    pub fn game_clock(&self) -> GameClockSource {
+        self.game_time.reader()
     }
 
     /// FUNCTION: GAME 0x47b570 (RVA 0x7b570, VA 0x47b570; `game.h:874-878`,

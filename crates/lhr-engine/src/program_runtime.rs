@@ -28,6 +28,7 @@
 //! outside admission. Explicit host discard releases actual Rust allocations;
 //! it is additional cleanup, not original Done or a mission completion result.
 use super::*;
+use crate::game_housekeeping::GameClockSource;
 #[path = "program_runtime_lookup.rs"]
 mod lookup;
 pub use lookup::{LookupRuntimeBackend, RuntimeLookupWorld};
@@ -127,6 +128,12 @@ pub use remaining_parameters::{
     RemainingParameter, RemainingParameterBackend, RemainingParameterSlot, REMAINING_OPCODE_IDS,
 };
 
+fn read_game_clock(clock: &Option<GameClockSource>) -> Result<u32, RuntimeError> {
+    clock.as_ref().and_then(GameClockSource::read)
+        .map(|time| time as u32)
+        .ok_or(RuntimeError::Domain("game clock owner unavailable"))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeStage {
     Initializing,
@@ -184,7 +191,7 @@ pub struct RuntimeFields {
     pub command_time: u32,
     pub event_command_time: u32,
     pub event_time: u32,
-    pub game_time: u32,
+    game_clock: Option<GameClockSource>,
     pub rand_state: u32,
 }
 impl RuntimeFields {
@@ -455,7 +462,7 @@ impl RuntimeFields {
             command_time: 0,
             event_command_time: 0,
             event_time: 0,
-            game_time: 0,
+            game_clock: None,
             // The C runtime seeds rand() from the host clock at GameInit;
             // that lifecycle is not implemented, so scripts observe the CRT
             // default sequence deterministically instead of host time.
@@ -1009,7 +1016,6 @@ pub struct RuntimeView<'a> {
     pub command_time: &'a mut u32,
     pub event_command_time: &'a mut u32,
     pub event_time: &'a mut u32,
-    pub game_time: &'a mut u32,
     pub rand_state: &'a mut u32,
 }
 impl RuntimeFields {
@@ -1030,12 +1036,14 @@ impl RuntimeFields {
             command_time: &mut self.command_time,
             event_command_time: &mut self.event_command_time,
             event_time: &mut self.event_time,
-            game_time: &mut self.game_time,
             rand_state: &mut self.rand_state,
         }
     }
 }
 pub trait RuntimeBackend {
+    /// Bind a live game clock at Init. Allocation-only backends may omit it;
+    /// reached time operations refuse rather than invent program-local time.
+    fn game_clock(&self) -> Option<GameClockSource> { None }
     fn effect(
         &mut self,
         fields: RuntimeView<'_>,
@@ -2087,12 +2095,15 @@ impl CProgram {
     /// an existing event, then jump and set the event times and actor state.
     /// Returns the outcome for the caller and world to act on. This handles
     /// the program-owned stack and times only; the caller's world handles the
-    /// actor SetActState and any global game time snapshot.
+    /// actor SetActState. Time is read live at the original store boundary.
     pub fn try_set_event(&mut self, event_id: i32) -> Result<SetEventOutcome, String> {
         let runtime = match &mut self.runtime {
             Some(runtime) => runtime,
             None => return Ok(SetEventOutcome::NoEvent),
         };
+        if runtime.stage != RuntimeStage::Ready {
+            return Err("runtime not ready for event".into());
+        }
         // Search for the last EVENT with that id (reverse search, first hit
         // from the end wins, matching the native while(i--) scan).
         let mut found: Option<usize> = None;
@@ -2129,7 +2140,14 @@ impl CProgram {
         runtime.fields.gosub_stack.push(cur | 0x8000 | 0x4000);
         runtime.fields.scheduler.program_counter = found as u32;
         runtime.fields.event_command_time = runtime.fields.command_time;
-        runtime.fields.event_time = runtime.fields.game_time;
+        runtime.fields.event_time = match read_game_clock(&runtime.fields.game_clock) {
+            Ok(time) => time,
+            Err(error) => {
+                // Keep the reached stack/PC/time stores; never replay them.
+                runtime.stage = RuntimeStage::ProcessInterrupted;
+                return Err(format!("{error:?}"));
+            }
+        };
         runtime.fields.command_time = 0;
         // The native SetActState(ACTSTATE_0) on the program's actor is
         // handled by the world after this call (the program owns no actor
@@ -2168,6 +2186,7 @@ impl CProgram {
         }
         self.runtime_started = true;
         self.runtime = Some(ProgramRuntime::fresh());
+        self.runtime.as_mut().unwrap().fields.game_clock = backend.game_clock();
         let runtime = self.runtime.as_mut().unwrap();
         let Some(source) = self.source.as_ref() else {
             runtime.fields.command_budget_bits = 0;
@@ -2301,7 +2320,7 @@ impl CProgram {
             command_time,
             event_command_time,
             event_time,
-            game_time,
+            game_clock,
             rand_state,
         } = &mut runtime.fields;
         let mut dispatch = Process {
@@ -2323,7 +2342,7 @@ impl CProgram {
             command_time,
             event_command_time,
             event_time,
-            game_time,
+            game_clock,
             rand_state,
             backend,
         };
@@ -2743,7 +2762,7 @@ struct Process<'a, B> {
     command_time: &'a mut u32,
     event_command_time: &'a mut u32,
     event_time: &'a mut u32,
-    game_time: &'a mut u32,
+    game_clock: &'a Option<GameClockSource>,
     rand_state: &'a mut u32,
     backend: &'a mut B,
 }
@@ -3285,7 +3304,6 @@ impl<B: RuntimeBackend> Process<'_, B> {
                 command_time: self.command_time,
                 event_command_time: self.event_command_time,
                 event_time: self.event_time,
-                game_time: self.game_time,
                 rand_state: self.rand_state,
             },
             effect,
@@ -3601,7 +3619,6 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
     fn dispatch(&mut self, state: &mut ResetState, delta: i32) -> Result<(), RuntimeError> {
         *self.elapsed = self.elapsed.wrapping_add(delta as u32);
         *self.command_time = self.command_time.wrapping_add(delta as u32);
-        *self.game_time = self.game_time.wrapping_add(delta as u32);
         let opcode = self.instructions.active()[state.program_counter as usize].opcode;
         let mut advance = Advance::Next;
         match opcode {
@@ -3766,7 +3783,7 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     if is_event && back_in_time && !self.leave_compact_block(state, false) {
                         *self.command_time = self
                             .event_command_time
-                            .wrapping_add(self.game_time.wrapping_sub(*self.event_time));
+                            .wrapping_add(read_game_clock(self.game_clock)?.wrapping_sub(*self.event_time));
                     }
                     if self.flags.stop_at_return {
                         self.flags.stop_at_return = false;
@@ -4237,7 +4254,7 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 if reg >= 0 {
                     if let Some(bank) = self.floats.as_mut() {
                         if let Some(slot) = bank.get_mut(reg as usize) {
-                            *slot = *self.game_time as f32;
+                            *slot = (read_game_clock(self.game_clock)? as i32) as f32;
                         }
                     }
                 }
