@@ -16015,6 +16015,132 @@
       "symbol": "lhr_engine::frame_transform::frame_tick_noop",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xc31e0",
+      "va": "0x4c31e0",
+      "name": "C_Vehicle::Deactivate",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_deactivate_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcb7e0",
+      "va": "0x4cb7e0",
+      "name": "C_Vehicle::ExternalImpuls",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_external_impuls_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xce960",
+      "va": "0x4ce960",
+      "name": "C_Vehicle::CalmVehicle",
+      "symbol": "lhr_engine::vehicle_small_accessors::vehicle_calm_vehicle_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x21d60",
+      "va": "0x421d60",
+      "name": "C_car::CarExplosion",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_explosion_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x22ad0",
+      "va": "0x422ad0",
+      "name": "C_car::DeactivateCar",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_deactivate_car_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x22be0",
+      "va": "0x422be0",
+      "name": "C_car::Reset",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_reset_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x22ee0",
+      "va": "0x422ee0",
+      "name": "C_car::ResetCar",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_reset_car_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x248e0",
+      "va": "0x4248e0",
+      "name": "C_car::IsPossibleColl",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_is_possible_coll_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x29e70",
+      "va": "0x429e70",
+      "name": "C_car::PrepareCarToShow",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_prepare_car_to_show_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2ba70",
+      "va": "0x42ba70",
+      "name": "C_car::OdjebajTuStrechu",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_odjebaj_tu_strechu_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2bbd0",
+      "va": "0x42bbd0",
+      "name": "C_car::SaveGameGetSize",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_save_game_get_size_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2bbf0",
+      "va": "0x42bbf0",
+      "name": "C_car::SaveGameSave",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_save_game_save_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2c7d0",
+      "va": "0x42c7d0",
+      "name": "C_car::PlaceAtTime",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_place_at_time_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x2cad0",
+      "va": "0x42cad0",
+      "name": "C_car::GetRecordPos",
+      "symbol": "lhr_engine::vehicle_small_accessors::car_get_record_pos_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

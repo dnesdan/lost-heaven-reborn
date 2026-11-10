@@ -432,7 +432,7 @@ class RewriteProgressTests(unittest.TestCase):
         # +14 program register contracts (Get/SetFloat/Frame/ActorReg,
         # InvalidateActorReg/IsEventID/SetAIPriority/STUBs x5;
         # owned_runtime symbols shortened per validator module rules).
-        self.assertEqual(game["ported"], 149 + 838)
+        self.assertEqual(game["ported"], 149 + 852)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

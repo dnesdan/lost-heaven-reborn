@@ -531,6 +531,34 @@ pub const CAR_ADD_TO_CUTSCENE_ENTRY: u32 = 0x42c7b0;
 /// `C_car::GetInvModelMatrix` 0x4293e0: inverse model matrix, cached or
 /// refreshed from the model frame.
 pub const CAR_GET_INV_MODEL_MATRIX_ENTRY: u32 = 0x4293e0;
+/// `C_Vehicle::Deactivate` 0x4c31e0: deactivates the vehicle with flags.
+pub const VEHICLE_DEACTIVATE_ENTRY: u32 = 0x4c31e0;
+/// `C_Vehicle::ExternalImpuls` 0x4cb7e0: impulse push at a position.
+pub const VEHICLE_EXTERNAL_IMPULS_ENTRY: u32 = 0x4cb7e0;
+/// `C_Vehicle::CalmVehicle` 0x4ce960: settles the vehicle.
+pub const VEHICLE_CALM_VEHICLE_ENTRY: u32 = 0x4ce960;
+/// `C_car::CarExplosion` 0x421d60: blows the car up.
+pub const CAR_EXPLOSION_ENTRY: u32 = 0x421d60;
+/// `C_car::DeactivateCar` 0x422ad0: takes the car out of the game.
+pub const CAR_DEACTIVATE_CAR_ENTRY: u32 = 0x422ad0;
+/// `C_car::Reset` 0x422be0: resets the car.
+pub const CAR_RESET_ENTRY: u32 = 0x422be0;
+/// `C_car::ResetCar` 0x422ee0: resets the car after scripts.
+pub const CAR_RESET_CAR_ENTRY: u32 = 0x422ee0;
+/// `C_car::IsPossibleColl` 0x4248e0: collision query, base-delegating.
+pub const CAR_IS_POSSIBLE_COLL_ENTRY: u32 = 0x4248e0;
+/// `C_car::PrepareCarToShow` 0x429e70: readies a model for the encyclopedia.
+pub const CAR_PREPARE_CAR_TO_SHOW_ENTRY: u32 = 0x429e70;
+/// `C_car::OdjebajTuStrechu` 0x42ba70: takes the roof off or puts it back.
+pub const CAR_ODJEBAJ_TU_STRECHU_ENTRY: u32 = 0x42ba70;
+/// `C_car::SaveGameGetSize` 0x42bbd0: savegame size, base-delegating.
+pub const CAR_SAVE_GAME_GET_SIZE_ENTRY: u32 = 0x42bbd0;
+/// `C_car::SaveGameSave` 0x42bbf0: savegame save, base-delegating.
+pub const CAR_SAVE_GAME_SAVE_ENTRY: u32 = 0x42bbf0;
+/// `C_car::PlaceAtTime` 0x42c7d0: cutscene placement, base-delegating.
+pub const CAR_PLACE_AT_TIME_ENTRY: u32 = 0x42c7d0;
+/// `C_car::GetRecordPos` 0x42cad0: cutscene record position, base-delegating.
+pub const CAR_GET_RECORD_POS_ENTRY: u32 = 0x42cad0;
 
 /// RVA 0x1d810, VA 0x41d810 (`C_car::SetOwner`,
 /// mafia-re 113b5b6 `game/vehicles/C_car.cpp:318-323`).
@@ -844,6 +872,172 @@ pub fn car_get_inv_model_matrix(
     } else {
         Ok(stored_inv)
     }
+}
+
+/// RVA 0xc31e0, VA 0x4c31e0 (`C_Vehicle::Deactivate`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:34-38`).
+/// STUB: deactivates the vehicle with `flags`. The actor/scene owners stay
+/// outside this contract, so the boundary is explicit.
+pub fn vehicle_deactivate_unsupported(_flags: u32) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: VEHICLE_DEACTIVATE_ENTRY,
+    })
+}
+
+/// RVA 0xcb7e0, VA 0x4cb7e0 (`C_Vehicle::ExternalImpuls`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:158-162`).
+/// STUB: pushes the vehicle with `impuls` at `pos`. The dynamics/collision
+/// owners stay outside this contract, so the boundary is explicit.
+pub fn vehicle_external_impuls_unsupported(
+    _impuls: [f32; 3],
+    _pos: [f32; 3],
+    _flags: u32,
+    _unknown: [f32; 3],
+) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: VEHICLE_EXTERNAL_IMPULS_ENTRY,
+    })
+}
+
+/// RVA 0xce960, VA 0x4ce960 (`C_Vehicle::CalmVehicle`,
+/// mafia-re 113b5b6 `game/vehicles/C_Vehicle.cpp:260-264`).
+/// STUB: settles the vehicle at game start. The dynamics owner stays outside
+/// this contract, so the boundary is explicit.
+pub fn vehicle_calm_vehicle_unsupported(_time: u32) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: VEHICLE_CALM_VEHICLE_ENTRY,
+    })
+}
+
+/// RVA 0x21d60, VA 0x421d60 (`C_car::CarExplosion`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:372-377`).
+/// STUB: blows the car up. The explosion/particle/sound owners stay outside
+/// this contract, so the boundary is explicit; the native `bool` answer is
+/// preserved in the return type.
+pub fn car_explosion_unsupported(_unknown: u32) -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_EXPLOSION_ENTRY,
+    })
+}
+
+/// RVA 0x22ad0, VA 0x422ad0 (`C_car::DeactivateCar`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:379-383`).
+/// STUB: takes the car out of the game. The mission/actor owners stay outside
+/// this contract, so the boundary is explicit.
+pub fn car_deactivate_car_unsupported(_unknown: u32) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_DEACTIVATE_CAR_ENTRY,
+    })
+}
+
+/// RVA 0x22be0, VA 0x422be0 (`C_car::Reset`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:385-389`).
+/// STUB: resets the car. The frame/collision owners stay outside this
+/// contract, so the boundary is explicit.
+pub fn car_reset_unsupported(
+    _unknown: f32,
+    _unknown2: bool,
+) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_RESET_ENTRY,
+    })
+}
+
+/// RVA 0x22ee0, VA 0x422ee0 (`C_car::ResetCar`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:391-395`).
+/// STUB: resets the car after scripts. The frame/collision owners stay
+/// outside this contract, so the boundary is explicit.
+pub fn car_reset_car_unsupported() -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_RESET_CAR_ENTRY,
+    })
+}
+
+/// RVA 0x248e0, VA 0x4248e0 (`C_car::IsPossibleColl`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:572-577`).
+/// STUB: logs and runs the `C_actor` base collision query, returning its
+/// answer. The actor/vector and collision owners stay outside this contract,
+/// so the boundary is explicit; the native `bool` answer is preserved in the
+/// return type. Opaque `actor` identity is never dereferenced.
+pub fn car_is_possible_coll_unsupported(
+    _actor: u32,
+    _v1: [f32; 3],
+    _v2: [f32; 3],
+    _radius: f32,
+) -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_IS_POSSIBLE_COLL_ENTRY,
+    })
+}
+
+/// RVA 0x29e70, VA 0x429e70 (`C_car::PrepareCarToShow`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:607-611`).
+/// STUB: readies `model` (opaque identity, never dereferenced) for the car
+/// encyclopedia. The model/light/wheel owners stay outside this contract, so
+/// the boundary is explicit.
+pub fn car_prepare_car_to_show_unsupported(_model: u32) -> Result<(), VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_PREPARE_CAR_TO_SHOW_ENTRY,
+    })
+}
+
+/// RVA 0x2ba70, VA 0x42ba70 (`C_car::OdjebajTuStrechu`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:613-618`).
+/// STUB: takes the roof of `model` (opaque identity, never dereferenced) off
+/// or puts it back. The model/frame owners stay outside this contract, so the
+/// boundary is explicit; the native `bool` answer is preserved in the return
+/// type.
+pub fn car_odjebaj_tu_strechu_unsupported(
+    _model: u32,
+    _off: bool,
+) -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_ODJEBAJ_TU_STRECHU_ENTRY,
+    })
+}
+
+/// RVA 0x2bbd0, VA 0x42bbd0 (`C_car::SaveGameGetSize`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:620-625`).
+/// STUB: logs and runs the `C_actor` base size query, returning its answer.
+/// The chunk owner stays outside this contract, so the boundary is explicit;
+/// the native `int` answer is preserved in the return type.
+pub fn car_save_game_get_size_unsupported() -> Result<i32, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_SAVE_GAME_GET_SIZE_ENTRY,
+    })
+}
+
+/// RVA 0x2bbf0, VA 0x42bbf0 (`C_car::SaveGameSave`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:627-632`).
+/// STUB: logs and runs the `C_actor` base savegame save, returning its
+/// answer. The chunk owner stays outside this contract, so the boundary is
+/// explicit; the native `bool` answer is preserved in the return type.
+pub fn car_save_game_save_unsupported() -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_SAVE_GAME_SAVE_ENTRY,
+    })
+}
+
+/// RVA 0x2c7d0, VA 0x42c7d0 (`C_car::PlaceAtTime`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:669-674`).
+/// STUB: logs and runs the `C_actor` base cutscene placement, returning its
+/// answer. The record owner stays outside this contract, so the boundary is
+/// explicit; the native `bool` answer is preserved in the return type.
+pub fn car_place_at_time_unsupported(_time: i32) -> Result<bool, VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_PLACE_AT_TIME_ENTRY,
+    })
+}
+
+/// RVA 0x2cad0, VA 0x42cad0 (`C_car::GetRecordPos`,
+/// mafia-re 113b5b6 `game/vehicles/C_car.cpp:676-681`).
+/// STUB: logs and runs the `C_actor` base record-position query, returning
+/// its answer. The record owner stays outside this contract, so the boundary
+/// is explicit; the native `S_vector` answer is a staged `[f32; 3]`.
+pub fn car_get_record_pos_unsupported(_time: i32) -> Result<[f32; 3], VehicleSmallStubError> {
+    Err(VehicleSmallStubError::Unsupported {
+        entry: CAR_GET_RECORD_POS_ENTRY,
+    })
 }
 
 #[cfg(test)]
@@ -1550,6 +1744,146 @@ mod tests {
         assert_eq!(
             car_get_inv_model_matrix(&stored, true),
             Err(VehicleSmallStubError::Unsupported { entry: 0x4293e0 })
+        );
+    }
+
+    #[test]
+    fn rva_c31e0_deactivate_reports_unsupported() {
+        // C_Vehicle::Deactivate GAME RVA 0xc31e0 (VA 0x4c31e0).
+        assert_eq!(VEHICLE_DEACTIVATE_ENTRY, 0x4c31e0);
+        assert_eq!(
+            vehicle_deactivate_unsupported(0),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4c31e0 })
+        );
+    }
+
+    #[test]
+    fn rva_cb7e0_external_impuls_reports_unsupported() {
+        // C_Vehicle::ExternalImpuls GAME RVA 0xcb7e0 (VA 0x4cb7e0).
+        assert_eq!(VEHICLE_EXTERNAL_IMPULS_ENTRY, 0x4cb7e0);
+        assert_eq!(
+            vehicle_external_impuls_unsupported([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0, [0.0, 1.0, 0.0]),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4cb7e0 })
+        );
+    }
+
+    #[test]
+    fn rva_ce960_calm_vehicle_reports_unsupported() {
+        // C_Vehicle::CalmVehicle GAME RVA 0xce960 (VA 0x4ce960).
+        assert_eq!(VEHICLE_CALM_VEHICLE_ENTRY, 0x4ce960);
+        assert_eq!(
+            vehicle_calm_vehicle_unsupported(16),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4ce960 })
+        );
+    }
+
+    #[test]
+    fn rva_21d60_car_explosion_reports_unsupported() {
+        // C_car::CarExplosion GAME RVA 0x21d60 (VA 0x421d60).
+        assert_eq!(CAR_EXPLOSION_ENTRY, 0x421d60);
+        assert_eq!(
+            car_explosion_unsupported(0),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x421d60 })
+        );
+    }
+
+    #[test]
+    fn rva_22ad0_deactivate_car_reports_unsupported() {
+        // C_car::DeactivateCar GAME RVA 0x22ad0 (VA 0x422ad0).
+        assert_eq!(CAR_DEACTIVATE_CAR_ENTRY, 0x422ad0);
+        assert_eq!(
+            car_deactivate_car_unsupported(2),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x422ad0 })
+        );
+    }
+
+    #[test]
+    fn rva_22be0_reset_reports_unsupported() {
+        // C_car::Reset GAME RVA 0x22be0 (VA 0x422be0).
+        assert_eq!(CAR_RESET_ENTRY, 0x422be0);
+        assert_eq!(
+            car_reset_unsupported(0.0, true),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x422be0 })
+        );
+    }
+
+    #[test]
+    fn rva_22ee0_reset_car_reports_unsupported() {
+        // C_car::ResetCar GAME RVA 0x22ee0 (VA 0x422ee0).
+        assert_eq!(CAR_RESET_CAR_ENTRY, 0x422ee0);
+        assert_eq!(
+            car_reset_car_unsupported(),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x422ee0 })
+        );
+    }
+
+    #[test]
+    fn rva_248e0_is_possible_coll_reports_unsupported() {
+        // C_car::IsPossibleColl GAME RVA 0x248e0 (VA 0x4248e0).
+        assert_eq!(CAR_IS_POSSIBLE_COLL_ENTRY, 0x4248e0);
+        assert_eq!(
+            car_is_possible_coll_unsupported(0x1234, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 1.0),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x4248e0 })
+        );
+    }
+
+    #[test]
+    fn rva_29e70_prepare_car_to_show_reports_unsupported() {
+        // C_car::PrepareCarToShow GAME RVA 0x29e70 (VA 0x429e70).
+        assert_eq!(CAR_PREPARE_CAR_TO_SHOW_ENTRY, 0x429e70);
+        assert_eq!(
+            car_prepare_car_to_show_unsupported(0x1234),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x429e70 })
+        );
+    }
+
+    #[test]
+    fn rva_2ba70_odjebaj_tu_strechu_reports_unsupported() {
+        // C_car::OdjebajTuStrechu GAME RVA 0x2ba70 (VA 0x42ba70).
+        assert_eq!(CAR_ODJEBAJ_TU_STRECHU_ENTRY, 0x42ba70);
+        assert_eq!(
+            car_odjebaj_tu_strechu_unsupported(0x1234, true),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42ba70 })
+        );
+    }
+
+    #[test]
+    fn rva_2bbd0_save_game_get_size_reports_unsupported() {
+        // C_car::SaveGameGetSize GAME RVA 0x2bbd0 (VA 0x42bbd0).
+        assert_eq!(CAR_SAVE_GAME_GET_SIZE_ENTRY, 0x42bbd0);
+        assert_eq!(
+            car_save_game_get_size_unsupported(),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42bbd0 })
+        );
+    }
+
+    #[test]
+    fn rva_2bbf0_save_game_save_reports_unsupported() {
+        // C_car::SaveGameSave GAME RVA 0x2bbf0 (VA 0x42bbf0).
+        assert_eq!(CAR_SAVE_GAME_SAVE_ENTRY, 0x42bbf0);
+        assert_eq!(
+            car_save_game_save_unsupported(),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42bbf0 })
+        );
+    }
+
+    #[test]
+    fn rva_2c7d0_place_at_time_reports_unsupported() {
+        // C_car::PlaceAtTime GAME RVA 0x2c7d0 (VA 0x42c7d0).
+        assert_eq!(CAR_PLACE_AT_TIME_ENTRY, 0x42c7d0);
+        assert_eq!(
+            car_place_at_time_unsupported(7),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42c7d0 })
+        );
+    }
+
+    #[test]
+    fn rva_2cad0_get_record_pos_reports_unsupported() {
+        // C_car::GetRecordPos GAME RVA 0x2cad0 (VA 0x42cad0).
+        assert_eq!(CAR_GET_RECORD_POS_ENTRY, 0x42cad0);
+        assert_eq!(
+            car_get_record_pos_unsupported(7),
+            Err(VehicleSmallStubError::Unsupported { entry: 0x42cad0 })
         );
     }
 }
