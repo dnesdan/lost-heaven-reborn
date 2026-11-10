@@ -448,6 +448,57 @@ impl ModelArena {
     ) -> Result<Option<i32>, ModelError> {
         Ok(self.occluder(key)?.word(0x5b0).map(|v| v as i32))
     }
+    /// Working name for the scene-ring link read at +0x5c8 (mafia-re
+    /// ls3df/I3D/I3D.h:2401: the scene whose ring the occluder is in). The
+    /// reference records no LS3DF FUNCTION address for a standalone reader;
+    /// only `AddToRemoveFromSceneRing` links it (occupied RVA 0x3a650, not
+    /// claimed here). Reports the owning scene, if linked; no state moves.
+    pub fn occluder_scene_of(&self, key: OccluderKey) -> Result<Option<SceneKey>, ModelError> {
+        Ok(self.occluder(key)?.scene)
+    }
+    /// Working name for the hull-sector link read at +0x5e4 (mafia-re
+    /// ls3df/I3D/I3D.h:2406: the sector whose hull this occluder is, set by
+    /// `I3D_sector::MakeReady`). Same inline-only status as
+    /// `occluder_scene_of`: no standalone LS3DF FUNCTION entry exists, so
+    /// no RVA is claimed here. Reports the sector, if linked; no state
+    /// moves.
+    pub fn occluder_sector_of(&self, key: OccluderKey) -> Result<Option<SectorKey>, ModelError> {
+        Ok(self.occluder(key)?.sector)
+    }
+    /// Working name for the previous scene-ring link read at +0x154
+    /// (mafia-re ls3df/I3D/I3D.h:2389: the scene's ring of occluders). Same
+    /// inline-only status as `occluder_scene_of`: no standalone LS3DF
+    /// FUNCTION entry exists, so no RVA is claimed here. Reports the
+    /// previous occluder, if ring-linked; no state moves.
+    pub fn occluder_previous_in_scene_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<OccluderKey>, ModelError> {
+        Ok(self.occluder(key)?.previous)
+    }
+    /// Working name for the next scene-ring link read at +0x158 (mafia-re
+    /// ls3df/I3D/I3D.h:2390). Same inline-only status as
+    /// `occluder_previous_in_scene_of`: no standalone LS3DF FUNCTION entry
+    /// exists, so no RVA is claimed here. Reports the next occluder, if
+    /// ring-linked; no state moves.
+    pub fn occluder_next_in_scene_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<OccluderKey>, ModelError> {
+        Ok(self.occluder(key)?.next)
+    }
+    /// Working name for the sector-list link read at +0x5e0 (mafia-re
+    /// ls3df/I3D/I3D.h:2405: the sector's list of occluders in it, through
+    /// this link). Same inline-only status as `occluder_sector_of`: no
+    /// standalone LS3DF FUNCTION entry exists, so no RVA is claimed here.
+    /// Reports the next occluder in the sector list, if linked; no state
+    /// moves.
+    pub fn occluder_next_in_sector_of(
+        &self,
+        key: OccluderKey,
+    ) -> Result<Option<OccluderKey>, ModelError> {
+        Ok(self.occluder(key)?.next_in_sector)
+    }
     pub fn occluder_update_v(&mut self, key: OccluderKey) -> Result<(), ModelError> {
         let index = self.occluder_index(key)?;
         update_occluder_v(
@@ -1442,6 +1493,44 @@ mod tests {
         assert!(arena.occluder_num_side_planes_of(key).is_err());
         assert!(arena.occluder_num_face_planes_of(key).is_err());
         assert_eq!(arena.live_frame_count(), 0);
+    }
+    #[test]
+    fn occluder_link_readers_report_ring_sector_and_next_in_sector() {
+        // Working names for the scene/sector links (+0x5c8/+0x5e4), the
+        // scene-ring links (+0x154/+0x158) and the sector-list link (+0x5e0)
+        // (mafia-re ls3df/I3D/I3D.h:2389-2390,2401,2405-2406 at pin
+        // 113b5b6): the reference records no LS3DF FUNCTION address for
+        // standalone readers; the ring and sector owners store them.
+        let mut world = World::new();
+        let a = world.occluder();
+        let b = world.occluder();
+        assert_eq!(world.arena.occluder_scene_of(a).unwrap(), None);
+        assert_eq!(world.arena.occluder_sector_of(a).unwrap(), None);
+        assert_eq!(world.arena.occluder_previous_in_scene_of(a).unwrap(), None);
+        assert_eq!(world.arena.occluder_next_in_scene_of(a).unwrap(), None);
+        assert_eq!(world.arena.occluder_next_in_sector_of(a).unwrap(), None);
+        world.arena.occluder_set_scene_ring(a, Some(world.scene)).unwrap();
+        world.arena.occluder_set_scene_ring(b, Some(world.scene)).unwrap();
+        assert_eq!(world.arena.occluder_scene_of(a).unwrap(), Some(world.scene));
+        assert_eq!(world.arena.occluder_previous_in_scene_of(a).unwrap(), Some(b));
+        assert_eq!(world.arena.occluder_next_in_scene_of(a).unwrap(), Some(b));
+        assert_eq!(world.arena.occluder_previous_in_scene_of(b).unwrap(), Some(a));
+        assert_eq!(world.arena.occluder_next_in_scene_of(b).unwrap(), Some(a));
+        let sector = world.arena.scene(world.scene).unwrap().sectors[0];
+        let ai = world.arena.occluder_index(a).unwrap();
+        world.arena.occluders[ai].sector = Some(sector);
+        world.arena.occluders[ai].next_in_sector = Some(b);
+        assert_eq!(world.arena.occluder_sector_of(a).unwrap(), Some(sector));
+        assert_eq!(world.arena.occluder_next_in_sector_of(a).unwrap(), Some(b));
+        assert_eq!(world.arena.occluder_sector_of(b).unwrap(), None);
+        world.arena.release(a.frame()).unwrap();
+        world.arena.release(b.frame()).unwrap();
+        assert!(world.arena.occluder_scene_of(a).is_err());
+        assert!(world.arena.occluder_sector_of(a).is_err());
+        assert!(world.arena.occluder_previous_in_scene_of(a).is_err());
+        assert!(world.arena.occluder_next_in_scene_of(a).is_err());
+        assert!(world.arena.occluder_next_in_sector_of(a).is_err());
+        world.destroy();
     }
     #[test]
     fn occluder_radius_words_follow_build_preset_then_update_v() {

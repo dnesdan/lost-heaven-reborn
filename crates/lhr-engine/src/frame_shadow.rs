@@ -928,6 +928,38 @@ impl ModelArena {
     pub fn shadow_lights_count_of(&self, key: FrameKey) -> Result<i32, ModelError> {
         Ok(self.shadow(key)?.lights_count)
     }
+
+    /// Working name for the scene back-pointer read at +0x188 (mafia-re
+    /// ls3df/I3D/I3D.h:2615: the scene whose `AddShadow` took the shadow).
+    /// The reference records no LS3DF FUNCTION address for a standalone
+    /// reader; only `update_shadow_v` stores it (occupied RVA 0x51430 path,
+    /// not claimed here), and `set_shadow_to` with no target clears it.
+    /// Reports the owning scene, if linked; no state moves.
+    pub fn shadow_scene_of(&self, key: FrameKey) -> Result<Option<SceneKey>, ModelError> {
+        Ok(self.shadow(key)?.scene)
+    }
+
+    /// Working name for the `def` share read at +0x144 (mafia-re
+    /// ls3df/I3D/I3D.h:2605: the shadow definition the geometry is cast
+    /// from). The reference records no LS3DF FUNCTION address for a
+    /// standalone reader; only `set_shadow_def` and `duplicate_shadow`
+    /// share it (occupied RVAs, not claimed here). Reports the shared
+    /// definition, if any; the Arc clone is the host analog of the native
+    /// `def->ref++` share, same convention as `set_shadow_def`.
+    pub fn shadow_def_of(&self, key: FrameKey) -> Result<Option<Arc<ShadowDefData>>, ModelError> {
+        Ok(self.shadow(key)?.def.clone())
+    }
+
+    /// Working name for the `light_dir` triple read at +0x1a8 (mafia-re
+    /// ls3df/I3D/I3D.h:2622: from the light to the shadow). The reference
+    /// records no LS3DF FUNCTION address for a standalone reader; the ctor
+    /// and the `SetOrthogonal`/`SetTo` tails store it here (occupied RVAs
+    /// 0x50950/0x519e0, not claimed here), while the `UpdateLight` refresh
+    /// stays render-owned and unported. Reports the stored direction; no
+    /// state moves.
+    pub fn shadow_light_dir_of(&self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        Ok(self.shadow(key)?.light_dir)
+    }
 }
 
 #[cfg(test)]
@@ -1043,6 +1075,39 @@ mod tests {
             arena.shadow_range_of(FrameKey(u32::MAX)).unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
+    }
+
+    #[test]
+    fn shadow_scene_def_and_light_dir_readers_report_ctor_words_then_stores() {
+        // Working names for the scene link (+0x188), the def share (+0x144)
+        // and the light-space direction (+0x1a8) (mafia-re ls3df/I3D/I3D.h
+        // at pin 113b5b6): the reference records no LS3DF FUNCTION address
+        // for standalone readers; `update_shadow_v`, `set_shadow_def` and
+        // `SetOrthogonal` own the stores.
+        let mut arena = ModelArena::default();
+        let mut visual = NullVisual { log: Vec::new() };
+        let key = arena.create_shadow_frame(&mut visual).unwrap();
+        assert_eq!(arena.shadow_scene_of(key).unwrap(), None);
+        assert!(arena.shadow_def_of(key).unwrap().is_none());
+        assert_eq!(arena.shadow_light_dir_of(key).unwrap(), [0.0, 0.0, 1.0]);
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sector = arena.scene(scene).unwrap().sectors[0];
+        arena.link_shadow_frame(key, Some(sector.frame()), 0, &mut visual).unwrap();
+        arena.update_shadow_v(key).unwrap();
+        assert_eq!(arena.shadow_scene_of(key).unwrap(), Some(scene));
+        let def = def_two_parts();
+        arena.set_shadow_def(key, Some(def)).unwrap();
+        assert_eq!(arena.shadow_def_of(key).unwrap().unwrap().parts.len(), 2);
+        arena.shadow_set_orthogonal(key, true).unwrap();
+        assert_eq!(arena.shadow_light_dir_of(key).unwrap(), [0.0; 3]);
+        arena.set_shadow_def(key, None).unwrap();
+        assert!(arena.shadow_def_of(key).unwrap().is_none());
+        arena.link_shadow_frame(key, None, 0, &mut visual).unwrap();
+        assert_eq!(arena.shadow_scene_of(key).unwrap(), None);
+        let bad = FrameKey(u32::MAX);
+        assert!(arena.shadow_scene_of(bad).is_err());
+        assert!(arena.shadow_def_of(bad).is_err());
+        assert!(arena.shadow_light_dir_of(bad).is_err());
     }
 
     #[test]

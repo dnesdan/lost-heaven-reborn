@@ -349,6 +349,47 @@ impl ModelArena {
     pub fn sector_plane_count_of(&self, key: SectorKey) -> Result<u32, ModelError> {
         Ok(self.sector(key)?.geometry.plane_count)
     }
+    /// Working name for the own-portals list slice at +0x1f4
+    /// (mafia-re ls3df/I3D/I3D.h:976: its own portals, leading out of the
+    /// sector). The reference records no LS3DF FUNCTION address for a list
+    /// getter: only the portal interconnection links them (occupied bodies,
+    /// not claimed here). Reports the live borrowed list; no state moves.
+    pub fn sector_portals_of(&self, key: SectorKey) -> Result<&[PortalKey], ModelError> {
+        Ok(&self.sector(key)?.geometry.portals)
+    }
+    /// Working name for the incoming-portals list slice at +0x204
+    /// (mafia-re ls3df/I3D/I3D.h:977: the other sectors' portals that lead
+    /// into this sector). Same inline-only status as `sector_portals_of`:
+    /// no standalone LS3DF FUNCTION entry exists, so no RVA is claimed
+    /// here. Reports the live borrowed list; no state moves.
+    pub fn sector_incoming_portals_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<&[PortalKey], ModelError> {
+        Ok(&self.sector(key)?.geometry.incoming_portals)
+    }
+    /// Working name for the previous scene-ring link at +0x224
+    /// (mafia-re ls3df/I3D/I3D.h:982: the scene's ring of sectors). The
+    /// reference records no LS3DF FUNCTION address for a standalone reader:
+    /// only `AddToRemoveFromSceneRing` links it (occupied body, not claimed
+    /// here). Reports the previous sector, if ring-linked; no state moves.
+    pub fn sector_previous_in_scene_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<SectorKey>, ModelError> {
+        Ok(self.sector(key)?.geometry.previous)
+    }
+    /// Working name for the next scene-ring link at +0x220
+    /// (mafia-re ls3df/I3D/I3D.h:981). Same inline-only status as
+    /// `sector_previous_in_scene_of`: no standalone LS3DF FUNCTION entry
+    /// exists, so no RVA is claimed here. Reports the next sector, if
+    /// ring-linked; no state moves.
+    pub fn sector_next_in_scene_of(
+        &self,
+        key: SectorKey,
+    ) -> Result<Option<SectorKey>, ModelError> {
+        Ok(self.sector(key)?.geometry.next)
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SectorBufferKey {
@@ -2142,6 +2183,45 @@ mod tests {
         arena.release(a.frame()).unwrap();
         arena.release(b.frame()).unwrap();
         assert_eq!(arena.live_frame_count(), 5); // scene root + 4 retained sectors
+    }
+    #[test]
+    fn sector_ring_and_portal_lists_report_live_links() {
+        // Working names for the ring links (+0x220/+0x224) and the portal
+        // lists (+0x1f4/+0x204) (mafia-re ls3df/I3D/I3D.h:976-977,981-982
+        // at pin 113b5b6): the reference records no LS3DF FUNCTION address
+        // for standalone readers; the ring setter and the portal
+        // interconnection own the stores.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let a = arena.create_sector_frame().unwrap();
+        let b = arena.create_sector_frame().unwrap();
+        assert_eq!(arena.sector_previous_in_scene_of(a).unwrap(), None);
+        assert_eq!(arena.sector_next_in_scene_of(a).unwrap(), None);
+        assert!(arena.sector_portals_of(a).unwrap().is_empty());
+        assert!(arena.sector_incoming_portals_of(a).unwrap().is_empty());
+        arena.sector_add_to_scene_ring(a, Some(scene)).unwrap();
+        arena.sector_add_to_scene_ring(b, Some(scene)).unwrap();
+        assert_eq!(arena.sector_previous_in_scene_of(a).unwrap(), Some(b));
+        assert_eq!(arena.sector_next_in_scene_of(a).unwrap(), Some(b));
+        assert_eq!(arena.sector_previous_in_scene_of(b).unwrap(), Some(a));
+        assert_eq!(arena.sector_next_in_scene_of(b).unwrap(), Some(a));
+        let p0 = arena.create_portal([0u8; 0x150]).unwrap();
+        let p1 = arena.create_portal([0u8; 0x150]).unwrap();
+        let ai = arena.sector_index(a).unwrap();
+        arena.sectors[ai].geometry.portals.push(p0);
+        arena.sectors[ai].geometry.incoming_portals.push(p1);
+        assert_eq!(arena.sector_portals_of(a).unwrap(), &[p0][..]);
+        assert_eq!(arena.sector_incoming_portals_of(a).unwrap(), &[p1][..]);
+        assert!(arena.sector_portals_of(b).unwrap().is_empty());
+        let unknown = SectorKey(FrameKey(u32::MAX));
+        assert!(arena.sector_portals_of(unknown).is_err());
+        assert!(arena.sector_incoming_portals_of(unknown).is_err());
+        assert!(arena.sector_previous_in_scene_of(unknown).is_err());
+        assert!(arena.sector_next_in_scene_of(unknown).is_err());
+        // Ringed sectors with live portal vectors stay owned by the arena
+        // for teardown (release rejects frames with portal records, and the
+        // readers under test borrow them); destruction is covered by the
+        // dtor test below.
     }
     #[test]
     fn sector_dtor_clears_ring_and_buffers() {

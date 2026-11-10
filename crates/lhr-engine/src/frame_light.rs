@@ -615,6 +615,16 @@ impl ModelArena {
     pub fn light_sector_count(&self, key: FrameKey) -> Result<usize, ModelError> {
         Ok(self.light(key)?.sectors.len())
     }
+    /// Working name for the `C_list` sector slice on `I3D_light`
+    /// (mafia-re ls3df/I3D/I3D.h:1928 `sectors` at +0x140, the sectors the
+    /// light reaches). Same inline-only status as `light_sector_count`: no
+    /// LS3DF FUNCTION address exists for a list getter; the occupied
+    /// `AddLight`/`DeleteLight` bodies (PC RVAs 0x4f3d0/0x4f550) mutate it
+    /// in place, not claimed here. Reports the live borrowed list; no state
+    /// moves.
+    pub fn light_sectors_of(&self, key: FrameKey) -> Result<&[FrameKey], ModelError> {
+        Ok(self.light(key)?.sectors.as_slice())
+    }
     /// Upstream working name, not an evidenced original symbol: direct read
     /// of the frame on-flag word the occupied `SetOn` setter (PC RVA 0x21400;
     /// mafia-re ls3df/I3D/frames/I3d_light.cpp:241-253 at pin 113b5b6) tests
@@ -854,6 +864,21 @@ mod tests {
         let key = arena.create_light().unwrap();
         assert_eq!(arena.light_sector_count(key).unwrap(), 0);
         assert!(arena.light_sector_count(FrameKey(u32::MAX)).is_err());
+    }
+    #[test]
+    fn light_sectors_reader_reports_live_slice() {
+        // Working name for the light-side sector list slice (+0x140, mafia-re
+        // ls3df/I3D/I3D.h:1928 at pin 113b5b6): no LS3DF FUNCTION address
+        // exists for a list getter; the occupied AddLight/DeleteLight bodies
+        // (PC RVAs 0x4f3d0/0x4f550) mutate it, not claimed here.
+        let mut arena = ModelArena::default();
+        let light = arena.create_light().unwrap();
+        assert!(arena.light_sectors_of(light).unwrap().is_empty());
+        let sector = arena.create_sector_frame().unwrap();
+        arena.sector_add_light(sector, light).unwrap();
+        assert_eq!(arena.light_sectors_of(light).unwrap(), &[sector.frame()][..]);
+        assert!(arena.light_sectors_of(FrameKey(u32::MAX)).is_err());
+        arena.release(light).unwrap();
     }
     #[test]
     fn light_on_reader_reports_flag_word_then_setter_store() {
