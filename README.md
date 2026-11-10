@@ -55,9 +55,10 @@ obtained original PC installation as the asset root.
 Driving: W/S accelerate/brake, A/D steer, Space handbrake, R reload.
 Inspection: arrows and W/S move the camera. Menu New Game and `--mission mise01`
 open the MISE01 scene with on-foot walking (WASD, Shift runs, arrows orbit,
-R/F zoom, C plays the intro cutscene stand-in, Enter skips it, E boards at the
-taxi stand); car driving stays available via `--car-driving`. Full mission
-scripts, traffic and car boarding remain open.
+R/F zoom, C plays the intro cutscene stand-in, Enter skips it, E boards the
+staged taxi and drives it 150 m to complete the mission); standalone car
+driving stays available via `--car-driving`. Full mission scripts, traffic,
+scene collision and recorded-actor playback remain open.
 [Setup and run commands](docs/RUNNING.md).
 
 ## Engine Lab

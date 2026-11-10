@@ -23,6 +23,9 @@ use crate::human_move_coll::{
 pub const WALK_SPEED_M_S: f32 = 2.0;
 /// Host run speed in m/s (held Shift). Tuning, not a native constant.
 pub const RUN_SPEED_M_S: f32 = 4.5;
+/// Host-tuned taxi destination: the on-foot leg is complete after the taxi
+/// is driven this far. Tuning, not a native objective distance.
+pub const TAXI_DESTINATION_M: f32 = 150.0;
 /// Fixed simulation quantum in ms, matching the driving world's 16 ms tick.
 pub const WALK_TICK_MS: u32 = 16;
 /// Flat-world ground assumption is documented per call site; the scene height
@@ -276,10 +279,12 @@ pub enum Mise01Stage {
     WatchIntro,
     /// Walk from the spawn to the taxi stand.
     ReachTaxiStand,
-    /// Board the taxi (drivable car leg, see `--car-driving`).
+    /// Board the taxi (drives the staged MISE01 taxi world).
     BoardTaxi,
-    /// On-foot leg done; the driving leg stays with the car world.
-    OnFootComplete,
+    /// Drive the taxi to the destination; the odometer counts up.
+    DrivingToDestination,
+    /// Taxi leg done: the first mission is completable end to end.
+    Complete,
 }
 
 /// MISE01 progress over host-tracked events. Positions are caller-supplied
@@ -342,11 +347,19 @@ impl Mise01Progress {
         }
     }
 
-    /// The player boarded the taxi; the driving leg continues in the car
-    /// world (`--car-driving` on the MISE01 map).
+    /// The player boarded the taxi; the driving leg runs in the staged MISE01
+    /// taxi world (`--car-driving` opens the same world standalone).
     pub fn boarded_taxi(&mut self) {
         if self.stage == Mise01Stage::BoardTaxi {
-            self.stage = Mise01Stage::OnFootComplete;
+            self.stage = Mise01Stage::DrivingToDestination;
+        }
+    }
+
+    /// Report the taxi odometer in metres. Reaching `TAXI_DESTINATION_M`
+    /// completes the mission. Out-of-order calls never regress the stage.
+    pub fn drive_distance(&mut self, odometer_m: f32) {
+        if self.stage == Mise01Stage::DrivingToDestination && odometer_m >= TAXI_DESTINATION_M {
+            self.stage = Mise01Stage::Complete;
         }
     }
 
@@ -356,9 +369,10 @@ impl Mise01Progress {
             Mise01Stage::WatchIntro => "MISE01: press C for the intro cutscene, Enter to skip it",
             Mise01Stage::ReachTaxiStand => "MISE01: walk (WASD, Shift runs) to the taxi stand",
             Mise01Stage::BoardTaxi => "MISE01: press E to board the taxi",
-            Mise01Stage::OnFootComplete => {
-                "MISE01 on foot done: drive the taxi (see --car-driving)"
+            Mise01Stage::DrivingToDestination => {
+                "MISE01: drive the taxi 150 m (W/S/A/D, Space brake)"
             }
+            Mise01Stage::Complete => "MISE01 complete: Esc returns to the menu",
         }
     }
 }
@@ -493,7 +507,16 @@ mod tests {
         assert_eq!(progress.stage(), Mise01Stage::BoardTaxi);
         assert_eq!(progress.hud_line(), "MISE01: press E to board the taxi");
         progress.boarded_taxi();
-        assert_eq!(progress.stage(), Mise01Stage::OnFootComplete);
+        assert_eq!(progress.stage(), Mise01Stage::DrivingToDestination);
+        progress.drive_distance(10.0);
+        assert_eq!(progress.stage(), Mise01Stage::DrivingToDestination);
+        progress.drive_distance(TAXI_DESTINATION_M);
+        assert_eq!(progress.stage(), Mise01Stage::Complete);
+        // Completed stages never regress.
+        progress.cutscene_done();
+        progress.player_moved([0.0, 0.0, 0.0]);
+        progress.drive_distance(0.0);
+        assert_eq!(progress.stage(), Mise01Stage::Complete);
     }
 
     #[test]

@@ -866,7 +866,11 @@ struct App {
     walk_player: Option<lhr_engine::mission_play::OnFootPlayer>,
     walk_ground_y: f32,
     cutscene: lhr_engine::mission_play::CutscenePlayback,
+    cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart,
     mise01: lhr_engine::mission_play::Mise01Progress,
+    driving_taxi: bool,
+    taxi_odometer_m: f32,
+    last_drive_speed: f32,
     car_draws: usize,
     world_bucket: Option<DrivingWorldView>,
     audio_capture: Option<lhr_engine::runtime_audio::StereoWavCapture>,
@@ -1097,7 +1101,11 @@ impl App {
         } else {
             self.walk_player = None;
             self.cutscene = lhr_engine::mission_play::CutscenePlayback::idle();
+            self.cutscene_show = lhr_engine::cutscene_owner::CutsceneShowStart::default();
             self.mise01 = lhr_engine::mission_play::Mise01Progress::fresh();
+            self.driving_taxi = false;
+            self.taxi_odometer_m = 0.0;
+            self.last_drive_speed = 0.0;
         }
         if let Some(lab) = &mut self.lab {
             lab.scene_reloaded();
@@ -1134,7 +1142,9 @@ impl App {
     /// Spawn the on-foot player at the camera focus after the MISE01 scene
     /// loads. The taxi-stand marker is an explicit host placement 25 m ahead
     /// of the spawn along the camera view; original stand coordinates stay
-    /// open with the mission scripts.
+    /// open with the mission scripts. The drivable taxi is the real
+    /// `models/taxi00.4ds` driving world for `mise01`; if it fails to open,
+    /// walking and the cutscene stand-in still work and boarding reports it.
     fn spawn_mission_walk(&mut self) {
         let focus = self.camera.target;
         let mut forward = [focus.x - self.camera.eye.x, focus.z - self.camera.eye.z];
@@ -1147,7 +1157,11 @@ impl App {
             forward[0].atan2(forward[1]),
         ));
         self.cutscene = lhr_engine::mission_play::CutscenePlayback::idle();
+        self.cutscene_show = lhr_engine::cutscene_owner::CutsceneShowStart::default();
         self.mise01 = lhr_engine::mission_play::Mise01Progress::fresh();
+        self.driving_taxi = false;
+        self.taxi_odometer_m = 0.0;
+        self.last_drive_speed = 0.0;
         self.mise01.stage_taxi_stand(
             [
                 focus.x + forward[0] * 25.0,
@@ -1156,6 +1170,38 @@ impl App {
             ],
             3.0,
         );
+        let taxi = self.options.root.as_ref().map(|root| {
+            lhr_assets::Installation::open(root)
+                .map_err(|e| e.to_string())
+                .and_then(|installation| {
+                    let lease = self
+                        .startup_patches
+                        .lease()
+                        .map_err(|e| format!("Startup patch owner: {e:?}"))?;
+                    lhr_engine::car_runtime::GuardedCarRuntime::open_driving_scene_with_patches(
+                        installation,
+                        "models/taxi00.4ds",
+                        lhr_engine::car_runtime::CarRuntimeOptions {
+                            material_driver_time: self.runtime_engine.driver_time() as i32,
+                            ..Default::default()
+                        },
+                        "mise01",
+                        &lease,
+                    )
+                    .map_err(|e| e.to_string())
+                })
+                .and_then(|mut taxi| taxi.start_driving("mise01").map(|_| taxi).map_err(|e| e))
+        });
+        match taxi {
+            Some(Ok(taxi)) => {
+                self.car = Some(taxi);
+                println!("MISE01 taxi staged: models/taxi00.4ds driving world ready");
+            }
+            Some(Err(error)) => {
+                println!("MISE01 taxi unavailable: {error}; walking still works");
+            }
+            None => {}
+        }
         println!(
             "MISE01 on foot: spawn [{:.1}, {:.1}, {:.1}]; taxi stand 25 m ahead; {}",
             focus.x,
@@ -1165,18 +1211,33 @@ impl App {
         );
         self.show_objective();
     }
-    /// Advance walking, cutscene playback and objectives for one frame.
-    fn walk_mission(&mut self) {
+    /// Advance walking, cutscene playback, taxi driving and objectives.
+    fn walk_mission(&mut self, elapsed_ms: u32) {
         if !self.walk_mode() {
             return;
         }
+        if self.driving_taxi {
+            self.taxi_odometer_m += self.last_drive_speed.abs() * elapsed_ms.max(1) as f32 * 0.001;
+            let before = self.mise01.stage();
+            self.mise01.drive_distance(self.taxi_odometer_m);
+            if self.mise01.stage() != before {
+                println!(
+                    "Objective: {} (odometer {:.0} m)",
+                    self.mise01.hud_line(),
+                    self.taxi_odometer_m
+                );
+                self.show_objective();
+            }
+            return;
+        }
         if self.cutscene.is_playing() {
-            let finished = self.cutscene.advance(16);
+            let finished = self.cutscene.advance(elapsed_ms);
             // Slow cinematic pan while the cutscene holds the player.
             let offset = self.camera.eye - self.camera.target;
             let rotated = Quat::from_rotation_y(0.002) * offset;
             self.camera.eye = self.camera.target + rotated;
             if finished {
+                self.cutscene_show.set_show_start(0);
                 self.mise01.cutscene_done();
                 println!("Cutscene finished; {}", self.mise01.hud_line());
                 self.show_objective();
@@ -1195,7 +1256,7 @@ impl App {
             let before = self.mise01.stage();
             if let Some(player) = &mut self.walk_player {
                 player.step(
-                    16,
+                    elapsed_ms,
                     lhr_engine::mission_play::WalkInput {
                         forward,
                         strafe,
@@ -1223,7 +1284,7 @@ impl App {
         }
     }
     fn drive_car(&mut self, elapsed_ms: u32) -> Result<(), String> {
-        if !self.options.car_driving {
+        if !self.options.car_driving && !self.driving_taxi {
             return Ok(());
         }
         let old_ticks = self.driving_clock.ticks;
@@ -1277,6 +1338,7 @@ impl App {
             }
         }
         let state = state.ok_or("Driving scheduler dispatched no tick")?;
+        self.last_drive_speed = state.speed;
         let controls = last_controls.ok_or("Driving scheduler dispatched no input")?;
         if self.audio_capture.is_some()
             || controls != self.driving_controls
@@ -1605,11 +1667,17 @@ impl ApplicationHandler for App {
                                 KeyCode::KeyC => {
                                     if self.cutscene.is_playing() {
                                         self.cutscene.stop();
+                                        self.cutscene_show.set_show_start(0);
                                         println!("Cutscene stopped");
                                     } else if self.mise01.stage()
                                         == lhr_engine::mission_play::Mise01Stage::WatchIntro
                                     {
                                         self.cutscene.start(8000);
+                                        // Real recorder binding: stage the native
+                                        // `cutscene_show_start` global while the
+                                        // host stand-in plays; the recorded-actor
+                                        // Tick stays DEFERRED.
+                                        self.cutscene_show.set_show_start(1);
                                         println!("Intro cutscene playing (8 s host stand-in)");
                                     } else {
                                         println!("No cutscene staged at this objective");
@@ -1618,6 +1686,7 @@ impl ApplicationHandler for App {
                                 KeyCode::Enter | KeyCode::NumpadEnter => {
                                     if self.cutscene.is_playing() {
                                         self.cutscene.stop();
+                                        self.cutscene_show.set_show_start(0);
                                     }
                                     self.mise01.cutscene_done();
                                     println!("Intro skipped; {}", self.mise01.hud_line());
@@ -1627,12 +1696,21 @@ impl ApplicationHandler for App {
                                     if self.mise01.stage()
                                         == lhr_engine::mission_play::Mise01Stage::BoardTaxi
                                     {
-                                        self.mise01.boarded_taxi();
-                                        println!("Boarded taxi; {}", self.mise01.hud_line());
-                                        self.show_objective();
+                                        if self.car.is_some() {
+                                            self.mise01.boarded_taxi();
+                                            self.driving_taxi = true;
+                                            self.taxi_odometer_m = 0.0;
+                                            println!(
+                                                "Boarded the taxi; {}",
+                                                self.mise01.hud_line()
+                                            );
+                                            self.show_objective();
+                                        } else {
+                                            println!("Taxi failed to stage; walking still works");
+                                        }
                                     } else {
                                         println!(
-                                            "No drivable car in this scene; {}",
+                                            "No taxi to board here; {}",
                                             self.mise01.hud_line()
                                         );
                                     }
@@ -1806,7 +1884,7 @@ impl ApplicationHandler for App {
                         self.fail(event_loop, &error);
                         return;
                     }
-                    self.walk_mission();
+                    self.walk_mission(step.raw_delta);
                     if let Some(lab) = &mut self.lab {
                         lab.completed_frames += 1;
                         if lab.playback.paused() {
@@ -2819,7 +2897,11 @@ fn run() -> Result<(), String> {
         walk_player: None,
         walk_ground_y: 0.0,
         cutscene: lhr_engine::mission_play::CutscenePlayback::idle(),
+        cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart::default(),
         mise01: lhr_engine::mission_play::Mise01Progress::fresh(),
+        driving_taxi: false,
+        taxi_odometer_m: 0.0,
+        last_drive_speed: 0.0,
         car_draws,
         world_bucket,
         audio_capture,
