@@ -1851,10 +1851,17 @@ fn unimplemented_mission_flow_refuses_execution_without_advancing() {
         let progress = p.init_fresh_runtime(&mut memory).unwrap();
         assert_eq!((progress.accepted, progress.errors), (1, 0));
         let before = memory.events.len();
-        assert_eq!(
-            p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory),
-            Err(RuntimeError::UnsupportedCommand(opcode))
-        );
+        // The public scheduler API wraps non-destructive VM errors.
+        let result = p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory);
+        match result {
+            Err(RuntimeError::Scheduler(message)) => {
+                assert!(
+                    message.contains(&format!("UnsupportedCommand({opcode})")),
+                    "{message}"
+                );
+            }
+            other => panic!("expected unsupported opcode {opcode}, got {other:?}"),
+        }
         assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
         assert_eq!(memory.events.len(), before);
         let report = p.discard_runtime_host().unwrap();
