@@ -261,6 +261,81 @@ fn capture_retained_mission_frame(
     capture
 }
 
+/// Single-line probe rendering of mission text: newlines become spaces and
+/// long entries truncate with a marker. Presentation-only; the stored text
+/// and the staged ids never mutate.
+fn flat_probe_text(text: &str) -> String {
+    const LIMIT: usize = 240;
+    let flat: String = text
+        .chars()
+        .map(|c| if c == '\r' || c == '\n' { ' ' } else { c })
+        .collect();
+    if flat.chars().count() <= LIMIT {
+        flat
+    } else {
+        let kept: String = flat.chars().take(LIMIT).collect();
+        format!("{kept}… [truncated]")
+    }
+}
+
+/// Resolve staged mission-script IDs to real mission text for the report.
+/// Reads the install language routing (version.txt -> textdb_<lang>.def,
+/// English fallback) and the evidenced GetTextOrNULL owner (GAME 0x60fba0).
+/// Objectives and Simple subtitles resolve by id; Intro pairs report raw
+/// because their parameter meaning is unrecovered (STUB GAME 0x5f9480).
+/// Absent files, rejected images and unknown IDs report honestly, never as
+/// blank text. Read-only: no session, textdb or game state mutates.
+fn mission_text_lines(
+    root: &Path,
+    game: &lhr_engine::game_housekeeping::GameInlineState,
+) -> Vec<String> {
+    use lhr_engine::game_housekeeping::StagedSubtitle;
+    let installation = match lhr_assets::Installation::open(root) {
+        Ok(installation) => installation,
+        Err(error) => return vec![format!("Mission text: installation unavailable ({error})")],
+    };
+    let code = match installation.read_optional("tables/version.txt") {
+        Ok(Some(bytes)) => lhr_engine::original_language::language_code_from_version(&bytes),
+        _ => 0x656e,
+    };
+    let path = lhr_engine::original_language::language_resource_paths(code)
+        .map(|paths| paths.text_database)
+        .unwrap_or_else(|_| "tables/textdb_en.def".into());
+    let bytes = match installation.read_optional(&path) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => return vec![format!("Mission text: {path} absent")],
+        Err(error) => return vec![format!("Mission text: {path} unreadable ({error})")],
+    };
+    let mut database = lhr_engine::text_database::TextDatabase::new();
+    if !database.load_from_bytes(&bytes) {
+        return vec![format!("Mission text: {path} rejected")];
+    }
+    let mut lines = Vec::new();
+    for id in game.objectives() {
+        match database.get_text_or_null(*id) {
+            Some(text) => lines.push(format!("Mission objective {id}: {}", flat_probe_text(text))),
+            None => lines.push(format!("Mission objective {id}: <unresolved in {path}>")),
+        }
+    }
+    for subtitle in game.subtitles() {
+        match subtitle {
+            StagedSubtitle::Simple(id) => match database.get_text_or_null(*id) {
+                Some(text) => {
+                    lines.push(format!("Mission subtitle {id}: {}", flat_probe_text(text)))
+                }
+                None => lines.push(format!("Mission subtitle {id}: <unresolved in {path}>")),
+            },
+            StagedSubtitle::Intro(first, second) => lines.push(format!(
+                "Mission intro subtitle pair: ({first}, {second}) (parameter meaning unrecovered, no text lookup)"
+            )),
+        }
+    }
+    if lines.is_empty() {
+        lines.push("Mission text: no staged objectives or subtitles".into());
+    }
+    lines
+}
+
 pub fn run(
     root: &Path,
     mission: &str,
@@ -397,6 +472,9 @@ pub fn run(
                 session.game_state().subtitles()
             )
             .unwrap();
+            for line in mission_text_lines(root, session.game_state()) {
+                writeln!(report, "{line}").unwrap();
+            }
         }
         Err(detail) => {
             writeln!(report, "GameInitStart stopped: {detail}").unwrap();
@@ -825,5 +903,25 @@ fn append_load_report(report: &mut String, session: &MissionLoadSession) {
             "Only the admitted prefix completed; this is not a playable mission result."
         )
         .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod probe_text_tests {
+    use super::*;
+    #[test]
+    fn missing_installation_reports_unavailable_text() {
+        let game = lhr_engine::game_housekeeping::GameInlineState::default();
+        let lines = mission_text_lines(Path::new("nonexistent-probe-root"), &game);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("unavailable"));
+    }
+    #[test]
+    fn flat_text_single_lines_and_truncates() {
+        assert_eq!(flat_probe_text("a\nb\rc"), "a b c");
+        let long = "x".repeat(300);
+        let flat = flat_probe_text(&long);
+        assert!(flat.len() < long.len());
+        assert!(flat.ends_with("[truncated]"));
     }
 }
