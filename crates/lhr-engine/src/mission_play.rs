@@ -850,6 +850,36 @@ pub fn mission_actor_spawn(
     }
 }
 
+/// Mission end-detector position from scene2 metadata (`detector_konec`,
+/// kind 5 with its object world position). The name attests the drive's
+/// end in the mission's own data ("konec" = end); the exact script
+/// linkage (which program waits on it) is unverified because GameInit
+/// scheduling stops at the CREATE frontier, so this stays a documented
+/// host anchor, not a script claim. Requires exactly one matching record
+/// with a known position; anything else reports instead of inventing.
+pub fn mission_end_detector(
+    installation: &lhr_assets::Installation,
+    mission: &str,
+) -> Result<[f32; 3], String> {
+    let path = format!("missions/{mission}/scene2.bin");
+    let bytes = installation
+        .read_optional(&path)
+        .map_err(|e| format!("Mission actor metadata read stopped: {e}"))?
+        .ok_or_else(|| format!("Mission actor metadata absent: {path}"))?;
+    let scene = lhr_assets::parse_scene2(&bytes)
+        .map_err(|e| format!("Mission actor metadata parse stopped: {e:?}"))?;
+    let standings = crate::mission_world_completeness::mission_detector_standings(&scene);
+    let mut matches = standings
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("detector_konec"));
+    match (matches.next(), matches.next()) {
+        (Some((_, Some(position))), None) => Ok(*position),
+        (Some(_), None) => Err("Mission end detector has no position: detector_konec".into()),
+        (None, _) => Err("Mission end detector absent: no detector_konec".into()),
+        _ => Err("Mission end detector ambiguous: duplicate detector_konec".into()),
+    }
+}
+
 /// Full Dijkstra distances from the node nearest `from` over `neighbors`
 /// edge weights. Returns the start node and per-node distances (`INFINITY`
 /// stays unreached). The search itself is an explicit host driver.
@@ -859,8 +889,20 @@ pub fn road_graph_distances(
     node_count: usize,
     from: [f32; 3],
 ) -> (Option<usize>, Vec<f32>) {
+    let (start, dist, _) = dijkstra_core(node_pos, neighbors, node_count, from);
+    (start, dist)
+}
+
+/// Shared Dijkstra core with predecessor tracking. `prev[i]` holds the
+/// previous node on the current best path from the start, if any.
+fn dijkstra_core(
+    node_pos: &dyn Fn(usize) -> Option<[f32; 3]>,
+    neighbors: &dyn Fn(usize, &mut Vec<(usize, f32)>),
+    node_count: usize,
+    from: [f32; 3],
+) -> (Option<usize>, Vec<f32>, Vec<Option<usize>>) {
     if node_count == 0 || !from.iter().all(|v| v.is_finite()) {
-        return (None, Vec::new());
+        return (None, Vec::new(), Vec::new());
     }
     let mut start = None;
     let mut best = f32::INFINITY;
@@ -875,9 +917,10 @@ pub fn road_graph_distances(
         }
     }
     let Some(start) = start else {
-        return (None, Vec::new());
+        return (None, Vec::new(), Vec::new());
     };
     let mut dist = vec![f32::INFINITY; node_count];
+    let mut prev = vec![None; node_count];
     let mut visited = vec![false; node_count];
     dist[start] = 0.0;
     let mut edges = Vec::new();
@@ -901,11 +944,12 @@ pub fn road_graph_distances(
                 let candidate = next_dist + weight;
                 if candidate < dist[other] {
                     dist[other] = candidate;
+                    prev[other] = Some(current);
                 }
             }
         }
     }
-    (Some(start), dist)
+    (Some(start), dist, prev)
 }
 
 /// Pick a real destination on a road graph: Dijkstra from the node nearest
@@ -938,6 +982,40 @@ pub fn pick_road_destination(
         }
     }
     None
+}
+
+/// Dijkstra index path from the node nearest `from` to `dest` over
+/// `neighbors` edge weights, in drive order with its graph distance.
+/// Returns `None` for an invalid or unreached destination, or when no
+/// node has a position. The search itself is an explicit host driver.
+pub fn road_graph_path(
+    node_pos: &dyn Fn(usize) -> Option<[f32; 3]>,
+    neighbors: &dyn Fn(usize, &mut Vec<(usize, f32)>),
+    node_count: usize,
+    from: [f32; 3],
+    dest: usize,
+) -> Option<(Vec<usize>, f32)> {
+    if dest >= node_count || node_pos(dest).is_none() {
+        return None;
+    }
+    let (start, dist, prev) = dijkstra_core(node_pos, neighbors, node_count, from);
+    let start = start?;
+    if !dist[dest].is_finite() {
+        return None;
+    }
+    let mut reversed = vec![dest];
+    let mut current = dest;
+    let mut guard = node_count + 1;
+    while current != start {
+        guard = guard.saturating_sub(1);
+        if guard == 0 {
+            return None;
+        }
+        current = prev[current]?;
+        reversed.push(current);
+    }
+    reversed.reverse();
+    Some((reversed, dist[dest]))
 }
 
 #[cfg(test)]
@@ -1279,6 +1357,45 @@ mod tests {
         );
         assert_eq!(
             pick_road_destination(&pos, &link, 4, [f32::NAN, 0.0, 0.0], 10.0),
+            None
+        );
+    }
+
+    #[test]
+    fn road_path_returns_drive_order_with_graph_distance() {
+        // Same chain: path 0-1-2-3 totals 180 m of graph distance.
+        let pos = |i: usize| Some([i as f32 * 60.0, 0.0, 0.0]);
+        let link = |node: usize, out: &mut Vec<(usize, f32)>| {
+            if node > 0 {
+                out.push((node - 1, 60.0));
+            }
+            if node < 3 {
+                out.push((node + 1, 60.0));
+            }
+        };
+        assert_eq!(
+            road_graph_path(&pos, &link, 4, [5.0, 0.0, 3.0], 3),
+            Some((vec![0, 1, 2, 3], 180.0))
+        );
+        // Start-is-destination: single-element path, zero distance.
+        assert_eq!(
+            road_graph_path(&pos, &link, 4, [5.0, 0.0, 0.0], 0),
+            Some((vec![0], 0.0))
+        );
+        // Isolated node with a position but no lanes: unreached.
+        let pos5 = |i: usize| {
+            if i < 4 {
+                Some([i as f32 * 60.0, 0.0, 0.0])
+            } else {
+                Some([1000.0, 0.0, 0.0])
+            }
+        };
+        assert_eq!(road_graph_path(&pos5, &link, 5, [0.0, 0.0, 0.0], 4), None);
+        // Invalid destination or bad input: no path.
+        assert_eq!(road_graph_path(&pos, &link, 4, [0.0, 0.0, 0.0], 4), None);
+        assert_eq!(road_graph_path(&pos, &link, 0, [0.0, 0.0, 0.0], 0), None);
+        assert_eq!(
+            road_graph_path(&pos, &link, 4, [f32::NAN, 0.0, 0.0], 3),
             None
         );
     }

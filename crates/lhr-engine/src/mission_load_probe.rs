@@ -871,6 +871,14 @@ fn append_world_completeness_report(
                     scene.unknown_chunks
                 )
                 .unwrap();
+                let detectors = mission_world_completeness::mission_detector_standings(&scene);
+                writeln!(report, "Mission detectors (kind 5): {}", detectors.len()).unwrap();
+                for (name, position) in detectors.iter().take(40) {
+                    writeln!(report, "  detector {name}: pos={position:?}").unwrap();
+                }
+                if detectors.len() > 40 {
+                    writeln!(report, "  ... ({} more)", detectors.len() - 40).unwrap();
+                }
             }
             Err(error) => {
                 writeln!(report, "Mission actor metadata parse stopped: {}", error).unwrap()

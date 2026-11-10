@@ -134,6 +134,36 @@ pub fn resolve_mission_actors(scene: &lhr_assets::Scene) -> MissionActorPresence
     }
 }
 
+/// Named detector records (kind 5) from scene2 metadata with their object
+/// world positions where exactly one matching object exists. No owner is
+/// constructed here; ambiguous or missing objects report as a missing
+/// position, never as invented coordinates.
+pub fn mission_detector_standings(scene: &lhr_assets::Scene) -> Vec<(String, Option<[f32; 3]>)> {
+    let mut standings = Vec::new();
+    for actor in &scene.actors {
+        if actor.kind != Some(5) {
+            continue;
+        }
+        let position = if scene
+            .objects
+            .iter()
+            .filter(|object| object.name.eq_ignore_ascii_case(&actor.name))
+            .count()
+            == 1
+        {
+            scene
+                .objects
+                .iter()
+                .find(|object| object.name.eq_ignore_ascii_case(&actor.name))
+                .and_then(|object| object.world_position)
+        } else {
+            None
+        };
+        standings.push((actor.name.clone(), position));
+    }
+    standings
+}
+
 fn actor_object(scene: &lhr_assets::Scene, name: &str, kind: u32) -> Result<(), ()> {
     let actors = scene
         .actors
@@ -302,5 +332,46 @@ mod tests {
         assert!(resolved.player_found);
         assert!(!resolved.taxi_found);
         assert_eq!(resolved.taxi_world_position, None);
+    }
+
+    #[test]
+    fn detector_standings_list_kind_five_with_object_positions() {
+        let mut scene = lhr_assets::Scene::default();
+        assert!(mission_detector_standings(&scene).is_empty());
+        scene.actors.push(lhr_assets::SceneActor {
+            name: "TommyTAXIDRIVER".into(),
+            kind: Some(2),
+        });
+        scene.actors.push(lhr_assets::SceneActor {
+            name: "gate_a".into(),
+            kind: Some(5),
+        });
+        scene.actors.push(lhr_assets::SceneActor {
+            name: "gate_b".into(),
+            kind: Some(5),
+        });
+        scene.objects.push(lhr_assets::SceneObject {
+            name: "gate_a".into(),
+            world_position: Some([1.0, 2.0, 3.0]),
+            ..Default::default()
+        });
+        // gate_b has no object: position reports as missing, never invented.
+        assert_eq!(
+            mission_detector_standings(&scene),
+            vec![
+                ("gate_a".to_string(), Some([1.0, 2.0, 3.0])),
+                ("gate_b".to_string(), None),
+            ]
+        );
+        // Ambiguous duplicates report as missing positions as well.
+        scene.objects.push(lhr_assets::SceneObject {
+            name: "gate_a".into(),
+            world_position: Some([9.0, 9.0, 9.0]),
+            ..Default::default()
+        });
+        assert_eq!(
+            mission_detector_standings(&scene),
+            vec![("gate_a".to_string(), None), ("gate_b".to_string(), None),]
+        );
     }
 }
