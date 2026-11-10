@@ -7,7 +7,7 @@ use super::*;
 use crate::actor_world::ActorWorld;
 use crate::game_housekeeping::GameInlineState;
 use crate::mission_content_loading::{DetectorTickError, EntityTickError, GlobalProgramError};
-use crate::original_program::{RuntimeBackend, RuntimeEffect, RuntimeView};
+use crate::original_program::{RuntimeBackend, RuntimeEffect, RuntimeStage, RuntimeView};
 use crate::program_parameters::ScalarParameter;
 
 /// CProgram performs and owns the Rust allocations after each successful
@@ -63,6 +63,15 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
             },
             SetCityTrafficVisible(_) => {
                 return Err("session city-traffic visibility owner unavailable".into());
+            }
+            PlayStream(handle) => {
+                // Native GetIShow misses on an empty registry, so the arm
+                // advances silently; a live show needs the stream-audio
+                // application (Play/SetVolume/StoreVolume/CityMusicOff) and
+                // stays deferred.
+                if self.game.ishows.contains(&handle) {
+                    return Err("session stream audio owner unavailable".into());
+                }
             }
             MissionObjectivesAdd(id) => self.game.mission_objectives_add(id as u32),
             MissionObjectivesRemove(id) => self.game.mission_objectives_remove(id as u32),
@@ -135,11 +144,69 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
     }
 }
 
+/// One interrupted detector program on the scheduling frontier: the actor
+/// identity plus the program counter and opcode it stopped at. Read-only
+/// post-mortem evidence; resolving identities to scene names stays with
+/// the metadata probe (identities allocate in scene order).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DetectorScheduleFrontier {
+    pub identity: u32,
+    pub stage: RuntimeStage,
+    pub program_counter: u32,
+    pub opcode: Option<u32>,
+}
+
 impl MissionLoadSession {
     /// Read the authoritative represented game fields. This is a borrow, not
     /// an inspector copy used as a replacement gameplay owner.
     pub fn game_state(&self) -> &GameInlineState {
         &self.game_inline
+    }
+
+    /// Post-mortem scheduling frontier: every detector actor whose embedded
+    /// program sits in an interrupted stage, with its program counter and
+    /// current opcode. Read-only: programs stay attached, stages untouched.
+    /// Lets headless diagnostics name the exact refusing arm (WAITFORUSE /
+    /// WAITFORHIT / CREATEDYNCOLL / ERASEDYNCOLL) instead of guessing from
+    /// the first error string.
+    pub fn detector_schedule_frontier(&self) -> Vec<DetectorScheduleFrontier> {
+        let Some(loader) = self.loader.as_ref() else {
+            return Vec::new();
+        };
+        let world = &loader.content.actors.world;
+        let mut frontier = Vec::new();
+        for actor in world.owned_actor_references() {
+            let Ok(detector) = world.detector(actor) else {
+                continue;
+            };
+            let Some(program) = detector.program() else {
+                continue;
+            };
+            let Some(runtime) = program.runtime() else {
+                continue;
+            };
+            if !matches!(
+                runtime.stage,
+                RuntimeStage::CompileInterrupted
+                    | RuntimeStage::ProcessInterrupted
+                    | RuntimeStage::DisposalInterrupted
+            ) {
+                continue;
+            }
+            let program_counter = runtime.fields.program_counter();
+            let opcode = runtime
+                .instructions
+                .active()
+                .get(program_counter as usize)
+                .map(|instruction| instruction.opcode);
+            frontier.push(DetectorScheduleFrontier {
+                identity: actor.identity(),
+                stage: runtime.stage,
+                program_counter,
+                opcode,
+            });
+        }
+        frontier
     }
 
     /// Compile fresh embedded entity programs with this session's actual

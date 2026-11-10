@@ -494,6 +494,41 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
             .try_transform_point([0.0; 3])
             .map_err(|error| LookupError::Backend(format!("program frame world pos: {error:?}")))
     }
+    // Original CMD_FRM_SETON frame switch (mafia-re
+    // game/mission/C_program.cpp:3134): the core arena on/off store over
+    // the live frame. Sound frames take the deferred device switch with
+    // no arena store, matching the native break; every other kind stores
+    // through the evidenced SetOn owner. Chase-camera, placement,
+    // projector and shadow side effects stay deferred (reported, never
+    // applied), mirroring the outcome contract.
+    fn set_frame_on(
+        &mut self,
+        frame: FrameReferenceId,
+        on: bool,
+    ) -> Result<crate::script_lookup::FrameSetOnOutcome, LookupError> {
+        let key = FrameKey(frame.identity());
+        if self.arena.lookup_reference(key) != frame {
+            return Err(crate::frame_lookup::FrameLookupError::StaleFrame(frame).into());
+        }
+        let kind = self
+            .arena
+            .state(key)
+            .map(|state| state.kind)
+            .map_err(|error| LookupError::Backend(format!("program frame switch: {error:?}")))?;
+        if kind == crate::frame_transform::FrameKind::Sound {
+            return Ok(crate::script_lookup::FrameSetOnOutcome {
+                core_applied: false,
+                device_effects_deferred: true,
+            });
+        }
+        self.arena
+            .set_frame_on(key, u32::from(on))
+            .map_err(|error| LookupError::Backend(format!("program frame switch: {error:?}")))?;
+        Ok(crate::script_lookup::FrameSetOnOutcome {
+            core_applied: true,
+            device_effects_deferred: true,
+        })
+    }
     fn human_car(
         &self,
         actor: ActorReferenceId,

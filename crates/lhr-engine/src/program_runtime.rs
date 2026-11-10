@@ -1014,6 +1014,14 @@ pub enum RuntimeEffect {
     /// `IntroSubtitlesAddSimple(*(int *)params)` (mafia-re 113b5b6
     /// game/mission/C_program.cpp:7554-7557). Carries the raw integer id.
     SubtitleAdd(u32),
+    /// Stream play request (`STREAM_PLAY` 183): matches
+    /// `GetIShow((int)float_regs[i])->Play()` with the music-volume,
+    /// stored-volume and city-music follow-ups (mafia-re fe7e746
+    /// game/mission/C_program.cpp:5301-5314). Carries the resolved integer
+    /// show handle, not the float register. A missing show advances
+    /// silently through the backend (native null guard); a live show
+    /// needs the stream-audio application and stays deferred.
+    PlayStream(i32),
 }
 /// Required external allocation boundary, borrowing actual fields at the call.
 /// The runtime itself owns actual Rust allocations and performs release only
@@ -4580,6 +4588,27 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 // without game ownership records it without applying; the
                 // animation_catalog preload flag is the future owner.
                 self.effect(state, RuntimeEffect::DisableAnimPreload)?;
+            }
+            183 => {
+                // Original CMD_STREAM_PLAY (mafia-re fe7e746
+                // game/mission/C_program.cpp:5301-5314, dispatching
+                // C_program::Process GAME 0x46d3b0): `int i =
+                // *(int *)params; if (0 <= i < num_float_regs) { show =
+                // GetIShow((int)float_regs[i]); if (show) { Play, SetVolume,
+                // IShowStoreVolume, CityMusicOff } }`. The bounds check
+                // runs before the bank read (native short-circuit); a bad
+                // register or a missing float bank advances silently like
+                // the empty-bank 0.0 reads elsewhere. The backend resolves
+                // the show handle against the live registry.
+                let register = self.value_at(state)?;
+                if register >= 0 && (*self.float_count as i32) > register {
+                    let handle = self
+                        .floats
+                        .as_deref()
+                        .and_then(|bank| bank.get(register as usize).copied())
+                        .unwrap_or(0.0) as i32;
+                    self.effect(state, RuntimeEffect::PlayStream(handle))?;
+                }
             }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
                 advance = self.dispatch_entity(state, opcode)?;

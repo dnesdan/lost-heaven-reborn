@@ -3043,6 +3043,50 @@ fn use_lightcache_reports_operandless_request_through_backend() {
 }
 
 #[test]
+fn stream_play_out_of_range_register_advances_silently() {
+    for tail in ["stream_play 7", "stream_play -1"] {
+        let mut memory = Memory::default();
+        let source = format!("commandblock 1\ndim_flt 2\n{tail}\ncommandblock 0");
+        let mut p = program(source.as_bytes(), &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (4, 0));
+        p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+            .unwrap();
+        // Register outside [0, float_count): the native short-circuit skips
+        // the bank read, so no handle is resolved and no effect fires.
+        assert!(
+            !memory
+                .events
+                .iter()
+                .any(|event| matches!(event.0, RuntimeEffect::PlayStream(_))),
+            "out-of-range stream_play must not report a handle"
+        );
+    }
+}
+
+#[test]
+fn stream_play_reports_resolved_handle_through_backend() {
+    let mut memory = Memory::default();
+    let mut p = program(b"stream_play 1", &mut memory);
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (1, 0));
+    // Admitted bank with a stored show handle, like the detector float
+    // setup in the scan tests: register 1 reads 9.0.
+    p.runtime.as_mut().unwrap().fields.float_count = 2;
+    p.runtime.as_mut().unwrap().fields.floats =
+        Some(vec![0.0f32, 9.0].into_boxed_slice());
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert!(
+        memory
+            .events
+            .iter()
+            .any(|event| event.0 == RuntimeEffect::PlayStream(9)),
+        "missing PlayStream(9) effect"
+    );
+}
+
+#[test]
 fn getactorsdist_measures_world_distance_and_dead_sign() {
     use crate::original_program::RuntimeReferenceSlot;
     // Hand-derived: A at [0,0,0], B at [3,4,0] gives 5.0; fourth word 0

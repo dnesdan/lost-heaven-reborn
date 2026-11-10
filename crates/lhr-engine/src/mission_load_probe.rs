@@ -10,7 +10,9 @@ use lhr_engine::{
         GameGlobalProgramWorldRunner, MissionContentOwner, MissionProgramDiagnostic,
         MissionProgramWorldContext, NamedGlobalProgramOutcome, ProgramWorldLocales,
     },
-    mission_load_session::{MissionLoadCause, MissionLoadRequest, MissionLoadSession},
+    mission_load_session::{
+        DetectorScheduleFrontier, MissionLoadCause, MissionLoadRequest, MissionLoadSession,
+    },
     mission_world_completeness,
     model_loading::ModelArena,
     native_precision::Pc24PrecisionState,
@@ -77,6 +79,7 @@ struct ScriptRunReport {
     budget_remaining: usize,
     light_cache_lights: usize,
     schedule: ScheduleReport,
+    frontier: Vec<DetectorScheduleFrontier>,
 }
 
 /// Bounded GameInit scheduling diagnostic: entity/detector program init
@@ -205,6 +208,9 @@ fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunRe
         ls3df_default_c_locale: true,
     };
     let schedule = run_schedule_ticks(session, &mut budget, &mut diagnostic, locales);
+    // Capture the refusing arms before the tick runtimes retire below:
+    // after discard every program reads Ready again.
+    let frontier = session.detector_schedule_frontier();
     // Tick runtimes back out the same way: entity/detector runtimes are
     // retired explicitly so terminal disposal sees no retained VM state.
     session
@@ -222,6 +228,7 @@ fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunRe
             .light_cache()
             .map_or(0, |cache| cache.lights.len()),
         schedule,
+        frontier,
     })
 }
 
@@ -556,6 +563,24 @@ pub fn run(
                 ),
             }
             .unwrap();
+            let frontier = &script.frontier;
+            writeln!(
+                report,
+                "Schedule frontier: {} interrupted detector programs",
+                frontier.len()
+            )
+            .unwrap();
+            for entry in frontier.iter().take(12) {
+                writeln!(
+                    report,
+                    "  detector identity={} stage={:?} pc={} opcode={:?}",
+                    entry.identity, entry.stage, entry.program_counter, entry.opcode
+                )
+                .unwrap();
+            }
+            if frontier.len() > 12 {
+                writeln!(report, "  ... ({} more)", frontier.len() - 12).unwrap();
+            }
             writeln!(
                 report,
                 "Mission objectives staged: {:?}; subtitles staged: {:?}",

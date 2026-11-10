@@ -447,7 +447,9 @@ pub use owned_source_open::MissionSourceOpenError;
 
 #[path = "session_program_runtime.rs"]
 mod owned_program_runtime;
-pub use owned_program_runtime::{SessionActorProgramError, SessionProgramEffects};
+pub use owned_program_runtime::{
+    DetectorScheduleFrontier, SessionActorProgramError, SessionProgramEffects,
+};
 
 impl MissionLoadSession {
     pub fn new(

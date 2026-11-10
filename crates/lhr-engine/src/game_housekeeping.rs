@@ -797,6 +797,12 @@ pub struct GameInlineState {
     /// runs through [`GameInlineState::light_cache_time`] and the session
     /// light-cache tick owner.
     pub light_cache: Option<crate::mission_effects::SessionLightCache>,
+    /// Live IShow ids (`C_game::i_shows` ids at +0x2f18, mafia-re
+    /// game/mission/game.h:592 at pin fe7e746). Empty until `STREAM_CREATE`
+    /// lands; `GetIShow` misses on an empty registry, so `STREAM_PLAY`
+    /// advances silently without any show object. Show objects themselves
+    /// stay with the future IShow owner.
+    pub ishows: std::collections::BTreeSet<i32>,
     /// Light-cache countdown word (`C_game::light_cache_time`, +0x178,
     /// mafia-re game/mission/game.cpp:315, 1676-1681, 5926, 5951-5953 at pin
     /// fe7e746). `UseLightCacheSystem` and `RecomputeLightCache` store -1;

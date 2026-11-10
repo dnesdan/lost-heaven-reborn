@@ -172,8 +172,36 @@ fn missing_game_owners_stop_at_the_reached_effect_and_keep_the_prefix() {
 }
 
 #[test]
-fn use_lightcache_collects_empty_prefix_on_a_sceneless_session() {
-    // The fixture session selects no scene, so the collector has nothing to
+fn stream_play_missing_show_advances_and_live_show_refuses() {
+    // Empty IShow registry: the native null guard skips Play, SetVolume,
+    // StoreVolume and CityMusicOff, so the arm advances with no audio
+    // owner at all.
+    let empty = fixture(b"commandblock 1\ndim_flt 1\nstream_play 0\ncommandblock 0");
+    let mut session = empty.session();
+    load(&mut session, &[]).unwrap();
+    session.initialize_owned_global_programs().unwrap();
+    run(&mut session).unwrap();
+    finish(&mut session);
+    // A live show needs the stream-audio application, which stays
+    // deferred: the world refuses loudly instead of faking playback.
+    let live = fixture(b"commandblock 1\ndim_flt 1\nstream_play 0\ncommandblock 0");
+    let mut session = live.session();
+    load(&mut session, &[]).unwrap();
+    assert!(session.game_inline.ishows.insert(0));
+    session.initialize_owned_global_programs().unwrap();
+    let error = run(&mut session).unwrap_err();
+    assert_eq!(
+        error,
+        MissionGlobalProgramError::Runtime(RuntimeError::Scheduler(format!(
+            "Backend(Effect({:?}))",
+            "session stream audio owner unavailable"
+        )))
+    );
+    finish(&mut session);
+}
+
+#[test]
+fn use_lightcache_collects_empty_prefix_on_a_sceneless_session() {    // The fixture session selects no scene, so the collector has nothing to
     // walk yet the opcode itself is owned: it succeeds with an empty cache
     // instead of stopping at the reached effect.
     let fixture = fixture(b"commandblock 1\nuse_lightcache\ncommandblock 0");

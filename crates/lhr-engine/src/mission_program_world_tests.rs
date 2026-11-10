@@ -1832,3 +1832,100 @@ fn detector_erase_colls_succeeds_vacuously_while_create_stays_unavailable() {
     let stale = crate::script_scheduler::ActorReferenceId::from_existing(999);
     assert!(lookup.detector_erase_colls(stale).is_err());
 }
+
+#[test]
+fn frame_switch_applies_arena_store_and_defers_sound_frames() {
+    use super::MissionLookupWorld;
+    use crate::actor_world::{ActorCollectionBackend, ActorSource, ActorStorageId, ActorWorld, SourceBacking};
+    use crate::model_loading::ModelArena;
+    use crate::script_lookup::{FrameSetOnOutcome, LookupWorldBackend};
+
+    struct Heap;
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct NoopDiagnostic;
+    impl super::MissionProgramDiagnostic for NoopDiagnostic {
+        fn message_beep(
+            &mut self,
+            _: &mut ActorWorld,
+            _: &mut ModelArena,
+            _: crate::original_program::RuntimeView<'_>,
+            _: &mut Option<crate::script_scheduler::ActorReferenceId>,
+            _: &mut crate::script_scheduler::FrameReferenceId,
+            _: i32,
+        ) -> Result<(), crate::script_lookup::LookupError> {
+            Ok(())
+        }
+    }
+
+    let backing = SourceBacking {
+        storage: Some(ActorStorageId(1)),
+        capacity: 16,
+    };
+    let mut world = ActorWorld::new(0, 0, backing, backing, backing).unwrap();
+    let mut arena = ModelArena::default();
+    let model = arena.create_model().unwrap();
+    let model_ref = arena.lookup_reference(model.root());
+    let sound = arena.create_sound_frame().unwrap();
+    let sound_ref = arena.lookup_reference(sound);
+    let mut scene = crate::script_scheduler::FrameReferenceId::from_existing(1);
+    let mut diagnostic = NoopDiagnostic;
+    let mut lookup = MissionLookupWorld {
+        world: &mut world,
+        arena: &mut arena,
+        scene: &mut scene,
+        diagnostic: &mut diagnostic,
+        locales: super::ProgramWorldLocales {
+            game_default_c_locale: true,
+            ls3df_default_c_locale: true,
+        },
+    };
+    // Ordinary frames run the core arena on/off store; the device side
+    // effects report as deferred, never applied.
+    assert_eq!(
+        lookup.set_frame_on(model_ref, false),
+        Ok(FrameSetOnOutcome {
+            core_applied: true,
+            device_effects_deferred: true,
+        })
+    );
+    assert_eq!(lookup.arena.state(model.root()).unwrap().flags & 1, 0);
+    assert_eq!(
+        lookup.set_frame_on(model_ref, true),
+        Ok(FrameSetOnOutcome {
+            core_applied: true,
+            device_effects_deferred: true,
+        })
+    );
+    assert_eq!(lookup.arena.state(model.root()).unwrap().flags & 1, 1);
+    // Sound frames take the deferred device switch: no arena store runs.
+    let before = lookup.arena.state(sound).unwrap().flags;
+    assert_eq!(
+        lookup.set_frame_on(sound_ref, true),
+        Ok(FrameSetOnOutcome {
+            core_applied: false,
+            device_effects_deferred: true,
+        })
+    );
+    assert_eq!(lookup.arena.state(sound).unwrap().flags, before);
+    // Stale references never reach the arena.
+    let stale = crate::script_scheduler::FrameReferenceId::from_existing(999);
+    assert!(lookup.set_frame_on(stale, true).is_err());
+}
