@@ -299,7 +299,7 @@ pub trait LookupWorldBackend {
         Err(LookupError::UnsupportedWorldBackend)
     }
     /// Original C_detector::EraseColls (mafia-re 113b5b6
-    /// game/actors/C_detector.cpp:146-166, GAME 0x43ae0) for the WAITFORHIT,
+    /// game/actors/C_detector.cpp:146-166, GAME 0x433ae0) for the WAITFORHIT,
     /// CREATEDYNCOLL and ERASEDYNCOLL arms: take each collision back from the
     /// game collision system and free it. No dynamic-collision owner exists
     /// yet (CreateColls itself is a STUB, GAME 0x4330b0), so the default

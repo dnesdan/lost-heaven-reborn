@@ -1704,3 +1704,131 @@ fn tick_detector_programs_steps_owned_live_state_through_context() {
     assert_eq!(stored.fields.command_time, 7);
     assert!(world.detector(detector).unwrap().program().is_some());
 }
+
+#[test]
+fn detector_erase_colls_succeeds_vacuously_while_create_stays_unavailable() {
+    use super::MissionLookupWorld;
+    use crate::actor_world::{
+        ActorAllocationBackend, ActorCollectionBackend, ActorSource, ActorStorageId, ActorWorld,
+        BaseActorSeed, DetectorSeed, SourceBacking,
+    };
+    use crate::model_loading::ModelArena;
+    use crate::original_program::ProgramSeed;
+    use crate::script_lookup::{LookupError, LookupWorldBackend};
+
+    struct Heap {
+        next: u32,
+    }
+    impl ActorAllocationBackend for Heap {
+        fn allocate_actor(&mut self, _: u32) -> Result<Option<(u32, BaseActorSeed)>, String> {
+            Err("base allocation outside fixture".into())
+        }
+        fn allocate_detector(
+            &mut self,
+            bytes: u32,
+        ) -> Result<Option<(u32, BaseActorSeed, DetectorSeed)>, String> {
+            assert_eq!(bytes, 0x128);
+            self.next += 1;
+            Ok(Some((
+                self.next,
+                BaseActorSeed {
+                    word_0e: 0,
+                    actor_id: 0,
+                    state_1c: 0,
+                    bytes_21_5f: [0; 63],
+                    bytes_64_65: [0; 2],
+                    byte_67: 0,
+                    release_frame: 0,
+                    bytes_6d_6f: [0; 3],
+                },
+                DetectorSeed {
+                    program: ProgramSeed {
+                        address_high_byte: 0,
+                        padding_0d: [0; 3],
+                        words_1c_2c: [0; 5],
+                        padding_31: [0; 3],
+                        word_40: 0,
+                        bytes_64: [0; 4],
+                    },
+                    bytes_d8_ef: [0; 24],
+                    word_f4: 0,
+                    bytes_105_107: [0; 3],
+                    bytes_118_127: [0; 16],
+                },
+            )))
+        }
+    }
+    impl ActorCollectionBackend for Heap {
+        fn allocate_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: u32,
+        ) -> Result<ActorStorageId, String> {
+            Ok(ActorStorageId(2))
+        }
+        fn free_collection(
+            &mut self,
+            _: &ActorWorld,
+            _: ActorSource,
+            _: Option<ActorStorageId>,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct NoopDiagnostic;
+    impl super::MissionProgramDiagnostic for NoopDiagnostic {
+        fn message_beep(
+            &mut self,
+            _: &mut ActorWorld,
+            _: &mut ModelArena,
+            _: crate::original_program::RuntimeView<'_>,
+            _: &mut Option<crate::script_scheduler::ActorReferenceId>,
+            _: &mut crate::script_scheduler::FrameReferenceId,
+            _: i32,
+        ) -> Result<(), crate::script_lookup::LookupError> {
+            Ok(())
+        }
+    }
+
+    let backing = SourceBacking {
+        storage: Some(ActorStorageId(1)),
+        capacity: 16,
+    };
+    let mut world = ActorWorld::new(0, 0, backing, backing, backing).unwrap();
+    let mut heap = Heap { next: 0 };
+    let detector = world.create_actor(5, &mut heap).unwrap().unwrap();
+    let mut arena = ModelArena::default();
+    let mut scene = crate::script_scheduler::FrameReferenceId::from_existing(1);
+    let mut diagnostic = NoopDiagnostic;
+    let mut lookup = MissionLookupWorld {
+        world: &mut world,
+        arena: &mut arena,
+        scene: &mut scene,
+        diagnostic: &mut diagnostic,
+        locales: super::ProgramWorldLocales {
+            game_default_c_locale: true,
+            ls3df_default_c_locale: true,
+        },
+    };
+    // Empty registry: native EraseColls over num_colls == 0 / NULL arrays is
+    // a no-op success, so the live erase succeeds vacuously here.
+    assert_eq!(lookup.detector_erase_colls(detector), Ok(()));
+    // Create paths are native STUBs (GAME 0x4330b0 / 0x433b80): still loud.
+    assert_eq!(
+        lookup.detector_create_colls(detector, false),
+        Err(LookupError::UnsupportedWorldBackend)
+    );
+    assert_eq!(
+        lookup.detector_create_colls(detector, true),
+        Err(LookupError::UnsupportedWorldBackend)
+    );
+    assert_eq!(
+        lookup.detector_create_use_object(detector, 4, true),
+        Err(LookupError::UnsupportedWorldBackend)
+    );
+    // Stale owners never clear: the live-detector validation reports.
+    let stale = crate::script_scheduler::ActorReferenceId::from_existing(999);
+    assert!(lookup.detector_erase_colls(stale).is_err());
+}

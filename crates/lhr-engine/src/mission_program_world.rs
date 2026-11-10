@@ -446,11 +446,24 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
             .set_detector_collision_flags(actor, flags)
             .map_err(|error| LookupError::Backend(format!("{error:?}")))
     }
-    // detector_erase_colls, detector_create_colls and
-    // detector_create_use_object keep the trait default refusal
-    // (UnsupportedWorldBackend): the dynamic-collision registry and the
-    // using-object registry have no owner yet, so the WAITFORHIT,
-    // CREATEDYNCOLL, ERASEDYNCOLL and WAITFORUSE arms stop loudly there.
+    // Host empty-registry driver for C_detector::EraseColls (mafia-re
+    // game/actors/C_detector.cpp:146-166, GAME 0x433ae0): the live world
+    // holds no colls/matrices/num storage yet, so the native loop over
+    // num_colls == 0 is a no-op and the null-array deletes are safe. Validate
+    // the live detector owner, then succeed vacuously without inventing a
+    // registry. CreateColls (STUB GAME 0x4330b0) and CreateUO (STUB GAME
+    // 0x433b80) keep the trait default refusal, so WAITFORHIT, CREATEDYNCOLL
+    // and WAITFORUSE still stop loudly there; ERASEDYNCOLL now advances.
+    fn detector_erase_colls(&mut self, actor: ActorReferenceId) -> Result<(), LookupError> {
+        self.world
+            .detector_collision_flags(actor)
+            .map(|_| ())
+            .map_err(|error| LookupError::Backend(format!("{error:?}")))
+    }
+    // detector_create_colls and detector_create_use_object keep the trait
+    // default refusal (UnsupportedWorldBackend): the dynamic-collision
+    // registry and the using-object registry have no owner yet, so the
+    // WAITFORHIT, CREATEDYNCOLL and WAITFORUSE arms stop loudly there.
     fn set_program_event(
         &mut self,
         actor: ActorReferenceId,
