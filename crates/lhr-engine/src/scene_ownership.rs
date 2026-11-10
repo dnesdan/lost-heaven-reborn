@@ -278,6 +278,82 @@ pub fn scene_tick_cursor_after_callback(index: usize, occupant_changed: bool) ->
     }
 }
 
+/// Working name for the `I3D_scene::GetActiveCamera` null check (mafia-re
+/// ls3df/I3D/I3D.h:1546-1548 at pin 113b5b6: the active camera and the primary
+/// sector, `I3D_camera *const &GetActiveCamera() const`). The reference
+/// records no LS3DF FUNCTION address for a standalone presence reader; the
+/// `SetActiveCamera` body (PC RVA 0x4a840, already occupied, not claimed here)
+/// is the only writer. Reports whether a camera handle is installed; no
+/// device or sector state is consulted.
+pub fn scene_has_active_camera(camera: Option<CameraKey>) -> bool {
+    camera.is_some()
+}
+
+/// Working name for the backdrop-range default check (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:97-98 at pin 113b5b6: the constructor stores
+/// `backdrop_ncp = 1.0f` and `backdrop_fcp = 10000.0f`). The reference
+/// records no LS3DF FUNCTION address for a standalone default reader; only
+/// the `SetBackdropRange` setter (PC RVA 0x4a840, already occupied, not
+/// claimed here) writes the pair. Bit-exact `f32` equality, so NaN never
+/// reports default. No state moves.
+pub fn scene_backdrop_range_is_default(range: [f32; 2]) -> bool {
+    range[0].to_bits() == 1.0f32.to_bits() && range[1].to_bits() == 10000.0f32.to_bits()
+}
+
+/// Working name for the background-color default check (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:96 at pin 113b5b6: the constructor stores
+/// `bg_color = S_vector(0.0f, 0.5f, 0.4f)` at scene +0x220, I3D.h:1568). The
+/// host mirrors the words as `field_220 = [0, 0x3f000000, 0x3ecccccd]`. The
+/// reference records no LS3DF FUNCTION address for a standalone default
+/// reader; only `SetGlobalColor` (PC RVA 0x49520, already occupied, not
+/// claimed here) touches lights. Exact word equality. No state moves.
+pub fn scene_bg_color_is_default(words: [u32; 3]) -> bool {
+    words == [0, 0x3f00_0000, 0x3ecc_cccd]
+}
+
+/// Working name for the portal-version initial check (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:102 at pin 113b5b6: the constructor stores
+/// `portal_version = 0` at scene +0x25c, I3D.h:1576). The reference records
+/// no LS3DF FUNCTION address for a standalone initial reader; the portal
+/// interconnection pass is the only writer. Reports whether the word still
+/// holds the construction value. No state moves.
+pub fn scene_portal_version_is_initial(version: u32) -> bool {
+    version == 0
+}
+
+/// Working name for the `I3D_MAX_ANIMS` slot count (mafia-re ls3df/I3D/I3D.h:1226
+/// at pin 113b5b6: 8 interpolator-set slots, checked as `index >= 8` by every
+/// scene/model animation verb). The reference records no LS3DF FUNCTION
+/// address for a count value (it is an enum bound, not a function), so no RVA
+/// is claimed here. Reports the shared slot bound modeled by
+/// `scene_anim_slot_in_range`. No state moves.
+pub fn scene_anim_slot_count() -> u32 {
+    8
+}
+
+/// Working name for the `SetAnimBlend` range gate (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:904-908 at pin 113b5b6: values below 0.0 become
+/// 0.0 and values above 1.0 become 1.0). The `SetAnimBlend` body lives at PC
+/// RVA 0x4b210 (already occupied by `scene_animation_runtime`, not claimed
+/// here); only the gate is modeled, the slot store and changed flag stay
+/// caller-owned. Ordered `f32` comparison, so NaN reports out of range like
+/// the native false-false clamp path. No state moves.
+pub fn scene_anim_blend_is_in_range(blend: f32) -> bool {
+    blend >= 0.0 && blend <= 1.0
+}
+
+/// Working name for the `SetViewport` half-extent factor (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:703 at pin 113b5b6:
+/// `viewport_size_half[0] = (sx - x) * 0.5f`). The `SetViewport` body lives at
+/// PC RVA 0x4a9c0 (already occupied in `docs/rewrite-overlay.json`, not
+/// claimed here); only the width half-extent factor is modeled, the RECT
+/// stores, height factor, center words and result word stay caller-owned.
+/// Plain host `f32` multiply of the caller-supplied span; integer wrapping of
+/// the `(sx - x)` subtraction itself stays caller-owned. No state moves.
+pub fn scene_viewport_half_extent_from_span(span: i32) -> f32 {
+    (span as f32) * 0.5
+}
+
 #[derive(Debug)]
 pub struct SceneFrameOwner {
     pub key: SceneKey,
@@ -3997,5 +4073,80 @@ mod scene_frame_getter_working_name_tests {
             scene_tick_cursor_after_callback(usize::MAX, false),
             usize::MAX
         );
+    }
+    #[test]
+    fn active_camera_presence_reports_installed_handle() {
+        // Working name for the GetActiveCamera null check (I3D.h:1548):
+        // no standalone LS3DF FUNCTION exists for a presence reader.
+        assert!(!scene_has_active_camera(None));
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert!(!scene_has_active_camera(arena.scene(scene).unwrap().current_camera));
+    }
+    #[test]
+    fn backdrop_default_reports_ctor_pair_only() {
+        // Working name for the ctor backdrop pair (I3d_scene.cpp:97-98):
+        // no standalone LS3DF FUNCTION exists for a default reader.
+        assert!(scene_backdrop_range_is_default([1.0, 10000.0]));
+        assert!(!scene_backdrop_range_is_default([0.0, 10000.0]));
+        assert!(!scene_backdrop_range_is_default([1.0, 9999.0]));
+        assert!(!scene_backdrop_range_is_default([f32::NAN, 10000.0]));
+        assert!(!scene_backdrop_range_is_default([1.0, f32::NAN]));
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert!(scene_backdrop_range_is_default(arena.scene(scene).unwrap().backdrop_range));
+    }
+    #[test]
+    fn bg_color_default_reports_ctor_words_only() {
+        // Working name for the ctor bg_color words (I3d_scene.cpp:96):
+        // no standalone LS3DF FUNCTION exists for a default reader.
+        assert!(scene_bg_color_is_default([0, 0x3f00_0000, 0x3ecc_cccd]));
+        assert!(!scene_bg_color_is_default([0, 0, 0]));
+        assert!(!scene_bg_color_is_default([0, 0x3f00_0000, 0]));
+        assert!(!scene_bg_color_is_default([u32::MAX; 3]));
+    }
+    #[test]
+    fn portal_version_initial_reports_zero_only() {
+        // Working name for the ctor portal_version word (I3d_scene.cpp:102):
+        // no standalone LS3DF FUNCTION exists for an initial reader.
+        assert!(scene_portal_version_is_initial(0));
+        assert!(!scene_portal_version_is_initial(1));
+        assert!(!scene_portal_version_is_initial(u32::MAX));
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert!(scene_portal_version_is_initial(arena.scene(scene).unwrap().portal_version));
+    }
+    #[test]
+    fn anim_slot_count_reports_eight_and_matches_range_guard() {
+        // Working name for I3D_MAX_ANIMS (I3D.h:1226): an enum bound, not a
+        // function, so no LS3DF RVA is claimed here.
+        assert_eq!(scene_anim_slot_count(), 8);
+        for index in 0..8u32 {
+            assert!(scene_anim_slot_in_range(index));
+        }
+        assert!(!scene_anim_slot_in_range(8));
+        assert!(!scene_anim_slot_in_range(u32::MAX));
+    }
+    #[test]
+    fn anim_blend_range_reports_closed_interval_only() {
+        // Working name for the SetAnimBlend clamp gate (I3d_scene.cpp:904-908):
+        // no standalone LS3DF FUNCTION exists for the gate.
+        assert!(scene_anim_blend_is_in_range(0.0));
+        assert!(scene_anim_blend_is_in_range(1.0));
+        assert!(scene_anim_blend_is_in_range(0.5));
+        assert!(!scene_anim_blend_is_in_range(-0.001));
+        assert!(!scene_anim_blend_is_in_range(1.001));
+        assert!(!scene_anim_blend_is_in_range(f32::NAN));
+        assert!(!scene_anim_blend_is_in_range(f32::INFINITY));
+        assert!(!scene_anim_blend_is_in_range(f32::NEG_INFINITY));
+    }
+    #[test]
+    fn viewport_half_extent_halves_integer_span() {
+        // Working name for the SetViewport half factor (I3d_scene.cpp:703):
+        // occupied setter RVA 0x4a9c0, no RVA claimed here.
+        assert_eq!(scene_viewport_half_extent_from_span(800).to_bits(), 400.0f32.to_bits());
+        assert_eq!(scene_viewport_half_extent_from_span(0).to_bits(), 0.0f32.to_bits());
+        assert_eq!(scene_viewport_half_extent_from_span(-800).to_bits(), (-400.0f32).to_bits());
+        assert_eq!(scene_viewport_half_extent_from_span(1).to_bits(), 0.5f32.to_bits());
     }
 }

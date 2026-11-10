@@ -241,6 +241,94 @@ pub fn light_is_point_fog_type(kind: u32) -> bool {
 pub fn light_is_unknown_8_type(kind: u32) -> bool {
     kind == 8
 }
+
+/// Working name for the `SetRange` far clamp (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:132-133 at pin 113b5b6:
+/// `far_range = far1 > near1 ? far1 : near1`). The `SetRange` body lives at
+/// LS3DF RVA 0x20b20 (VA 0x10020b20), already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. Only the stored
+/// far word is modeled; the sector loops, scaled stores and spot-radius
+/// refresh stay caller-owned. Unordered comparison (either side NaN) takes
+/// the near branch like the native `>` test. No state moves.
+pub fn light_far_clamped(near: f32, far: f32) -> f32 {
+    if far > near {
+        far
+    } else {
+        near
+    }
+}
+
+/// Working name for the `SetCone` cone-scale reciprocal (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:40-43 and 158-162 at pin 113b5b6:
+/// `d = inner_cos - outer_cos; cone_scale = d > 0.0f ? 1.0f / d : 0.0f`).
+/// The `SetCone` body lives at LS3DF RVA 0x20c30 (VA 0x10020c30), already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here. Only
+/// the reciprocal word is modeled; the cosine stores, sector loops and spot
+/// radius stay caller-owned. Unordered delta (NaN) yields zero like the
+/// native `>` test. No state moves.
+pub fn light_cone_scale_from_delta(delta: f32) -> f32 {
+    if delta > 0.0 {
+        1.0 / delta
+    } else {
+        0.0
+    }
+}
+
+/// Working name for the `SetOn` early-out gate (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:243-251 at pin 113b5b6: matching requested
+/// and stored `FRMFLAGS_ON` returns without calling `UpdateV`). The `SetOn`
+/// body lives at LS3DF RVA 0x21400 (VA 0x10021400), already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. Only the gate is
+/// modeled; the flag store and `UpdateV` call stay caller-owned. No state
+/// moves.
+pub fn light_set_on_changes_state(current_on: bool, requested_on: bool) -> bool {
+    current_on != requested_on
+}
+
+/// Working name for the `SetMode` early-out gate (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:259-260 at pin 113b5b6:
+/// `if (mode == m) return`). The `SetMode` body lives at LS3DF RVA 0x21440
+/// (VA 0x10021440), already occupied in `docs/rewrite-overlay.json`, so no
+/// RVA is claimed here. Only the gate is modeled; the mode store, sector
+/// loops and update-count bump stay caller-owned. No state moves.
+pub fn light_mode_change_applies(old_mode: u32, new_mode: u32) -> bool {
+    old_mode != new_mode
+}
+
+/// Working name for the `SetLightType` early-out gate (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:68-69 at pin 113b5b6:
+/// `if (ltype == type) return`). The `SetLightType` body lives at LS3DF RVA
+/// 0x20800 (VA 0x10020800), already occupied in `docs/rewrite-overlay.json`,
+/// so no RVA is claimed here. Only the gate is modeled; the fog-kind branch,
+/// sector add/delete walks, cone-radius refresh and update-count bump stay
+/// caller-owned. This tests a pair for equality, unlike the single-word
+/// `light_is_*_type` readers. No state moves.
+pub fn light_type_change_is_noop(old_type: u32, new_type: u32) -> bool {
+    old_type == new_type
+}
+
+/// Working name for the `SetDiffuse` scaled-color channel (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:97 and 121 at pin 113b5b6:
+/// `color = diffuse * power`). The `SetDiffuse`/`SetDiffusePower` bodies live
+/// at LS3DF RVAs 0x20930/0x209e0/0x20a90 (already occupied in
+/// `docs/rewrite-overlay.json`), so no RVA is claimed here. Only one channel
+/// product is modeled; the sector loops and update-count bump stay
+/// caller-owned. Plain host `f32` multiply with native pass-through of
+/// non-finite inputs. No state moves.
+pub fn light_scaled_color_channel(diffuse: f32, power: f32) -> f32 {
+    diffuse * power
+}
+
+/// Working name for the scaled range-delta word (mafia-re
+/// ls3df/I3D/frames/I3d_light.cpp:138, 187 and 196 at pin 113b5b6:
+/// `range_delta = range_f - range_n`). The `SetRange`/`UpdateV` bodies live
+/// at LS3DF RVAs 0x20b20/0x20d10 (already occupied in
+/// `docs/rewrite-overlay.json`), so no RVA is claimed here. Only the delta
+/// is modeled; the range stores, sector loops and spot-sphere refresh stay
+/// caller-owned. Plain host `f32` subtract. No state moves.
+pub fn light_range_delta_from_scaled(far_scaled: f32, near_scaled: f32) -> f32 {
+    far_scaled - near_scaled
+}
 fn numeric(_: crate::native_matrix::MatrixArithmeticUnavailable) -> FrameError {
     FrameError::NumericDomain("Light")
 }
@@ -1429,5 +1517,82 @@ mod tests {
             assert!(state.cone_radius > 0.0);
             arena.release(key).unwrap();
         });
+    }
+    #[test]
+    fn light_far_clamp_keeps_greater_far_and_falls_back_to_near() {
+        // Working name for the SetRange far clamp (I3d_light.cpp:132-133):
+        // no standalone LS3DF FUNCTION exists for the clamp word.
+        assert_eq!(light_far_clamped(1.0, 100.0).to_bits(), 100.0f32.to_bits());
+        assert_eq!(light_far_clamped(100.0, 1.0).to_bits(), 100.0f32.to_bits());
+        assert_eq!(light_far_clamped(5.0, 5.0).to_bits(), 5.0f32.to_bits());
+        // Unordered comparisons take the near branch like native `>`.
+        assert_eq!(
+            light_far_clamped(f32::NAN, 1.0).to_bits(),
+            f32::NAN.to_bits()
+        );
+        assert!(light_far_clamped(2.0, f32::NAN).to_bits() == 2.0f32.to_bits());
+        assert!(light_far_clamped(f32::NAN, f32::NAN).is_nan());
+    }
+    #[test]
+    fn light_cone_scale_reports_reciprocal_only_for_positive_delta() {
+        // Working name for the SetCone reciprocal (I3d_light.cpp:40-43):
+        // no standalone LS3DF FUNCTION exists for the word.
+        assert_eq!(light_cone_scale_from_delta(0.5), 2.0);
+        assert_eq!(light_cone_scale_from_delta(1.0), 1.0);
+        assert_eq!(light_cone_scale_from_delta(0.0), 0.0);
+        assert_eq!(light_cone_scale_from_delta(-1.0), 0.0);
+        assert_eq!(light_cone_scale_from_delta(f32::NAN), 0.0);
+        assert_eq!(light_cone_scale_from_delta(f32::INFINITY), 0.0);
+    }
+    #[test]
+    fn light_set_on_gate_reports_only_transitions() {
+        // Working name for the SetOn early-out (I3d_light.cpp:243-251):
+        // no standalone LS3DF FUNCTION exists for the gate.
+        assert!(!light_set_on_changes_state(false, false));
+        assert!(!light_set_on_changes_state(true, true));
+        assert!(light_set_on_changes_state(false, true));
+        assert!(light_set_on_changes_state(true, false));
+    }
+    #[test]
+    fn light_mode_gate_reports_only_changes() {
+        // Working name for the SetMode early-out (I3d_light.cpp:259-260):
+        // no standalone LS3DF FUNCTION exists for the gate.
+        assert!(!light_mode_change_applies(0xff6b, 0xff6b));
+        assert!(!light_mode_change_applies(0, 0));
+        assert!(light_mode_change_applies(0xff6b, 0));
+        assert!(light_mode_change_applies(0, 1));
+        assert!(light_mode_change_applies(u32::MAX, 0));
+    }
+    #[test]
+    fn light_type_gate_reports_noop_only_for_equal_words() {
+        // Working name for the SetLightType early-out (I3d_light.cpp:68-69):
+        // no standalone LS3DF FUNCTION exists for the gate; this pair test
+        // differs from the single-word `light_is_*_type` readers.
+        assert!(light_type_change_is_noop(3, 3));
+        assert!(light_type_change_is_noop(0, 0));
+        assert!(!light_type_change_is_noop(3, 2));
+        assert!(!light_type_change_is_noop(5, 6));
+        assert!(!light_type_change_is_noop(0, u32::MAX));
+    }
+    #[test]
+    fn light_scaled_channel_multiplies_diffuse_by_power() {
+        // Working name for the SetDiffuse channel product (I3d_light.cpp:97):
+        // no standalone LS3DF FUNCTION exists for one channel.
+        assert_eq!(light_scaled_color_channel(1.5, 2.0).to_bits(), 3.0f32.to_bits());
+        assert_eq!(light_scaled_color_channel(0.0, 99.0).to_bits(), 0.0f32.to_bits());
+        assert_eq!(light_scaled_color_channel(-0.0, 1.0).to_bits(), (-0.0f32).to_bits());
+        assert!(light_scaled_color_channel(f32::NAN, 1.0).is_nan());
+        // inf * 0.0 is NaN with an unspecified sign bit (const-folded vs
+        // runtime multiplies differ), so only NaN-ness is asserted.
+        assert!(light_scaled_color_channel(f32::INFINITY, 0.0).is_nan());
+    }
+    #[test]
+    fn light_range_delta_subtracts_near_from_far() {
+        // Working name for the scaled range delta (I3d_light.cpp:138):
+        // no standalone LS3DF FUNCTION exists for the word.
+        assert_eq!(light_range_delta_from_scaled(100.0, 1.0).to_bits(), 99.0f32.to_bits());
+        assert_eq!(light_range_delta_from_scaled(1.0, 1.0).to_bits(), 0.0f32.to_bits());
+        assert_eq!(light_range_delta_from_scaled(0.0, 5.0).to_bits(), (-5.0f32).to_bits());
+        assert!(light_range_delta_from_scaled(f32::NAN, 1.0).is_nan());
     }
 }
