@@ -324,3 +324,19 @@ fn session_programs_read_the_retained_clock_without_advancing_it() {
     drop(session);
     assert_eq!(clock.read(), None);
 }
+
+#[test]
+fn owned_session_program_uses_shared_random_without_reseeding_at_init() {
+    let fixture = fixture(b"commandblock 1\ndim_flt 1\nrnd 0,100\ncommandblock 0");
+    let mut session = fixture.session();
+    assert!(session.seed_owned_game_random(1).is_err());
+    load(&mut session, &[]).unwrap();
+    session.seed_owned_game_random(1).unwrap();
+    assert_eq!(session.game_state().random_source().next_raw(), Some(41));
+    session.initialize_owned_global_programs().unwrap();
+    run(&mut session).unwrap();
+    assert_eq!(session.loader().unwrap().content.programs()[0]
+        .runtime().unwrap().fields.floats.as_ref().unwrap()[0], 67.0);
+    finish(&mut session);
+    assert!(session.seed_owned_game_random(1).is_err());
+}
