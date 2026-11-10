@@ -6,6 +6,7 @@ use crate::script_lookup::{
 use std::collections::{HashMap, HashSet};
 #[derive(Default)]
 struct Memory {
+    clock: crate::game_housekeeping::GameClock,
     next: u64,
     events: Vec<(RuntimeEffect, u32, u32, u32, u32)>,
     fail: Option<RuntimeEffect>,
@@ -374,6 +375,9 @@ impl ProgramBackend for Memory {
     }
 }
 impl RuntimeBackend for Memory {
+    fn game_clock(&self) -> Option<crate::game_housekeeping::GameClockSource> {
+        Some(self.clock.reader())
+    }
     fn effect(
         &mut self,
         fields: RuntimeView<'_>,
@@ -1990,9 +1994,10 @@ fn mission_subtitles_dispatch_emits_staging_effects_in_order() {
 #[test]
 fn get_tick_and_game_time_write_float_regs() {
     let mut memory = Memory::default();
+    memory.clock.set(21);
     let mut p = program(b"dim_flt 2\ngetticktime 0\ngetgametime 1", &mut memory);
     p.init_fresh_runtime(&mut memory).unwrap();
-    // First call with delta 7: game_time becomes 7, command_time 7
+    // Caller-owned game time is independent of instruction count and delta.
     p.call_owned_process(7, &mut DispatchBudget::new(8).unwrap(), &mut memory)
         .unwrap();
     assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
@@ -2004,11 +2009,11 @@ fn get_tick_and_game_time_write_float_regs() {
         .unwrap();
     let floats = p.runtime().unwrap().fields.floats.as_ref().unwrap();
     assert_eq!(floats[1], 21.0);
-    let before = p.runtime().unwrap().fields.game_time;
+    let before = memory.clock.get();
     p.call_owned_process(3, &mut DispatchBudget::new(8).unwrap(), &mut memory)
         .unwrap();
     // At PC 3 (past end), run_scheduler returns immediately without dispatch, so game_time stays
-    assert_eq!(p.runtime().unwrap().fields.game_time, before);
+    assert_eq!(memory.clock.get(), before);
 }
 #[test]
 fn try_set_event_on_program_jumps_and_pushes_event_stack() {
@@ -2041,6 +2046,7 @@ fn try_set_event_on_program_jumps_and_pushes_event_stack() {
     // The program at PC 1 is EVENT, which advances to 2 (label) on next tick
     // But we set PC to 1 and have stack with event, then return at PC 1? Actually
     // we need to test return: set PC to a return instruction
+    memory.clock.set(1);
     let mut p2 = program(b"return", &mut memory);
     p2.init_fresh_runtime(&mut memory).unwrap();
     p2.runtime.as_mut().unwrap().fields.gosub_stack = vec![0x8000 | 0x4000 | 5];
@@ -2054,6 +2060,7 @@ fn try_set_event_on_program_jumps_and_pushes_event_stack() {
 #[test]
 fn return_handles_event_time_restoration_and_plain_pop() {
     let mut memory = Memory::default();
+    memory.clock.set(1);
     // Event return with back_in_time set should restore event_command_time
     let mut p = program(b"return", &mut memory);
     p.init_fresh_runtime(&mut memory).unwrap();
@@ -2071,6 +2078,7 @@ fn return_handles_event_time_restoration_and_plain_pop() {
     assert_eq!(p.runtime().unwrap().fields.command_time, 43);
     assert!(p.runtime().unwrap().fields.gosub_stack.is_empty());
     // Plain gosub return just jumps without time restore
+    memory.clock.set(1);
     let mut p2 = program(b"return", &mut memory);
     p2.init_fresh_runtime(&mut memory).unwrap();
     {
@@ -3888,3 +3896,6 @@ fn rva_7b010_program_set_ai_priority_stores_word() {
 
 #[path = "program_flow_register_guards_tests.rs"]
 mod flow_register_guards_tests;
+
+#[path = "program_game_clock_tests.rs"]
+mod game_clock_tests;
