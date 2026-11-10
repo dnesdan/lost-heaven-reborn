@@ -341,6 +341,11 @@ pub struct PoliceGameInitState {
     /// (mafia-re game/ai/C_shvestky.cpp:41-56), `apply_game_init` leaves this
     /// list alone; `GameDone` owns its teardown (deferred).
     temp_cars: Vec<PoliceActorId>,
+    /// Raw flag at +0xac (`unknown_ac`, mafia-re game/ai/C_shvestky.h:161-162),
+    /// which `C_game::Init` sets. `GameInit` 0x499cd0 never stores it, so it
+    /// is preserved there; the typed `Default` (false) is an explicit host
+    /// default, not an original value. No gameplay meaning is attached.
+    unknown_ac: bool,
 }
 
 impl PoliceGameInitState {
@@ -451,6 +456,23 @@ impl PoliceGameInitState {
     /// gameplay meaning is attached.
     pub fn unknown_30(&self) -> u32 {
         self.unknown_30
+    }
+
+    /// Working name (no separate native entry): reads the owned +0xac flag
+    /// (`unknown_ac`, mafia-re game/ai/C_shvestky.h:161-162). `C_game::Init`
+    /// owns the store; `GameInit` 0x499cd0 never touches it, so it is
+    /// preserved there. No dedicated native getter exists and no gameplay
+    /// meaning is attached, so no RVA is claimed.
+    pub fn is_unknown_ac(&self) -> bool {
+        self.unknown_ac
+    }
+
+    /// Working name (no separate native entry): stages the owned +0xac flag
+    /// for the `C_game::Init` owner. `GameInit` 0x499cd0 preserves it; the
+    /// typed `Default` (false) is an explicit host default, not an original
+    /// value. No RVA is claimed.
+    pub fn set_unknown_ac(&mut self, value: bool) {
+        self.unknown_ac = value;
     }
 
     /// Working name (no separate native entry): reports whether any record
@@ -2272,6 +2294,19 @@ pub struct PolicePursuitRecord {
     /// game/ai/C_shvestky.h:39-45). Upstream leaves 8 (written by the
     /// signal-mark outline) unnamed; the raw word is kept.
     pub reason: u32,
+    /// Last ground position of the record's car (`S_shvestky::pos` at +0x34,
+    /// `S_vector2`, mafia-re game/ai/C_shvestky.h:80). `TestOverRed`
+    /// (mafia-re game/ai/C_shvestky.cpp:503,531 at pin 113b5b6) reads the
+    /// previous value to detect a red-light crossing and then stores the
+    /// current car position. Bits keep `Eq`; use `pos`/`set_pos` for `f32`.
+    pub pos_x_bits: u32,
+    pub pos_z_bits: u32,
+    /// Hard-ram latch (`S_shvestky::hard_ram` at +0x6c, mafia-re
+    /// game/ai/C_shvestky.h:109). `CarCollision` owns the store (a ram above
+    /// 9.7); the police-ram arm of `CreateShvestkyTest` reads it to choose
+    /// arrest versus level 1. Preserved by `ReleaseWantedHuman` here, whose
+    /// native clear list is not evidenced to touch it.
+    pub hard_ram: bool,
 }
 
 impl PolicePursuitRecord {
@@ -2304,6 +2339,9 @@ impl PolicePursuitRecord {
             support_level: 0,
             rammed_car: 0,
             reason: 0,
+            pos_x_bits: 0,
+            pos_z_bits: 0,
+            hard_ram: false,
         }
     }
 
@@ -3058,8 +3096,8 @@ impl PolicePursuitRecord {
     /// at pin 113b5b6): with the bit set, a hard ram (above 9.7) takes
     /// arrest, else 1, both with `SHVREASON_RAM_POLICE_CAR` (0xa), each only
     /// where lower. `hard_ram` carries the caller's ram-speed reading (the
-    /// native `S_shvestky::hard_ram` latch, mafia-re game/ai/C_shvestky.h:109,
-    /// stays host-owned).
+    /// native `S_shvestky::hard_ram` latch, mafia-re game/ai/C_shvestky.h:109;
+    /// stage it with `set_hard_ram` where the `CarCollision` owner is modeled).
     pub fn raise_pending_for_ram_police_car(&mut self, hard_ram: bool) {
         if self.flags & SHVF_RAM_POLICE_CAR == 0 {
             return;
@@ -3073,6 +3111,91 @@ impl PolicePursuitRecord {
             self.new_state = 1;
             self.reason = 0xa;
         }
+    }
+
+    /// Working name (no outline entry is claimed): the red-light arm of the
+    /// inlined `TestOverRed` (mafia-re game/ai/C_shvestky.cpp:516-524 at pin
+    /// 113b5b6): with a semaphore red crossing, sets `SHVF_RED_LIGHT`, adds
+    /// 4000 to `signal_time` clamped to 10000, and where `new_state` is below
+    /// 1 takes 1 with `SHVREASON_RED_LIGHT` (6).
+    pub fn raise_pending_for_red_light(&mut self) {
+        self.flags |= SHVF_RED_LIGHT;
+        self.signal_time = self.signal_time.wrapping_add(4000);
+        if self.signal_time > 10000 {
+            self.signal_time = 10000;
+        }
+        if self.new_state < 1 {
+            self.new_state = 1;
+            self.reason = 6;
+        }
+    }
+
+    /// Working name (no outline entry is claimed): the repeat-offense arm of
+    /// the inlined `CreateShvestkyTest` (mafia-re game/ai/C_shvestky.cpp:638-639
+    /// at pin 113b5b6): with `new_state` at 1 and three or more `offenses`,
+    /// takes arrest. No reason store happens natively on this arm.
+    pub fn raise_pending_for_repeated_offenses(&mut self) {
+        if self.new_state == 1 && self.offenses >= 3 {
+            self.new_state = SHVSTATE_ARREST;
+        }
+    }
+
+    /// Working name (no outline entry is claimed): the police-car guard of the
+    /// inlined `CreateShvestkyTest` (mafia-re game/ai/C_shvestky.cpp:635-637 at
+    /// pin 113b5b6): with `new_state` at 1, a filed state below arrest, and a
+    /// present police-model car, drops the latch back to none. `car_present`
+    /// and `police_model` are host-owned car reads (`records[i]->car` and its
+    /// `police_model`); the car owner stays deferred.
+    pub fn clear_pending_for_police_car(&mut self, car_present: bool, police_model: bool) {
+        if self.new_state == 1 && self.state < SHVSTATE_ARREST && car_present && police_model {
+            self.new_state = SHVSTATE_NONE;
+        }
+    }
+
+    /// Working name (no outline entry is claimed): the latch clear at the end
+    /// of the inlined `CreateShvestkyTest` (mafia-re game/ai/C_shvestky.cpp:742
+    /// at pin 113b5b6): drops `new_state` back to none after promotion. The
+    /// state promotion and mission fan-out around it stay with their owners.
+    pub fn clear_pending_state(&mut self) {
+        self.new_state = SHVSTATE_NONE;
+    }
+
+    /// Working name (no outline entry is claimed): reads the owned record's
+    /// last ground position (`S_shvestky::pos` at +0x34, `S_vector2`, mafia-re
+    /// game/ai/C_shvestky.h:80). `TestOverRed` (mafia-re
+    /// game/ai/C_shvestky.cpp:503,531 at pin 113b5b6) compares the previous
+    /// value against the red-light line and then stores the current car
+    /// position. Bits keep `Eq`; no dedicated native getter exists, so no RVA
+    /// is claimed.
+    pub fn pos(&self) -> [f32; 2] {
+        [
+            f32::from_bits(self.pos_x_bits),
+            f32::from_bits(self.pos_z_bits),
+        ]
+    }
+
+    /// Working name (no outline entry is claimed): stages the owned record's
+    /// last ground position for the `TestOverRed` owner. No dedicated native
+    /// setter exists, so no RVA is claimed.
+    pub fn set_pos(&mut self, x: f32, z: f32) {
+        self.pos_x_bits = x.to_bits();
+        self.pos_z_bits = z.to_bits();
+    }
+
+    /// Working name (no outline entry is claimed): reads the owned record's
+    /// hard-ram latch (`S_shvestky::hard_ram` at +0x6c, mafia-re
+    /// game/ai/C_shvestky.h:109). `CarCollision` owns the store (a ram above
+    /// 9.7); the police-ram arm reads it. No dedicated native getter exists,
+    /// so no RVA is claimed.
+    pub fn is_hard_ram(&self) -> bool {
+        self.hard_ram
+    }
+
+    /// Working name (no outline entry is claimed): stages the owned record's
+    /// hard-ram latch for the `CarCollision` owner. No dedicated native setter
+    /// exists, so no RVA is claimed.
+    pub fn set_hard_ram(&mut self, value: bool) {
+        self.hard_ram = value;
     }
 }
 
@@ -3127,6 +3250,44 @@ pub fn retain_living_angry(
             index += 1;
         }
     }
+}
+
+/// Working name (no outline entry is claimed): reads the staged bridge-node
+/// count (`C_shvestky::bridge_nodes` at +0x9c, mafia-re
+/// game/ai/C_shvestky.h:161). `TestOverRed` (mafia-re
+/// game/ai/C_shvestky.cpp:486-493 at pin 113b5b6) scans the list back to
+/// front, skipping semaphore nodes near a mission bridge; the road-membership
+/// owner stays deferred. The native size is read inline with no dedicated
+/// getter, so no RVA is claimed.
+pub fn bridge_node_count(nodes: &[u16]) -> usize {
+    nodes.len()
+}
+
+/// Working name (no outline entry is claimed): reports whether the node is
+/// staged in `bridge_nodes`, scanning back to front like the native
+/// `TestOverRed` exclusion loop. Exact-match projection of the native masked
+/// test (`NEARNODE_INDEX`); the mask owner stays deferred. No dedicated native
+/// getter exists, so no RVA is claimed.
+pub fn has_bridge_node(nodes: &[u16], node: u16) -> bool {
+    for index in (0..nodes.len()).rev() {
+        if nodes[index] == node {
+            return true;
+        }
+    }
+    false
+}
+
+/// Working name (no outline entry is claimed): admits the node to the
+/// caller-owned `bridge_nodes` unless already listed. Mirrors the
+/// `admit_do_rici` duplicate guard. `SetActive` owns the bridge collection in
+/// the full body and stays deferred; this keeps the owned list shape. Returns
+/// whether the node was appended. No RVA is claimed.
+pub fn admit_bridge_node(nodes: &mut Vec<u16>, node: u16) -> bool {
+    if nodes.contains(&node) {
+        return false;
+    }
+    nodes.push(node);
+    true
 }
 
 /// Original `C_shvestky::ReleaseWantedHuman` 0x49f850: clears the human's
@@ -5731,5 +5892,193 @@ mod tests {
         second.alerted = true;
         state.records.push(second);
         assert!(state.has_any_alerted());
+    }
+
+    #[test]
+    fn red_light_pending_sets_flag_clamps_time_and_reason() {
+        // Working name: TestOverRed arm (C_shvestky.cpp:516-524); no RVA claimed.
+        let mut record = PolicePursuitRecord::new(7);
+        record.raise_pending_for_red_light();
+        assert_ne!(record.flags & SHVF_RED_LIGHT, 0);
+        assert_eq!(record.signal_time(), 4000);
+        assert_eq!(record.pending_state(), 1);
+        assert_eq!(record.reason(), 6);
+        // Clamp at 10000 and keep a raised latch.
+        record.signal_time = 9000;
+        record.new_state = SHVSTATE_ARREST;
+        record.reason = 0;
+        record.raise_pending_for_red_light();
+        assert_eq!(record.signal_time(), 10000);
+        assert_eq!(record.pending_state(), SHVSTATE_ARREST);
+        assert_eq!(record.reason(), 0);
+    }
+
+    #[test]
+    fn repeated_offenses_pending_takes_arrest_at_three() {
+        // Working name: CreateShvestkyTest arm (C_shvestky.cpp:638-639); no RVA.
+        let mut record = PolicePursuitRecord::new(7);
+        record.new_state = 1;
+        record.offenses = 2;
+        record.raise_pending_for_repeated_offenses();
+        assert_eq!(record.pending_state(), 1);
+        record.offenses = 3;
+        record.raise_pending_for_repeated_offenses();
+        assert_eq!(record.pending_state(), SHVSTATE_ARREST);
+        // Below level 1 the arm does nothing.
+        let mut low = PolicePursuitRecord::new(8);
+        low.offenses = 9;
+        low.raise_pending_for_repeated_offenses();
+        assert_eq!(low.pending_state(), SHVSTATE_NONE);
+    }
+
+    #[test]
+    fn police_car_guard_clears_level_one_latch() {
+        // Working name: CreateShvestkyTest guard (C_shvestky.cpp:635-637); no RVA.
+        let mut record = PolicePursuitRecord::new(7);
+        record.new_state = 1;
+        record.state = SHVSTATE_NONE;
+        record.clear_pending_for_police_car(true, true);
+        assert_eq!(record.pending_state(), SHVSTATE_NONE);
+        // Arrest state, missing car, or civil car keep the latch.
+        let mut kept = PolicePursuitRecord::new(8);
+        kept.new_state = 1;
+        kept.state = SHVSTATE_ARREST;
+        kept.clear_pending_for_police_car(true, true);
+        assert_eq!(kept.pending_state(), 1);
+        let mut no_car = PolicePursuitRecord::new(9);
+        no_car.new_state = 1;
+        no_car.clear_pending_for_police_car(false, true);
+        assert_eq!(no_car.pending_state(), 1);
+        let mut civil = PolicePursuitRecord::new(11);
+        civil.new_state = 1;
+        civil.clear_pending_for_police_car(true, false);
+        assert_eq!(civil.pending_state(), 1);
+    }
+
+    #[test]
+    fn clear_pending_state_drops_latch() {
+        // Working name: CreateShvestkyTest tail (C_shvestky.cpp:742); no RVA.
+        let mut record = PolicePursuitRecord::new(7);
+        record.new_state = SHVSTATE_KILL;
+        record.clear_pending_state();
+        assert_eq!(record.pending_state(), SHVSTATE_NONE);
+        assert_eq!(record.status_word(), SHVSTATE_NONE);
+    }
+
+    #[test]
+    fn record_pos_round_trips_exact_bits() {
+        // Working name: S_shvestky pos (+0x34); inline TestOverRed only.
+        let mut record = PolicePursuitRecord::new(7);
+        assert_eq!(record.pos(), [0.0, 0.0]);
+        record.set_pos(10.5, -3.25);
+        assert_eq!(record.pos(), [10.5, -3.25]);
+        assert_eq!(record.pos_x_bits, 10.5f32.to_bits());
+        assert_eq!(record.pos_z_bits, (-3.25f32).to_bits());
+    }
+
+    #[test]
+    fn hard_ram_latch_stages_collision_owner_value() {
+        // Working name: S_shvestky hard_ram (+0x6c); CarCollision owner.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.is_hard_ram());
+        record.set_hard_ram(true);
+        assert!(record.is_hard_ram());
+        record.set_hard_ram(false);
+        assert!(!record.is_hard_ram());
+        // The police-ram arm reads the staged latch value.
+        record.flags |= SHVF_RAM_POLICE_CAR;
+        record.set_hard_ram(true);
+        record.raise_pending_for_ram_police_car(record.is_hard_ram());
+        assert_eq!(record.pending_state(), SHVSTATE_ARREST);
+    }
+
+    #[test]
+    fn unknown_ac_flag_preserved_by_game_init() {
+        // Working name: +0xac flag; C_game::Init owner, GameInit preserves.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.is_unknown_ac());
+        state.set_unknown_ac(true);
+        assert!(state.is_unknown_ac());
+        state.apply_game_init();
+        assert!(state.is_unknown_ac());
+        state.set_unknown_ac(false);
+        assert!(!state.is_unknown_ac());
+    }
+
+    #[test]
+    fn bridge_node_count_has_and_admit_use_back_to_front() {
+        // Working names: bridge_nodes (+0x9c); TestOverRed scan shape.
+        let mut nodes: Vec<u16> = Vec::new();
+        assert_eq!(bridge_node_count(&nodes), 0);
+        assert!(!has_bridge_node(&nodes, 12));
+        assert!(admit_bridge_node(&mut nodes, 12));
+        assert!(!admit_bridge_node(&mut nodes, 12));
+        assert!(admit_bridge_node(&mut nodes, 34));
+        assert_eq!(bridge_node_count(&nodes), 2);
+        assert!(has_bridge_node(&nodes, 12));
+        assert!(has_bridge_node(&nodes, 34));
+        assert!(!has_bridge_node(&nodes, 56));
+    }
+
+    #[test]
+    fn release_preserves_pos_and_hard_ram_latches() {
+        // Working names: pos/hard_ram are TestOverRed/CarCollision latches,
+        // outside the ReleaseWantedHuman clear list.
+        let mut records = vec![PolicePursuitRecord::new(7)];
+        records[0].set_pos(1.0, 2.0);
+        records[0].set_hard_ram(true);
+        assert!(release_wanted_human(&mut records, 7, 9, false, false));
+        assert_eq!(records[0].pos(), [1.0, 2.0]);
+        assert!(records[0].is_hard_ram());
+        assert_eq!(records[0].status_word(), SHVSTATE_NONE);
+    }
+
+    #[test]
+    fn new_record_clears_pos_and_hard_ram() {
+        // Working name: AddPerson clears the record (pos/hard_ram start zero).
+        let record = PolicePursuitRecord::new(7);
+        assert_eq!(record.pos(), [0.0, 0.0]);
+        assert!(!record.is_hard_ram());
+        assert_eq!(record.pos_x_bits, 0);
+        assert_eq!(record.pos_z_bits, 0);
+    }
+
+    #[test]
+    fn game_init_leaves_unknown_ac_alone() {
+        // Working name: GameInit 0x499cd0 never stores +0xac.
+        let mut state = PoliceGameInitState::default();
+        state.set_unknown_ac(true);
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 6,
+            free: true,
+        });
+        state.apply_game_init();
+        assert!(state.is_unknown_ac());
+        assert_eq!(state.road_block_enemy_count(), 1);
+    }
+
+    #[test]
+    fn bridge_admit_keeps_first_staged_order() {
+        // Working name: duplicate guard keeps stored order.
+        let mut nodes = vec![5u16, 9];
+        assert!(!admit_bridge_node(&mut nodes, 5));
+        assert!(admit_bridge_node(&mut nodes, 11));
+        assert_eq!(nodes, vec![5, 9, 11]);
+        assert_eq!(bridge_node_count(&nodes), 3);
+    }
+
+    #[test]
+    fn combined_pending_arms_respect_order() {
+        // Working names: red-light then repeat-offense then police-car guard.
+        let mut record = PolicePursuitRecord::new(7);
+        record.raise_pending_for_red_light();
+        assert_eq!(record.pending_state(), 1);
+        record.offenses = 3;
+        record.raise_pending_for_repeated_offenses();
+        assert_eq!(record.pending_state(), SHVSTATE_ARREST);
+        record.clear_pending_for_police_car(true, true);
+        assert_eq!(record.pending_state(), SHVSTATE_ARREST);
+        record.clear_pending_state();
+        assert_eq!(record.pending_state(), SHVSTATE_NONE);
     }
 }
