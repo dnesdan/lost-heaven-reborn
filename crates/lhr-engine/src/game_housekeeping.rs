@@ -786,6 +786,11 @@ pub struct GameInlineState {
     /// Staged mission-help calls shadowing the indicator owner. Applied by
     /// the objective leaves; read out for evidence or later HUD application.
     pub mission_help_log: crate::game_loadsave_lifecycle::MissionHelpLog,
+    /// Staged subtitle requests (`INTRO_SUBTITLE_ADD` pairs and
+    /// `SUBTITLE_ADD` ids, mafia-re game/mission/C_program.cpp:6033-6039 and
+    /// 7554-7557 at pin fe7e746). Written by the `mission_subtitle*`
+    /// setters below; text lookup and HUD display stay deferred.
+    pub subtitles: Vec<StagedSubtitle>,
     /// Retained light-cache collection (`C_game::light_cache` plus the reset
     /// words, mafia-re game/mission/game.cpp:314-315, 5923-5928 at pin fe7e746).
     /// `None` until a `UseLightCache` effect collects it; the per-frame
@@ -799,6 +804,17 @@ pub struct GameInlineState {
     /// `C_car` clears it; `Tick` runs the failure menu once the screen has
     /// faded out. Written by [`GameInlineState::set_game_failed`].
     game_failed: bool,
+}
+
+/// One staged subtitle request, in call order. Host staging for the HUD
+/// side of `INTRO_SUBTITLE_ADD`/`SUBTITLE_ADD`; text lookup and display
+/// stay deferred with the text/indicator owners.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StagedSubtitle {
+    /// `IntroSubtitlesAdd(a, b)` pair.
+    Intro(u32, u32),
+    /// `IntroSubtitlesAddSimple(id)` id.
+    Simple(u32),
 }
 
 impl GameInlineState {
@@ -1526,6 +1542,11 @@ impl GameInlineState {
         &self.objectives
     }
 
+    /// Reads the staged subtitle requests in call order.
+    pub fn subtitles(&self) -> &[StagedSubtitle] {
+        &self.subtitles
+    }
+
     /// Reads the staged mission-help calls shadowing the indicator owner.
     pub fn mission_help_log(&self) -> &crate::game_loadsave_lifecycle::MissionHelpLog {
         &self.mission_help_log
@@ -1552,6 +1573,19 @@ impl GameInlineState {
     /// through [`crate::game_loadsave_lifecycle::objectives_clear`].
     pub fn mission_objectives_clear(&mut self) {
         crate::game_loadsave_lifecycle::objectives_clear(&mut self.objectives);
+    }
+
+    /// `INTRO_SUBTITLE_ADD` (opcode 239): stages an intro subtitle pair.
+    /// Appended without dedup, mirroring the native list append; the `u32`
+    /// words match the native pass-by-value conversion.
+    pub fn mission_intro_subtitle_add(&mut self, first: u32, second: u32) {
+        self.subtitles.push(StagedSubtitle::Intro(first, second));
+    }
+
+    /// `SUBTITLE_ADD` (opcode 240): stages a simple subtitle id.
+    /// Appended without dedup, mirroring the native list append.
+    pub fn mission_subtitle_add(&mut self, id: u32) {
+        self.subtitles.push(StagedSubtitle::Simple(id));
     }
 
     /// Reads the retained light-cache collection, if a `UseLightCache`

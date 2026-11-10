@@ -66,6 +66,8 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
             MissionObjectivesAdd(id) => self.game.mission_objectives_add(id as u32),
             MissionObjectivesRemove(id) => self.game.mission_objectives_remove(id as u32),
             MissionObjectivesClear => self.game.mission_objectives_clear(),
+            IntroSubtitleAdd(first, second) => self.game.mission_intro_subtitle_add(first, second),
+            SubtitleAdd(id) => self.game.mission_subtitle_add(id),
             // Exhaustive storage-only list: adding another gameplay effect
             // requires an explicit owner decision here at compile time.
             AllocateWorkingSource(_)

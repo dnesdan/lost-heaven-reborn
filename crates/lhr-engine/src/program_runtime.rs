@@ -1005,6 +1005,15 @@ pub enum RuntimeEffect {
     /// game/mission/C_program.cpp:5170-5172, `G_LoadSaveClass::ObjectivesClear`
     /// GAME 0x60b690). No operands.
     MissionObjectivesClear,
+    /// Intro subtitle staging (`INTRO_SUBTITLE_ADD` 239): matches
+    /// `IntroSubtitlesAdd(p[0], p[1])` (mafia-re 113b5b6
+    /// game/mission/C_program.cpp:6033-6039). Carries the raw integer pair;
+    /// HUD display stays deferred.
+    IntroSubtitleAdd(u32, u32),
+    /// Simple subtitle staging (`SUBTITLE_ADD` 240): matches
+    /// `IntroSubtitlesAddSimple(*(int *)params)` (mafia-re 113b5b6
+    /// game/mission/C_program.cpp:7554-7557). Carries the raw integer id.
+    SubtitleAdd(u32),
 }
 /// Required external allocation boundary, borrowing actual fields at the call.
 /// The runtime itself owns actual Rust allocations and performs release only
@@ -3033,6 +3042,25 @@ impl<B: RuntimeBackend> Process<'_, B> {
             .and_then(|p| p.value())
             .ok_or(RuntimeError::Domain("current scalar parameter unavailable"))
     }
+    /// Current instruction's two-integer payload, in order. Native reads
+    /// `((int *)params)[0..2]`; a missing or partial pair stops dispatch
+    /// instead of inventing operands.
+    fn pair_ints(&self, state: &ResetState) -> Result<[i32; 2], RuntimeError> {
+        let values = self
+            .instructions
+            .active()
+            .get(state.program_counter as usize)
+            .and_then(|i| i.parameter.as_ref())
+            .and_then(|p| p.pair_parameter())
+            .map(|p| p.values())
+            .ok_or(RuntimeError::Domain("current pair parameter unavailable"))?;
+        match values {
+            [Some(first), Some(second)] => Ok([first, second]),
+            _ => Err(RuntimeError::Domain(
+                "current pair values unavailable",
+            )),
+        }
+    }
     /// Current Detector-vtable owner, implicit in every C_detector::Process
     /// arm (the scan and the flag/collision arms all run for the script's own
     /// detector, never through an actor register). Missing owners report like
@@ -4050,9 +4078,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     }
                 }
             }
-            78 | 79 | 80 | 132 | 239 | 240 => {
-                // Dialogue, camera switching, speech and subtitles have
-                // decoded arguments but no live presentation/audio owners.
+            78 | 79 | 80 | 132 => {
+                // Dialogue, camera switching and speech have decoded
+                // arguments but no live presentation/audio owners.
                 // Retain the PC and decoded payload instead of discarding
                 // a gameplay event through the common advance.
                 return Err(RuntimeError::UnsupportedCommand(opcode));
@@ -4294,6 +4322,19 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             166 => {
                 // MISSION_OBJECTIVESCLEAR: ObjectivesClear(), no operands
                 self.effect(state, RuntimeEffect::MissionObjectivesClear)?;
+            }
+            239 => {
+                // INTRO_SUBTITLE_ADD: IntroSubtitlesAdd(p[0], p[1])
+                let [a, b] = self.pair_ints(state)?;
+                self.effect(
+                    state,
+                    RuntimeEffect::IntroSubtitleAdd(a as u32, b as u32),
+                )?;
+            }
+            240 => {
+                // SUBTITLE_ADD: IntroSubtitlesAddSimple(*(int *)params)
+                let id = self.value_at(state)?;
+                self.effect(state, RuntimeEffect::SubtitleAdd(id as u32))?;
             }
             95 => {
                 // Original CMD_PLAYER_LOCKCONTROLS (mafia-re 113b5b6

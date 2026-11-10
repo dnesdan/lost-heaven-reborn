@@ -1826,7 +1826,6 @@ fn dialogue_commands_without_effect_owners_refuse_to_advance() {
         (b"human_talk 0,100", 132),
         (b"dialog_begin 0,1", 78),
         (b"dialog_end", 79),
-        (b"subtitle_add 5", 240),
     ];
     for &(source, opcode) in cases {
         let mut memory = Memory::default();
@@ -1915,6 +1914,38 @@ fn mission_objectives_dispatch_emits_staging_effects_in_order() {
         ]
     );
     assert_eq!(p.runtime().unwrap().fields.program_counter(), 7);
+    p.discard_runtime_host().unwrap();
+}
+
+#[test]
+fn mission_subtitles_dispatch_emits_staging_effects_in_order() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\nintro_subtitle_add 6,7\nsubtitle_add 9\ncommandblock 0",
+        &mut memory,
+    );
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    let staged: Vec<RuntimeEffect> = memory
+        .events
+        .iter()
+        .map(|event| event.0)
+        .filter(|effect| {
+            matches!(
+                effect,
+                RuntimeEffect::IntroSubtitleAdd(_, _) | RuntimeEffect::SubtitleAdd(_)
+            )
+        })
+        .collect();
+    assert_eq!(
+        staged,
+        vec![
+            RuntimeEffect::IntroSubtitleAdd(6, 7),
+            RuntimeEffect::SubtitleAdd(9),
+        ]
+    );
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 4);
     p.discard_runtime_host().unwrap();
 }
 #[test]

@@ -392,8 +392,9 @@ pub fn run(
             .unwrap();
             writeln!(
                 report,
-                "Mission objectives staged: {:?}",
-                session.game_state().objectives()
+                "Mission objectives staged: {:?}; subtitles staged: {:?}",
+                session.game_state().objectives(),
+                session.game_state().subtitles()
             )
             .unwrap();
         }

@@ -235,3 +235,18 @@ fn mission_objectives_stage_ids_and_help_calls_in_order() {
     assert!(!log.contains(&MissionHelpCall::Add(7)));
     finish(&mut session);
 }
+
+#[test]
+fn mission_subtitles_stage_ids_in_call_order() {
+    let fixture = fixture(b"commandblock 1\nintro_subtitle_add 6,7\nsubtitle_add 9\ncommandblock 0");
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    session.initialize_owned_global_programs().unwrap();
+    run(&mut session).unwrap();
+    use crate::game_housekeeping::StagedSubtitle;
+    assert_eq!(
+        session.game_state().subtitles(),
+        &[StagedSubtitle::Intro(6, 7), StagedSubtitle::Simple(9)]
+    );
+    finish(&mut session);
+}
