@@ -523,6 +523,55 @@ impl PoliceGameInitState {
         self.records.iter().any(|record| record.alerted)
     }
 
+    /// Working name (no separate native entry): reports whether any actor is
+    /// listed in `do_rici_actors`. The native `do_rici_actors` size (mafia-re
+    /// game/ai/C_shvestky.h:159-160) is tested inline at each use with no
+    /// dedicated getter, so no RVA is claimed.
+    pub fn has_any_do_rici_actor(&self) -> bool {
+        !self.do_rici_actors.is_empty()
+    }
+
+    /// Working name (no separate native entry): reports whether any police
+    /// temporary car is tracked. The native `temp_cars` size (mafia-re
+    /// game/ai/C_shvestky.h:159-160) is tested inline at each use with no
+    /// dedicated getter, so no RVA is claimed.
+    pub fn has_any_temp_car(&self) -> bool {
+        !self.temp_cars.is_empty()
+    }
+
+    /// Working name (no separate native entry): reports whether any
+    /// road-block car is `free`. The native `S_road_block_car` free marks
+    /// (mafia-re game/ai/C_shvestky.h:120-124) are counted inline by the
+    /// road-block setup with no dedicated nonzero getter (only the
+    /// `take_free_road_block_car` scan shape), so no RVA is claimed.
+    pub fn has_any_free_road_block_car(&self) -> bool {
+        self.road_block_cars.iter().any(|entry| entry.free)
+    }
+
+    /// Working name (no separate native entry): reports whether any
+    /// road-block policeman is `free`. The native `S_road_block_iris` free
+    /// marks (mafia-re game/ai/C_shvestky.h:125-129) are scanned inline
+    /// with no dedicated nonzero getter, so no RVA is claimed.
+    pub fn has_any_free_road_block_iris(&self) -> bool {
+        self.road_block_irises.iter().any(|entry| entry.free)
+    }
+
+    /// Working name (no separate native entry): reports whether any
+    /// road-block enemy is `free`. The native `S_road_block_enemy` free
+    /// marks (mafia-re game/ai/C_shvestky.h:130-134) are counted inline
+    /// (only the count at 0x49e530 has an outline), so no RVA is claimed.
+    pub fn has_any_free_road_block_enemy(&self) -> bool {
+        self.road_block_enemies.iter().any(|entry| entry.free)
+    }
+
+    /// Working name (no separate native entry): reports whether any filed
+    /// record carries `block_way`. The native flag (mafia-re
+    /// game/ai/C_shvestky.h:76-78, `SerSeMuDoCesty`'s) is read inline in
+    /// `Tick` 0x49a300 with no dedicated getter, so no RVA is claimed.
+    pub fn has_any_block_way(&self) -> bool {
+        self.records.iter().any(|record| record.block_way)
+    }
+
     /// Working name (no separate native entry): reads the human filed at the
     /// given record position in stored order (`None` past the end). The native
     /// record vector is scanned inline with no dedicated indexed getter, so
@@ -556,6 +605,54 @@ impl PoliceGameInitState {
     /// is claimed.
     pub fn road_block_car_free_at(&self, index: usize) -> Option<bool> {
         self.road_block_cars.get(index).map(|entry| entry.free)
+    }
+
+    /// Working name (no separate native entry): reads the `free` mark of the
+    /// road-block policeman at the given position (`None` past the end). The
+    /// native `S_road_block_iris` entries (mafia-re
+    /// game/ai/C_shvestky.h:125-129) are scanned inline with no dedicated
+    /// indexed flag getter (only the checkout at 0x49e560 has an outline),
+    /// so no RVA is claimed.
+    pub fn road_block_iris_free_at(&self, index: usize) -> Option<bool> {
+        self.road_block_irises.get(index).map(|entry| entry.free)
+    }
+
+    /// Working name (no separate native entry): reads the `free` mark of the
+    /// road-block enemy at the given position (`None` past the end). The
+    /// native `S_road_block_enemy` entries (mafia-re
+    /// game/ai/C_shvestky.h:130-134) are scanned inline with no dedicated
+    /// indexed flag getter (only the count at 0x49e530 and the random
+    /// checkout at 0x49e610 have outlines), so no RVA is claimed.
+    pub fn road_block_enemy_free_at(&self, index: usize) -> Option<bool> {
+        self.road_block_enemies.get(index).map(|entry| entry.free)
+    }
+
+    /// Working name (no separate native entry): reads the car filed at the
+    /// given `road_block_cars` position in stored order (`None` past the
+    /// end). The native `S_road_block_car` actors (mafia-re
+    /// game/ai/C_shvestky.h:120-124, car at +0x0) are compared inline by the
+    /// road-block setup with no dedicated indexed actor getter, so no RVA
+    /// is claimed.
+    pub fn road_block_car_actor_at(&self, index: usize) -> Option<PoliceActorId> {
+        self.road_block_cars.get(index).map(|entry| entry.car)
+    }
+
+    /// Working name (no separate native entry): reads the policeman filed at
+    /// the given `road_block_irises` position in stored order (`None` past
+    /// the end). The native `S_road_block_iris` actors (mafia-re
+    /// game/ai/C_shvestky.h:125-129, actor at +0x0) are scanned inline with
+    /// no dedicated indexed actor getter, so no RVA is claimed.
+    pub fn road_block_iris_actor_at(&self, index: usize) -> Option<PoliceActorId> {
+        self.road_block_irises.get(index).map(|entry| entry.actor)
+    }
+
+    /// Working name (no separate native entry): reads the enemy filed at the
+    /// given `road_block_enemies` position in stored order (`None` past the
+    /// end). The native `S_road_block_enemy` actors (mafia-re
+    /// game/ai/C_shvestky.h:130-134, actor at +0x0) are scanned inline with
+    /// no dedicated indexed actor getter, so no RVA is claimed.
+    pub fn road_block_enemy_actor_at(&self, index: usize) -> Option<PoliceActorId> {
+        self.road_block_enemies.get(index).map(|entry| entry.actor)
     }
 
     /// Working name (no separate native entry): counts the `free` marks of
@@ -1278,6 +1375,49 @@ impl PoliceGameInitState {
             }
         }
         0
+    }
+
+    /// Working name (no outline entry is claimed): reports whether the
+    /// matched record carries a nonzero `support_level` (false without a
+    /// record). The native word (mafia-re game/ai/C_shvestky.h:102,
+    /// `DalsiChalpiDoPartie`'s) is tested inline in `CreateShvestkyTest`
+    /// with no dedicated nonzero getter, so no RVA is claimed.
+    pub fn has_support_level_for_human(&self, human: PoliceHumanId) -> bool {
+        self.support_level_for_human(human) != 0
+    }
+
+    /// Working name (no outline entry is claimed): reports whether the
+    /// matched record carries a nonzero `reason` word (false without a
+    /// record). The native word (`S_shvestky::reason` at +0x64,
+    /// `SHVREASON_*`, mafia-re game/ai/C_shvestky.h:39-45, 105) is written
+    /// by the flag arms in `CreateShvestkyTest` with no dedicated nonzero
+    /// getter, so no RVA is claimed.
+    pub fn has_reason_for_human(&self, human: PoliceHumanId) -> bool {
+        self.reason_for_human(human) != 0
+    }
+
+    /// Working name (no outline entry is claimed): reports whether the
+    /// matched record counts any run-over (false without a record). The
+    /// native count (`S_shvestky::run_over` at +0x68, mafia-re
+    /// game/ai/C_shvestky.h:106-108) is maintained by
+    /// `NextNaSrackySoudruh` 0x49d220 with no dedicated nonzero getter, so
+    /// no RVA is claimed.
+    pub fn has_run_over_for_human(&self, human: PoliceHumanId) -> bool {
+        self.run_over_for_human(human) != 0
+    }
+
+    /// Working name (no outline entry is claimed): reports whether the
+    /// matched record's `state` is `SHVSTATE_1` (false without a record).
+    /// The native state (mafia-re game/ai/C_shvestky.h:34-35, below
+    /// `SHVSTATE_ARREST`) is compared inline with no dedicated getter, so
+    /// no RVA is claimed.
+    pub fn is_state_one_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.state == 1;
+            }
+        }
+        false
     }
 
     /// Working name (no outline entry is claimed): reads the matched
@@ -6623,5 +6763,274 @@ mod tests {
         assert_eq!(record.pending_state(), SHVSTATE_ARREST);
         record.clear_pending_state();
         assert_eq!(record.pending_state(), SHVSTATE_NONE);
+    }
+
+    #[test]
+    fn road_block_indexed_free_marks_read_each_list() {
+        // Working names: indexed free reads; no dedicated native getters.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.road_block_iris_free_at(0), None);
+        assert_eq!(state.road_block_enemy_free_at(0), None);
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 1,
+            free: true,
+        });
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 2,
+            free: false,
+        });
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 3,
+            free: false,
+        });
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 4,
+            free: true,
+        });
+        assert_eq!(state.road_block_iris_free_at(0), Some(true));
+        assert_eq!(state.road_block_iris_free_at(1), Some(false));
+        assert_eq!(state.road_block_iris_free_at(2), None);
+        assert_eq!(state.road_block_enemy_free_at(0), Some(false));
+        assert_eq!(state.road_block_enemy_free_at(1), Some(true));
+        assert_eq!(state.road_block_enemy_free_at(2), None);
+    }
+
+    #[test]
+    fn road_block_indexed_actors_read_stored_order() {
+        // Working names: indexed actor reads; no dedicated native getters.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.road_block_car_actor_at(0), None);
+        assert_eq!(state.road_block_iris_actor_at(0), None);
+        assert_eq!(state.road_block_enemy_actor_at(0), None);
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 11,
+            free: true,
+        });
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 12,
+            free: false,
+        });
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 21,
+            free: false,
+        });
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 31,
+            free: true,
+        });
+        assert_eq!(state.road_block_car_actor_at(0), Some(11));
+        assert_eq!(state.road_block_car_actor_at(1), Some(12));
+        assert_eq!(state.road_block_car_actor_at(2), None);
+        assert_eq!(state.road_block_iris_actor_at(0), Some(21));
+        assert_eq!(state.road_block_iris_actor_at(1), None);
+        assert_eq!(state.road_block_enemy_actor_at(0), Some(31));
+        assert_eq!(state.road_block_enemy_actor_at(1), None);
+    }
+
+    #[test]
+    fn has_any_do_rici_actor_reports_list_presence() {
+        // Working name: do_rici_actors size tested inline natively.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_any_do_rici_actor());
+        assert!(state.admit_do_rici(7));
+        assert!(state.has_any_do_rici_actor());
+        assert!(state.evict_do_rici(7));
+        assert!(!state.has_any_do_rici_actor());
+    }
+
+    #[test]
+    fn has_any_temp_car_reports_tracking_presence() {
+        // Working name: temp_cars size tested inline natively.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_any_temp_car());
+        state.temp_cars.push(41);
+        assert!(state.has_any_temp_car());
+        assert!(state.is_temp_car_tracked(41));
+        state.temp_cars.clear();
+        assert!(!state.has_any_temp_car());
+    }
+
+    #[test]
+    fn has_any_free_road_block_car_reports_free_mark() {
+        // Working name: free-mark scan; no dedicated nonzero getter.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_any_free_road_block_car());
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 1,
+            free: false,
+        });
+        assert!(!state.has_any_free_road_block_car());
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 2,
+            free: true,
+        });
+        assert!(state.has_any_free_road_block_car());
+    }
+
+    #[test]
+    fn has_any_free_road_block_iris_reports_free_mark() {
+        // Working name: free-mark scan; no dedicated nonzero getter.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_any_free_road_block_iris());
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 1,
+            free: false,
+        });
+        assert!(!state.has_any_free_road_block_iris());
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 2,
+            free: true,
+        });
+        assert!(state.has_any_free_road_block_iris());
+    }
+
+    #[test]
+    fn has_any_free_road_block_enemy_reports_free_mark() {
+        // Working name: free-mark scan; only the count has an outline.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_any_free_road_block_enemy());
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 1,
+            free: false,
+        });
+        assert!(!state.has_any_free_road_block_enemy());
+        assert_eq!(state.count_free_road_block_enemies(), 0);
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 2,
+            free: true,
+        });
+        assert!(state.has_any_free_road_block_enemy());
+        assert_eq!(state.count_free_road_block_enemies(), 1);
+    }
+
+    #[test]
+    fn has_any_block_way_reports_filed_flag() {
+        // Working name: block_way read inline in Tick; no dedicated getter.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_any_block_way());
+        let mut record = PolicePursuitRecord::new(7);
+        state.records.push(record.clone());
+        assert!(!state.has_any_block_way());
+        record.block_way = true;
+        state.records[0] = record;
+        assert!(state.has_any_block_way());
+    }
+
+    #[test]
+    fn has_support_level_for_human_reports_nonzero() {
+        // Working name: support_level nonzero test; no dedicated getter.
+        let mut state = PoliceGameInitState::default();
+        state.active = true;
+        assert!(!state.has_support_level_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        state.records.push(record.clone());
+        assert!(!state.has_support_level_for_human(7));
+        record.support_level = 2;
+        state.records[0] = record;
+        assert!(state.has_support_level_for_human(7));
+        assert_eq!(state.support_level_for_human(7), 2);
+        assert!(!state.has_support_level_for_human(9));
+    }
+
+    #[test]
+    fn has_reason_for_human_reports_nonzero() {
+        // Working name: reason nonzero test; flag arms write it inline.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_reason_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        state.records.push(record.clone());
+        assert!(!state.has_reason_for_human(7));
+        record.reason = 8;
+        state.records[0] = record;
+        assert!(state.has_reason_for_human(7));
+        assert_eq!(state.reason_for_human(7), 8);
+        assert!(!state.has_reason_for_human(9));
+    }
+
+    #[test]
+    fn has_run_over_for_human_reports_nonzero() {
+        // Working name: run_over nonzero test; NextNaSrackySoudruh owns it.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_run_over_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        state.records.push(record.clone());
+        assert!(!state.has_run_over_for_human(7));
+        record.record_run_over();
+        state.records[0] = record;
+        assert!(state.has_run_over_for_human(7));
+        assert_eq!(state.run_over_for_human(7), 1);
+        assert!(!state.has_run_over_for_human(9));
+    }
+
+    #[test]
+    fn is_state_one_for_human_matches_level_one_only() {
+        // Working name: state == 1 (SHVSTATE_1); compared inline natively.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.is_state_one_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        record.state = 1;
+        state.records.push(record);
+        assert!(state.is_state_one_for_human(7));
+        assert!(!state.is_arrest_state_for_human(7));
+        assert!(!state.is_kill_state_for_human(7));
+        let mut arrest = PolicePursuitRecord::new(8);
+        arrest.state = SHVSTATE_ARREST;
+        state.records.push(arrest);
+        assert!(!state.is_state_one_for_human(8));
+        assert!(!state.is_state_one_for_human(9));
+    }
+
+    #[test]
+    fn road_block_indexed_reads_stay_independent_across_lists() {
+        // Working names: each list keeps its own stored order and flags.
+        let mut state = PoliceGameInitState::default();
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 1,
+            free: true,
+        });
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 2,
+            free: false,
+        });
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 3,
+            free: true,
+        });
+        assert_eq!(state.road_block_car_free_at(0), Some(true));
+        assert_eq!(state.road_block_iris_free_at(0), Some(false));
+        assert_eq!(state.road_block_enemy_free_at(0), Some(true));
+        assert_eq!(state.road_block_car_actor_at(0), Some(1));
+        assert_eq!(state.road_block_iris_actor_at(0), Some(2));
+        assert_eq!(state.road_block_enemy_actor_at(0), Some(3));
+        assert!(state.has_any_free_road_block_car());
+        assert!(!state.has_any_free_road_block_iris());
+        assert!(state.has_any_free_road_block_enemy());
+    }
+
+    #[test]
+    fn per_human_nonzero_flags_default_to_absent() {
+        // Working names: 0/false without a record for support/reason/run-over.
+        let state = PoliceGameInitState::default();
+        assert_eq!(state.support_level_for_human(7), 0);
+        assert_eq!(state.reason_for_human(7), 0);
+        assert_eq!(state.run_over_for_human(7), 0);
+        assert!(!state.has_support_level_for_human(7));
+        assert!(!state.has_reason_for_human(7));
+        assert!(!state.has_run_over_for_human(7));
+        assert!(!state.is_state_one_for_human(7));
+    }
+
+    #[test]
+    fn empty_state_reports_no_presence_flags() {
+        // Working names: every new presence flag starts absent.
+        let state = PoliceGameInitState::default();
+        assert!(!state.has_any_record());
+        assert!(!state.has_any_alerted());
+        assert!(!state.has_any_do_rici_actor());
+        assert!(!state.has_any_temp_car());
+        assert!(!state.has_any_block_way());
+        assert!(!state.has_any_free_road_block_car());
+        assert!(!state.has_any_free_road_block_iris());
+        assert!(!state.has_any_free_road_block_enemy());
     }
 }
