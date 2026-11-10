@@ -39,6 +39,24 @@ pub enum TurnoutStubError {
 /// Game.exe, not a data offset and not another binary): switches the turnout.
 pub const TURNOUT_START_ENTRY: u32 = 0x4bd210;
 
+/// `C_turnout::~C_turnout` entry, GAME RVA 0xbc490 (VA 0x4bc490; mafia-re
+/// game/vehicles/C_turnout.cpp:15-18 at pin fe7e746; `FUNCTION: GAME` code in
+/// Game.exe, not a data offset and not another binary): declared empty in the
+/// reference (it re-stores the vtable before the base destructor runs).
+pub const TURNOUT_DESTROY_ENTRY: u32 = 0x4bc490;
+
+/// `C_turnout::SaveGameSave` entry, GAME RVA 0xbd430 (VA 0x4bd430; mafia-re
+/// game/vehicles/C_turnout.cpp:83-88 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): forwards to the base
+/// `C_actor::SaveGameSave`.
+pub const TURNOUT_SAVE_GAME_SAVE_ENTRY: u32 = 0x4bd430;
+
+/// Original `C_turnout::~C_turnout` (mafia-re
+/// game/vehicles/C_turnout.cpp:15-18 at pin fe7e746; `FUNCTION: GAME` VA
+/// 0x4bc490, RVA 0xbc490): the reference body is empty. No turnout state lives
+/// in this contract, so destruction is a no-op.
+pub fn turnout_destroy() {}
+
 /// Original `C_turnout::Start` stub (mafia-re
 /// game/vehicles/C_turnout.cpp:97-101 at pin fe7e746; `STUB: GAME` VA
 /// 0x4bd210, RVA 0xbd210): the original only logs. The turnout-switch owner
@@ -46,6 +64,18 @@ pub const TURNOUT_START_ENTRY: u32 = 0x4bd210;
 pub fn turnout_start() -> Result<(), TurnoutStubError> {
     Err(TurnoutStubError::Unsupported {
         entry: TURNOUT_START_ENTRY,
+    })
+}
+
+/// Original `C_turnout::SaveGameSave` stub (mafia-re
+/// game/vehicles/C_turnout.cpp:83-88 at pin fe7e746; `STUB: GAME` VA
+/// 0x4bd430, RVA 0xbd430): the original only logs and returns the base
+/// `C_actor::SaveGameSave` answer. The save-buffer owner stays outside this
+/// contract, so the boundary is explicit; the native `bool` answer is
+/// preserved in the return type.
+pub fn turnout_save_game_save() -> Result<bool, TurnoutStubError> {
+    Err(TurnoutStubError::Unsupported {
+        entry: TURNOUT_SAVE_GAME_SAVE_ENTRY,
     })
 }
 
@@ -73,6 +103,23 @@ mod tests {
         assert_eq!(
             turnout_start(),
             Err(TurnoutStubError::Unsupported { entry: 0x4bd210 })
+        );
+    }
+
+    #[test]
+    fn rva_bc490_destroy_is_empty() {
+        // C_turnout::~C_turnout GAME RVA 0xbc490 (VA 0x4bc490).
+        assert_eq!(TURNOUT_DESTROY_ENTRY, 0x4bc490);
+        turnout_destroy();
+    }
+
+    #[test]
+    fn rva_bd430_save_game_save_reports_unsupported() {
+        // C_turnout::SaveGameSave GAME RVA 0xbd430 (VA 0x4bd430).
+        assert_eq!(TURNOUT_SAVE_GAME_SAVE_ENTRY, 0x4bd430);
+        assert_eq!(
+            turnout_save_game_save(),
+            Err(TurnoutStubError::Unsupported { entry: 0x4bd430 })
         );
     }
 }

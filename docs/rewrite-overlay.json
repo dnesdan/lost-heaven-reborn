@@ -17122,6 +17122,132 @@
       "symbol": "lhr_engine::game_camera_begin::set_sniper_mode",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xd6c0",
+      "va": "0x40d6c0",
+      "name": "C_airplane::IsDestroyed",
+      "symbol": "lhr_engine::airplane_actor::airplane_is_destroyed",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xd6f0",
+      "va": "0x40d6f0",
+      "name": "C_airplane::SaveGameGetSize",
+      "symbol": "lhr_engine::airplane_actor::airplane_save_game_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xdf30",
+      "va": "0x40df30",
+      "name": "C_airplane::GetMaterialID",
+      "symbol": "lhr_engine::airplane_actor::airplane_material_id",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xc610",
+      "va": "0x40c610",
+      "name": "C_airplane::Start",
+      "symbol": "lhr_engine::airplane_actor::airplane_start",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xc7f0",
+      "va": "0x40c7f0",
+      "name": "C_airplane::Start2",
+      "symbol": "lhr_engine::airplane_actor::airplane_start2",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xddd0",
+      "va": "0x40ddd0",
+      "name": "C_airplane::ShowDamageIndicator",
+      "symbol": "lhr_engine::airplane_actor::airplane_show_damage_indicator",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xdce0",
+      "va": "0x40dce0",
+      "name": "C_airplane::ChangeState",
+      "symbol": "lhr_engine::airplane_actor::airplane_change_state",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x95100",
+      "va": "0x495100",
+      "name": "C_railway::AddOuterEntries",
+      "symbol": "lhr_engine::railway_actor::railway_add_outer_entries",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x95160",
+      "va": "0x495160",
+      "name": "C_railway::AddInnerEntries",
+      "symbol": "lhr_engine::railway_actor::railway_add_inner_entries",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x951c0",
+      "va": "0x4951c0",
+      "name": "C_railway::RemoveOuterEntries",
+      "symbol": "lhr_engine::railway_actor::railway_remove_outer_entries",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x95220",
+      "va": "0x495220",
+      "name": "C_railway::RemoveInnerEntries",
+      "symbol": "lhr_engine::railway_actor::railway_remove_inner_entries",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x98060",
+      "va": "0x498060",
+      "name": "C_railway::ChangeState",
+      "symbol": "lhr_engine::railway_actor::railway_change_state",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xbc490",
+      "va": "0x4bc490",
+      "name": "C_turnout::~C_turnout",
+      "symbol": "lhr_engine::turnout_actor::turnout_destroy",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xbd430",
+      "va": "0x4bd430",
+      "name": "C_turnout::SaveGameSave",
+      "symbol": "lhr_engine::turnout_actor::turnout_save_game_save",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
     }
   ],
   "vm": {

@@ -244,6 +244,31 @@ pub const RAILWAY_GET_ENTRY_ENTRY: u32 = 0x495d30;
 /// game/vehicles/C_railway.cpp:186-190 at pin fe7e746; `STUB: GAME` code in
 /// Game.exe, not a data offset and not another binary): sets the rain dummy.
 pub const RAILWAY_SET_RAIN_DUMMY_ENTRY: u32 = 0x4989a0;
+/// `C_railway::AddOuterEntries` entry, GAME RVA 0x95100 (VA 0x495100; mafia-re
+/// game/vehicles/C_railway.cpp:156-160 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): registers the outer
+/// entries.
+pub const RAILWAY_ADD_OUTER_ENTRIES_ENTRY: u32 = 0x495100;
+/// `C_railway::AddInnerEntries` entry, GAME RVA 0x95160 (VA 0x495160; mafia-re
+/// game/vehicles/C_railway.cpp:162-166 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): registers the inner
+/// entries.
+pub const RAILWAY_ADD_INNER_ENTRIES_ENTRY: u32 = 0x495160;
+/// `C_railway::RemoveOuterEntries` entry, GAME RVA 0x951c0 (VA 0x4951c0;
+/// mafia-re game/vehicles/C_railway.cpp:168-172 at pin fe7e746; `STUB: GAME`
+/// code in Game.exe, not a data offset and not another binary): unregisters
+/// the outer entries.
+pub const RAILWAY_REMOVE_OUTER_ENTRIES_ENTRY: u32 = 0x4951c0;
+/// `C_railway::RemoveInnerEntries` entry, GAME RVA 0x95220 (VA 0x495220;
+/// mafia-re game/vehicles/C_railway.cpp:174-178 at pin fe7e746; `STUB: GAME`
+/// code in Game.exe, not a data offset and not another binary): unregisters
+/// the inner entries.
+pub const RAILWAY_REMOVE_INNER_ENTRIES_ENTRY: u32 = 0x495220;
+/// `C_railway::ChangeState` entry, GAME RVA 0x98060 (VA 0x498060; mafia-re
+/// game/vehicles/C_railway.cpp:124-129 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): delegates to the base
+/// `C_actor::ChangeState`.
+pub const RAILWAY_CHANGE_STATE_ENTRY: u32 = 0x498060;
 
 /// Original `C_railway::Lock`, GAME RVA 0x97980 (VA 0x497980; mafia-re
 /// game/vehicles/C_railway.cpp:206-210 at pin fe7e746): the original only
@@ -300,6 +325,57 @@ pub fn railway_set_rain_dummy(
 ) -> Result<(), RailwaySmallStubError> {
     Err(RailwaySmallStubError::Unsupported {
         entry: RAILWAY_SET_RAIN_DUMMY_ENTRY,
+    })
+}
+
+/// Original `C_railway::AddOuterEntries` stub (mafia-re
+/// game/vehicles/C_railway.cpp:156-160 at pin fe7e746; `STUB: GAME` VA
+/// 0x495100, RVA 0x95100): the original only logs. The sound/entry owners
+/// stay outside this contract, so the boundary is explicit.
+pub fn railway_add_outer_entries() -> Result<(), RailwaySmallStubError> {
+    Err(RailwaySmallStubError::Unsupported {
+        entry: RAILWAY_ADD_OUTER_ENTRIES_ENTRY,
+    })
+}
+
+/// Original `C_railway::AddInnerEntries` stub (mafia-re
+/// game/vehicles/C_railway.cpp:162-166 at pin fe7e746; `STUB: GAME` VA
+/// 0x495160, RVA 0x95160): the original only logs. The sound/entry owners
+/// stay outside this contract, so the boundary is explicit.
+pub fn railway_add_inner_entries() -> Result<(), RailwaySmallStubError> {
+    Err(RailwaySmallStubError::Unsupported {
+        entry: RAILWAY_ADD_INNER_ENTRIES_ENTRY,
+    })
+}
+
+/// Original `C_railway::RemoveOuterEntries` stub (mafia-re
+/// game/vehicles/C_railway.cpp:168-172 at pin fe7e746; `STUB: GAME` VA
+/// 0x4951c0, RVA 0x951c0): the original only logs. The sound/entry owners
+/// stay outside this contract, so the boundary is explicit.
+pub fn railway_remove_outer_entries() -> Result<(), RailwaySmallStubError> {
+    Err(RailwaySmallStubError::Unsupported {
+        entry: RAILWAY_REMOVE_OUTER_ENTRIES_ENTRY,
+    })
+}
+
+/// Original `C_railway::RemoveInnerEntries` stub (mafia-re
+/// game/vehicles/C_railway.cpp:174-178 at pin fe7e746; `STUB: GAME` VA
+/// 0x495220, RVA 0x95220): the original only logs. The sound/entry owners
+/// stay outside this contract, so the boundary is explicit.
+pub fn railway_remove_inner_entries() -> Result<(), RailwaySmallStubError> {
+    Err(RailwaySmallStubError::Unsupported {
+        entry: RAILWAY_REMOVE_INNER_ENTRIES_ENTRY,
+    })
+}
+
+/// Original `C_railway::ChangeState` stub (mafia-re
+/// game/vehicles/C_railway.cpp:124-129 at pin fe7e746; `STUB: GAME` VA
+/// 0x498060, RVA 0x98060): the original only logs and runs the base
+/// `C_actor::ChangeState`. The base state owner stays outside this contract,
+/// so the boundary is explicit.
+pub fn railway_change_state() -> Result<(), RailwaySmallStubError> {
+    Err(RailwaySmallStubError::Unsupported {
+        entry: RAILWAY_CHANGE_STATE_ENTRY,
     })
 }
 
@@ -436,6 +512,56 @@ mod tests {
         assert_eq!(
             railway_set_rain_dummy(false, 0),
             Err(RailwaySmallStubError::Unsupported { entry: 0x4989a0 })
+        );
+    }
+
+    #[test]
+    fn rva_95100_add_outer_entries_reports_unsupported() {
+        // C_railway::AddOuterEntries GAME RVA 0x95100 (VA 0x495100).
+        assert_eq!(RAILWAY_ADD_OUTER_ENTRIES_ENTRY, 0x495100);
+        assert_eq!(
+            railway_add_outer_entries(),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x495100 })
+        );
+    }
+
+    #[test]
+    fn rva_95160_add_inner_entries_reports_unsupported() {
+        // C_railway::AddInnerEntries GAME RVA 0x95160 (VA 0x495160).
+        assert_eq!(RAILWAY_ADD_INNER_ENTRIES_ENTRY, 0x495160);
+        assert_eq!(
+            railway_add_inner_entries(),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x495160 })
+        );
+    }
+
+    #[test]
+    fn rva_951c0_remove_outer_entries_reports_unsupported() {
+        // C_railway::RemoveOuterEntries GAME RVA 0x951c0 (VA 0x4951c0).
+        assert_eq!(RAILWAY_REMOVE_OUTER_ENTRIES_ENTRY, 0x4951c0);
+        assert_eq!(
+            railway_remove_outer_entries(),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x4951c0 })
+        );
+    }
+
+    #[test]
+    fn rva_95220_remove_inner_entries_reports_unsupported() {
+        // C_railway::RemoveInnerEntries GAME RVA 0x95220 (VA 0x495220).
+        assert_eq!(RAILWAY_REMOVE_INNER_ENTRIES_ENTRY, 0x495220);
+        assert_eq!(
+            railway_remove_inner_entries(),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x495220 })
+        );
+    }
+
+    #[test]
+    fn rva_98060_change_state_reports_unsupported() {
+        // C_railway::ChangeState GAME RVA 0x98060 (VA 0x498060).
+        assert_eq!(RAILWAY_CHANGE_STATE_ENTRY, 0x498060);
+        assert_eq!(
+            railway_change_state(),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x498060 })
         );
     }
 }
