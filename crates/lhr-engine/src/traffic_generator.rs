@@ -818,6 +818,123 @@ pub fn vyfun_od_te_masiny(_car: TrafficCarId) -> Result<(), TrafficGeneratorErro
     })
 }
 
+/// `C_traffic_generator::Explosion` entry, GAME RVA 0x50450 (VA 0x450450;
+/// mafia-re game/ai/C_person_traffic.cpp:311-315 at pin fe7e746; `STUB: GAME`
+/// code in Game.exe, not a data offset and not another binary): hits the
+/// pedestrians in range of an explosion at `pos`.
+pub const EXPLOSION_ENTRY: u32 = 0x450450;
+/// `C_traffic_generator::NewPanic` entry, GAME RVA 0x509d0 (VA 0x4509d0;
+/// mafia-re game/ai/C_person_traffic.cpp:328-332 at pin fe7e746; `STUB: GAME`
+/// code in Game.exe, not a data offset and not another binary): panics the
+/// pedestrians at a shot or an explosion at `pos`.
+pub const NEW_PANIC_ENTRY: u32 = 0x4509d0;
+/// `C_traffic_generator::PlayerPromluvilNaTehoChuja` entry, GAME RVA 0x4e870
+/// (VA 0x44e870; mafia-re game/ai/C_person_traffic.cpp:500-502 at pin fe7e746;
+/// `STUB: GAME` code in Game.exe, not a data offset and not another binary):
+/// the player talks to the pedestrian of `frame` (opaque identity, never
+/// dereferenced).
+pub const PLAYER_PROMLUVIL_NA_TEHO_CHUJA_ENTRY: u32 = 0x44e870;
+/// `C_traffic_element::ActivateFree` entry, GAME RVA 0x56fa0 (VA 0x456fa0;
+/// mafia-re game/ai/C_person_traffic.cpp:488-492 at pin fe7e746; `STUB: GAME`
+/// code in Game.exe, not a data offset and not another binary): activates the
+/// pedestrian a human was made of.
+pub const ACTIVATE_FREE_ENTRY: u32 = 0x456fa0;
+/// `C_traffic_element::SetNewNode` entry, GAME RVA 0x51860 (VA 0x451860;
+/// mafia-re game/ai/C_person_traffic.cpp:340-344 at pin fe7e746; `STUB: GAME`
+/// code in Game.exe, not a data offset and not another binary): arms the next
+/// walk node once `TryGoToAssHole` has set the way.
+pub const SET_NEW_NODE_ENTRY: u32 = 0x451860;
+/// `C_traffic_element::EndMavaniNaTaxi` entry, GAME RVA 0x52ca0 (VA 0x452ca0;
+/// mafia-re game/ai/C_person_traffic.cpp:346-350 at pin fe7e746; `STUB: GAME`
+/// code in Game.exe, not a data offset and not another binary): ends the
+/// waving at a taxi.
+pub const END_MAVANI_NA_TAXI_ENTRY: u32 = 0x452ca0;
+/// `C_traffic_element::Deactivate` entry, GAME RVA 0x587c0 (VA 0x4587c0;
+/// mafia-re game/ai/C_person_traffic.cpp:358-362 at pin fe7e746; `STUB: GAME`
+/// code in Game.exe, not a data offset and not another binary): takes the
+/// pedestrian out of the game.
+pub const DEACTIVATE_TRAFFIC_ELEMENT_ENTRY: u32 = 0x4587c0;
+
+/// Original `C_traffic_generator::Explosion` stub (mafia-re
+/// game/ai/C_person_traffic.cpp:311-315 at pin fe7e746; `STUB: GAME` VA
+/// 0x450450, RVA 0x50450): the original only logs. The pedestrian,
+/// collision and scene owners stay outside this contract, so the boundary is
+/// explicit. Positions are staged `[f32; 3]` triples, never native pointers.
+pub fn traffic_explosion(
+    _pos: [f32; 3],
+    _range: f32,
+    _power: f32,
+) -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: EXPLOSION_ENTRY,
+    })
+}
+
+/// Original `C_traffic_generator::NewPanic` stub (mafia-re
+/// game/ai/C_person_traffic.cpp:328-332 at pin fe7e746; `STUB: GAME` VA
+/// 0x4509d0, RVA 0x509d0): the original only logs. The pedestrian owner
+/// stays outside this contract, so the boundary is explicit.
+pub fn traffic_new_panic(_pos: [f32; 3]) -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: NEW_PANIC_ENTRY,
+    })
+}
+
+/// Original `C_traffic_generator::PlayerPromluvilNaTehoChuja` stub (mafia-re
+/// game/ai/C_person_traffic.cpp:500-502 at pin fe7e746; `STUB: GAME` VA
+/// 0x44e870, RVA 0x4e870; "the player spoke to that dude"): the original only
+/// logs. The frame/human owners stay outside this contract, so the boundary
+/// is explicit. The frame identity is opaque and never dereferenced.
+pub fn player_promluvil_na_teho_chuja(_frame: u32) -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: PLAYER_PROMLUVIL_NA_TEHO_CHUJA_ENTRY,
+    })
+}
+
+/// Original `C_traffic_element::ActivateFree` stub (mafia-re
+/// game/ai/C_person_traffic.cpp:488-492 at pin fe7e746; `STUB: GAME` VA
+/// 0x456fa0, RVA 0x56fa0): the original only logs. The human/pedestrian
+/// owners stay outside this contract, so the boundary is explicit.
+pub fn activate_free_traffic_element(
+    _first: bool,
+    _second: bool,
+) -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: ACTIVATE_FREE_ENTRY,
+    })
+}
+
+/// Original `C_traffic_element::SetNewNode` stub (mafia-re
+/// game/ai/C_person_traffic.cpp:340-344 at pin fe7e746; `STUB: GAME` VA
+/// 0x451860, RVA 0x51860): the original only logs. The navigation and
+/// ground-collision owners stay outside this contract, so the boundary is
+/// explicit.
+pub fn set_new_node_traffic_element() -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: SET_NEW_NODE_ENTRY,
+    })
+}
+
+/// Original `C_traffic_element::EndMavaniNaTaxi` stub (mafia-re
+/// game/ai/C_person_traffic.cpp:346-350 at pin fe7e746; `STUB: GAME` VA
+/// 0x452ca0, RVA 0x52ca0): the original only logs. The animation owner stays
+/// outside this contract, so the boundary is explicit.
+pub fn end_mavani_na_taxi_element() -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: END_MAVANI_NA_TAXI_ENTRY,
+    })
+}
+
+/// Original `C_traffic_element::Deactivate` stub (mafia-re
+/// game/ai/C_person_traffic.cpp:358-362 at pin fe7e746; `STUB: GAME` VA
+/// 0x4587c0, RVA 0x587c0): the original only logs. The game/world owners stay
+/// outside this contract, so the boundary is explicit.
+pub fn deactivate_traffic_element() -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: DEACTIVATE_TRAFFIC_ELEMENT_ENTRY,
+    })
+}
+
 /// `C_don_ocas` actor-kind marker, GAME RVA 0x44c640
 /// (mafia-re game/ai/C_person_traffic.cpp:50-54,
 /// game/actors/C_actor.h:33).
@@ -1207,6 +1324,85 @@ mod tests {
         assert_eq!(
             vyfun_od_te_masiny(7),
             Err(TrafficGeneratorError::Unsupported { entry: 0x4512a0 })
+        );
+    }
+
+    #[test]
+    fn rva_50450_explosion_reports_unsupported() {
+        // C_traffic_generator::Explosion GAME RVA 0x50450 (VA 0x450450).
+        assert_eq!(EXPLOSION_ENTRY, 0x450450);
+        assert_eq!(
+            traffic_explosion([0.0, 0.0, 0.0], 10.0, 5.0),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x450450 })
+        );
+        assert_eq!(
+            traffic_explosion([1.0, -2.0, 3.0], 0.0, 0.0),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x450450 })
+        );
+    }
+
+    #[test]
+    fn rva_509d0_new_panic_reports_unsupported() {
+        // C_traffic_generator::NewPanic GAME RVA 0x509d0 (VA 0x4509d0).
+        assert_eq!(NEW_PANIC_ENTRY, 0x4509d0);
+        assert_eq!(
+            traffic_new_panic([4.0, 5.0, 6.0]),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x4509d0 })
+        );
+    }
+
+    #[test]
+    fn rva_4e870_player_promluvil_reports_unsupported() {
+        // C_traffic_generator::PlayerPromluvilNaTehoChuja GAME RVA 0x4e870
+        // (VA 0x44e870).
+        assert_eq!(PLAYER_PROMLUVIL_NA_TEHO_CHUJA_ENTRY, 0x44e870);
+        assert_eq!(
+            player_promluvil_na_teho_chuja(0x1234),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x44e870 })
+        );
+    }
+
+    #[test]
+    fn rva_56fa0_activate_free_reports_unsupported() {
+        // C_traffic_element::ActivateFree GAME RVA 0x56fa0 (VA 0x456fa0).
+        assert_eq!(ACTIVATE_FREE_ENTRY, 0x456fa0);
+        assert_eq!(
+            activate_free_traffic_element(true, false),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x456fa0 })
+        );
+        assert_eq!(
+            activate_free_traffic_element(false, false),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x456fa0 })
+        );
+    }
+
+    #[test]
+    fn rva_51860_set_new_node_reports_unsupported() {
+        // C_traffic_element::SetNewNode GAME RVA 0x51860 (VA 0x451860).
+        assert_eq!(SET_NEW_NODE_ENTRY, 0x451860);
+        assert_eq!(
+            set_new_node_traffic_element(),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x451860 })
+        );
+    }
+
+    #[test]
+    fn rva_52ca0_end_mavani_reports_unsupported() {
+        // C_traffic_element::EndMavaniNaTaxi GAME RVA 0x52ca0 (VA 0x452ca0).
+        assert_eq!(END_MAVANI_NA_TAXI_ENTRY, 0x452ca0);
+        assert_eq!(
+            end_mavani_na_taxi_element(),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x452ca0 })
+        );
+    }
+
+    #[test]
+    fn rva_587c0_deactivate_element_reports_unsupported() {
+        // C_traffic_element::Deactivate GAME RVA 0x587c0 (VA 0x4587c0).
+        assert_eq!(DEACTIVATE_TRAFFIC_ELEMENT_ENTRY, 0x4587c0);
+        assert_eq!(
+            deactivate_traffic_element(),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x4587c0 })
         );
     }
 }

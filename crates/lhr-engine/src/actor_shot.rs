@@ -142,6 +142,114 @@ pub fn apply_shot_record_flags(flags: u32) -> (i32, bool, bool) {
     )
 }
 
+/// C_ShotSkeleton working-name leaves (no new address credit). They live in
+/// this shot module because `lib.rs` is frozen (no new modules) and the
+/// human-owner files are off limits; they describe `C_ShotSkeleton`, not
+/// `C_actor_shot`. Reference mafia-re `fe7e746`,
+/// game/actors/C_ShotSkeleton.h + game/actors/C_ShotSkeleton.cpp. Both
+/// native FUNCTION entries are frozen-ledger-occupied (see
+/// docs/progress.json), and the joint/bone tables are data offsets rather
+/// than code, so every item below is a working name. Frame lookup
+/// (`FindChildFrame`) and the `TestCollision` line trace need the model
+/// owner and stay caller duties.
+
+/// Working name; number of shot joints (reference mafia-re `fe7e746`,
+/// game/actors/C_ShotSkeleton.h joint table, `SHOT_JOINT_COUNT`).
+pub const SHOT_JOINT_COUNT: usize = 16;
+
+/// Working name; number of shot bones (reference mafia-re `fe7e746`,
+/// game/actors/C_ShotSkeleton.h, `SHOT_BONE_COUNT`).
+pub const SHOT_BONE_COUNT: usize = 10;
+
+/// Working name; hit part taken by a bone (reference mafia-re `fe7e746`,
+/// game/actors/C_human.h `HIT_PART_*` values and
+/// game/actors/C_ShotSkeleton.cpp `vzoroveKosti`). Zero means no hit, as in
+/// the native `TestCollision` initializer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShotHitPart {
+    None = 0,
+    HandR = 1,
+    HandL = 2,
+    LegR = 3,
+    LegL = 4,
+    Body = 5,
+    Head = 6,
+}
+
+/// Working name; one shot-test bone row (reference mafia-re `fe7e746`,
+/// game/actors/C_ShotSkeleton.h `S_shot_bone`: joint pair, start/end along
+/// the joint axis, radius on either side, hit part).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShotBone {
+    pub joint0: usize,
+    pub joint1: usize,
+    pub start: f32,
+    pub end: f32,
+    pub radius: f32,
+    pub part: ShotHitPart,
+}
+
+/// Working name; joint-name lookup leaf (reference mafia-re `fe7e746`,
+/// game/actors/C_ShotSkeleton.cpp `jointName` order consumed by
+/// `C_ShotSkeleton::Init`). Exact byte match; `None` is unknown. The
+/// `FindChildFrame` call for a hit index needs the model owner.
+pub fn shot_joint_index(name: &[u8]) -> Option<usize> {
+    const JOINTS: [&[u8]; SHOT_JOINT_COUNT] = [
+        b"r_hand",
+        b"r_elbow",
+        b"r_arm",
+        b"r_foot",
+        b"r_shin",
+        b"r_thigh",
+        b"l_hand",
+        b"l_elbow",
+        b"l_arm",
+        b"l_foot",
+        b"l_shin",
+        b"l_thigh",
+        b"base",
+        b"back1",
+        b"back3",
+        b"neck",
+    ];
+    JOINTS.iter().position(|joint| *joint == name)
+}
+
+/// Working name; default bone-row getter leaf (reference mafia-re
+/// `fe7e746`, game/actors/C_ShotSkeleton.cpp `vzoroveKosti` consumed by
+/// `C_ShotSkeleton::Init`). Out-of-range indices yield `None` as a host
+/// guard.
+pub fn shot_bone_at(index: usize) -> Option<ShotBone> {
+    const BONES: [(usize, usize, f32, f32, f32, ShotHitPart); SHOT_BONE_COUNT] = [
+        (0, 1, -0.5, 1.2, 0.06, ShotHitPart::HandR),
+        (6, 7, -0.5, 1.2, 0.06, ShotHitPart::HandL),
+        (1, 2, 0.0, 1.3, 0.08, ShotHitPart::HandR),
+        (7, 8, 0.0, 1.3, 0.08, ShotHitPart::HandL),
+        (3, 4, -0.3, 1.1, 0.1, ShotHitPart::LegR),
+        (9, 10, -0.3, 1.1, 0.1, ShotHitPart::LegL),
+        (4, 5, 0.1, 1.2, 0.12, ShotHitPart::LegR),
+        (10, 11, 0.1, 1.2, 0.12, ShotHitPart::LegL),
+        (13, 14, -0.5, 1.2, 0.17, ShotHitPart::Body),
+        (14, 15, 0.5, 3.0, 0.12, ShotHitPart::Head),
+    ];
+    let (joint0, joint1, start, end, radius, part) = BONES.get(index)?;
+    Some(ShotBone {
+        joint0: *joint0,
+        joint1: *joint1,
+        start: *start,
+        end: *end,
+        radius: *radius,
+        part: *part,
+    })
+}
+
+/// Working name; hit-part projection over the default bone table
+/// (reference mafia-re `fe7e746`, game/actors/C_ShotSkeleton.cpp
+/// `vzoroveKosti` part column). Out-of-range indices yield `None`.
+pub fn shot_bone_part(index: usize) -> Option<ShotHitPart> {
+    shot_bone_at(index).map(|bone| bone.part)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +331,72 @@ mod tests {
         assert_eq!(apply_shot_record_flags(0x9000), (-1, true, true));
         assert_eq!(apply_shot_record_flags(0x6fff), (-1, false, false));
         assert_eq!(apply_shot_record_flags(0xffff), (-1, true, true));
+    }
+
+    #[test]
+    fn skeleton_joint_index_covers_reference_table() {
+        assert_eq!(SHOT_JOINT_COUNT, 16);
+        let names: [&[u8]; 16] = [
+            b"r_hand",
+            b"r_elbow",
+            b"r_arm",
+            b"r_foot",
+            b"r_shin",
+            b"r_thigh",
+            b"l_hand",
+            b"l_elbow",
+            b"l_arm",
+            b"l_foot",
+            b"l_shin",
+            b"l_thigh",
+            b"base",
+            b"back1",
+            b"back3",
+            b"neck",
+        ];
+        for (index, name) in names.iter().enumerate() {
+            assert_eq!(shot_joint_index(name), Some(index));
+        }
+        assert_eq!(shot_joint_index(b"unknown"), None);
+        assert_eq!(shot_joint_index(b"R_HAND"), None);
+        assert_eq!(shot_joint_index(b""), None);
+    }
+
+    #[test]
+    fn skeleton_bone_rows_match_reference_table() {
+        assert_eq!(SHOT_BONE_COUNT, 10);
+        let expected = [
+            (0, 1, -0.5f32, 1.2f32, 0.06f32, ShotHitPart::HandR),
+            (6, 7, -0.5, 1.2, 0.06, ShotHitPart::HandL),
+            (1, 2, 0.0, 1.3, 0.08, ShotHitPart::HandR),
+            (7, 8, 0.0, 1.3, 0.08, ShotHitPart::HandL),
+            (3, 4, -0.3, 1.1, 0.1, ShotHitPart::LegR),
+            (9, 10, -0.3, 1.1, 0.1, ShotHitPart::LegL),
+            (4, 5, 0.1, 1.2, 0.12, ShotHitPart::LegR),
+            (10, 11, 0.1, 1.2, 0.12, ShotHitPart::LegL),
+            (13, 14, -0.5, 1.2, 0.17, ShotHitPart::Body),
+            (14, 15, 0.5, 3.0, 0.12, ShotHitPart::Head),
+        ];
+        for (index, row) in expected.iter().enumerate() {
+            let bone = shot_bone_at(index).expect("bone row");
+            assert_eq!(bone.joint0, row.0);
+            assert_eq!(bone.joint1, row.1);
+            assert_eq!(bone.start, row.2);
+            assert_eq!(bone.end, row.3);
+            assert_eq!(bone.radius, row.4);
+            assert_eq!(bone.part, row.5);
+        }
+        assert_eq!(shot_bone_at(10), None);
+        assert_eq!(shot_bone_at(usize::MAX), None);
+    }
+
+    #[test]
+    fn skeleton_bone_part_projects_hit_part() {
+        assert_eq!(shot_bone_part(0), Some(ShotHitPart::HandR));
+        assert_eq!(shot_bone_part(8), Some(ShotHitPart::Body));
+        assert_eq!(shot_bone_part(9), Some(ShotHitPart::Head));
+        assert_eq!(shot_bone_part(10), None);
+        assert_eq!(ShotHitPart::None as u32, 0);
+        assert_eq!(ShotHitPart::Head as u32, 6);
     }
 }

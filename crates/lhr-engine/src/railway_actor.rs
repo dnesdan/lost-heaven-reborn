@@ -211,6 +211,98 @@ pub fn railway_material_id(state: &RailwayState) -> u32 {
     state.material_word()
 }
 
+/// Explicit boundary for the still-unimplemented small railway setters and
+/// queries below. The entries name the original PC addresses (VA); the
+/// frame, sound, collision and switch owners stay outside this contract, so
+/// each reports the boundary instead of staging a value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RailwaySmallStubError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_railway::Lock` entry, GAME RVA 0x97980 (VA 0x497980; mafia-re
+/// game/vehicles/C_railway.cpp:206-210 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): the native body only
+/// logs, so no RVA beyond this entry is claimed.
+pub const RAILWAY_LOCK_ENTRY: u32 = 0x497980;
+/// `C_railway::Unlock` entry, GAME RVA 0x97990 (VA 0x497990; mafia-re
+/// game/vehicles/C_railway.cpp:180-184 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): the native body only
+/// logs, so no RVA beyond this entry is claimed.
+pub const RAILWAY_UNLOCK_ENTRY: u32 = 0x497990;
+/// `C_railway::GetVagon` entry, GAME RVA 0x96e10 (VA 0x496e10; mafia-re
+/// game/vehicles/C_railway.cpp:199-204 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): the native body only
+/// logs and returns NULL, so no RVA beyond this entry is claimed.
+pub const RAILWAY_GET_VAGON_ENTRY: u32 = 0x496e10;
+/// `C_railway::GetEntry` entry, GAME RVA 0x95d30 (VA 0x495d30; mafia-re
+/// game/vehicles/C_railway.cpp:192-197 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): the native body only
+/// logs and returns false, so no RVA beyond this entry is claimed.
+pub const RAILWAY_GET_ENTRY_ENTRY: u32 = 0x495d30;
+/// `C_railway::SetRainDummy` entry, GAME RVA 0x989a0 (VA 0x4989a0; mafia-re
+/// game/vehicles/C_railway.cpp:186-190 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): sets the rain dummy.
+pub const RAILWAY_SET_RAIN_DUMMY_ENTRY: u32 = 0x4989a0;
+
+/// Original `C_railway::Lock`, GAME RVA 0x97980 (VA 0x497980; mafia-re
+/// game/vehicles/C_railway.cpp:206-210 at pin fe7e746): the original only
+/// logs (STUB: GAME in Game.exe). No lock owner exists here, so the
+/// boundary is explicit.
+pub fn railway_lock() -> Result<(), RailwaySmallStubError> {
+    Err(RailwaySmallStubError::Unsupported {
+        entry: RAILWAY_LOCK_ENTRY,
+    })
+}
+
+/// Original `C_railway::Unlock`, GAME RVA 0x97990 (VA 0x497990; mafia-re
+/// game/vehicles/C_railway.cpp:180-184 at pin fe7e746): the original only
+/// logs (STUB: GAME in Game.exe). No lock owner exists here, so the
+/// boundary is explicit.
+pub fn railway_unlock() -> Result<(), RailwaySmallStubError> {
+    Err(RailwaySmallStubError::Unsupported {
+        entry: RAILWAY_UNLOCK_ENTRY,
+    })
+}
+
+/// Original `C_railway::GetVagon` stub (mafia-re
+/// game/vehicles/C_railway.cpp:199-204 at pin fe7e746; `STUB: GAME` VA
+/// 0x496e10, RVA 0x96e10): the original only logs and returns NULL. The
+/// wagon-frame owner stays outside this contract, so the boundary is
+/// explicit; the native frame answer is an opaque identity that is never
+/// dereferenced.
+pub fn railway_get_vagon(_wagon: u32) -> Result<u32, RailwaySmallStubError> {
+    Err(RailwaySmallStubError::Unsupported {
+        entry: RAILWAY_GET_VAGON_ENTRY,
+    })
+}
+
+/// Original `C_railway::GetEntry` stub (mafia-re
+/// game/vehicles/C_railway.cpp:192-197 at pin fe7e746; `STUB: GAME` VA
+/// 0x495d30, RVA 0x95d30): the original only logs and returns false. The
+/// actor/frame/placement owners stay outside this contract, so the boundary
+/// is explicit; the native `bool` answer is preserved in the return type.
+/// The actor identity is opaque and never dereferenced.
+pub fn railway_get_entry(_actor: u32) -> Result<bool, RailwaySmallStubError> {
+    Err(RailwaySmallStubError::Unsupported {
+        entry: RAILWAY_GET_ENTRY_ENTRY,
+    })
+}
+
+/// Original `C_railway::SetRainDummy` stub (mafia-re
+/// game/vehicles/C_railway.cpp:186-190 at pin fe7e746; `STUB: GAME` VA
+/// 0x4989a0, RVA 0x989a0): the original only logs. The frame owner stays
+/// outside this contract, so the boundary is explicit. The frame identity is
+/// opaque and never dereferenced.
+pub fn railway_set_rain_dummy(
+    _inside: bool,
+    _frame: u32,
+) -> Result<(), RailwaySmallStubError> {
+    Err(RailwaySmallStubError::Unsupported {
+        entry: RAILWAY_SET_RAIN_DUMMY_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,5 +379,63 @@ mod tests {
         assert_eq!(value.material_word(), 7);
         value.set_material_word(0);
         assert_eq!(railway_material_id(&value), 0);
+    }
+
+    #[test]
+    fn rva_97980_lock_reports_unsupported() {
+        // C_railway::Lock GAME RVA 0x97980 (VA 0x497980).
+        assert_eq!(RAILWAY_LOCK_ENTRY, 0x497980);
+        assert_eq!(
+            railway_lock(),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x497980 })
+        );
+    }
+
+    #[test]
+    fn rva_97990_unlock_reports_unsupported() {
+        // C_railway::Unlock GAME RVA 0x97990 (VA 0x497990).
+        assert_eq!(RAILWAY_UNLOCK_ENTRY, 0x497990);
+        assert_eq!(
+            railway_unlock(),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x497990 })
+        );
+    }
+
+    #[test]
+    fn rva_96e10_get_vagon_reports_unsupported() {
+        // C_railway::GetVagon GAME RVA 0x96e10 (VA 0x496e10).
+        assert_eq!(RAILWAY_GET_VAGON_ENTRY, 0x496e10);
+        assert_eq!(
+            railway_get_vagon(0),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x496e10 })
+        );
+        assert_eq!(
+            railway_get_vagon(1),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x496e10 })
+        );
+    }
+
+    #[test]
+    fn rva_95d30_get_entry_reports_unsupported() {
+        // C_railway::GetEntry GAME RVA 0x95d30 (VA 0x495d30).
+        assert_eq!(RAILWAY_GET_ENTRY_ENTRY, 0x495d30);
+        assert_eq!(
+            railway_get_entry(0x1234),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x495d30 })
+        );
+    }
+
+    #[test]
+    fn rva_989a0_set_rain_dummy_reports_unsupported() {
+        // C_railway::SetRainDummy GAME RVA 0x989a0 (VA 0x4989a0).
+        assert_eq!(RAILWAY_SET_RAIN_DUMMY_ENTRY, 0x4989a0);
+        assert_eq!(
+            railway_set_rain_dummy(true, 0x1234),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x4989a0 })
+        );
+        assert_eq!(
+            railway_set_rain_dummy(false, 0),
+            Err(RailwaySmallStubError::Unsupported { entry: 0x4989a0 })
+        );
     }
 }

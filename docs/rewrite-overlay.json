@@ -16510,6 +16510,132 @@
       "symbol": "lhr_engine::player_actor::PlayerState::set_boxer_unsupported",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xaaa00",
+      "va": "0x4aaa00",
+      "name": "C_traffic_car::Scipni",
+      "symbol": "lhr_engine::traffic_car_actor::scipni",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x50450",
+      "va": "0x450450",
+      "name": "C_traffic_generator::Explosion",
+      "symbol": "lhr_engine::traffic_generator::traffic_explosion",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x509d0",
+      "va": "0x4509d0",
+      "name": "C_traffic_generator::NewPanic",
+      "symbol": "lhr_engine::traffic_generator::traffic_new_panic",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4e870",
+      "va": "0x44e870",
+      "name": "C_traffic_generator::PlayerPromluvilNaTehoChuja",
+      "symbol": "lhr_engine::traffic_generator::player_promluvil_na_teho_chuja",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x56fa0",
+      "va": "0x456fa0",
+      "name": "C_traffic_element::ActivateFree",
+      "symbol": "lhr_engine::traffic_generator::activate_free_traffic_element",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x51860",
+      "va": "0x451860",
+      "name": "C_traffic_element::SetNewNode",
+      "symbol": "lhr_engine::traffic_generator::set_new_node_traffic_element",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x52ca0",
+      "va": "0x452ca0",
+      "name": "C_traffic_element::EndMavaniNaTaxi",
+      "symbol": "lhr_engine::traffic_generator::end_mavani_na_taxi_element",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x587c0",
+      "va": "0x4587c0",
+      "name": "C_traffic_element::Deactivate",
+      "symbol": "lhr_engine::traffic_generator::deactivate_traffic_element",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x97980",
+      "va": "0x497980",
+      "name": "C_railway::Lock",
+      "symbol": "lhr_engine::railway_actor::railway_lock",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x97990",
+      "va": "0x497990",
+      "name": "C_railway::Unlock",
+      "symbol": "lhr_engine::railway_actor::railway_unlock",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x96e10",
+      "va": "0x496e10",
+      "name": "C_railway::GetVagon",
+      "symbol": "lhr_engine::railway_actor::railway_get_vagon",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x95d30",
+      "va": "0x495d30",
+      "name": "C_railway::GetEntry",
+      "symbol": "lhr_engine::railway_actor::railway_get_entry",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x989a0",
+      "va": "0x4989a0",
+      "name": "C_railway::SetRainDummy",
+      "symbol": "lhr_engine::railway_actor::railway_set_rain_dummy",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xbd210",
+      "va": "0x4bd210",
+      "name": "C_turnout::Start",
+      "symbol": "lhr_engine::turnout_actor::turnout_start",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
     }
   ],
   "vm": {

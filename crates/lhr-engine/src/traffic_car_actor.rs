@@ -497,6 +497,19 @@ pub fn remove_car(_actor: u32) -> Result<(), TrafficRemovalError> {
     })
 }
 
+/// `C_traffic_car::Scipni` entry, GAME RVA 0xaaa00 (VA 0x4aaa00; mafia-re
+/// game/vehicles/C_trf_c.cpp:35-39 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): hides (`hide`) or
+/// shows the traffic's cars. The frame/scene visibility owners stay outside
+/// this contract, so the boundary is explicit.
+pub const SCIPNI_ENTRY: u32 = 0x4aaa00;
+
+/// Original `C_traffic_car::Scipni` stub: reports the visibility-owner
+/// boundary instead of staging hidden state.
+pub fn scipni(_hide: bool) -> Result<(), TrafficRemovalError> {
+    Err(TrafficRemovalError::Unsupported { entry: SCIPNI_ENTRY })
+}
+
 /// One `C_traffic_car::S_ELEMENT` list slot (mafia-re game/vehicles/C_trf_c.h:56-61
 /// at pin 113b5b6). Only the frame and car identities are admitted: both are
 /// opaque native identities, never dereferenced on the host. The surrounding
@@ -1073,6 +1086,20 @@ mod tests {
         assert_eq!(
             remove_car(0x1234),
             Err(TrafficRemovalError::Unsupported { entry: 0x4bbe90 })
+        );
+    }
+
+    #[test]
+    fn rva_aaa00_scipni_reports_unsupported() {
+        // C_traffic_car::Scipni GAME RVA 0xaaa00 (VA 0x4aaa00).
+        assert_eq!(SCIPNI_ENTRY, 0x4aaa00);
+        assert_eq!(
+            scipni(true),
+            Err(TrafficRemovalError::Unsupported { entry: 0x4aaa00 })
+        );
+        assert_eq!(
+            scipni(false),
+            Err(TrafficRemovalError::Unsupported { entry: 0x4aaa00 })
         );
     }
 

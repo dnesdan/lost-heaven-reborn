@@ -25,6 +25,30 @@ pub fn turnout_save_game_size(base_size: i32) -> i32 {
     base_size.wrapping_add(TURNOUT_SAVE_GAME_EXTRA)
 }
 
+/// Explicit boundary for the still-unimplemented small turnout switch below.
+/// The entry names the original PC address (VA); the turnout-switch owner
+/// stays outside this contract, so it reports the boundary instead of
+/// staging a value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TurnoutStubError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_turnout::Start` entry, GAME RVA 0xbd210 (VA 0x4bd210; mafia-re
+/// game/vehicles/C_turnout.cpp:97-101 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): switches the turnout.
+pub const TURNOUT_START_ENTRY: u32 = 0x4bd210;
+
+/// Original `C_turnout::Start` stub (mafia-re
+/// game/vehicles/C_turnout.cpp:97-101 at pin fe7e746; `STUB: GAME` VA
+/// 0x4bd210, RVA 0xbd210): the original only logs. The turnout-switch owner
+/// stays outside this contract, so the boundary is explicit.
+pub fn turnout_start() -> Result<(), TurnoutStubError> {
+    Err(TurnoutStubError::Unsupported {
+        entry: TURNOUT_START_ENTRY,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -39,6 +63,16 @@ mod tests {
         assert_eq!(
             turnout_save_game_size(i32::MAX),
             i32::MIN.wrapping_add(15)
+        );
+    }
+
+    #[test]
+    fn rva_bd210_start_reports_unsupported() {
+        // C_turnout::Start GAME RVA 0xbd210 (VA 0x4bd210).
+        assert_eq!(TURNOUT_START_ENTRY, 0x4bd210);
+        assert_eq!(
+            turnout_start(),
+            Err(TurnoutStubError::Unsupported { entry: 0x4bd210 })
         );
     }
 }

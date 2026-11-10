@@ -449,7 +449,11 @@ class RewriteProgressTests(unittest.TestCase):
         # ShootDeAimed companions noted, one entry per RVA).
         # +4 controls differential (GetValues/GetValue/GetControl/
         # SaveJoyStates complete walks; pin tests game_control 18 pass).
-        self.assertEqual(game["ported"], 149 + 893)
+        # +14 traffic/railway STUB contracts (Scipni/Explosion/NewPanic/
+        # PlayerPromluvil/ActivateFree/SetNewNode/EndMavani/Deactivate/
+        # Lock/Unlock/GetVagon/GetEntry/SetRainDummy/Start; subagent counter
+        # bug fixed to STUB; all held as contract).
+        self.assertEqual(game["ported"], 149 + 907)
         self.assertEqual(game["verified"], 149 + 512)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

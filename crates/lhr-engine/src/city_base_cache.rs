@@ -338,6 +338,210 @@ impl CityBaseCache {
     }
 }
 
+/// Working name; native `C_cache_base_block::FindModel` sentinel-guard leaf
+/// (reference mafia-re `fe7e746`, game/mission/m_cache.cpp `FindModel`).
+/// The native FUNCTION entry is frozen-ledger-occupied (see
+/// docs/progress.json), so this claims no address: it ports only the
+/// `0xffff` guard plus the presence projection over this owner's staged
+/// sets. Out-of-range indices yield `None` as a host guard; the original
+/// performs no bounds check and its caller guarantees the indices. Live
+/// frame unlink/release stays with the scene owner.
+pub fn find_cached_model_slot(
+    model_sets: &[CacheModelSet],
+    model: u16,
+    instance: u16,
+) -> Option<bool> {
+    if model == u16::MAX || instance == u16::MAX {
+        return None;
+    }
+    let set = model_sets.get(usize::from(model))?;
+    let one = set.ones.get(usize::from(instance))?;
+    Some(one.frame_present)
+}
+
+/// Working name; native `C_cache_base_block::DestroyFrame` visible-latch leaf
+/// (reference mafia-re `fe7e746`, game/mission/m_cache.cpp `DestroyFrame`).
+/// The native FUNCTION entry is frozen-ledger-occupied, so this claims no
+/// address: it ports only the null/`visible` guard and the
+/// `visible = false` store. `None` models the native null pointer. The
+/// block lookup and the conditional `HideModel` need the scene owner and
+/// stay caller duties (see `find_cached_model_slot`).
+pub fn mark_cache_model_destroyed(visible: Option<&mut bool>) -> bool {
+    match visible {
+        None => false,
+        Some(flag) => {
+            if !*flag {
+                false
+            } else {
+                *flag = false;
+                true
+            }
+        }
+    }
+}
+
+/// Working name; native `C_cache_base_block::VisibleAllFrames` collector leaf
+/// (reference mafia-re `fe7e746`, game/mission/m_cache.cpp
+/// `VisibleAllFrames`). The native FUNCTION entry is frozen-ledger-occupied,
+/// so this claims no address. The staged owner carries no per-model
+/// `visible` word, so the sweep itself is vacuous here; this returns the
+/// indices of active blocks the caller must deactivate plus the native
+/// re-arm timer value the tail stores.
+pub fn plan_visible_all_frames(active: &[bool]) -> (Vec<usize>, u32) {
+    const VISIBLE_ALL_FRAMES_TIMER: u32 = 10_000;
+    let mut due = Vec::new();
+    for (index, flag) in active.iter().enumerate() {
+        if *flag {
+            due.push(index);
+        }
+    }
+    (due, VISIBLE_ALL_FRAMES_TIMER)
+}
+
+/// Working name; native `C_cache_base_block::DeactivateBlock` state leaf
+/// (reference mafia-re `fe7e746`, game/mission/m_cache.cpp
+/// `DeactivateBlock`, inline). Inline code has no FUNCTION entry of its own,
+/// so this claims no address: it ports the `active = false` store and
+/// reports the visual/model counts the scene owner must switch off and
+/// release. Frame `SetOn(false)` and `HideModel` stay caller duties.
+pub fn plan_block_deactivation(active: &mut bool, visuals: usize, models: usize) -> (usize, usize) {
+    *active = false;
+    (visuals, models)
+}
+
+/// Working name; native `C_cache_base_block::HideModel` guard-and-latch leaf
+/// (reference mafia-re `fe7e746`, game/mission/m_cache.cpp `HideModel`,
+/// inline). Inline code has no FUNCTION entry of its own, so this claims no
+/// address: sentinel indices are a no-op (`false`), and a set `used` latch
+/// is cleared with `true` so the caller unlinks the live frame. Frame
+/// unlink stays with the scene owner.
+pub fn release_cache_model_slot(used: Option<&mut bool>, model: u16, instance: u16) -> bool {
+    if model == u16::MAX || instance == u16::MAX {
+        return false;
+    }
+    match used {
+        None => false,
+        Some(flag) => {
+            if *flag {
+                *flag = false;
+                true
+            } else {
+                false
+            }
+        }
+    }
+}
+
+/// Reuse versus duplicate decision for one model set (native
+/// `C_cache_base_block::ShowModel` search leaf).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelSlotReuse {
+    /// Sentinel model index: the original returns null without touching
+    /// any latch.
+    Invalid,
+    /// First unused copy the caller must mark used and fade in.
+    Reuse(usize),
+    /// No unused copy: the caller must duplicate at this new index through
+    /// the frame owner (which also names it `off<set>seg<instance>`).
+    DuplicateAt(usize),
+}
+
+/// Working name; native `C_cache_base_block::ShowModel` free-slot search
+/// leaf (reference mafia-re `fe7e746`, game/mission/m_cache.cpp `ShowModel`,
+/// inline). Inline code has no FUNCTION entry of its own, so this claims no
+/// address: it ports the sentinel test and the first-unused scan. The
+/// duplicate/create path needs the frame owner and stays a caller duty.
+pub fn reuse_cache_model_slot(used: &[bool], model: u16) -> ModelSlotReuse {
+    if model == u16::MAX {
+        return ModelSlotReuse::Invalid;
+    }
+    match used.iter().position(|slot| !*slot) {
+        Some(index) => ModelSlotReuse::Reuse(index),
+        None => ModelSlotReuse::DuplicateAt(used.len()),
+    }
+}
+
+/// Working name; native `C_cache_base_block::OpenModel` name-lookup leaf
+/// (reference mafia-re `fe7e746`, game/mission/m_cache.cpp `OpenModel`).
+/// The native FUNCTION entry is frozen-ledger-occupied, so this claims no
+/// address: it ports only the case-insensitive search from the end, so the
+/// last duplicate wins. Loading through the model cache on a miss needs the
+/// cache owner and stays a caller duty.
+pub fn lookup_model_set(model_sets: &[CacheModelSet], name: &[u8]) -> Option<usize> {
+    model_sets
+        .iter()
+        .rposition(|set| set.name.as_slice().eq_ignore_ascii_case(name))
+}
+
+/// Working name; native `S_hlp::cbDupl` first-name predicate
+/// (reference mafia-re `fe7e746`, game/mission/m_cache.cpp `cbDupl`).
+/// The native FUNCTION entry is frozen-ledger-occupied, so this claims no
+/// address: `len >= 6` plus a case-insensitive `LLwcol` prefix match.
+/// Frame linking stays with the scene owner.
+pub fn is_llwcol_dupl_name(name: &[u8]) -> bool {
+    name.len() >= 6 && name[..6].eq_ignore_ascii_case(b"LLwcol")
+}
+
+/// Working name; native `S_hlp::cbDupl` second-name predicate
+/// (reference mafia-re `fe7e746`, game/mission/m_cache.cpp `cbDupl`).
+/// The native FUNCTION entry is frozen-ledger-occupied, so this claims no
+/// address: `len >= 4` plus a case-insensitive `wcol` prefix match.
+/// Frame linking stays with the scene owner.
+pub fn is_wcol_dupl_name(name: &[u8]) -> bool {
+    name.len() >= 4 && name[..4].eq_ignore_ascii_case(b"wcol")
+}
+
+/// Working name; native `C_cache_base_block::IsBlockInRange`
+/// bounding-circle reject leaf (reference mafia-re `fe7e746`,
+/// game/mission/m_cache.cpp `IsBlockInRange`, inline). Inline code has no
+/// FUNCTION entry of its own, so this claims no address: squared distance
+/// against the summed radius with the original `<=` sense. The
+/// edge/corner tests need the block points/dirs owner and stay caller
+/// duties.
+pub fn block_circle_contains(
+    block_x: f32,
+    block_z: f32,
+    block_radius: f32,
+    x: f32,
+    z: f32,
+    radius: f32,
+) -> bool {
+    let dx = block_x - x;
+    let dz = block_z - z;
+    let reach = radius + block_radius;
+    dx * dx + dz * dz <= reach * reach
+}
+
+/// Working name; native `TransparentModel` small-model skip gate
+/// (reference mafia-re `fe7e746`, game/mission/m_cache.cpp
+/// `TransparentModel`). The native FUNCTION entry is frozen-ledger-occupied,
+/// so this claims no address: when placing (`on`), the world-scaled size
+/// below 2 in every direction skips the fade. Recursion and
+/// `AddTimeTransparentObject` need the scene owner and stay caller duties.
+pub fn transparent_model_skipped(on: bool, size: [f32; 3], world_scale_y: f32) -> bool {
+    if !on {
+        return false;
+    }
+    let scaled_x = size[0] * world_scale_y;
+    let scaled_y = size[1] * world_scale_y;
+    let scaled_z = size[2] * world_scale_y;
+    scaled_x < 2.0 && scaled_y < 2.0 && scaled_z < 2.0
+}
+
+/// Working name; native `C_cache_base_block::Tick` round-robin advance leaf
+/// (reference mafia-re `fe7e746`, game/mission/m_cache.cpp `Tick`). The
+/// native FUNCTION entry is frozen-ledger-occupied, so this claims no
+/// address: pre-increment with wrap to zero, held unchanged for an empty
+/// set list. Releasing the unused copy needs the model owner and stays a
+/// caller duty.
+pub fn advance_tick_set(tick_set: usize, len: usize) -> usize {
+    if len == 0 {
+        return tick_set;
+    }
+    let next = tick_set.wrapping_add(1);
+    if next >= len { 0 } else { next }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,5 +769,142 @@ mod tests {
         let mut cache = CityBaseCache::new(0);
         assert_eq!(cache.open_from_bytes(&bytes), Ok(BaseCacheOpenOutcome::Ok));
         assert_eq!(cache.model_sets().len(), 65535);
+    }
+
+    #[test]
+    fn find_slot_guards_sentinels_and_projects_presence() {
+        let sets = vec![set(b"a.i3d", &[true, false])];
+        assert_eq!(find_cached_model_slot(&sets, 0, 0), Some(true));
+        assert_eq!(find_cached_model_slot(&sets, 0, 1), Some(false));
+        assert_eq!(find_cached_model_slot(&sets, u16::MAX, 0), None);
+        assert_eq!(find_cached_model_slot(&sets, 0, u16::MAX), None);
+        assert_eq!(find_cached_model_slot(&sets, 7, 0), None);
+        assert_eq!(find_cached_model_slot(&sets, 0, 7), None);
+        assert_eq!(find_cached_model_slot(&[], 0, 0), None);
+    }
+
+    #[test]
+    fn destroy_mark_latches_visible_once() {
+        assert!(!mark_cache_model_destroyed(None));
+        let mut already = false;
+        assert!(!mark_cache_model_destroyed(Some(&mut already)));
+        let mut visible = true;
+        assert!(mark_cache_model_destroyed(Some(&mut visible)));
+        assert!(!visible);
+        assert!(!mark_cache_model_destroyed(Some(&mut visible)));
+    }
+
+    #[test]
+    fn visible_all_plan_collects_active_and_rearm_timer() {
+        let (due, timer) = plan_visible_all_frames(&[false, true, false, true]);
+        assert_eq!(due, vec![1, 3]);
+        assert_eq!(timer, 10_000);
+        let (none, same) = plan_visible_all_frames(&[false, false]);
+        assert!(none.is_empty());
+        assert_eq!(same, 10_000);
+        let (empty, timer) = plan_visible_all_frames(&[]);
+        assert!(empty.is_empty());
+        assert_eq!(timer, 10_000);
+    }
+
+    #[test]
+    fn deactivate_mark_clears_and_reports_owner_counts() {
+        let mut active = true;
+        assert_eq!(plan_block_deactivation(&mut active, 3, 5), (3, 5));
+        assert!(!active);
+        assert_eq!(plan_block_deactivation(&mut active, 0, 0), (0, 0));
+    }
+
+    #[test]
+    fn hide_release_slot_guards_sentinels_and_used_latch() {
+        assert!(!release_cache_model_slot(None, 0, 0));
+        assert!(!release_cache_model_slot(None, u16::MAX, 0));
+        assert!(!release_cache_model_slot(None, 0, u16::MAX));
+        let mut free = false;
+        assert!(!release_cache_model_slot(Some(&mut free), 1, 0));
+        assert!(!free);
+        let mut used = true;
+        assert!(release_cache_model_slot(Some(&mut used), 1, 2));
+        assert!(!used);
+        assert!(!release_cache_model_slot(Some(&mut used), 1, 2));
+    }
+
+    #[test]
+    fn show_reuse_search_prefers_first_free_or_new_index() {
+        assert_eq!(
+            reuse_cache_model_slot(&[], 0),
+            ModelSlotReuse::DuplicateAt(0)
+        );
+        assert_eq!(
+            reuse_cache_model_slot(&[true, false, true], 2),
+            ModelSlotReuse::Reuse(1)
+        );
+        assert_eq!(
+            reuse_cache_model_slot(&[false, true], 2),
+            ModelSlotReuse::Reuse(0)
+        );
+        assert_eq!(
+            reuse_cache_model_slot(&[true, true], 2),
+            ModelSlotReuse::DuplicateAt(2)
+        );
+        assert_eq!(
+            reuse_cache_model_slot(&[false], u16::MAX),
+            ModelSlotReuse::Invalid
+        );
+    }
+
+    #[test]
+    fn open_lookup_is_case_insensitive_and_last_wins() {
+        let sets = vec![set(b"Car.i3d", &[false]), set(b"car.I3D", &[true])];
+        assert_eq!(lookup_model_set(&sets, b"CAR.i3d"), Some(1));
+        assert_eq!(lookup_model_set(&sets, b"car.i3d"), Some(1));
+        assert_eq!(lookup_model_set(&sets, b"missing.i3d"), None);
+        assert_eq!(lookup_model_set(&[], b"car.i3d"), None);
+        assert_eq!(lookup_model_set(&sets, b"car.i3"), None);
+    }
+
+    #[test]
+    fn cbdupl_llwcol_prefix_rule_matches_native_length_and_case() {
+        assert!(is_llwcol_dupl_name(b"LLwcolFoo"));
+        assert!(is_llwcol_dupl_name(b"llWCOL"));
+        assert!(!is_llwcol_dupl_name(b"LLwco"));
+        assert!(!is_llwcol_dupl_name(b"XXwcolFoo"));
+        assert!(!is_llwcol_dupl_name(b""));
+    }
+
+    #[test]
+    fn cbdupl_wcol_prefix_rule_matches_native_length_and_case() {
+        assert!(is_wcol_dupl_name(b"wcolBar"));
+        assert!(is_wcol_dupl_name(b"WCOL"));
+        assert!(!is_wcol_dupl_name(b"wco"));
+        assert!(!is_wcol_dupl_name(b"LLwcolFoo"));
+        assert!(!is_wcol_dupl_name(b""));
+    }
+
+    #[test]
+    fn circle_reject_uses_summed_radius_with_closed_sense() {
+        assert!(block_circle_contains(0.0, 0.0, 10.0, 3.0, 4.0, 5.0));
+        assert!(!block_circle_contains(0.0, 0.0, 10.0, 30.0, 0.0, 5.0));
+        // Boundary (distance == summed radius) counts as in range.
+        assert!(block_circle_contains(0.0, 0.0, 5.0, 10.0, 0.0, 5.0));
+        assert!(block_circle_contains(-4.0, 2.0, 1.0, -4.0, 2.0, 0.0));
+    }
+
+    #[test]
+    fn transparent_gate_skips_only_small_models_when_placing() {
+        assert!(!transparent_model_skipped(false, [0.5, 0.5, 0.5], 1.0));
+        assert!(transparent_model_skipped(true, [1.0, 1.5, 0.5], 1.0));
+        assert!(!transparent_model_skipped(true, [2.0, 0.5, 0.5], 1.0));
+        assert!(!transparent_model_skipped(true, [1.0, 1.0, 1.0], 2.0));
+        assert!(transparent_model_skipped(true, [3.0, 3.0, 3.0], 0.5));
+    }
+
+    #[test]
+    fn tick_set_advance_wraps_and_holds_when_empty() {
+        assert_eq!(advance_tick_set(0, 3), 1);
+        assert_eq!(advance_tick_set(2, 3), 0);
+        assert_eq!(advance_tick_set(5, 3), 0);
+        assert_eq!(advance_tick_set(0, 1), 0);
+        assert_eq!(advance_tick_set(7, 0), 7);
     }
 }
