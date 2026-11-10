@@ -856,8 +856,18 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     if blocked_dirs == 0 {
         return Err("Wall sweep met no MISE01 geometry in 8 headings".into());
     }
-    // 3. Board the real taxi driving world and drive to Complete.
-    // Reuses the installation and patches from the scene load above.
+    // 3. Board the real taxi driving world and drive to a real road-graph
+    // destination. Reuses the installation and patches from the scene load.
+    let road_bytes = installation
+        .read_optional("missions/mise01/road.bin")
+        .map_err(|e| e.to_string())?
+        .ok_or("MISE01 road.bin absent")?;
+    let network = lhr_engine::road_network::parse_road_network(&road_bytes)
+        .map_err(|e| format!("Road network parse stopped: {e:?}"))?;
+    println!(
+        "probe roads: {} nodes loaded for the destination",
+        network.nodes.len()
+    );
     let lease = patches
         .lease()
         .map_err(|e| format!("Startup patch owner: {e:?}"))?;
@@ -873,15 +883,15 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     taxi.start_driving("mise01").map_err(|e| e.to_string())?;
-    progress.boarded_taxi();
-    if progress.stage() != Mise01Stage::DrivingToDestination {
-        return Err("Boarding did not hand over to DrivingToDestination".into());
-    }
-    let mut odometer = 0.0f32;
-    let mut drive_ticks = 0u32;
-    let mut last = lhr_engine::car_runtime::CarDrivingState::default();
-    while odometer < TAXI_DESTINATION_M {
-        last = taxi
+    // Read the taxi spawn pose with one neutral step, then drive two ticks
+    // straight to establish the heading of the proven-clear corridor.
+    let spawn = taxi
+        .driving_step(16, lhr_engine::car_runtime::CarDrivingInput::default())
+        .map_err(|e| e.to_string())?
+        .position;
+    let mut straight = spawn;
+    for _ in 0..2 {
+        straight = taxi
             .driving_step(
                 16,
                 lhr_engine::car_runtime::CarDrivingInput {
@@ -891,27 +901,132 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     handbrake: false,
                 },
             )
+            .map_err(|e| e.to_string())?
+            .position;
+    }
+    let mut heading = [straight[0] - spawn[0], straight[2] - spawn[2]];
+    let heading_len = heading[0].hypot(heading[1]).max(1e-3);
+    heading[0] /= heading_len;
+    heading[1] /= heading_len;
+    // Destination: the road node nearest the corridor point 200 m straight
+    // ahead whose graph distance from spawn reaches 150 m. Straight driving
+    // is proven clear; the graph distance keeps it a real trip.
+    let corridor = [
+        spawn[0] + heading[0] * 200.0,
+        spawn[1],
+        spawn[2] + heading[1] * 200.0,
+    ];
+    let node_count = network.nodes.len();
+    let node_pos = |i: usize| network.nodes.get(i).map(|node| node.position());
+    let neighbors = |node: usize, out: &mut Vec<(usize, f32)>| {
+        if let Some(record) = network.nodes.get(node) {
+            for lane in 0..lhr_engine::road_network::ROAD_LANES {
+                let neighbor = record.lane_neighbor(lane);
+                if neighbor != 0xFFFF {
+                    out.push((neighbor as usize, record.lane_weight(lane)));
+                }
+            }
+        }
+    };
+    let (_, dist) =
+        lhr_engine::mission_play::road_graph_distances(&node_pos, &neighbors, node_count, spawn);
+    let mut best: Option<(usize, [f32; 3], f32)> = None;
+    let mut best_corr = f32::INFINITY;
+    for (i, &d) in dist.iter().enumerate() {
+        if d < lhr_engine::mission_play::TAXI_DESTINATION_M {
+            continue;
+        }
+        let Some(p) = node_pos(i) else {
+            continue;
+        };
+        let corr = (p[0] - corridor[0]).hypot(p[2] - corridor[2]);
+        if corr < best_corr {
+            best_corr = corr;
+            best = Some((i, p, d));
+        }
+    }
+    let (_, dest_pos, graph_m) = best.ok_or("No road destination on the MISE01 graph")?;
+    println!(
+        "probe destination: road node at [{:.1}, {:.1}, {:.1}], {:.0} m by graph",
+        dest_pos[0], dest_pos[1], dest_pos[2], graph_m
+    );
+    progress.boarded_taxi();
+    if progress.stage() != Mise01Stage::DrivingToDestination {
+        return Err("Boarding did not hand over to DrivingToDestination".into());
+    }
+    if !progress.stage_destination(dest_pos, 12.0) {
+        return Err("Destination refused to stage".into());
+    }
+    // Pursuit drive: steer toward the node, ease off in turns, reverse out
+    // of stalls. Two straight ticks already ran, so seed from there.
+    let mut odometer = 0.0f32;
+    let mut drive_ticks = 0u32;
+    let mut stall_ticks = 0u32;
+    let mut reversing = 0u32;
+    let mut min_gap = f32::INFINITY;
+    let mut prev = straight;
+    let mut last = lhr_engine::car_runtime::CarDrivingState::default();
+    last.position = straight;
+    while progress.stage() == Mise01Stage::DrivingToDestination {
+        let to_dest = [dest_pos[0] - prev[0], dest_pos[2] - prev[2]];
+        let gap = to_dest[0].hypot(to_dest[1]);
+        min_gap = min_gap.min(gap);
+        let vel = [prev[0] - last.position[0], prev[2] - last.position[2]];
+        let speed_hint = vel[0].hypot(vel[1]);
+        let mut steer = 0.0f32;
+        if speed_hint > 1e-4 {
+            let cross = vel[0] * to_dest[1] - vel[1] * to_dest[0];
+            let dot = vel[0] * to_dest[0] + vel[1] * to_dest[1];
+            let err = cross.atan2(dot);
+            steer = (2.0 * err).clamp(-1.0, 1.0);
+        }
+        let (throttle, brake, handbrake) = if reversing > 0 {
+            reversing -= 1;
+            (-0.6, 0.0, false)
+        } else {
+            (1.0 - 0.5 * steer.abs(), 0.0, false)
+        };
+        last = taxi
+            .driving_step(
+                16,
+                lhr_engine::car_runtime::CarDrivingInput {
+                    throttle,
+                    brake,
+                    steer,
+                    handbrake,
+                },
+            )
             .map_err(|e| e.to_string())?;
         odometer += last.speed.abs() * 0.016;
+        progress.taxi_moved(last.position);
+        progress.drive_distance(odometer);
         drive_ticks += 1;
-        if drive_ticks > 20000 {
+        if last.speed.abs() < 0.5 && reversing == 0 {
+            stall_ticks += 1;
+        } else {
+            stall_ticks = 0;
+        }
+        if stall_ticks > 150 {
+            stall_ticks = 0;
+            reversing = 80;
+            println!("probe drive: stalled at gap {gap:.1} m, reversing");
+        }
+        prev = last.position;
+        if drive_ticks > 30000 {
             return Err(format!(
-                "Taxi stalled before the destination (odometer {odometer:.1} m, speed {})",
-                last.speed
+                "Taxi never reached the node (closest gap {min_gap:.1} m, odometer {odometer:.1} m)"
             ));
         }
     }
-    progress.drive_distance(odometer);
     println!(
-        "probe drive: odometer {odometer:.1} m after {drive_ticks} ticks, speed {}, pos [{:.1}, {:.1}, {:.1}]; stage={:?}",
-        last.speed,
+        "probe drive: reached [{:.1}, {:.1}, {:.1}] after {drive_ticks} ticks, odometer {odometer:.1} m, min gap {min_gap:.1} m; stage={:?}",
         last.position[0],
         last.position[1],
         last.position[2],
         progress.stage()
     );
     if progress.stage() != Mise01Stage::Complete {
-        return Err("Odometer did not complete the mission".into());
+        return Err("Destination arrival did not complete the mission".into());
     }
     println!("MISSION PLAY PROBE COMPLETE: WatchIntro -> ReachTaxiStand -> BoardTaxi -> DrivingToDestination -> Complete");
     Ok(())
@@ -1125,9 +1240,11 @@ struct App {
     driving_controls: driving_view::Controls,
     walk_player: Option<lhr_engine::mission_play::OnFootPlayer>,
     walk_ground: lhr_engine::mission_play::MeshGroundSpace,
+    roads: Option<lhr_engine::road_network::RoadNetwork>,
     cutscene: lhr_engine::mission_play::CutscenePlayback,
     cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart,
     recorder: lhr_engine::cutscene_owner::CutsceneOwner,
+    last_taxi_pos: [f32; 3],
     mise01: lhr_engine::mission_play::Mise01Progress,
     driving_taxi: bool,
     taxi_odometer_m: f32,
@@ -1362,6 +1479,7 @@ impl App {
         } else {
             self.walk_player = None;
             self.walk_ground = lhr_engine::mission_play::MeshGroundSpace::default();
+            self.roads = None;
             self.cutscene = lhr_engine::mission_play::CutscenePlayback::idle();
             self.cutscene_show = lhr_engine::cutscene_owner::CutsceneShowStart::default();
             self.recorder = lhr_engine::cutscene_owner::CutsceneOwner::constructed(
@@ -1370,6 +1488,7 @@ impl App {
                     manager_address_high_byte: 0,
                 },
             );
+            self.last_taxi_pos = [0.0; 3];
             self.mise01 = lhr_engine::mission_play::Mise01Progress::fresh();
             self.driving_taxi = false;
             self.taxi_odometer_m = 0.0;
@@ -1472,6 +1591,7 @@ impl App {
         self.driving_taxi = false;
         self.taxi_odometer_m = 0.0;
         self.last_drive_speed = 0.0;
+        self.last_taxi_pos = [0.0; 3];
         self.mise01.stage_taxi_stand(
             [
                 focus.x + forward[0] * 25.0,
@@ -1488,6 +1608,25 @@ impl App {
                         .startup_patches
                         .lease()
                         .map_err(|e| format!("Startup patch owner: {e:?}"))?;
+                    // Real MISE01 road graph for the driving destination.
+                    match installation
+                        .read_optional("missions/mise01/road.bin")
+                        .map_err(|e| e.to_string())?
+                    {
+                        Some(bytes) => match lhr_engine::road_network::parse_road_network(&bytes) {
+                            Ok(network) => {
+                                println!(
+                                    "MISE01 roads: {} nodes loaded for the destination",
+                                    network.nodes.len()
+                                );
+                                self.roads = Some(network);
+                            }
+                            Err(error) => {
+                                println!("MISE01 roads parse stopped: {error:?}");
+                            }
+                        },
+                        None => println!("MISE01 roads: road.bin absent"),
+                    }
                     lhr_engine::car_runtime::GuardedCarRuntime::open_driving_scene_with_patches(
                         installation,
                         "models/taxi00.4ds",
@@ -1528,7 +1667,44 @@ impl App {
         }
         if self.driving_taxi {
             self.taxi_odometer_m += self.last_drive_speed.abs() * elapsed_ms.max(1) as f32 * 0.001;
+            // Real destination: first node on the MISE01 road graph at least
+            // 150 m (graph distance) from boarding. Falls back to the
+            // odometer threshold when the graph is unavailable.
+            if self.mise01.destination().is_none() {
+                if let Some(network) = &self.roads {
+                    let count = network.nodes.len();
+                    let found = lhr_engine::mission_play::pick_road_destination(
+                        &|i| network.nodes.get(i).map(|node| node.position()),
+                        &|node, out| {
+                            if let Some(record) = network.nodes.get(node) {
+                                for lane in 0..lhr_engine::road_network::ROAD_LANES {
+                                    let neighbor = record.lane_neighbor(lane);
+                                    if neighbor != 0xFFFF {
+                                        out.push((neighbor as usize, record.lane_weight(lane)));
+                                    }
+                                }
+                            }
+                        },
+                        count,
+                        self.last_taxi_pos,
+                        lhr_engine::mission_play::TAXI_DESTINATION_M,
+                    );
+                    if let Some((_, pos, graph_m)) = found {
+                        if self.mise01.stage_destination(pos, 12.0) {
+                            println!(
+                                "Destination: road node at [{:.1}, {:.1}, {:.1}], {:.0} m by graph; drive into the 12 m marker",
+                                pos[0],
+                                pos[1],
+                                pos[2],
+                                graph_m
+                            );
+                            self.show_objective();
+                        }
+                    }
+                }
+            }
             let before = self.mise01.stage();
+            self.mise01.taxi_moved(self.last_taxi_pos);
             self.mise01.drive_distance(self.taxi_odometer_m);
             if self.mise01.stage() != before {
                 println!(
@@ -1694,6 +1870,7 @@ impl App {
         }
         let state = state.ok_or("Driving scheduler dispatched no tick")?;
         self.last_drive_speed = state.speed;
+        self.last_taxi_pos = state.position;
         let controls = last_controls.ok_or("Driving scheduler dispatched no input")?;
         if self.audio_capture.is_some()
             || controls != self.driving_controls
@@ -3273,6 +3450,7 @@ fn run() -> Result<(), String> {
         driving_controls: driving_view::Controls::default(),
         walk_player: None,
         walk_ground: lhr_engine::mission_play::MeshGroundSpace::default(),
+        roads: None,
         cutscene: lhr_engine::mission_play::CutscenePlayback::idle(),
         cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart::default(),
         recorder: lhr_engine::cutscene_owner::CutsceneOwner::constructed(
@@ -3281,6 +3459,7 @@ fn run() -> Result<(), String> {
                 manager_address_high_byte: 0,
             },
         ),
+        last_taxi_pos: [0.0; 3],
         mise01: lhr_engine::mission_play::Mise01Progress::fresh(),
         driving_taxi: false,
         taxi_odometer_m: 0.0,

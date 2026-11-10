@@ -296,6 +296,7 @@ pub struct Mise01Progress {
     stage: Mise01Stage,
     taxi_stand: Option<[f32; 3]>,
     taxi_radius_m: f32,
+    destination: Option<([f32; 3], f32)>,
 }
 
 impl Mise01Progress {
@@ -305,7 +306,13 @@ impl Mise01Progress {
             stage: Mise01Stage::WatchIntro,
             taxi_stand: None,
             taxi_radius_m: 3.0,
+            destination: None,
         }
+    }
+
+    /// Staged destination anchor, if any.
+    pub fn destination(&self) -> Option<([f32; 3], f32)> {
+        self.destination
     }
 
     /// Current stage.
@@ -357,11 +364,40 @@ impl Mise01Progress {
         }
     }
 
-    /// Report the taxi odometer in metres. Reaching `TAXI_DESTINATION_M`
-    /// completes the mission. Out-of-order calls never regress the stage.
+    /// Report the taxi odometer in metres. Without a staged graph destination
+    /// this host threshold completes the leg; with one, only the real
+    /// location counts (see [`Mise01Progress::taxi_moved`]).
     pub fn drive_distance(&mut self, odometer_m: f32) {
-        if self.stage == Mise01Stage::DrivingToDestination && odometer_m >= TAXI_DESTINATION_M {
+        if self.destination.is_none()
+            && self.stage == Mise01Stage::DrivingToDestination
+            && odometer_m >= TAXI_DESTINATION_M
+        {
             self.stage = Mise01Stage::Complete;
+        }
+    }
+
+    /// Stage the real destination anchor and its acceptance radius. Only the
+    /// driving leg admits it.
+    pub fn stage_destination(&mut self, pos: [f32; 3], radius_m: f32) -> bool {
+        if self.stage != Mise01Stage::DrivingToDestination {
+            return false;
+        }
+        self.destination = Some((pos, radius_m.max(0.5)));
+        true
+    }
+
+    /// Report the taxi position each tick. Within the staged radius the
+    /// mission completes.
+    pub fn taxi_moved(&mut self, pos: [f32; 3]) {
+        if self.stage != Mise01Stage::DrivingToDestination {
+            return;
+        }
+        if let Some((anchor, radius)) = self.destination {
+            let dx = pos[0] - anchor[0];
+            let dz = pos[2] - anchor[2];
+            if dx.hypot(dz) <= radius {
+                self.stage = Mise01Stage::Complete;
+            }
         }
     }
 
@@ -372,7 +408,7 @@ impl Mise01Progress {
             Mise01Stage::ReachTaxiStand => "MISE01: walk (WASD, Shift runs) to the taxi stand",
             Mise01Stage::BoardTaxi => "MISE01: press E to board the taxi",
             Mise01Stage::DrivingToDestination => {
-                "MISE01: drive the taxi 150 m (W/S/A/D, Space brake)"
+                "MISE01: drive to the road marker (W/S/A/D, Space brake)"
             }
             Mise01Stage::Complete => "MISE01 complete: Esc returns to the menu",
         }
@@ -561,10 +597,13 @@ pub const WALK_CAPSULE_SPHERES: [(f32, f32); 3] = [
 ];
 
 /// Wall sweep over real scene geometry: the evidenced capsule walks `delta`
-/// (ground plane) from `feet` in discrete substeps and stops at the first
-/// penetration. Returns the rest position and whether anything blocked.
-/// No sliding: a blocked step ends where it touched. The native swept
-/// TestMoveColl arms stay deferred; radii and lifts are native words.
+/// (ground plane) from `feet` in discrete substeps. The second return is
+/// whether any wall contact happened: a completed slide still reports
+/// contact so callers route the rest position through the swept branch
+/// instead of free flight. One slide bounce: the remaining motion is
+/// projected onto the contact plane and re-walked once; corners therefore
+/// stop the step. The native swept TestMoveColl arms stay deferred; radii
+/// and lifts are native words, the bounce is an explicit host driver.
 pub fn sweep_capsule(
     boxes: &[Option<MeshAabb>],
     tris_of: &dyn Fn(usize) -> Option<Vec<[[f32; 3]; 3]>>,
@@ -578,25 +617,61 @@ pub fn sweep_capsule(
     if dist <= 0.0 {
         return (feet, false);
     }
+    let (rest, blocked, normal) = sweep_until(boxes, tris_of, feet, delta);
+    if !blocked {
+        return (rest, false);
+    }
+    let Some(mut n) = normal else {
+        return (rest, true);
+    };
+    // Orient the plane normal against the motion.
+    if n[0] * delta[0] + n[2] * delta[2] > 0.0 {
+        n = [-n[0], n[1], -n[2]];
+    }
+    // Project the leftover onto the wall plane (single bounce).
+    let travelled = [rest[0] - feet[0], rest[2] - feet[2]];
+    let leftover = [delta[0] - travelled[0], delta[2] - travelled[1]];
+    let into = leftover[0] * n[0] + leftover[1] * n[2];
+    let slide = [leftover[0] - n[0] * into, leftover[1] - n[2] * into];
+    if slide[0].hypot(slide[1]) < 1e-4 {
+        return (rest, true);
+    }
+    let (rest2, _, _) = sweep_until(boxes, tris_of, rest, [slide[0], 0.0, slide[1]]);
+    (rest2, true)
+}
+
+/// Walk `delta` in substeps; stop at the first penetration and report the
+/// contact plane normal of the blocking triangle, if any.
+fn sweep_until(
+    boxes: &[Option<MeshAabb>],
+    tris_of: &dyn Fn(usize) -> Option<Vec<[[f32; 3]; 3]>>,
+    feet: [f32; 3],
+    delta: [f32; 3],
+) -> ([f32; 3], bool, Option<[f32; 3]>) {
+    let dist = delta[0].hypot(delta[2]);
+    if dist <= 0.0 {
+        return (feet, false, None);
+    }
     let steps = ((dist / 0.1).ceil() as u32).clamp(1, 16);
     let mut rest = feet;
     for step in 1..=steps {
         let k = step as f32 / steps as f32;
         let candidate = [feet[0] + delta[0] * k, feet[1], feet[2] + delta[2] * k];
-        if capsule_blocked(boxes, tris_of, candidate) {
-            return (rest, true);
+        if let Some(normal) = capsule_contact_normal(boxes, tris_of, candidate) {
+            return (rest, true, Some(normal));
         }
         rest = candidate;
     }
-    (rest, false)
+    (rest, false, None)
 }
 
-/// True when any capsule sphere penetrates scene geometry at `feet`.
-fn capsule_blocked(
+/// First penetrating contact normal at `feet`, if any capsule sphere touches
+/// scene geometry. The normal comes from the blocking triangle, normalized.
+fn capsule_contact_normal(
     boxes: &[Option<MeshAabb>],
     tris_of: &dyn Fn(usize) -> Option<Vec<[[f32; 3]; 3]>>,
     feet: [f32; 3],
-) -> bool {
+) -> Option<[f32; 3]> {
     let pad = TEST_MOVE_COLL_RADII[0];
     for (index, bb) in boxes.iter().enumerate() {
         let Some([[min_x, min_y, min_z], [max_x, max_y, max_z]]) = bb else {
@@ -622,12 +697,37 @@ fn capsule_blocked(
             for (lift, radius) in WALK_CAPSULE_SPHERES {
                 let center = [feet[0], feet[1] + lift, feet[2]];
                 if sphere_tri_dist_sq(center, tri) < radius * radius {
-                    return true;
+                    return tri_normal(tri);
                 }
             }
         }
     }
-    false
+    None
+}
+
+/// Unit face normal of a triangle, or `None` for a degenerate one.
+fn tri_normal(tri: &[[f32; 3]; 3]) -> Option<[f32; 3]> {
+    let e1 = [
+        tri[1][0] - tri[0][0],
+        tri[1][1] - tri[0][1],
+        tri[1][2] - tri[0][2],
+    ];
+    let e2 = [
+        tri[2][0] - tri[0][0],
+        tri[2][1] - tri[0][1],
+        tri[2][2] - tri[0][2],
+    ];
+    let n = [
+        e1[1] * e2[2] - e1[2] * e2[1],
+        e1[2] * e2[0] - e1[0] * e2[2],
+        e1[0] * e2[1] - e1[1] * e2[0],
+    ];
+    let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if len < 1e-8 {
+        None
+    } else {
+        Some([n[0] / len, n[1] / len, n[2] / len])
+    }
 }
 
 /// Precomputed per-mesh bounding boxes of one static scene. Only boxes are
@@ -678,6 +778,96 @@ impl MeshGroundSpace {
     ) -> ([f32; 3], bool) {
         sweep_capsule(&self.boxes, tris_of, feet, delta)
     }
+}
+
+/// Full Dijkstra distances from the node nearest `from` over `neighbors`
+/// edge weights. Returns the start node and per-node distances (`INFINITY`
+/// stays unreached). The search itself is an explicit host driver.
+pub fn road_graph_distances(
+    node_pos: &dyn Fn(usize) -> Option<[f32; 3]>,
+    neighbors: &dyn Fn(usize, &mut Vec<(usize, f32)>),
+    node_count: usize,
+    from: [f32; 3],
+) -> (Option<usize>, Vec<f32>) {
+    if node_count == 0 || !from.iter().all(|v| v.is_finite()) {
+        return (None, Vec::new());
+    }
+    let mut start = None;
+    let mut best = f32::INFINITY;
+    for i in 0..node_count {
+        let Some(p) = node_pos(i) else {
+            continue;
+        };
+        let d = (p[0] - from[0]).hypot(p[2] - from[2]);
+        if d < best {
+            best = d;
+            start = Some(i);
+        }
+    }
+    let Some(start) = start else {
+        return (None, Vec::new());
+    };
+    let mut dist = vec![f32::INFINITY; node_count];
+    let mut visited = vec![false; node_count];
+    dist[start] = 0.0;
+    let mut edges = Vec::new();
+    for _ in 0..node_count {
+        let mut next = None;
+        let mut next_dist = f32::INFINITY;
+        for (i, &d) in dist.iter().enumerate() {
+            if !visited[i] && d < next_dist {
+                next_dist = d;
+                next = Some(i);
+            }
+        }
+        let Some(current) = next else {
+            break;
+        };
+        visited[current] = true;
+        edges.clear();
+        neighbors(current, &mut edges);
+        for (other, weight) in edges.drain(..) {
+            if other < node_count && !visited[other] && weight.is_finite() && weight >= 0.0 {
+                let candidate = next_dist + weight;
+                if candidate < dist[other] {
+                    dist[other] = candidate;
+                }
+            }
+        }
+    }
+    (Some(start), dist)
+}
+
+/// Pick a real destination on a road graph: Dijkstra from the node nearest
+/// `from`, returning the nearest node (by graph distance) at least
+/// `min_dist_m` away with its position and distance. Positions beyond `from`
+/// are real mission data; the search itself is an explicit host driver.
+pub fn pick_road_destination(
+    node_pos: &dyn Fn(usize) -> Option<[f32; 3]>,
+    neighbors: &dyn Fn(usize, &mut Vec<(usize, f32)>),
+    node_count: usize,
+    from: [f32; 3],
+    min_dist_m: f32,
+) -> Option<(usize, [f32; 3], f32)> {
+    if min_dist_m <= 0.0 {
+        return None;
+    }
+    let (start, dist) = road_graph_distances(node_pos, neighbors, node_count, from);
+    start?;
+    let mut order: Vec<usize> = (0..node_count).collect();
+    order.sort_by(|&a, &b| {
+        dist[a]
+            .partial_cmp(&dist[b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    for i in order {
+        if dist[i] >= min_dist_m {
+            if let Some(p) = node_pos(i) {
+                return Some((i, p, dist[i]));
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -811,14 +1001,31 @@ mod tests {
         assert_eq!(progress.hud_line(), "MISE01: press E to board the taxi");
         progress.boarded_taxi();
         assert_eq!(progress.stage(), Mise01Stage::DrivingToDestination);
+        // No destination staged: the odometer threshold stands in.
+        progress.taxi_moved([500.0, 0.0, 500.0]);
+        assert_eq!(progress.stage(), Mise01Stage::DrivingToDestination);
         progress.drive_distance(10.0);
         assert_eq!(progress.stage(), Mise01Stage::DrivingToDestination);
         progress.drive_distance(TAXI_DESTINATION_M);
         assert_eq!(progress.stage(), Mise01Stage::Complete);
+        // A staged graph destination wins over the odometer instead.
+        let mut located = Mise01Progress::fresh();
+        located.cutscene_done();
+        assert!(located.stage_taxi_stand([10.0, 0.0, 0.0], 3.0));
+        located.player_moved([10.0, 0.0, 1.0]);
+        located.boarded_taxi();
+        assert!(located.stage_destination([500.0, 0.0, 500.0], 3.0));
+        assert_eq!(located.destination(), Some(([500.0, 0.0, 500.0], 3.0)));
+        located.taxi_moved([0.0, 0.0, 0.0]);
+        assert_eq!(located.stage(), Mise01Stage::DrivingToDestination);
+        located.drive_distance(10_000.0);
+        assert_eq!(located.stage(), Mise01Stage::DrivingToDestination);
+        located.taxi_moved([501.0, 0.0, 500.0]);
+        assert_eq!(located.stage(), Mise01Stage::Complete);
         // Completed stages never regress.
         progress.cutscene_done();
         progress.player_moved([0.0, 0.0, 0.0]);
-        progress.drive_distance(0.0);
+        progress.taxi_moved([0.0, 0.0, 0.0]);
         assert_eq!(progress.stage(), Mise01Stage::Complete);
     }
 
@@ -936,6 +1143,74 @@ mod tests {
         let (rest, blocked) = sweep_capsule(&boxes, &tris, [f32::NAN, 0.0, 0.0], [5.0, 0.0, 0.0]);
         assert!(blocked);
         assert!(rest[0].is_nan());
+    }
+
+    #[test]
+    fn sweep_slides_along_wall_and_stops_in_corners() {
+        // Vertical wall at x=2 spanning y 0..3, z -5..5.
+        let wall = [
+            [[2.0, 0.0, -5.0], [2.0, 3.0, -5.0], [2.0, 0.0, 5.0]],
+            [[2.0, 3.0, -5.0], [2.0, 3.0, 5.0], [2.0, 0.0, 5.0]],
+        ];
+        let boxes = vec![mesh_aabb(&wall[0]), mesh_aabb(&wall[1])];
+        let tris = |i: usize| Some(vec![wall[i]]);
+        // Diagonal approach: x stops at the wall, z keeps sliding; contact
+        // is reported even though the slide completes.
+        let (rest, contacted) = sweep_capsule(&boxes, &tris, [0.0, 0.0, 0.0], [5.0, 0.0, 3.0]);
+        assert!(contacted);
+        assert!(rest[0] < 2.0);
+        assert!(rest[2] > 2.0);
+        // Corner: a second wall at z=3 blocks the slide as well.
+        let corner = [
+            [[-5.0, 0.0, 3.0], [-5.0, 3.0, 3.0], [5.0, 0.0, 3.0]],
+            [[-5.0, 3.0, 3.0], [5.0, 3.0, 3.0], [5.0, 0.0, 3.0]],
+        ];
+        let boxes2 = vec![
+            mesh_aabb(&wall[0]),
+            mesh_aabb(&wall[1]),
+            mesh_aabb(&corner[0]),
+            mesh_aabb(&corner[1]),
+        ];
+        let tris2 = |i: usize| {
+            if i < 2 {
+                Some(vec![wall[i]])
+            } else {
+                Some(vec![corner[i - 2]])
+            }
+        };
+        let (rest, contacted) = sweep_capsule(&boxes2, &tris2, [0.0, 0.0, 0.0], [5.0, 0.0, 5.0]);
+        assert!(contacted);
+        assert!(rest[0] < 2.0 && rest[2] < 3.0);
+    }
+
+    #[test]
+    fn road_destination_follows_graph_distance() {
+        // Chain 0-1-2-3 spaced 60 m apart; 3 is 180 m by graph.
+        let pos = |i: usize| Some([i as f32 * 60.0, 0.0, 0.0]);
+        let link = |node: usize, out: &mut Vec<(usize, f32)>| {
+            if node > 0 {
+                out.push((node - 1, 60.0));
+            }
+            if node < 3 {
+                out.push((node + 1, 60.0));
+            }
+        };
+        let found = pick_road_destination(&pos, &link, 4, [5.0, 0.0, 0.0], 150.0);
+        assert_eq!(found, Some((3, [180.0, 0.0, 0.0], 180.0)));
+        // Too far: unreachable.
+        assert_eq!(
+            pick_road_destination(&pos, &link, 4, [0.0, 0.0, 0.0], 1000.0),
+            None
+        );
+        // Empty graph or bad input: no destination.
+        assert_eq!(
+            pick_road_destination(&pos, &link, 0, [0.0, 0.0, 0.0], 10.0),
+            None
+        );
+        assert_eq!(
+            pick_road_destination(&pos, &link, 4, [f32::NAN, 0.0, 0.0], 10.0),
+            None
+        );
     }
 
     #[test]

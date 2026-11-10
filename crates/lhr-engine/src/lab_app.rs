@@ -652,6 +652,7 @@ mod tests {
             driving_controls: driving_view::Controls::default(),
             walk_player: None,
             walk_ground: lhr_engine::mission_play::MeshGroundSpace::default(),
+            roads: None,
             cutscene: lhr_engine::mission_play::CutscenePlayback::idle(),
             cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart::default(),
             recorder: lhr_engine::cutscene_owner::CutsceneOwner::constructed(
@@ -660,6 +661,7 @@ mod tests {
                     manager_address_high_byte: 0,
                 },
             ),
+            last_taxi_pos: [0.0; 3],
             mise01: lhr_engine::mission_play::Mise01Progress::fresh(),
             driving_taxi: false,
             taxi_odometer_m: 0.0,
