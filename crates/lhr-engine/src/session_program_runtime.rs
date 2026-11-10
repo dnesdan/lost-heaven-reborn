@@ -15,6 +15,23 @@ use crate::program_parameters::ScalarParameter;
 /// an unavailable owner is never acknowledged as a counting-only effect.
 pub struct SessionProgramEffects<'a> {
     game: &'a mut GameInlineState,
+    lights: crate::mission_effects::SessionLightGraph,
+}
+
+/// Snapshot one scene's light-relevant words for a program-effects owner.
+/// Selection failures surface here; a missing scene yields an empty graph
+/// whose active scene is unavailable at opcode time.
+fn session_light_snapshot<E>(
+    session: &MissionLoadSession,
+    unavailable: impl FnOnce(String) -> E,
+) -> Result<crate::mission_effects::SessionLightGraph, E> {
+    let key = session
+        .scene()
+        .map_err(|error| unavailable(format!("{error:?}")))?;
+    Ok(crate::mission_effects::snapshot_session_lights(
+        &session.arena,
+        key,
+    ))
 }
 
 /// Admission or execution failure of an explicit host actor-program pass.
@@ -37,7 +54,12 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
         match effect {
             SetNightMission(value) => self.game.set_night_mission(value),
             DisableAnimPreload => self.game.set_anim_preload(false),
-            UseLightCache => return Err("session light-cache owner unavailable".into()),
+            UseLightCache => match crate::mission_effects::collect_session_lights(&self.lights) {
+                Ok(collected) => {
+                    self.game.light_cache = Some(collected);
+                }
+                Err(error) => return Err(error),
+            },
             SetCityTrafficVisible(_) => {
                 return Err("session city-traffic visibility owner unavailable".into());
             }
@@ -196,11 +218,15 @@ impl MissionLoadSession {
             self,
             |session| &mut session.precision,
             |session| {
+                let lights = session_light_snapshot(session, |detail| {
+                    SessionActorProgramError::SourceUnavailable(detail)
+                })?;
                 let scene = session.scene.as_mut().ok_or_else(|| {
                     SessionActorProgramError::SourceUnavailable("session Scene unavailable".into())
                 })?;
                 let mut effects = SessionProgramEffects {
                     game: &mut session.game_inline,
+                    lights,
                 };
                 operation(
                     &mut session.loader.as_mut().unwrap().content.actors.world,
@@ -228,6 +254,11 @@ impl MissionLoadSession {
             self,
             |session| &mut session.precision,
             |session| {
+                let lights = session_light_snapshot(session, |detail| {
+                    GlobalProgramError::EntryCountUnavailable(
+                        MissionGlobalProgramError::SourceUnavailable(detail),
+                    )
+                })?;
                 session
                     .loader
                     .as_mut()
@@ -235,6 +266,7 @@ impl MissionLoadSession {
                     .content
                     .global_program_game_init(&mut SessionProgramEffects {
                         game: &mut session.game_inline,
+                        lights,
                     })
             },
         )
@@ -262,11 +294,15 @@ impl MissionLoadSession {
             self,
             |session| &mut session.precision,
             |session| {
+                let lights = session_light_snapshot(session, |detail| {
+                    NamedGlobalProgramError::SourceUnavailable(detail)
+                })?;
                 let scene = session.scene.as_mut().ok_or_else(|| {
                     NamedGlobalProgramError::SourceUnavailable("session Scene unavailable".into())
                 })?;
                 let mut effects = SessionProgramEffects {
                     game: &mut session.game_inline,
+                    lights,
                 };
                 session
                     .loader
@@ -310,11 +346,15 @@ impl MissionLoadSession {
             self,
             |session| &mut session.precision,
             |session| {
+                let lights = session_light_snapshot(session, |detail| {
+                    MissionGlobalProgramError::SourceUnavailable(detail)
+                })?;
                 let scene = session.scene.as_mut().ok_or_else(|| {
                     MissionGlobalProgramError::SourceUnavailable("session Scene unavailable".into())
                 })?;
                 let mut effects = SessionProgramEffects {
                     game: &mut session.game_inline,
+                    lights,
                 };
                 session
                     .loader

@@ -75,6 +75,7 @@ struct ScriptRunReport {
     outcome: NamedGlobalProgramOutcome,
     beeps: usize,
     budget_remaining: usize,
+    light_cache_lights: usize,
 }
 
 /// Owned program init plus the single `GameInitStart` run over the live
@@ -128,6 +129,10 @@ fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunRe
         outcome,
         beeps: diagnostic.beeps,
         budget_remaining: budget.remaining(),
+        light_cache_lights: session
+            .game_state()
+            .light_cache()
+            .map_or(0, |cache| cache.lights.len()),
     })
 }
 
@@ -287,8 +292,8 @@ pub fn run(
         Ok(script) => {
             writeln!(
                 report,
-                "GameInitStart: {:?} beeps={} budget_remaining={}",
-                script.outcome, script.beeps, script.budget_remaining
+                "GameInitStart: {:?} beeps={} budget_remaining={} light_cache_lights={}",
+                script.outcome, script.beeps, script.budget_remaining, script.light_cache_lights
             )
             .unwrap();
         }

@@ -140,13 +140,10 @@ fn owned_program_updates_live_game_flags_and_resolves_the_retained_actor() {
 
 #[test]
 fn missing_game_owners_stop_at_the_reached_effect_and_keep_the_prefix() {
-    for (unsupported, detail) in [
-        ("use_lightcache", "session light-cache owner unavailable"),
-        (
-            "setcitytrafficvisible 1",
-            "session city-traffic visibility owner unavailable",
-        ),
-    ] {
+    for (unsupported, detail) in [(
+        "setcitytrafficvisible 1",
+        "session city-traffic visibility owner unavailable",
+    )] {
         let source = format!(
             "commandblock 1\ngame_nightmission 1\n{unsupported}\ngame_nightmission 0\ncommandblock 0"
         );
@@ -172,6 +169,25 @@ fn missing_game_owners_stop_at_the_reached_effect_and_keep_the_prefix() {
         );
         finish(&mut session);
     }
+}
+
+#[test]
+fn use_lightcache_collects_empty_prefix_on_a_sceneless_session() {
+    // The fixture session selects no scene, so the collector has nothing to
+    // walk yet the opcode itself is owned: it succeeds with an empty cache
+    // instead of stopping at the reached effect.
+    let fixture = fixture(b"commandblock 1\nuse_lightcache\ncommandblock 0");
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    session.initialize_owned_global_programs().unwrap();
+    run(&mut session).unwrap();
+    let cache = session
+        .game_state()
+        .light_cache()
+        .expect("light cache retained");
+    assert!(cache.lights.is_empty());
+    assert_eq!(cache.header.end_token, cache.header.begin_token);
+    finish(&mut session);
 }
 
 #[test]

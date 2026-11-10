@@ -998,7 +998,10 @@ impl ModelArena {
         let Some(original) = frame.original_name_bytes.as_deref() else {
             return Ok(b"");
         };
-        Ok(&original[..original.iter().position(|&b| b == 0).unwrap_or(original.len())])
+        Ok(&original[..original
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(original.len())])
     }
     /// Working name for the LS3DF-inlined `I3D_frame::GetProperty` read
     /// (mafia-re ls3df/I3D/I3D.h:625-630, game-build branch). No LS3DF
@@ -2886,6 +2889,17 @@ impl ModelArena {
         self.frame_index(key)?;
         Ok(self.graph.links(key)?)
     }
+    /// Primary sector frame of a scene for the light-cache collector
+    /// (`C_game::UseLightCacheSystem` walks the primary sector's subtree,
+    /// mafia-re game/mission/game.cpp:5923). `None` is unavailable storage
+    /// (unknown scene or no linked sector), not an empty sector.
+    pub fn primary_sector_frame(
+        &self,
+        scene: crate::scene_ownership::SceneKey,
+    ) -> Option<FrameKey> {
+        let owner = self.scenes.iter().find(|s| s.key == scene)?;
+        Some(owner.sector_head?.frame())
+    }
     pub fn joint_state(&self, key: FrameKey) -> Result<&I3dJointState, ModelError> {
         self.frame_index(key)?;
         Ok(self.graph.joint_state(key)?)
@@ -4172,14 +4186,14 @@ pub(crate) mod tests {
             .link_occluder_scene_ring(occluder.frame(), Some(scene))
             .unwrap();
         assert_eq!(arena.occluder(occluder).unwrap().scene, Some(scene));
-        arena.link_occluder_scene_ring(occluder.frame(), None).unwrap();
+        arena
+            .link_occluder_scene_ring(occluder.frame(), None)
+            .unwrap();
         assert_eq!(arena.occluder(occluder).unwrap().scene, None);
         let sector = arena.create_sector_frame().unwrap();
-        assert!(
-            arena
-                .link_occluder_scene_ring(sector.frame(), Some(scene))
-                .is_err()
-        );
+        assert!(arena
+            .link_occluder_scene_ring(sector.frame(), Some(scene))
+            .is_err());
     }
     #[test]
     fn rva_0x1be80_link_area_moves_scene_ring() {
@@ -4188,7 +4202,9 @@ pub(crate) mod tests {
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
         let area = arena.create_area().unwrap();
-        arena.link_area_scene_ring(area.frame(), Some(scene)).unwrap();
+        arena
+            .link_area_scene_ring(area.frame(), Some(scene))
+            .unwrap();
         assert_eq!(arena.area(area).unwrap().scene, Some(scene));
         arena.link_area_scene_ring(area.frame(), None).unwrap();
         assert_eq!(arena.area(area).unwrap().scene, None);
@@ -4241,7 +4257,10 @@ pub(crate) mod tests {
         let root = model.root();
         assert_eq!(arena.frame_user_data_word(root).unwrap(), Some(0));
         arena
-            .set_user_data(root, crate::actor_frames::FrameUserData::ExternalRecord(0x1234))
+            .set_user_data(
+                root,
+                crate::actor_frames::FrameUserData::ExternalRecord(0x1234),
+            )
             .unwrap();
         assert_eq!(arena.frame_user_data_word(root).unwrap(), Some(0x1234));
         arena
@@ -4257,7 +4276,9 @@ pub(crate) mod tests {
         let mut arena = ModelArena::default();
         let model = arena.create_model().unwrap();
         assert_eq!(arena.model_file_name_or_empty(model).unwrap(), b"");
-        assert!(arena.model_file_name_or_empty(ModelKey(FrameKey(u32::MAX))).is_err());
+        assert!(arena
+            .model_file_name_or_empty(ModelKey(FrameKey(u32::MAX)))
+            .is_err());
     }
     #[test]
     fn lensflare_owns_live_source_and_material_associations_until_close() {

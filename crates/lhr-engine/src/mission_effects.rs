@@ -255,10 +255,7 @@ pub fn effects_mission_start(
 /// use first (as `ClearEmitters` does), clears the particle number, releases
 /// the static emitters and every free pool entry, and marks unstarted.
 /// Returns whether the teardown ran.
-pub fn effects_mission_done(
-    state: &mut EffectsState,
-    pools: &mut EffectsFreePools,
-) -> bool {
+pub fn effects_mission_done(state: &mut EffectsState, pools: &mut EffectsFreePools) -> bool {
     if !state.started {
         return false;
     }
@@ -535,6 +532,179 @@ impl LightCacheHeader {
         let scene = backend.active_scene()?;
         backend.collect(self, scene)
     }
+}
+
+/// Owned result of one light-cache collection: the reset header words plus
+/// the collected frame identities in native call order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionLightCache {
+    pub header: LightCacheHeader,
+    pub lights: Vec<LightFrameId>,
+}
+
+/// Session-owned snapshot of one scene's light-relevant frame words. The
+/// native collector reads the live graph; the snapshot is taken with a
+/// shared arena borrow before dispatch so the effect backend needs no arena
+/// owner. Graph mutations between the snapshot and the effect are not
+/// observed; GameInit dispatch does not mutate it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SessionLightGraph {
+    /// Opaque numeric scene identity, threaded never interpreted.
+    pub scene: Option<SceneId>,
+    /// Primary sector traversal root, if the scene has a linked sector.
+    pub root: Option<LightFrameId>,
+    /// Frame views keyed by native frame number.
+    pub views: std::collections::HashMap<u32, LightFrameView>,
+}
+
+/// Snapshot one scene's light-relevant words: kind-mapped frame types (only
+/// kinds 2 and 5 are projected, the collector's only gates), user-data
+/// words, point/spot light types and child/sibling links. `None` scene
+/// yields an empty graph whose active scene is unavailable.
+pub fn snapshot_session_lights(
+    arena: &crate::model_loading::ModelArena,
+    scene: Option<crate::scene_ownership::SceneKey>,
+) -> SessionLightGraph {
+    use crate::frame_transform::{FrameKey, FrameKind};
+    let mut graph = SessionLightGraph::default();
+    let Some(key) = scene else {
+        return graph;
+    };
+    graph.scene = Some(SceneId(key.0 .0));
+    let Some(root) = arena.primary_sector_frame(key) else {
+        return graph;
+    };
+    graph.root = Some(LightFrameId(root.0));
+    // Depth-first intake over the reachable subtree; the visited set is a
+    // host termination guard, the native walk has none.
+    let mut visited = std::collections::HashSet::new();
+    let mut stack = vec![root];
+    while let Some(frame) = stack.pop() {
+        if !visited.insert(frame.0) {
+            continue;
+        }
+        let Ok(state) = arena.state(frame) else {
+            continue;
+        };
+        let frame_type = match state.kind {
+            FrameKind::Light => 2,
+            FrameKind::Sector => 5,
+            _ => 0,
+        };
+        let user_data_word = arena.frame_user_data_word(frame).unwrap_or(None);
+        let light_kind = match state.kind {
+            FrameKind::Light => arena.light(frame).map(|l| l.light_type as i32).unwrap_or(0),
+            _ => 0,
+        };
+        let (first_child, next_sibling) = match arena.links(frame) {
+            Ok(links) => (
+                links.child.map(|k| LightFrameId(k.0)),
+                links.next.map(|k| LightFrameId(k.0)),
+            ),
+            Err(_) => (None, None),
+        };
+        graph.views.insert(
+            frame.0,
+            LightFrameView {
+                user_data_word,
+                frame_type,
+                light_kind,
+                first_child,
+                next_sibling,
+            },
+        );
+        if let Some(child) = first_child {
+            stack.push(FrameKey(child.0));
+        }
+        if let Some(next) = next_sibling {
+            stack.push(FrameKey(next.0));
+        }
+    }
+    graph
+}
+
+/// Snapshot-backed traversal for the session light-cache collector.
+/// Collection runs the exact `collect_scene_lights` leaf; the visit budget
+/// is a host termination bound proportional to the snapshot size.
+pub struct GraphLightBackend<'a> {
+    graph: &'a SessionLightGraph,
+    collected: Vec<LightFrameId>,
+}
+
+impl<'a> GraphLightBackend<'a> {
+    pub fn new(graph: &'a SessionLightGraph) -> Self {
+        Self {
+            graph,
+            collected: Vec::new(),
+        }
+    }
+
+    pub fn into_collected(self) -> Vec<LightFrameId> {
+        self.collected
+    }
+}
+
+impl LightTraversalBackend for GraphLightBackend<'_> {
+    type Error = String;
+
+    fn frame(&self, id: LightFrameId) -> Result<LightFrameView, Self::Error> {
+        self.graph
+            .views
+            .get(&id.0)
+            .copied()
+            .ok_or_else(|| format!("session light frame {id:?} outside the snapshot"))
+    }
+
+    fn append(&mut self, id: LightFrameId) -> Result<(), Self::Error> {
+        self.collected.push(id);
+        Ok(())
+    }
+}
+
+impl LightCacheBackend for GraphLightBackend<'_> {
+    type Error = String;
+
+    fn active_scene(&self) -> Result<SceneId, Self::Error> {
+        self.graph
+            .scene
+            .ok_or_else(|| "session scene unavailable".into())
+    }
+
+    fn collect(
+        &mut self,
+        _state: &mut LightCacheHeader,
+        _scene: SceneId,
+    ) -> Result<(), Self::Error> {
+        let Some(root) = self.graph.root else {
+            return Ok(());
+        };
+        // The traversal root is the stored primary sector, not the threaded
+        // scene identity; the identity is opaque plumbing for the leaf. The
+        // header keeps its reset words; the collected vector carries the
+        // collection, mirroring native vector growth without inventing
+        // token arithmetic.
+        let mut remaining = self.graph.views.len().saturating_mul(4).saturating_add(64);
+        collect_scene_lights(self, root, &mut remaining)
+            .map_err(|error| format!("session light collect stopped: {error:?}"))
+    }
+}
+
+/// Run one light-cache collection over a session snapshot through the exact
+/// `use_lightcache` leaf: header reset, active-scene gate, subtree walk.
+pub fn collect_session_lights(graph: &SessionLightGraph) -> Result<SessionLightCache, String> {
+    let mut backend = GraphLightBackend::new(graph);
+    let mut header = LightCacheHeader {
+        begin_token: 0,
+        end_token: 0,
+        field_178: u32::MAX,
+    };
+    header
+        .use_lightcache(&mut backend)
+        .map_err(|error| format!("session light collect stopped: {error}"))?;
+    Ok(SessionLightCache {
+        header,
+        lights: backend.into_collected(),
+    })
 }
 
 #[cfg(test)]
@@ -1041,5 +1211,110 @@ mod tests {
         effects_client_tick(&mut state, 16, &mut backend);
         assert_eq!(backend.ticks, vec![(7, 16), (8, 16)]);
         assert_eq!(state.in_use, vec![1, 3]);
+    }
+
+    fn light_view(
+        frame_type: i32,
+        light_kind: i32,
+        user_data_word: Option<u32>,
+        first_child: Option<u32>,
+        next_sibling: Option<u32>,
+    ) -> LightFrameView {
+        LightFrameView {
+            user_data_word,
+            frame_type,
+            light_kind,
+            first_child: first_child.map(LightFrameId),
+            next_sibling: next_sibling.map(LightFrameId),
+        }
+    }
+
+    fn light_graph(views: &[(u32, LightFrameView)]) -> SessionLightGraph {
+        SessionLightGraph {
+            scene: Some(SceneId(7)),
+            root: Some(LightFrameId(1)),
+            views: views.iter().map(|(id, view)| (*id, view.clone())).collect(),
+        }
+    }
+
+    #[test]
+    fn session_lights_collect_point_and_spot_in_call_order() {
+        // Sector root 1: point light 2, spot light 3, fog light 4 (skipped:
+        // kind 6 is not 1..=2), user-data-blocked branch 5 (skipped with its
+        // point-light child 6).
+        let graph = light_graph(&[
+            (1, light_view(5, 0, Some(0), Some(2), None)),
+            (2, light_view(2, 1, Some(0), Some(3), None)),
+            (3, light_view(2, 2, Some(0), Some(4), None)),
+            (4, light_view(2, 6, Some(0), Some(5), None)),
+            (5, light_view(1, 0, Some(9), Some(6), None)),
+            (6, light_view(2, 1, Some(0), None, None)),
+        ]);
+        let collected = collect_session_lights(&graph).unwrap();
+        assert_eq!(collected.header.end_token, 0);
+        assert_eq!(collected.header.field_178, u32::MAX);
+        assert_eq!(collected.lights, vec![LightFrameId(2), LightFrameId(3)]);
+    }
+
+    #[test]
+    fn session_lights_reject_missing_scene_and_exhausted_budget() {
+        // No scene: active-scene gate fails before any traversal.
+        let empty = SessionLightGraph::default();
+        assert_eq!(
+            collect_session_lights(&empty),
+            Err("session light collect stopped: session scene unavailable".into())
+        );
+        // Root outside the snapshot: fail loudly, never invent.
+        let mut partial = light_graph(&[(9, light_view(5, 0, Some(0), None, None))]);
+        partial.root = Some(LightFrameId(2));
+        assert!(collect_session_lights(&partial).is_err());
+    }
+
+    #[test]
+    fn session_lights_snapshot_projects_arena_kinds() {
+        use crate::frame_transform::FrameKey;
+        use crate::model_loading::ModelArena;
+        use crate::scene_ownership::SceneKey;
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.primary_sector_frame(scene), None);
+        let sector = arena.create_sector_frame().unwrap();
+        arena
+            .link_sector_scene_ring(sector.frame(), Some(scene))
+            .unwrap();
+        assert_eq!(arena.primary_sector_frame(scene), Some(sector.frame()));
+        assert_eq!(arena.primary_sector_frame(SceneKey(FrameKey(0x1234))), None);
+        let point = arena.create_light().unwrap();
+        let fog = arena.create_light().unwrap();
+        link_light_under(&mut arena, point, sector.frame(), 1);
+        link_light_under(&mut arena, fog, sector.frame(), 6);
+        let graph = snapshot_session_lights(&arena, Some(scene));
+        assert_eq!(graph.root.map(|id| id.0), Some(sector.frame().0));
+        let collected = collect_session_lights(&graph).unwrap();
+        assert_eq!(collected.lights, vec![LightFrameId(point.0)]);
+        let _ = fog;
+    }
+
+    fn link_light_under(
+        arena: &mut crate::model_loading::ModelArena,
+        light: crate::frame_transform::FrameKey,
+        parent: crate::frame_transform::FrameKey,
+        light_type: u32,
+    ) {
+        arena
+            .graph
+            .apply_light_load_image_fields(
+                light,
+                &lhr_assets::LightRecord {
+                    mode: 0,
+                    light_type,
+                    power: 1.0,
+                    diffuse: [1.0; 3],
+                    range: [1.0, 10.0],
+                    cone: [0.2, 0.5],
+                },
+            )
+            .unwrap();
+        arena.link_frame(light, Some(parent), 0).unwrap();
     }
 }
