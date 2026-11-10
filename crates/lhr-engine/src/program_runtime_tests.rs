@@ -2776,7 +2776,13 @@ fn let_guard_failure_and_bad_register_leave_bank_untouched() {
         .unwrap();
     assert_eq!(p.runtime().unwrap().fields.program_counter(), 4);
     assert_eq!(
-        p.runtime().unwrap().fields.floats.as_ref().unwrap().as_ref(),
+        p.runtime()
+            .unwrap()
+            .fields
+            .floats
+            .as_ref()
+            .unwrap()
+            .as_ref(),
         &[0.0f32, 0.0f32]
     );
 }
@@ -2793,7 +2799,10 @@ fn if_out_of_range_register_skips_without_reading_it() {
     p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
         .unwrap();
     assert_eq!(p.runtime().unwrap().fields.program_counter(), 5);
-    assert_eq!(p.runtime().unwrap().fields.floats.as_ref().unwrap()[0], 17.0);
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0],
+        17.0
+    );
 }
 
 #[test]
