@@ -564,6 +564,77 @@ impl PoliceGameInitState {
         self.road_block_enemies.iter().any(|entry| entry.free)
     }
 
+    /// Working name (no separate native entry): reports whether any
+    /// road-block car entry is staged. The native `S_road_block_car` list
+    /// (mafia-re game/ai/C_shvestky.h:120-124, +0x4c) size is tested inline
+    /// where `GameInit` 0x499cd0 clears it and `GameDone` 0x499dc0 tears it
+    /// down, with no dedicated nonempty getter (only the free-count/take
+    /// outlines), so no RVA is claimed.
+    pub fn has_road_block_cars(&self) -> bool {
+        !self.road_block_cars.is_empty()
+    }
+
+    /// Working name (no separate native entry): reports whether any
+    /// road-block policeman entry is staged. The native `S_road_block_iris`
+    /// list (mafia-re game/ai/C_shvestky.h:125-129, +0x5c) size is tested
+    /// inline with no dedicated nonempty getter, so no RVA is claimed.
+    pub fn has_road_block_irises(&self) -> bool {
+        !self.road_block_irises.is_empty()
+    }
+
+    /// Working name (no separate native entry): reports whether any
+    /// road-block enemy entry is staged. The native `S_road_block_enemy`
+    /// list (mafia-re game/ai/C_shvestky.h:130-134, +0x6c) size is tested
+    /// inline with no dedicated nonempty getter (only the free-count at
+    /// 0x49e530 and the take outlines), so no RVA is claimed.
+    pub fn has_road_block_enemies(&self) -> bool {
+        !self.road_block_enemies.is_empty()
+    }
+
+    /// Working name (no separate native entry): reports whether the human's
+    /// index-aligned angry list is nonempty. The native `nasrany` size
+    /// (mafia-re game/ai/C_shvestky.h:111-113, `Tick` 0x49a300 inline
+    /// `if (records[i]->nasrany.size())`) is tested inline with no dedicated
+    /// nonempty getter, so no RVA is claimed. The caller keeps each record's
+    /// angry list; `angry` runs index-aligned with `records` like
+    /// `angry_count_for_human`.
+    pub fn has_angry_for_human(
+        &self,
+        angry: &[Vec<PoliceActorId>],
+        human: PoliceHumanId,
+    ) -> bool {
+        self.angry_count_for_human(angry, human) != 0
+    }
+
+    /// Working name (no separate native entry): reports whether the matched
+    /// record counts any offense. The native `offenses` word
+    /// (`S_shvestky::offenses` at +0x28, mafia-re game/ai/C_shvestky.h:74-75)
+    /// is read by `PocetPrestupku` 0x49d520 and tested inline for the
+    /// repeat-offense arm with no dedicated nonzero getter, so no RVA is
+    /// claimed.
+    pub fn has_offenses_for_human(&self, human: PoliceHumanId) -> bool {
+        self.offenses_for_human(human) != 0
+    }
+
+    /// Working name (no separate native entry): reports whether the matched
+    /// record files a car (`true` for the native non-null, `false` for the
+    /// native null or without a record). The native `car` word
+    /// (`S_shvestky::car` at +0x4, mafia-re game/ai/C_shvestky.h:62) null is
+    /// tested inline in `Tick` 0x49a300 with no dedicated nonzero getter, so
+    /// no RVA is claimed.
+    pub fn has_car_for_human(&self, human: PoliceHumanId) -> bool {
+        self.car_for_human(human).is_some()
+    }
+
+    /// Working name (no separate native entry): reports whether the matched
+    /// record files a known car. The native `known_car` word
+    /// (`S_shvestky::known_car` at +0x54, mafia-re game/ai/C_shvestky.h:99)
+    /// null is compared inline in `CreateShvestkyTest` with no dedicated
+    /// nonzero getter, so no RVA is claimed.
+    pub fn has_known_car_for_human(&self, human: PoliceHumanId) -> bool {
+        self.known_car_for_human(human).is_some()
+    }
+
     /// Working name (no separate native entry): reports whether any filed
     /// record carries `block_way`. The native flag (mafia-re
     /// game/ai/C_shvestky.h:76-78, `SerSeMuDoCesty`'s) is read inline in
@@ -7032,5 +7103,106 @@ mod tests {
         assert!(!state.has_any_free_road_block_car());
         assert!(!state.has_any_free_road_block_iris());
         assert!(!state.has_any_free_road_block_enemy());
+    }
+
+    #[test]
+    fn has_road_block_cars_working_name_tracks_nonempty() {
+        // Working name: road_block_cars (+0x4c) nonempty; inline size test.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_road_block_cars());
+        state.road_block_cars.push(PoliceRoadBlockCar {
+            car: 1,
+            free: true,
+        });
+        assert!(state.has_road_block_cars());
+        state.road_block_cars.clear();
+        assert!(!state.has_road_block_cars());
+    }
+
+    #[test]
+    fn has_road_block_irises_working_name_tracks_nonempty() {
+        // Working name: road_block_irises (+0x5c) nonempty; inline size test.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_road_block_irises());
+        state.road_block_irises.push(PoliceRoadBlockIris {
+            actor: 2,
+            free: false,
+        });
+        assert!(state.has_road_block_irises());
+        state.road_block_irises.clear();
+        assert!(!state.has_road_block_irises());
+    }
+
+    #[test]
+    fn has_road_block_enemies_working_name_tracks_nonempty() {
+        // Working name: road_block_enemies (+0x6c) nonempty; inline size test.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_road_block_enemies());
+        state.road_block_enemies.push(PoliceRoadBlockEnemy {
+            actor: 3,
+            free: true,
+        });
+        assert!(state.has_road_block_enemies());
+        state.road_block_enemies.clear();
+        assert!(!state.has_road_block_enemies());
+    }
+
+    #[test]
+    fn has_angry_for_human_working_name_tracks_index_aligned_list() {
+        // Working name: nasrany nonempty for the human; Tick inline size test.
+        let mut state = PoliceGameInitState::default();
+        state.records.push(PolicePursuitRecord::new(7));
+        state.records.push(PolicePursuitRecord::new(9));
+        let angry: Vec<Vec<PoliceActorId>> = vec![vec![], vec![]];
+        assert!(!state.has_angry_for_human(&angry, 7));
+        assert!(!state.has_angry_for_human(&angry, 9));
+        let angry: Vec<Vec<PoliceActorId>> = vec![vec![11], vec![]];
+        assert!(state.has_angry_for_human(&angry, 7));
+        assert!(!state.has_angry_for_human(&angry, 9));
+        assert!(!state.has_angry_for_human(&angry, 99));
+        assert!(!state.has_angry_for_human(&[], 7));
+    }
+
+    #[test]
+    fn has_offenses_for_human_working_name_tracks_nonzero() {
+        // Working name: offenses nonzero test; repeat-offense arm reads it.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_offenses_for_human(7));
+        state.records.push(PolicePursuitRecord::new(7));
+        assert!(!state.has_offenses_for_human(7));
+        state.records[0].offenses = 2;
+        assert!(state.has_offenses_for_human(7));
+        assert_eq!(state.offenses_for_human(7), 2);
+        assert!(!state.has_offenses_for_human(9));
+    }
+
+    #[test]
+    fn has_car_for_human_working_name_tracks_record_car() {
+        // Working name: record car Some test; Tick null test inline.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_car_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        state.records.push(record.clone());
+        assert!(!state.has_car_for_human(7));
+        record.car = Some(11);
+        state.records[0] = record;
+        assert!(state.has_car_for_human(7));
+        assert_eq!(state.car_for_human(7), Some(11));
+        assert!(!state.has_car_for_human(9));
+    }
+
+    #[test]
+    fn has_known_car_for_human_working_name_tracks_filed_car() {
+        // Working name: known_car Some test; CreateShvestkyTest compares it.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_known_car_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        state.records.push(record.clone());
+        assert!(!state.has_known_car_for_human(7));
+        record.known_car = Some(13);
+        state.records[0] = record;
+        assert!(state.has_known_car_for_human(7));
+        assert_eq!(state.known_car_for_human(7), Some(13));
+        assert!(!state.has_known_car_for_human(9));
     }
 }

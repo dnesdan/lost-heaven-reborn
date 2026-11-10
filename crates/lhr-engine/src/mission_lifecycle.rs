@@ -475,6 +475,64 @@ impl MissionLifecycle {
     pub fn has_actor_sound_buffer_staged(&self) -> bool {
         self.word(0xcc) != 0
     }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:124`, `anim_models` at +0x14):
+    /// whether an animation-model vector word is staged. The native size is
+    /// read inline at each loop bound (`Mission.cpp:163,180,193`) with no
+    /// dedicated flag getter, so no RVA is claimed.
+    pub fn has_anim_models_staged(&self) -> bool {
+        self.word(0x14) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:155`, `frame_actor_buffer` at +0xac,
+    /// `S_frame_actor_buffer` 0x10-byte entries): whether a kept-between-missions
+    /// vector word is staged. Inline native use only, so no RVA is claimed.
+    pub fn has_frame_actor_buffer_staged(&self) -> bool {
+        self.word(0xac) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:127`, `web_path` at +0x2c): whether
+    /// a web-path member word is staged. `Init` (`Mission.cpp:99-100`)
+    /// branches on the null word inline with no dedicated flag getter, so no
+    /// RVA is claimed.
+    pub fn has_web_path_staged(&self) -> bool {
+        self.word(0x2c) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:128`, `roads` at +0x30): whether a
+    /// roads member word is staged. `Init` (`Mission.cpp:101-102`) branches
+    /// on the null word inline, so no RVA is claimed.
+    pub fn has_roads_staged(&self) -> bool {
+        self.word(0x30) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:140`, `effects` at +0x6c): whether
+    /// an effects member word is staged. `Init` (`Mission.cpp:103-104`)
+    /// branches on the null word inline, so no RVA is claimed.
+    pub fn has_effects_staged(&self) -> bool {
+        self.word(0x6c) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:126`, `tshift` at +0x28): whether a
+    /// tshift member word is staged. `Init` (`Mission.cpp:97-98`) branches
+    /// on the null word inline, so no RVA is claimed.
+    pub fn has_tshift_staged(&self) -> bool {
+        self.word(0x28) != 0
+    }
+
+    /// Working name (no outline Game.exe entry is claimed; nonzero test,
+    /// mafia-re `game/mission/Mission.h:125`, `game` at +0x24): whether a
+    /// game member word is staged. `Init` (`Mission.cpp:107`) branches on the
+    /// null word inline with no dedicated flag getter, so no RVA is claimed.
+    pub fn has_game_staged(&self) -> bool {
+        self.word(0x24) != 0
+    }
     pub fn pending_scene(&self) -> Option<SceneKey> {
         self.pending_scene
     }
@@ -2679,5 +2737,82 @@ mod tests {
         assert!(!mission.has_actors_staged());
         assert!(mission.has_programs_staged());
         assert!(!mission.has_actor_sound_buffer_staged());
+    }
+
+    #[test]
+    fn has_anim_models_staged_working_name_tracks_vector_word() {
+        // Working name: anim_models (+0x14); inline size test, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_anim_models_staged());
+        mission.put_word(0x14, 0x1111_1111);
+        assert!(mission.has_anim_models_staged());
+        mission.put_word(0x14, 0);
+        assert!(!mission.has_anim_models_staged());
+    }
+
+    #[test]
+    fn has_frame_actor_buffer_staged_working_name_tracks_vector_word() {
+        // Working name: frame_actor_buffer (+0xac); inline size test, no RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_frame_actor_buffer_staged());
+        mission.put_word(0xac, 0x2222_2222);
+        assert!(mission.has_frame_actor_buffer_staged());
+        mission.put_word(0xac, 0);
+        assert!(!mission.has_frame_actor_buffer_staged());
+    }
+
+    #[test]
+    fn has_web_path_staged_working_name_tracks_member_word() {
+        // Working name: web_path (+0x2c); Init null-branch, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_web_path_staged());
+        mission.put_word(0x2c, 0x3333_3333);
+        assert!(mission.has_web_path_staged());
+        mission.put_word(0x2c, 0);
+        assert!(!mission.has_web_path_staged());
+    }
+
+    #[test]
+    fn has_roads_staged_working_name_tracks_member_word() {
+        // Working name: roads (+0x30); Init null-branch, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_roads_staged());
+        mission.put_word(0x30, 0x4444_4444);
+        assert!(mission.has_roads_staged());
+        mission.put_word(0x30, 0);
+        assert!(!mission.has_roads_staged());
+    }
+
+    #[test]
+    fn has_effects_staged_working_name_tracks_member_word() {
+        // Working name: effects (+0x6c); Init null-branch, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_effects_staged());
+        mission.put_word(0x6c, 0x5555_5555);
+        assert!(mission.has_effects_staged());
+        mission.put_word(0x6c, 0);
+        assert!(!mission.has_effects_staged());
+    }
+
+    #[test]
+    fn has_tshift_staged_working_name_tracks_member_word() {
+        // Working name: tshift (+0x28); Init null-branch, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_tshift_staged());
+        mission.put_word(0x28, 0x6666_6666);
+        assert!(mission.has_tshift_staged());
+        mission.put_word(0x28, 0);
+        assert!(!mission.has_tshift_staged());
+    }
+
+    #[test]
+    fn has_game_staged_working_name_tracks_member_word() {
+        // Working name: game (+0x24); Init null-branch, no outline RVA.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.has_game_staged());
+        mission.put_word(0x24, 0x7777_7777);
+        assert!(mission.has_game_staged());
+        mission.put_word(0x24, 0);
+        assert!(!mission.has_game_staged());
     }
 }
