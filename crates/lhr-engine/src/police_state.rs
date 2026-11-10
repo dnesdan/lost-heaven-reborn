@@ -492,6 +492,15 @@ impl PoliceGameInitState {
         !self.records.is_empty()
     }
 
+    /// Working name (no separate native entry): reports whether any pursuit
+    /// record is `alerted` (mafia-re game/ai/C_shvestky.h:90-91,
+    /// `NabonzovalJsemHo`'s flag, read back by the HUD bar and the
+    /// player-pursuit predicate). The native flag is scanned inline at each
+    /// use with no dedicated getter, so no RVA is claimed.
+    pub fn has_any_alerted(&self) -> bool {
+        self.records.iter().any(|record| record.alerted)
+    }
+
     /// Working name (no separate native entry): reads the human filed at the
     /// given record position in stored order (`None` past the end). The native
     /// record vector is scanned inline with no dedicated indexed getter, so
@@ -1154,6 +1163,84 @@ impl PoliceGameInitState {
             }
         }
         SHVSTATE_NONE
+    }
+
+    /// Working name (no outline entry is claimed): reads whether the matched
+    /// record's `state` is `SHVSTATE_ARREST` (false without a record).
+    /// The native state (mafia-re game/ai/C_shvestky.h:34-36) is compared
+    /// inline with no dedicated getter, so no RVA is claimed.
+    pub fn is_arrest_state_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.is_arrest_state();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads whether the matched
+    /// record's `state` is `SHVSTATE_KILL` (false without a record). The
+    /// native state (mafia-re game/ai/C_shvestky.h:37) is compared inline
+    /// with no dedicated getter, so no RVA is claimed.
+    pub fn is_kill_state_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.is_kill_state();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads whether the matched
+    /// record carries any filed pursuit state (false without a record). The
+    /// native `state` word is tested inline with no dedicated getter, so no
+    /// RVA is claimed.
+    pub fn has_filed_state_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_filed_state();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads whether the matched
+    /// record's `new_state` latch is `SHVSTATE_ARREST` (false without a
+    /// record). The native latch (mafia-re game/ai/C_shvestky.h:82) is
+    /// compared inline with no dedicated getter, so no RVA is claimed.
+    pub fn is_pending_arrest_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.is_pending_arrest();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads whether the matched
+    /// record's `new_state` latch is `SHVSTATE_KILL` (false without a
+    /// record). The native latch (mafia-re game/ai/C_shvestky.h:82) is
+    /// compared inline with no dedicated getter, so no RVA is claimed.
+    pub fn is_pending_kill_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.is_pending_kill();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads whether the matched
+    /// record carries any pending latch (false without a record). The native
+    /// `new_state` word is tested inline with no dedicated getter, so no RVA
+    /// is claimed.
+    pub fn has_pending_state_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_pending_state();
+            }
+        }
+        false
     }
 
     /// Working name (no outline entry is claimed): reads the matched
@@ -2632,6 +2719,59 @@ impl PolicePursuitRecord {
     /// RVA is claimed.
     pub fn has_flags2_crash(&self) -> bool {
         self.flags2 & SHVF2_CRASH != 0
+    }
+
+    /// Working name (no separate native entry): reads whether the owned
+    /// record's `state` is `SHVSTATE_ARREST` (mafia-re
+    /// game/ai/C_shvestky.h:34-36, `ForceArrest`'s state, raised by
+    /// `record_force_arrest`). The native state is compared inline in
+    /// `Tick`/`CreateShvestkyTest` with no dedicated getter, so no RVA is
+    /// claimed.
+    pub fn is_arrest_state(&self) -> bool {
+        self.state == SHVSTATE_ARREST
+    }
+
+    /// Working name (no separate native entry): reads whether the owned
+    /// record's `state` is `SHVSTATE_KILL` (mafia-re
+    /// game/ai/C_shvestky.h:37, raised by `record_run_over` at six
+    /// run-overs and by `apply_hit_policeman`). Inline native use only, so
+    /// no RVA is claimed.
+    pub fn is_kill_state(&self) -> bool {
+        self.state == SHVSTATE_KILL
+    }
+
+    /// Working name (no separate native entry): reads whether the owned
+    /// record carries any filed pursuit state (`state` past
+    /// `SHVSTATE_NONE`, mafia-re game/ai/C_shvestky.h:34-37). The native
+    /// state is tested inline at each use with no dedicated getter, so no
+    /// RVA is claimed.
+    pub fn has_filed_state(&self) -> bool {
+        self.state != SHVSTATE_NONE
+    }
+
+    /// Working name (no separate native entry): reads whether the owned
+    /// record's `new_state` latch is `SHVSTATE_ARREST` (mafia-re
+    /// game/ai/C_shvestky.h:36, 82, raised from the flag arms by
+    /// `CreateShvestkyTest`). Inline native use only, so no RVA is claimed.
+    pub fn is_pending_arrest(&self) -> bool {
+        self.new_state == SHVSTATE_ARREST
+    }
+
+    /// Working name (no separate native entry): reads whether the owned
+    /// record's `new_state` latch is `SHVSTATE_KILL` (mafia-re
+    /// game/ai/C_shvestky.h:37, 82, raised by `record_run_over` and
+    /// `apply_hit_policeman`). Inline native use only, so no RVA is
+    /// claimed.
+    pub fn is_pending_kill(&self) -> bool {
+        self.new_state == SHVSTATE_KILL
+    }
+
+    /// Working name (no separate native entry): reads whether the owned
+    /// record carries any pending latch (`new_state` past `SHVSTATE_NONE`,
+    /// mafia-re game/ai/C_shvestky.h:82, promoted into `state` by
+    /// `CreateShvestkyTest`). Inline native use only, so no RVA is claimed.
+    pub fn has_pending_state(&self) -> bool {
+        self.new_state != SHVSTATE_NONE
     }
 
     /// Working name (no outline entry is claimed): the latch-decay slice of
@@ -5503,5 +5643,93 @@ mod tests {
         assert_eq!(chases.chase_car_count(), 1);
         chases.apply_done();
         assert_eq!(chases.chase_car_count(), 0);
+    }
+
+    #[test]
+    fn record_state_predicates_read_stored_state_word() {
+        // Working names: inline SHVSTATE_* reads (C_shvestky.h:34-37); no
+        // RVA claimed.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.is_arrest_state());
+        assert!(!record.is_kill_state());
+        assert!(!record.has_filed_state());
+        record.state = SHVSTATE_ARREST;
+        assert!(record.is_arrest_state());
+        assert!(!record.is_kill_state());
+        assert!(record.has_filed_state());
+        record.state = SHVSTATE_KILL;
+        assert!(!record.is_arrest_state());
+        assert!(record.is_kill_state());
+        assert!(record.has_filed_state());
+        record.state = 1;
+        assert!(!record.is_arrest_state());
+        assert!(!record.is_kill_state());
+        assert!(record.has_filed_state());
+    }
+
+    #[test]
+    fn record_pending_predicates_read_stored_latch() {
+        // Working names: inline new_state latch reads (C_shvestky.h:82); no
+        // RVA claimed.
+        let mut record = PolicePursuitRecord::new(7);
+        assert!(!record.is_pending_arrest());
+        assert!(!record.is_pending_kill());
+        assert!(!record.has_pending_state());
+        record.new_state = SHVSTATE_ARREST;
+        assert!(record.is_pending_arrest());
+        assert!(!record.is_pending_kill());
+        assert!(record.has_pending_state());
+        record.new_state = SHVSTATE_KILL;
+        assert!(!record.is_pending_arrest());
+        assert!(record.is_pending_kill());
+        assert!(record.has_pending_state());
+        record.new_state = 1;
+        assert!(!record.is_pending_arrest());
+        assert!(!record.is_pending_kill());
+        assert!(record.has_pending_state());
+    }
+
+    #[test]
+    fn manager_state_predicates_scan_back_to_front() {
+        // Working names: back-to-front record scan, false without a record;
+        // no RVA claimed.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.is_arrest_state_for_human(7));
+        assert!(!state.is_kill_state_for_human(7));
+        assert!(!state.has_filed_state_for_human(7));
+        assert!(!state.is_pending_arrest_for_human(7));
+        assert!(!state.is_pending_kill_for_human(7));
+        assert!(!state.has_pending_state_for_human(7));
+        let mut first = PolicePursuitRecord::new(7);
+        first.state = SHVSTATE_ARREST;
+        first.new_state = SHVSTATE_ARREST;
+        let mut second = PolicePursuitRecord::new(7);
+        second.state = SHVSTATE_KILL;
+        second.new_state = SHVSTATE_KILL;
+        state.records.push(first);
+        state.records.push(second);
+        assert!(!state.is_arrest_state_for_human(7));
+        assert!(state.is_kill_state_for_human(7));
+        assert!(state.has_filed_state_for_human(7));
+        assert!(!state.is_pending_arrest_for_human(7));
+        assert!(state.is_pending_kill_for_human(7));
+        assert!(state.has_pending_state_for_human(7));
+        assert!(!state.is_arrest_state_for_human(9));
+    }
+
+    #[test]
+    fn manager_any_alerted_scans_all_records() {
+        // Working name: inline alerted scan (C_shvestky.h:90-91); no RVA
+        // claimed.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_any_alerted());
+        let mut first = PolicePursuitRecord::new(7);
+        first.alerted = false;
+        state.records.push(first);
+        assert!(!state.has_any_alerted());
+        let mut second = PolicePursuitRecord::new(9);
+        second.alerted = true;
+        state.records.push(second);
+        assert!(state.has_any_alerted());
     }
 }
