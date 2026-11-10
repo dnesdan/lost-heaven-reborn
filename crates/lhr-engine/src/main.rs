@@ -795,6 +795,21 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     if progress.stage() != Mise01Stage::ReachTaxiStand || show.staged_ticks() != 0 {
         return Err("Cutscene did not hand over to ReachTaxiStand".into());
     }
+    // 1b. Real script gate: GameInitStart plus bounded scheduling must stage
+    // mission objectives before the on-foot leg is authorized. Geometric
+    // arrival alone never completes the mission without them.
+    let (script_objectives, script_subtitles, script_note) =
+        mission_load_probe::staged_script_content(root, "mise01")?;
+    if script_objectives.is_empty() {
+        return Err(
+            "GameInitStart staged no objectives; completion refused without real script output"
+                .into(),
+        );
+    }
+    println!(
+        "probe scripts: GameInitStart staged objectives {:?}, subtitles {:?}; scheduling {}",
+        script_objectives, script_subtitles, script_note
+    );
     // 2. Load the real MISE01 scene and walk 25 m east on its geometry.
     let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
     let mut patches = lhr_engine::program_patch::ProgramPatchStartup::default();
@@ -1159,6 +1174,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     );
     if progress.stage() != Mise01Stage::Complete {
         return Err("Destination arrival did not complete the mission".into());
+    }
+    println!(
+        "probe completion: staged objectives {:?} authorize Complete",
+        script_objectives
+    );
+    for line in mission_load_probe::mission_text_lines(root, &script_objectives, &script_subtitles)
+    {
+        println!("probe completion: {line}");
     }
     println!("MISSION PLAY PROBE COMPLETE: WatchIntro -> ReachTaxiStand -> BoardTaxi -> DrivingToDestination -> Complete");
     Ok(())

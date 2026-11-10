@@ -285,9 +285,10 @@ fn flat_probe_text(text: &str) -> String {
 /// because their parameter meaning is unrecovered (STUB GAME 0x5f9480).
 /// Absent files, rejected images and unknown IDs report honestly, never as
 /// blank text. Read-only: no session, textdb or game state mutates.
-fn mission_text_lines(
+pub fn mission_text_lines(
     root: &Path,
-    game: &lhr_engine::game_housekeeping::GameInlineState,
+    objectives: &[u32],
+    subtitles: &[lhr_engine::game_housekeeping::StagedSubtitle],
 ) -> Vec<String> {
     use lhr_engine::game_housekeeping::StagedSubtitle;
     let installation = match lhr_assets::Installation::open(root) {
@@ -311,13 +312,13 @@ fn mission_text_lines(
         return vec![format!("Mission text: {path} rejected")];
     }
     let mut lines = Vec::new();
-    for id in game.objectives() {
+    for id in objectives {
         match database.get_text_or_null(*id) {
             Some(text) => lines.push(format!("Mission objective {id}: {}", flat_probe_text(text))),
             None => lines.push(format!("Mission objective {id}: <unresolved in {path}>")),
         }
     }
-    for subtitle in game.subtitles() {
+    for subtitle in subtitles {
         match subtitle {
             StagedSubtitle::Simple(id) => match database.get_text_or_null(*id) {
                 Some(text) => {
@@ -334,6 +335,73 @@ fn mission_text_lines(
         lines.push("Mission text: no staged objectives or subtitles".into());
     }
     lines
+}
+
+/// Run the real mission script preamble (load, GameInit prefix, GameInitStart
+/// plus bounded scheduling) and return the staged mission objectives and
+/// subtitles the scripts actually produced, with a one-line scheduling note.
+/// Scheduling may stop at the known STUB frontiers (recorded in the note);
+/// that never masks the staged content, which is read regardless. The
+/// session is terminally disposed before returning, so no owners leak to
+/// the caller. Used to gate playable-slice completion on actual script
+/// output instead of geometry alone.
+pub fn staged_script_content(
+    root: &Path,
+    mission: &str,
+) -> Result<
+    (
+        Vec<u32>,
+        Vec<lhr_engine::game_housekeeping::StagedSubtitle>,
+        String,
+    ),
+    String,
+> {
+    validate_inputs(mission, &[])?;
+    let installation = lhr_assets::Installation::open(root).map_err(|error| error.to_string())?;
+    let mut session = MissionLoadSession::new(installation, Pc24PrecisionState::new(false))
+        .map_err(|error| format!("Mission probe initialization failed: {error:?}"))?;
+    let world_input = format!("missions/{mission}/scene.i3d");
+    let scene2_path = format!("missions/{mission}/scene2.bin");
+    let directories: Vec<&[u8]> = Vec::new();
+    let mut screen = InspectionScreen {
+        size: PROBE_SIZE,
+        viewport: [0, 0, PROBE_SIZE[0], PROBE_SIZE[1]],
+    };
+    session
+        .load(
+            MissionLoadRequest {
+                world_input: &world_input,
+                scene2_path: &scene2_path,
+                model_directories: &directories,
+                projection: GameCameraProjection {
+                    global_mode: 0,
+                    screen_flag_46f4: false,
+                },
+            },
+            &mut screen,
+        )
+        .map_err(|error| format!("{error:?}"))?;
+    session
+        .run_game_init_prefix()
+        .map_err(|error| format!("{error:?}"))?;
+    let scripts = run_game_init_scripts(&mut session)?;
+    let schedule = &scripts.schedule;
+    let note = match &schedule.error {
+        None => format!(
+            "ticks={} entity_ticks={} detector_ticks={}",
+            schedule.ticks_run, schedule.entity_ticks, schedule.detector_ticks
+        ),
+        Some(detail) => format!("stopped: {detail} after ticks={}", schedule.ticks_run),
+    };
+    let objectives = session.game_state().objectives().to_vec();
+    let subtitles = session.game_state().subtitles().to_vec();
+    session
+        .discard_terminal()
+        .map_err(|error| format!("terminal disposal: {error:?}"))?;
+    if let Some(failure) = session.discard_failure() {
+        return Err(format!("terminal disposal: {failure:?}"));
+    }
+    Ok((objectives, subtitles, note))
 }
 
 pub fn run(
@@ -472,7 +540,11 @@ pub fn run(
                 session.game_state().subtitles()
             )
             .unwrap();
-            for line in mission_text_lines(root, session.game_state()) {
+            for line in mission_text_lines(
+                root,
+                session.game_state().objectives(),
+                session.game_state().subtitles(),
+            ) {
                 writeln!(report, "{line}").unwrap();
             }
         }
@@ -912,7 +984,11 @@ mod probe_text_tests {
     #[test]
     fn missing_installation_reports_unavailable_text() {
         let game = lhr_engine::game_housekeeping::GameInlineState::default();
-        let lines = mission_text_lines(Path::new("nonexistent-probe-root"), &game);
+        let lines = mission_text_lines(
+            Path::new("nonexistent-probe-root"),
+            game.objectives(),
+            game.subtitles(),
+        );
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("unavailable"));
     }
@@ -923,5 +999,13 @@ mod probe_text_tests {
         let flat = flat_probe_text(&long);
         assert!(flat.len() < long.len());
         assert!(flat.ends_with("[truncated]"));
+    }
+    #[test]
+    fn staged_script_content_rejects_bad_mission_without_touching_data() {
+        assert!(staged_script_content(Path::new("nonexistent-probe-root"), "../bad").is_err());
+    }
+    #[test]
+    fn staged_script_content_reports_missing_root() {
+        assert!(staged_script_content(Path::new("nonexistent-probe-root"), "mise01").is_err());
     }
 }
