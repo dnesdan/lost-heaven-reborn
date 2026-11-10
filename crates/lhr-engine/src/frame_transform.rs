@@ -418,6 +418,55 @@ pub fn frame_is_no_cull(flags: u32) -> bool {
 pub fn frame_duplicate_flags(flags: u32) -> u32 {
     flags & 0x0fa7_3e9f
 }
+/// Working name for the null-source limb of `I3D_frame::Duplicate` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:799-804 at pin 113b5b6). The reference
+/// records the body at PC RVA 0x1c5b0, which is already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. A null source
+/// returns I3DERR_INVALIDPARAMS before any store; the composed port lives on
+/// `ModelArena::duplicate_frame`. Reports whether the source is rejected.
+pub fn frame_duplicate_rejects_null_source(is_null: bool) -> bool {
+    is_null
+}
+/// Working name for the merged flag word of `I3D_frame::Duplicate` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:807-809 at pin 113b5b6). Same
+/// occupied-body status as `frame_duplicate_flags`. Composes the masked
+/// source word (`frame_duplicate_flags`), the kept destination list bits
+/// (`frame_duplicate_preserved_bits`) and `FRMFLAGS_UPDATE`; the
+/// matrix/scale/rotation copies stay caller-owned.
+pub fn frame_duplicate_merged_flags(src_flags: u32, dst_flags: u32) -> u32 {
+    frame_duplicate_flags(src_flags) | frame_duplicate_preserved_bits(dst_flags) | 0x4000_0000
+}
+/// Working name for the fast-find re-registration gate of
+/// `I3D_frame::Duplicate` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:824-827
+/// at pin 113b5b6). Same occupied-body status as `frame_duplicate_flags`.
+/// A duplicated frame rejoins the driver fast-find tree only when the copy
+/// has a name and `renderState[RS_FAST_FIND]` is set; the tree edits stay
+/// caller-owned.
+pub fn frame_duplicate_rejoins_fast_find(has_name: bool, fast_find_on: bool) -> bool {
+    has_name && fast_find_on
+}
+/// Working name for the null-name arm of `I3D_frame::Duplicate` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:813-816 at pin 113b5b6). Same
+/// occupied-body status as `frame_duplicate_flags`. A sourceless name clears
+/// both the copied name and the rebased original-name pointer; the
+/// allocation, copy and fast-find skip for the named arm stay caller-owned.
+pub fn frame_duplicate_clears_name_words(is_null_name: bool) -> bool {
+    is_null_name
+}
+/// Working name for the original-name rebase of `I3D_frame::Duplicate`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:827 at pin 113b5b6:
+/// `m_pOrigName = frame->m_pOrigName - frame->m_pName + m_pName`). Same
+/// occupied-body status as `frame_duplicate_flags`. The native interior
+/// pointer difference has no host equivalent, so it is modeled as wrapping
+/// byte offsets from each name base; allocation and registration stay
+/// caller-owned.
+pub fn duplicate_orig_name_offset(
+    src_name_base: usize,
+    src_orig: usize,
+    dst_name_base: usize,
+) -> usize {
+    src_orig.wrapping_sub(src_name_base).wrapping_add(dst_name_base)
+}
 /// Working name for the `I3D_frame::GetData` word read (mafia-re
 /// ls3df/I3D/I3D.h:595-600; `m_UserData` at +0x08, I3D.h:660, Insanity3D's
 /// name). The reference records no LS3DF FUNCTION address for a standalone
@@ -654,6 +703,15 @@ pub fn link_discards_bounds(flags: u32) -> bool {
 pub fn link_updates_at_once(flags: u32) -> bool {
     flags & I3DLINK_UPDATE != 0
 }
+/// Working name for the same-parent early-out of `I3D_frame::LinkTo`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:465-466 at pin 113b5b6). The
+/// reference records the body at PC RVA 0x1b9d0, which is already occupied
+/// in `docs/rewrite-overlay.json`, so no RVA is claimed here. Linking to
+/// the current parent returns I3D_OK with no store; the unlink/relink walk
+/// stays caller-owned.
+pub fn link_to_same_parent_noop(same_parent: bool) -> bool {
+    same_parent
+}
 /// Working name for the `UPDATE|CHANGED` gate of `UpdateChildren`
 /// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:887 at pin 113b5b6).
 /// The reference records no LS3DF FUNCTION address for a standalone reader;
@@ -662,6 +720,15 @@ pub fn link_updates_at_once(flags: u32) -> bool {
 /// Reports whether the frame still needs an update traversal; no cache moves.
 pub fn frame_needs_update(flags: u32) -> bool {
     flags & (0x4000_0000 | 0x2000) != 0
+}
+/// Working name for the `changed` word of `UpdateChildren` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:887 at pin 113b5b6). The reference records
+/// no LS3DF FUNCTION address for a standalone reader; the word is only
+/// tested inside the occupied `UpdateChildren` body (PC RVA 0x1c9a0, already
+/// ported, not claimed here). Keeps the `UPDATE|CHANGED` bits; the counter
+/// bump and descent stay caller-owned.
+pub fn frame_changed_word(flags: u32) -> u32 {
+    flags & (0x4000_0000 | 0x2000)
 }
 /// Working name for the `ON && (UPDATE|CHANGED)` gate of
 /// `I3D_target::UpdateV` (mafia-re ls3df/I3D/frames/I3d_target.cpp:115-119
@@ -672,6 +739,16 @@ pub fn frame_needs_update(flags: u32) -> bool {
 /// post-update target pass; no cache moves.
 pub fn frame_queues_target_update(flags: u32) -> bool {
     flags & 0x1 != 0 && frame_needs_update(flags)
+}
+/// Working name for the target-list drain gate of `I3D_frame::Update`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:916-926 at pin 113b5b6). The
+/// reference records the body at PC RVA 0x1ca60, which is already occupied
+/// in `docs/rewrite-overlay.json`, so no RVA is claimed here. The guarded
+/// `UpdateTargetList` flush runs only with pending targets while no flush
+/// is already in progress; the per-target `UpdateFrames` calls and the
+/// reentrancy flag stay caller-owned.
+pub fn update_drains_target_list(pending_targets: usize, updating: bool) -> bool {
+    pending_targets != 0 && !updating
 }
 /// Working name for the flag word written by `I3D_frame::SetCallback`
 /// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:225-234 at pin 113b5b6).
@@ -701,6 +778,26 @@ pub fn frame_flags_after_set_on(flags: u32, on: bool) -> u32 {
     } else {
         flags & !1
     }
+}
+/// Working name for the last-reference limb of `I3D_frame::Release` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:98-104 at pin 113b5b6). The reference
+/// records the body at PC RVA 0x1aae0, which is already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. The pre-decrement
+/// count above zero is returned and the frame survives; only a pre-decrement
+/// count of one deletes the frame and returns zero. The count store and the
+/// destruction stay caller-owned.
+pub fn frame_release_deletes_last(refcount: u32) -> bool {
+    refcount == 1
+}
+/// Working name for the null/empty limbs of `I3D_frame::SetProperty`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:834-845 at pin 113b5b6). The
+/// reference records the body at PC RVA 0x1c700, which is already occupied
+/// in `docs/rewrite-overlay.json`, so no RVA is claimed here. A null
+/// property and an empty string both store NULL and return I3D_OK; only a
+/// non-empty string allocates and copies. The buffer edits stay
+/// caller-owned.
+pub fn frame_set_property_stores_null(prop_len: Option<usize>) -> bool {
+    matches!(prop_len, None | Some(0))
 }
 /// Working name for the in-class empty base `I3D_frame::Tick`
 /// (mafia-re ls3df/I3D/I3D.h:350 at pin 113b5b6: `Tick(int time) {}`).
@@ -781,6 +878,40 @@ pub fn frame_child_flags_after_parent_change(flags: u32) -> u32 {
 /// `ROT_VALID` and sets `UPDATE|MAT_VALID`; matrix builds stay caller-owned.
 pub fn frame_flags_after_set_world_dir(flags: u32) -> u32 {
     (flags & !(0x100 | 0x20 | 0x08 | 0x04)) | (0x4000_0000 | 0x10)
+}
+/// Working name for the roll gate shared by `I3D_frame::SetWorldDir` and the
+/// matrix half of `SetWorldPosDir` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:178 and :213 at pin 113b5b6). The
+/// `SetWorldPosDir` body lives at already-occupied PC RVA 0x1b230 and
+/// `SetWorldDir` (PC RVA 0x1b040) already has a graph projection, so no RVA
+/// is claimed here. The roll matrix composes only when `fabs(roll)` exceeds
+/// `MRG_ZERO` (1e-8 per ls3df/ls3df.h:48); an unordered (NaN) roll keeps the
+/// unrolled branch, matching the native comparison. The matrix builds stay
+/// caller-owned.
+pub fn world_dir_applies_roll(roll: f32) -> bool {
+    roll.abs() > 1e-8
+}
+/// Working name for the sector-ancestor early-out of
+/// `I3D_scene::SetFrameSectorPos` (mafia-re ls3df/I3D/I3d_scene.cpp:517-533
+/// at pin 113b5b6). The reference records the body at PC RVA 0x4a280, which
+/// is already occupied in `docs/rewrite-overlay.json`, so no RVA is claimed
+/// here. A frame already under a backdrop or omni sector keeps its link and
+/// returns I3D_OK; the ancestor walk and the sector lookup stay
+/// caller-owned.
+pub fn set_frame_sector_pos_ancestor_keeps(
+    ancestor_is_sector: bool,
+    backdrop: bool,
+    omni: bool,
+) -> bool {
+    ancestor_is_sector && (backdrop || omni)
+}
+/// Working name for the same-sector no-op of `I3D_scene::SetFrameSectorPos`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:529-532 at pin 113b5b6). Same
+/// occupied-body status as `set_frame_sector_pos_ancestor_keeps`. The frame
+/// already in its world-position sector keeps its link and returns I3D_OK;
+/// the lookup and the `LinkTo` call stay caller-owned.
+pub fn set_frame_sector_pos_skips_same_sector(same_sector: bool) -> bool {
+    same_sector
 }
 /// Working name for the `VISF_WORLD_SPACE` bit test (mafia-re
 /// ls3df/I3D/I3D.h visual `vis_flags` 0x40; tested in
@@ -6170,5 +6301,174 @@ mod tests {
         assert_eq!(frame_data_word(1), 1);
         assert_eq!(frame_data_word(0x1234_5678), 0x1234_5678);
         assert_eq!(frame_data_word(u32::MAX), u32::MAX);
+    }
+
+    #[test]
+    fn duplicate_rejects_only_the_null_source() {
+        // Working name for the I3D_frame::Duplicate null limb
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:799-804): the occupied
+        // body at PC RVA 0x1c5b0 is not claimed here.
+        assert!(frame_duplicate_rejects_null_source(true));
+        assert!(!frame_duplicate_rejects_null_source(false));
+    }
+
+    #[test]
+    fn duplicate_null_name_clears_both_name_words() {
+        // Working name for the null-name arm of I3D_frame::Duplicate
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:813-816): a sourceless
+        // name clears both the copied name and the rebased original-name
+        // pointer; the occupied body at PC RVA 0x1c5b0 is not claimed here.
+        assert!(frame_duplicate_clears_name_words(true));
+        assert!(!frame_duplicate_clears_name_words(false));
+    }
+
+    #[test]
+    fn duplicate_merges_masked_source_kept_lists_and_update() {
+        // Working name for the merged flag word of I3D_frame::Duplicate
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:807-809): source masked
+        // with FRMFLAGS_DUPLICATE_MASK, destination list bits kept, UPDATE
+        // always set.
+        assert_eq!(frame_duplicate_merged_flags(0, 0), 0x4000_0000);
+        assert_eq!(
+            frame_duplicate_merged_flags(u32::MAX, u32::MAX),
+            0x0fa7_3e9f | 0x0040_c000 | 0x4000_0000
+        );
+        assert_eq!(
+            frame_duplicate_merged_flags(0, 0x4000),
+            0x4000_0000 | 0x4000
+        );
+        assert_eq!(
+            frame_duplicate_merged_flags(0x10, 0x20 | 0x100),
+            0x4000_0000 | 0x10
+        );
+    }
+
+    #[test]
+    fn duplicate_rejoins_fast_find_only_with_name_and_flag() {
+        // Working name for the RS_FAST_FIND re-registration gate of
+        // I3D_frame::Duplicate (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:824-827): the occupied body is not
+        // claimed here.
+        assert!(frame_duplicate_rejoins_fast_find(true, true));
+        assert!(!frame_duplicate_rejoins_fast_find(true, false));
+        assert!(!frame_duplicate_rejoins_fast_find(false, true));
+        assert!(!frame_duplicate_rejoins_fast_find(false, false));
+    }
+
+    #[test]
+    fn duplicate_orig_name_offset_rebases_pointer_difference() {
+        // Working name for the original-name rebase of I3D_frame::Duplicate
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:827:
+        // `m_pOrigName = frame->m_pOrigName - frame->m_pName + m_pName`).
+        // Wrapping offsets stand in for the native interior pointers.
+        assert_eq!(duplicate_orig_name_offset(100, 104, 200), 204);
+        assert_eq!(duplicate_orig_name_offset(100, 100, 200), 200);
+        assert_eq!(duplicate_orig_name_offset(0, 0, 0), 0);
+        assert_eq!(
+            duplicate_orig_name_offset(0, usize::MAX, 1),
+            usize::MAX.wrapping_add(1)
+        );
+        assert_eq!(
+            duplicate_orig_name_offset(8, 3, 100),
+            3usize.wrapping_sub(8).wrapping_add(100)
+        );
+    }
+
+    #[test]
+    fn changed_word_keeps_only_update_and_changed() {
+        // Working name for the `changed` word of UpdateChildren (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:887): UPDATE 0x40000000 and
+        // CHANGED 0x2000; the occupied body is not claimed here.
+        assert_eq!(frame_changed_word(0x4000_2000), 0x4000_2000);
+        assert_eq!(frame_changed_word(u32::MAX), 0x4000_2000);
+        assert_eq!(frame_changed_word(0), 0);
+        assert_eq!(frame_changed_word(0x4000_0000), 0x4000_0000);
+        assert_eq!(frame_changed_word(0x2000), 0x2000);
+        assert_eq!(frame_changed_word(0x0fa7_3e9f), 0x2000);
+    }
+
+    #[test]
+    fn target_list_drains_only_with_pending_targets_outside_flush() {
+        // Working name for the drain gate of I3D_frame::Update (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:916-926): pending list and no
+        // reentrant flush; the occupied body is not claimed here.
+        assert!(update_drains_target_list(1, false));
+        assert!(update_drains_target_list(usize::MAX, false));
+        assert!(!update_drains_target_list(0, false));
+        assert!(!update_drains_target_list(1, true));
+        assert!(!update_drains_target_list(0, true));
+    }
+
+    #[test]
+    fn sector_pos_ancestor_keep_needs_backdrop_or_omni_sector() {
+        // Working name for the sector-ancestor early-out of
+        // I3D_scene::SetFrameSectorPos (mafia-re
+        // ls3df/I3D/I3d_scene.cpp:517-533): the occupied body at PC RVA
+        // 0x4a280 is not claimed here.
+        assert!(set_frame_sector_pos_ancestor_keeps(true, true, false));
+        assert!(set_frame_sector_pos_ancestor_keeps(true, false, true));
+        assert!(set_frame_sector_pos_ancestor_keeps(true, true, true));
+        assert!(!set_frame_sector_pos_ancestor_keeps(true, false, false));
+        assert!(!set_frame_sector_pos_ancestor_keeps(false, true, true));
+        assert!(!set_frame_sector_pos_ancestor_keeps(false, false, false));
+    }
+
+    #[test]
+    fn sector_pos_skips_only_the_same_sector() {
+        // Working name for the same-sector no-op of
+        // I3D_scene::SetFrameSectorPos (mafia-re
+        // ls3df/I3D/I3d_scene.cpp:529-532): the occupied body is not
+        // claimed here.
+        assert!(set_frame_sector_pos_skips_same_sector(true));
+        assert!(!set_frame_sector_pos_skips_same_sector(false));
+    }
+
+    #[test]
+    fn world_dir_roll_gate_matches_mrg_zero() {
+        // Working name for the roll gate of SetWorldDir/SetWorldPosDir
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:178 and :213):
+        // `fabs(roll) > MRG_ZERO` with MRG_ZERO 1e-8 per ls3df/ls3df.h:48.
+        // NaN stays unordered (false), matching the native comparison.
+        assert!(world_dir_applies_roll(1e-7));
+        assert!(world_dir_applies_roll(-1.0));
+        assert!(!world_dir_applies_roll(0.0));
+        assert!(!world_dir_applies_roll(-0.0));
+        assert!(!world_dir_applies_roll(1e-8));
+        assert!(!world_dir_applies_roll(5e-9));
+        assert!(!world_dir_applies_roll(f32::NAN));
+    }
+
+    #[test]
+    fn release_deletes_only_the_last_reference() {
+        // Working name for the last-reference limb of I3D_frame::Release
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:98-104): the occupied
+        // body at PC RVA 0x1aae0 is not claimed here. The argument is the
+        // pre-decrement count; only one deletes.
+        assert!(frame_release_deletes_last(1));
+        assert!(!frame_release_deletes_last(0));
+        assert!(!frame_release_deletes_last(2));
+        assert!(!frame_release_deletes_last(u32::MAX));
+    }
+
+    #[test]
+    fn set_property_stores_null_for_null_and_empty() {
+        // Working name for the null/empty limbs of I3D_frame::SetProperty
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:834-845): both store
+        // NULL and return I3D_OK; the occupied body at PC RVA 0x1c700 is
+        // not claimed here.
+        assert!(frame_set_property_stores_null(None));
+        assert!(frame_set_property_stores_null(Some(0)));
+        assert!(!frame_set_property_stores_null(Some(1)));
+        assert!(!frame_set_property_stores_null(Some(usize::MAX)));
+    }
+
+    #[test]
+    fn link_to_same_parent_is_a_noop() {
+        // Working name for the same-parent early-out of I3D_frame::LinkTo
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:465-466): returns
+        // I3D_OK with no store; the occupied body at PC RVA 0x1b9d0 is not
+        // claimed here.
+        assert!(link_to_same_parent_noop(true));
+        assert!(!link_to_same_parent_noop(false));
     }
 }
