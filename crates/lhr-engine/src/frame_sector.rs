@@ -174,6 +174,18 @@ pub fn sector_is_near(sector_flags: u32) -> bool {
 pub fn sector_is_retained(sector_flags: u32) -> bool {
     sector_flags & (SCTF_PRIMARY | SCTF_BACKDROP | SCTF_OMNI | SCTF_NEAR) != 0
 }
+/// Upstream working name, not an evidenced original symbol: the hint gate
+/// of `I3D_scene::GetSector` (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:491-494: `hint && !(hint->sct_flags &
+/// SCTF_PRIMARY) && hint->CheckPoint(pos)`). The reference records the
+/// body at PC RVA 0x4a1d0, which is already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. A primary
+/// hint never short-circuits the ring walk; any other hint is accepted
+/// only when the point is inside it. The containment test and the walk
+/// stay caller-owned; no state moves.
+pub fn sector_hint_accepts(hint_is_primary: bool, hint_contains: bool) -> bool {
+    !hint_is_primary && hint_contains
+}
 /// Upstream working name, not an evidenced original symbol: hull-occluder
 /// gate SCTF_OCCLUDER without SCTF_OCCLUDER_OFF. The reference records no
 /// LS3DF FUNCTION address for a standalone reader; the gate follows
@@ -2405,5 +2417,15 @@ mod tests {
         assert_eq!(arena.sector_face_count_of(key).unwrap(), 3);
         assert_eq!(arena.sector_plane_count_of(key).unwrap(), 1);
         arena.release(key.frame()).unwrap();
+    }
+    #[test]
+    fn sector_hint_gate_prefers_non_primary_container() {
+        // Working name for the GetSector hint gate (I3d_scene.cpp:493):
+        // the body lives at PC RVA 0x4a1d0, already occupied in
+        // docs/rewrite-overlay.json, so no RVA is claimed here.
+        assert!(sector_hint_accepts(false, true));
+        assert!(!sector_hint_accepts(true, true));
+        assert!(!sector_hint_accepts(false, false));
+        assert!(!sector_hint_accepts(true, false));
     }
 }

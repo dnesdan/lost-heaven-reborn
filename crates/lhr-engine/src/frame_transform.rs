@@ -1337,6 +1337,73 @@ pub fn frame_hr_bound_w_needs_local_refresh(flags: u32) -> bool {
 pub fn frame_discard_bound_skips_sector(is_sector: bool) -> bool {
     is_sector
 }
+/// Working name for the count-bump gate of `I3D_frame::UpdateChildren`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:887-892 at pin 113b5b6).
+/// The `Update` body lives at frozen ledger RVA 0x1ca60 (not claimed
+/// here); only the bump gate is modeled, and the counter and visual
+/// flag stores stay caller-owned. Reports whether the changed word
+/// (`FRMFLAGS_UPDATE | FRMFLAGS_CHANGED`) bumps `m_UpdateCount`.
+/// Pure helper, no hierarchy walk.
+pub fn frame_update_children_bumps_count(flags: u32) -> bool {
+    flags & (0x4000_0000 | 0x2000) != 0
+}
+/// Step selected by the ancestor walk of `I3D_frame::DiscardHRBoundVol`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:936-942 at pin 113b5b6).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HrBoundAncestorStep {
+    /// Clear the ancestor's world and local hierarchy bound validity.
+    Clear,
+    /// Stop the walk: the ancestor already lacks local validity or the
+    /// walk reached a sector, whose own early-out owns its bits.
+    Stop,
+}
+/// Working name for one ancestor step of `I3D_frame::DiscardHRBoundVol`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:936-942 at pin 113b5b6:
+/// stop when the ancestor lacks `HR_BOUND_VALID` or is a sector,
+/// otherwise clear `HR_BOUND_W_VALID | HR_BOUND_VALID`). The
+/// `DiscardHRBoundVol` body lives at frozen ledger RVA 0x1cc00 (not
+/// claimed here); only the per-ancestor rule is modeled, and the flag
+/// stores and the walk stay caller-owned. No state moves.
+pub fn frame_discard_hr_bound_vol_ancestor_step(
+    ancestor_flags: u32,
+    ancestor_is_sector: bool,
+) -> HrBoundAncestorStep {
+    if ancestor_flags & 0x40 == 0 || ancestor_is_sector {
+        HrBoundAncestorStep::Stop
+    } else {
+        HrBoundAncestorStep::Clear
+    }
+}
+/// Source selected by `I3D_frame::UpdateHRBoundVol` for the local
+/// hierarchy bound (mafia-re ls3df/I3D/frames/I3d_frame.cpp:954-964
+/// at pin 113b5b6).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HrBoundSource {
+    /// A sector only marks its bound valid and returns.
+    MarkValidOnly,
+    /// A visual copies its own bound volume.
+    CopyVisualBound,
+    /// Any other frame invalidates the box.
+    InvalidateBox,
+}
+/// Working name for the source dispatch of
+/// `I3D_frame::UpdateHRBoundVol` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:954-964 at pin 113b5b6: sectors mark
+/// valid-only, visuals copy their bound, everything else invalidates).
+/// The reference records the body at PC RVA 0x1cc50, which is already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Only the kind dispatch is modeled; the flag stores, the visual
+/// bound-proc call and the invalidation stay caller-owned. No state
+/// moves.
+pub fn frame_update_hr_bound_vol_source_kind(is_sector: bool, is_visual: bool) -> HrBoundSource {
+    if is_sector {
+        HrBoundSource::MarkValidOnly
+    } else if is_visual {
+        HrBoundSource::CopyVisualBound
+    } else {
+        HrBoundSource::InvalidateBox
+    }
+}
 /// Working name for the in-class empty base `I3D_frame::LoadImage`
 /// (mafia-re ls3df/I3D/I3D.h:368 at pin 113b5b6: `LoadImage() {}`).
 /// The reference records no LS3DF FUNCTION address for it: only kinds with
@@ -1400,6 +1467,42 @@ pub fn frame_set_name_is_content_equal(
         }
         _ => false,
     }
+}
+/// Working name for the null-incoming gate of `I3D_frame::SetName`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:361-364 at pin 113b5b6:
+/// a null name clears both stored pointers and returns `I3D_OK`).
+/// The `SetName` body lives at frozen ledger RVA 0x1b6f0 (not claimed
+/// here); only the null gate is modeled, and the pointer stores stay
+/// caller-owned. Reports whether the incoming name clears the stored
+/// one. Pure helper, no allocation moves.
+pub fn frame_set_name_null_clears(incoming: Option<&[u8]>) -> bool {
+    incoming.is_none()
+}
+/// Working name for the already-reset early-out of
+/// `I3D_frame::ResetModelName` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:407-408 at pin 113b5b6: the original
+/// name already is the full name, so there is nothing to strip).
+/// The reference records the body at PC RVA 0x1b8f0, which is already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Only the pointer-identity gate is modeled; the buffer moves stay
+/// caller-owned. Pure helper, no allocation moves.
+pub fn frame_reset_model_name_is_noop(orig_is_name: bool) -> bool {
+    orig_is_name
+}
+/// Working name for the buffer layout of `I3D_frame::SetModelName`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:385 and :397 at pin
+/// 113b5b6: `strlen(model) + strlen(orig) + 2` bytes for the dot and
+/// the terminator, with the original name rebased past the dot at
+/// `strlen(model) + 1`). The reference records the body at PC RVA
+/// 0x1b800, which is already occupied in `docs/rewrite-overlay.json`,
+/// so no RVA is claimed here. Returns the total byte count and the
+/// original-name offset; checked addition reports overflow as `None`
+/// (the native calls the fatal ErrorHandler there, disclosed). Pure
+/// helper, no buffer moves.
+pub fn frame_set_model_name_layout(model_len: usize, orig_len: usize) -> Option<(usize, usize)> {
+    let total = model_len.checked_add(orig_len)?.checked_add(2)?;
+    let orig_offset = model_len.checked_add(1)?;
+    Some((total, orig_offset))
 }
 /// Working name for the index gate of `I3D_frame::GetChild`
 /// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:610-620 at pin 113b5b6:
@@ -7202,5 +7305,85 @@ mod tests {
         assert_eq!(frame_remove_child_case(true, false), RemoveChildCase::Middle);
         assert_eq!(frame_remove_child_case(false, true), RemoveChildCase::First);
         assert_eq!(frame_remove_child_case(false, false), RemoveChildCase::Only);
+    }
+    #[test]
+    fn set_name_null_gate_clears_stored_name() {
+        // Working name for the SetName null gate (I3d_frame.cpp:361-364):
+        // occupied body (ledger 0x1b6f0), no RVA claimed here.
+        assert!(frame_set_name_null_clears(None));
+        assert!(!frame_set_name_null_clears(Some(b"model.frame")));
+        assert!(!frame_set_name_null_clears(Some(b"")));
+    }
+    #[test]
+    fn reset_model_name_collapse_is_noop() {
+        // Working name for the ResetModelName collapse
+        // (I3d_frame.cpp:407-408): occupied body (overlay 0x1b8f0), no RVA
+        // claimed here.
+        assert!(frame_reset_model_name_is_noop(true));
+        assert!(!frame_reset_model_name_is_noop(false));
+    }
+    #[test]
+    fn set_model_name_layout_counts_dot_and_terminator() {
+        // Working name for the SetModelName buffer layout
+        // (I3d_frame.cpp:385,397): occupied body (overlay 0x1b800), no RVA
+        // claimed here.
+        assert_eq!(frame_set_model_name_layout(5, 4), Some((11, 6)));
+        assert_eq!(frame_set_model_name_layout(0, 0), Some((2, 1)));
+        assert_eq!(frame_set_model_name_layout(usize::MAX, 1), None);
+    }
+    #[test]
+    fn update_children_bump_gate_needs_changed_word() {
+        // Working name for the UpdateChildren count gate
+        // (I3d_frame.cpp:887-892, ledger 0x1ca60): occupied body, no RVA
+        // claimed here.
+        assert!(frame_update_children_bumps_count(0x4000_0000));
+        assert!(frame_update_children_bumps_count(0x2000));
+        assert!(frame_update_children_bumps_count(u32::MAX));
+        assert!(!frame_update_children_bumps_count(0));
+        assert!(!frame_update_children_bumps_count(0x40));
+    }
+    #[test]
+    fn discard_hr_bound_vol_ancestor_step_stops_cleanly() {
+        // Working name for one DiscardHRBoundVol ancestor step
+        // (I3d_frame.cpp:936-942, ledger 0x1cc00): occupied body, no RVA
+        // claimed here.
+        assert_eq!(
+            frame_discard_hr_bound_vol_ancestor_step(0x40, false),
+            HrBoundAncestorStep::Clear
+        );
+        assert_eq!(
+            frame_discard_hr_bound_vol_ancestor_step(0, false),
+            HrBoundAncestorStep::Stop
+        );
+        assert_eq!(
+            frame_discard_hr_bound_vol_ancestor_step(0x40, true),
+            HrBoundAncestorStep::Stop
+        );
+        assert_eq!(
+            frame_discard_hr_bound_vol_ancestor_step(u32::MAX, true),
+            HrBoundAncestorStep::Stop
+        );
+    }
+    #[test]
+    fn update_hr_bound_vol_source_dispatch_covers_kinds() {
+        // Working name for the UpdateHRBoundVol source dispatch
+        // (I3d_frame.cpp:954-964, overlay 0x1cc50): occupied body, no RVA
+        // claimed here.
+        assert_eq!(
+            frame_update_hr_bound_vol_source_kind(true, false),
+            HrBoundSource::MarkValidOnly
+        );
+        assert_eq!(
+            frame_update_hr_bound_vol_source_kind(true, true),
+            HrBoundSource::MarkValidOnly
+        );
+        assert_eq!(
+            frame_update_hr_bound_vol_source_kind(false, true),
+            HrBoundSource::CopyVisualBound
+        );
+        assert_eq!(
+            frame_update_hr_bound_vol_source_kind(false, false),
+            HrBoundSource::InvalidateBox
+        );
     }
 }

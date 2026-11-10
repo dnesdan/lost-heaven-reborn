@@ -228,6 +228,55 @@ pub fn scene_callback_flags_for_store(has_callback: bool, flags: u32) -> u32 {
 pub fn scene_delete_frame_releases(references: u32) -> bool {
     (references as i32) > 0
 }
+/// Working name for the flag OR of `I3D_scene::AddTickFrame` (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:446-450 at pin 113b5b6:
+/// `frame->m_FrmFlags |= FRMFLAGS_TICK` after the unique list push).
+/// The reference records the body at PC RVA 0x49f90, which is already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Only the flag word is modeled; the list push stays caller-owned.
+/// No state moves.
+pub fn scene_add_tick_frame_sets_tick(flags: u32) -> u32 {
+    flags | SCENE_TICK_FLAG
+}
+/// Working name for the flag clear of `I3D_scene::DeleteTickFrame`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:454-461 at pin 113b5b6:
+/// `frame->m_FrmFlags &= ~FRMFLAGS_TICK` after a successful removal).
+/// The reference records the body at PC RVA 0x4a050, which is already
+/// occupied in `docs/rewrite-overlay.json`, so no RVA is claimed here.
+/// Only the flag word is modeled; the list removal stays caller-owned.
+/// No state moves.
+pub fn scene_delete_tick_frame_clears_tick(flags: u32) -> u32 {
+    flags & !SCENE_TICK_FLAG
+}
+/// Working name for the result word of `I3D_scene::DeleteTickFrame`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:456-460 at pin 113b5b6: a removed
+/// member returns `I3D_OK`, a non-member returns
+/// `I3DERR_OBJECTNOTFOUND`). The reference records the body at PC RVA
+/// 0x4a050, which is already occupied in `docs/rewrite-overlay.json`,
+/// so no RVA is claimed here. Only the word selection is modeled; the
+/// list search and removal stay caller-owned. No state moves.
+pub fn scene_delete_tick_frame_result(removed: bool) -> u32 {
+    if removed {
+        SCENE_OK
+    } else {
+        SCENE_OBJECT_NOT_FOUND
+    }
+}
+/// Working name for the self-removal retreat of `I3D_scene::Tick`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:466-474 at pin 113b5b6: after a
+/// frame takes itself out of the tick list, `i--` reprocesses the frame
+/// that shifted into its slot). The `Tick` body lives at frozen ledger
+/// RVA 0x4a0e0 (not claimed here); only the next-cursor rule is
+/// modeled, and the callback, the interpolator tick and the bound
+/// check stay caller-owned. The saturating tail matches the native
+/// `i--`/`i++` round trip at index zero. No state moves.
+pub fn scene_tick_cursor_after_callback(index: usize, occupant_changed: bool) -> usize {
+    if occupant_changed {
+        index
+    } else {
+        index.saturating_add(1)
+    }
+}
 
 #[derive(Debug)]
 pub struct SceneFrameOwner {
@@ -3900,5 +3949,53 @@ mod scene_frame_getter_working_name_tests {
         assert!(!scene_delete_frame_releases(0));
         assert!(!scene_delete_frame_releases(0x8000_0000));
         assert!(!scene_delete_frame_releases(u32::MAX));
+    }
+    #[test]
+    fn add_tick_frame_sets_tick_flag() {
+        // Working name for the AddTickFrame flag OR (I3d_scene.cpp:449,
+        // overlay 0x49f90): occupied body, no RVA claimed here.
+        assert_eq!(scene_add_tick_frame_sets_tick(0), SCENE_TICK_FLAG);
+        assert_eq!(
+            scene_add_tick_frame_sets_tick(SCENE_TICK_FLAG),
+            SCENE_TICK_FLAG
+        );
+        assert_eq!(scene_add_tick_frame_sets_tick(u32::MAX), u32::MAX);
+    }
+    #[test]
+    fn delete_tick_frame_clears_tick_flag() {
+        // Working name for the DeleteTickFrame flag clear
+        // (I3d_scene.cpp:457, overlay 0x4a050): occupied body, no RVA
+        // claimed here.
+        assert_eq!(scene_delete_tick_frame_clears_tick(SCENE_TICK_FLAG), 0);
+        assert_eq!(scene_delete_tick_frame_clears_tick(0), 0);
+        assert_eq!(
+            scene_delete_tick_frame_clears_tick(u32::MAX),
+            u32::MAX & !SCENE_TICK_FLAG
+        );
+    }
+    #[test]
+    fn delete_tick_frame_result_words() {
+        // Working name for the DeleteTickFrame result word
+        // (I3d_scene.cpp:456-460, overlay 0x4a050): occupied body, no RVA
+        // claimed here.
+        assert_eq!(scene_delete_tick_frame_result(true), SCENE_OK);
+        assert_eq!(
+            scene_delete_tick_frame_result(false),
+            SCENE_OBJECT_NOT_FOUND
+        );
+    }
+    #[test]
+    fn tick_cursor_retreats_after_self_removal() {
+        // Working name for the Tick self-removal retreat
+        // (I3d_scene.cpp:471-472, ledger 0x4a0e0): occupied body, no RVA
+        // claimed here.
+        assert_eq!(scene_tick_cursor_after_callback(3, false), 4);
+        assert_eq!(scene_tick_cursor_after_callback(3, true), 3);
+        assert_eq!(scene_tick_cursor_after_callback(0, true), 0);
+        assert_eq!(scene_tick_cursor_after_callback(0, false), 1);
+        assert_eq!(
+            scene_tick_cursor_after_callback(usize::MAX, false),
+            usize::MAX
+        );
     }
 }

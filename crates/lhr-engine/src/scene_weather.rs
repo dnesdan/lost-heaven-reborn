@@ -406,6 +406,17 @@ pub fn weather_mode_is_1(flags: u32) -> bool {
 pub fn weather_mode_is_2(flags: u32) -> bool {
     flags & WSF_MODE_2 != 0
 }
+/// Working name for the flag composition of `I3D_scene::WeatherSystemReset`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:988-990,995,1000: the ON bit carries
+/// over, the SNOW bit selects the snowy base, and the sector/dummy tests
+/// are forced on). The `WeatherSystemReset` body lives at frozen ledger
+/// RVA 0x4b3b0 (not claimed here); only the flag word is modeled, and the
+/// density/size/speed stores stay caller-owned. No state moves.
+pub fn weather_reset_flags(flags: u32) -> u32 {
+    let on = flags & WSF_ON;
+    let base = if flags & WSF_SNOW != 0 { WSF_SNOW } else { 0 };
+    base | on | WSF_SECTOR_TEST | WSF_DUMMY_TEST
+}
 /// Working name for the reset-wind snapshot read at +0x2d4 (mafia-re
 /// ls3df/I3D/I3D.h:1599 `ws_dir`, the wind when it was reset). The
 /// reference records no LS3DF FUNCTION address for a standalone reader:
@@ -936,5 +947,30 @@ mod weather_system_tests {
         assert!(!weather_mode_is_1(u32::MAX & !WSF_MODE_1));
         assert!(!weather_mode_is_2(u32::MAX & !WSF_MODE_2));
         assert_eq!(weather_mode(WSF_MODE_1 | WSF_MODE_2), 1);
+    }
+    #[test]
+    fn weather_reset_flags_keep_on_and_snow() {
+        // Working name for the WeatherSystemReset flag composition
+        // (I3d_scene.cpp:988-990,995,1000): the body lives at frozen
+        // ledger RVA 0x4b3b0, so no RVA is claimed here.
+        assert_eq!(weather_reset_flags(0), WSF_SECTOR_TEST | WSF_DUMMY_TEST);
+        assert_eq!(
+            weather_reset_flags(WSF_ON),
+            WSF_ON | WSF_SECTOR_TEST | WSF_DUMMY_TEST
+        );
+        assert_eq!(
+            weather_reset_flags(WSF_SNOW),
+            WSF_SNOW | WSF_SECTOR_TEST | WSF_DUMMY_TEST
+        );
+        assert_eq!(
+            weather_reset_flags(WSF_ON | WSF_SNOW | WSF_MODE_1 | WSF_MODE_2),
+            WSF_ON | WSF_SNOW | WSF_SECTOR_TEST | WSF_DUMMY_TEST
+        );
+        // The native body masks down: only ON/SNOW survive plus the forced
+        // test bits (I3d_scene.cpp:988-1000).
+        assert_eq!(
+            weather_reset_flags(u32::MAX),
+            WSF_ON | WSF_SNOW | WSF_SECTOR_TEST | WSF_DUMMY_TEST
+        );
     }
 }
