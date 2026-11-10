@@ -647,22 +647,20 @@ impl ActorDeallocationBackend for ContentMemory {
         actor: ActorReferenceId,
         slot: HumanResourceSlot,
     ) -> Result<(), String> {
-        let empty = if slot == HumanResourceSlot::Player {
-            world
-                .player(actor)
-                .map_err(|e| format!("{e:?}"))?
-                .collection
-                .is_empty()
+        // Validate the live owner first so stale/foreign actors still fail
+        // loudly; the branch only selects which typed collection the
+        // immediately-following world.clear_resource drains.
+        if slot == HumanResourceSlot::Player {
+            world.player(actor).map_err(|e| format!("{e:?}"))?;
         } else {
-            world
-                .human(actor)
-                .map_err(|e| format!("{e:?}"))?
-                .collection_is_empty(slot)
-        };
-        if !empty {
-            return Err("populated human collection disposal unavailable".into());
+            world.human(actor).map_err(|e| format!("{e:?}"))?;
         }
-        // Actual native free(NULL) has no allocation to release.
+        // Populated inventories drain via the world.clear_resource step that
+        // runs right after this gate in destroy_human_inner/destroy_player
+        // (the Rust Vec drop mirrors the native member-destructor frees; the
+        // C_human dtor itself only stops animation, GAME 0x56f210, and the
+        // members do the rest). This backend retains no per-slot allocation,
+        // so approval here claims no original function and invents no bytes.
         Ok(())
     }
     fn free_entity_collection(
@@ -1097,6 +1095,56 @@ mod human_source_tests {
             let controller = arena.original_model_controller(model).unwrap().unwrap();
             assert!(!controller.state().slots[0].enabled);
             assert!(controller.state().slots[1].enabled);
+            arena.close(model).unwrap();
+        }
+    }
+    #[test]
+    fn populated_human_inventory_disposes_for_terminal_cleanup() {
+        use crate::actor_world::ActorDeallocationBackend;
+        use crate::human_actor::HumanResourceSlot;
+        // Ticking scripts attach weapons via human_add_weapon; terminal
+        // cleanup must drain them like the native member destructors do
+        // instead of stopping at the populated gate.
+        for kind in [2, 27] {
+            let (mut arena, model, mut map, _) = setup(true);
+            bind_actual_two_slot_model_controller(&mut arena, model);
+            let mut owner = MissionContentOwner::default();
+            let bytes = input(kind, &actor_data(kind == 27));
+            owner
+                .load_actors(
+                    collection(&bytes),
+                    &mut arena,
+                    &mut map,
+                    &crate::program_patch::ProgramPatchTable::default(),
+                )
+                .unwrap();
+            let a = owner.actors.current_actor.unwrap();
+            owner.actors.world.human_add_weapon(a, 9, 7, 100).unwrap();
+            assert_eq!(
+                owner
+                    .actors
+                    .world
+                    .human(a)
+                    .unwrap()
+                    .inventory()
+                    .items()
+                    .len(),
+                1
+            );
+            // The backend gate approves the populated inventory; the world
+            // drain that follows is the actual free.
+            assert_eq!(
+                owner.memory.free_human_collection(
+                    &owner.actors.world,
+                    a,
+                    HumanResourceSlot::Inventory
+                ),
+                Ok(())
+            );
+            owner.discard_terminal(&mut arena).unwrap();
+            assert!(owner.terminal_complete());
+            assert_eq!(owner.live_allocation_count(), 0);
+            assert_eq!(owner.actors.world.inspect(a).unwrap().0, ActorPhase::Dead);
             arena.close(model).unwrap();
         }
     }
