@@ -118,6 +118,19 @@ class RewriteQualifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unresolved symbol qualifiers.*Missing"):
             self.validate("lhr_engine::fixture::nested::Missing::port")
 
+    def test_glob_imported_parent_types_remain_admitted(self):
+        # Mirrors lhr_assets::rw_data::write::Handles::dta_open_write: the
+        # type is declared in the parent module and pulled in by
+        # `use super::*;`, so the qualifier is lexically available even
+        # though no `struct Known;` sits in the child file itself.
+        self.module.write_text("pub mod child;\npub struct Known;\n")
+        child = self.source / "fixture"
+        child.mkdir()
+        (child / "child.rs").write_text("use super::*;\npub fn port() {}\n")
+        self.validate("lhr_engine::fixture::child::Known::port")
+        with self.assertRaisesRegex(ValueError, "unresolved symbol qualifiers.*Missing"):
+            self.validate("lhr_engine::fixture::child::Missing::port")
+
     def test_lexer_errors_are_not_accepted_as_qualifier_evidence(self):
         for ending in ('/* unfinished', 'const S: &str = "unfinished'):
             with self.subTest(ending=ending):

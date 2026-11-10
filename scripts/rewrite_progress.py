@@ -175,6 +175,78 @@ def _qualifier_names(source):
     return names
 
 
+def _glob_import_target_files(body, module_file, crate_src):
+    """Module files pulled in by `use ...::*;` glob imports, resolved lexically.
+
+    Only intra-crate targets (leading `super` chains or `crate`/`self`
+    roots under the crate src dir). Anything else (extern crates,
+    unresolved paths) is ignored: names from outside the audited tree
+    must not silently satisfy a qualifier.
+    """
+    try:
+        crate_root = crate_src.resolve()
+        rel = module_file.resolve().relative_to(crate_root)
+    except (OSError, ValueError):
+        return []
+    segments = list(rel.with_suffix("").parts)
+    if segments and segments[-1] == "mod":
+        segments.pop()
+    targets = []
+    for match in re.finditer(
+        r"use\s+((?:super|crate|self)(?:::[A-Za-z_][A-Za-z0-9_]*)*)\s*::\s*\*\s*;",
+        body,
+    ):
+        steps = match.group(1).split("::")
+        if steps[0] in ("crate", "self"):
+            current = []
+            steps = steps[1:]
+        else:
+            current = list(segments)
+            while steps and steps[0] == "super":
+                if current:
+                    current.pop()
+                steps.pop(0)
+        candidate_dir = crate_root.joinpath(*current, *steps)
+        for candidate in (candidate_dir.with_suffix(".rs"), candidate_dir / "mod.rs"):
+            try:
+                resolved = candidate.resolve()
+                resolved.relative_to(crate_root)
+            except (OSError, ValueError):
+                continue
+            if resolved.is_file():
+                targets.append(resolved)
+                break
+    return targets
+
+
+def _glob_qualifier_names(body, module_file, crate_src, seen):
+    """Qualifier names importable through intra-crate glob imports.
+
+    A `use super::*;` makes the parent module's declared names lexically
+    available exactly like a local declaration (e.g. a type declared in
+    `rw_data.rs` and used in `rw_data/write.rs`). Only direct glob
+    targets are consulted, never a whole-crate substring search.
+    """
+    try:
+        key = module_file.resolve()
+    except OSError:
+        return set()
+    if key in seen:
+        return set()
+    seen.add(key)
+    names = set()
+    for target in _glob_import_target_files(body, module_file, crate_src):
+        if target in seen:
+            continue
+        try:
+            text = target.read_text()
+        except OSError:
+            continue
+        names |= _qualifier_names(text)
+        names |= _glob_qualifier_names(text, target, crate_src, seen)
+    return names
+
+
 def validate_overlay(overlay, libraries, ledger_ports):
     """Raise ValueError on any inconsistency a commit must not introduce."""
     # Reject malformed/empty evidence before reading source or producing cards.
@@ -237,7 +309,9 @@ def validate_overlay(overlay, libraries, ledger_ports):
         unresolved = set()
         if found is not None and parts[module_end:-1]:
             if found not in qualifier_cache:
-                qualifier_cache[found] = _qualifier_names(body)
+                qualifier_cache[found] = _qualifier_names(body) | _glob_qualifier_names(
+                    body, found, ROOT / "crates" / crate_dir / "src", set()
+                )
             unresolved = set(parts[module_end:-1]) - qualifier_cache[found]
         if found is None or unresolved or not re.search(r"\b" + re.escape(parts[-1]) + r"\b", body):
             path_targets = []
