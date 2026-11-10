@@ -115,8 +115,33 @@ def ledger_ports_by_binary(ports):
     return by_sha
 
 
+def validate_overlay_metadata(overlay):
+    """Check metadata shape, not the truth or completeness of its evidence."""
+    if not isinstance(overlay, dict) or not isinstance(overlay.get("functions"), list):
+        raise ValueError("overlay functions must be a list")
+    symbol_path = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*){2,}")
+    for index, entry in enumerate(overlay["functions"]):
+        if not isinstance(entry, dict):
+            raise ValueError(f"overlay entry {index} must be an object")
+        for field in ("binary", "rva", "tier", "symbol", "evidence"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"overlay entry {index}: {field} must be a nonempty string")
+        if not RVA_RE.fullmatch(entry["rva"].lower()):
+            raise ValueError(f"bad RVA form: {entry['rva']}")
+        if entry["tier"] not in ("differential", "contract"):
+            raise ValueError(f"bad tier: {entry['tier']}")
+        if not symbol_path.fullmatch(entry["symbol"]):
+            raise ValueError(f"bad symbol path: {entry['symbol']}")
+        if "construction_covered" in entry and not isinstance(entry["construction_covered"], bool):
+            raise ValueError(f"overlay entry {index}: construction_covered must be a boolean")
+
+
 def validate_overlay(overlay, libraries, ledger_ports):
     """Raise ValueError on any inconsistency a commit must not introduce."""
+    # Reject malformed/empty evidence before reading source or producing cards.
+    # A nonempty description still needs independent provenance/runtime review.
+    validate_overlay_metadata(overlay)
     sha_of = {lib["name"]: lib["binary_sha256"] for lib in libraries.values()}
     seen = set()
     for entry in overlay["functions"]:
