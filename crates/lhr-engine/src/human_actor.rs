@@ -2311,8 +2311,8 @@ impl HumanState {
     /// `last_car = c` (no owner yet; NOT written here),
     /// `PlayerInTaxi`/`VyfunOdTeMasiny` (traffic owner), `DelExtendedAnim`/
     /// `PersonAnim`/`Tick` and the `next_anim_id` select (animation owner;
-    /// the select itself is owned by `get_anim_id_for_use_car` plus
-    /// `CarInitAnimationCatalog`), `Do_Aimed`/`PoseNullRotate`/
+    /// the GAME 0x57dfc0 select itself is a frozen-ledger port, not owned
+    /// here; `CarInitAnimationCatalog` stages the catalog side), `Do_Aimed`/`PoseNullRotate`/
     /// `PoseInterpolate` (pose/aim owners), `DeactivateColls` (collision
     /// owner), `SetEngineOn`/`SetSpeedLimit`/`auto_gearing` (car owner),
     /// `DelFrameForShadow`/`shadow` (frame owner), `pos`/`dir` plus
@@ -3820,6 +3820,21 @@ impl HumanState {
     /// PC, so neither the model nor the flag is touched). The model owner is
     /// irrelevant here: there is no body to run.
     pub fn hide_legs_empty(_hide: bool) {}
+    /// C_human::NetDirect empty leaf (working name, no RVA claimed:
+    /// mafia-re 113b5b6 game/actors/C_human.h:509-510 keeps no out-of-line
+    /// body; its calls go to the empty function the linker folded it into,
+    /// 0x4ab130, whose RVA 0xab130 the frozen ledger already retains for
+    /// another port, so no address is claimed here). The net owner stays
+    /// DEFERRED; invoking it stages nothing.
+    pub fn net_direct_empty() {}
+    /// C_human::UniversalUse empty leaf (working name, no RVA claimed:
+    /// mafia-re 113b5b6 game/actors/C_human.h:594-595 and
+    /// game/actors/C_human.cpp:10078-10081 keep no out-of-line copy; empty on
+    /// the PC, its calls go to the empty function the linker folded it into,
+    /// 0x4aabe0, whose RVA 0xaabe0 the frozen ledger already retains, so no
+    /// address is claimed here). No use program runs; invoking it stages
+    /// nothing.
+    pub fn universal_use_empty() {}
     /// GAME 0x57a5f0 (RVA 0x17a5f0) C_human::PoseValidate EXPLICIT
     /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:4714):
     /// the body is frame-only (`frame->SetPoseBlend(valid ? 1.0 : 0.0)` plus
@@ -3869,6 +3884,112 @@ impl HumanState {
     /// state is touched and no owner is filed; the stub exists only to pin
     /// the address while that owner stays DEFERRED.
     pub fn done_ff_effects_unsupported() {}
+    /// GAME 0x570570 (RVA 0x170570) C_human::Death EXPLICIT UNSUPPORTED STUB
+    /// (mafia-re 113b5b6 game/actors/C_human.cpp:1671-1697): the body zeroes
+    /// the velocities and the ramp, drops the shadow, null-rotates the pose,
+    /// deactivates the collisions, clears the extended animation, removes the
+    /// human from the police, switches the player camera to death, drops the
+    /// base-frame lightness, unlocks the locked car/vehicle and latches dead.
+    /// The velocity words stay with the movement owner and every other effect
+    /// with the shadow/collision/animation/police/camera/lightness/lock
+    /// owners, which do not exist here, so no state is touched and no owner
+    /// is filed; the stub exists only to pin the address while those owners
+    /// stay DEFERRED.
+    pub fn death_unsupported() {}
+    /// GAME 0x570660 (RVA 0x170660) C_human::Extern_AI_Update EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:1699-1706):
+    /// the body ticks the animation machine while active, ticks the frame
+    /// for `time` and refreshes the dynamic collisions. The animation-machine,
+    /// frame and collision owners do not exist here, so no state is touched
+    /// and no owner is filed; the stub exists only to pin the address while
+    /// those owners stay DEFERRED.
+    pub fn extern_ai_update_unsupported(_time_ms: u32) {}
+    /// GAME 0x5716d0 (RVA 0x1716d0) C_human::Intern_UseCar(bool) EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:2068-2154):
+    /// the flag overload that seats the human from using_car at the
+    /// animation's end (or clears the car latches on the way out), with the
+    /// engine/speed/lock/guard writes, the frame link/pose, the player
+    /// camera/indicator/light setup, the police handoff, the leg hide and the
+    /// vehicle-action clear. Distinct from the claimed 0x57e020 seat-placement
+    /// overload. The car/frame/police/indicator/shadow/inventory owners do not
+    /// exist here, so no state is touched and no owner is filed; the stub
+    /// exists only to pin the address while those owners stay DEFERRED.
+    pub fn intern_use_car_flag_unsupported(_entering: bool) {}
+    /// GAME 0x571b90 (RVA 0x171b90) C_human::Intern_UseRailway EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:2159-2232):
+    /// the rail-vehicle enter/exit program (car/using_car latch swap, wagon
+    /// matrix-relative placement, collision get in/out, animation-matrix
+    /// recompile, camera link, rain-dummy and shadow refresh). The
+    /// railway/frame/matrix/collision/camera/police/shadow owners do not
+    /// exist here, so no state is touched and no owner is filed; the stub
+    /// exists only to pin the address while those owners stay DEFERRED.
+    pub fn intern_use_railway_unsupported(_entering: bool) {}
+    /// GAME 0x5721b0 (RVA 0x1721b0) C_human::_intern_UseCarTruck EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:2234-2295):
+    /// the truck-back ride enter/exit program (seat -1 latch, truck-relative
+    /// placement, passenger add/remove, collision get in/out, shadow and
+    /// camera refresh, STAND settle). The truck/frame/collision/camera/police/
+    /// navigation owners do not exist here, so no state is touched and no
+    /// owner is filed; the stub exists only to pin the address while those
+    /// owners stay DEFERRED.
+    pub fn intern_use_car_truck_unsupported() {}
+    /// GAME 0x572530 (RVA 0x172530) C_human::ThrowFromCarTruck EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:2300-2331):
+    /// thrown off the truck's back with the hit's damage on energy: the scene
+    /// re-link, the collision get-out, the shadow and camera refresh, the
+    /// police handoff, the energy subtraction with the death-talk/weapon-drop
+    /// path and the HitFall. The truck/frame/scene/collision/damage owners do
+    /// not exist here, so no state is touched and no owner is filed; the stub
+    /// exists only to pin the address while those owners stay DEFERRED.
+    pub fn throw_from_car_truck_unsupported() {}
+    /// GAME 0x5757c0 (RVA 0x1757c0) C_human::GameDone EXPLICIT UNSUPPORTED
+    /// STUB (mafia-re 113b5b6 game/actors/C_human.cpp:3407-3476 and following
+    /// lines): the teardown program (truck-collision exit, model restore, leg
+    /// show, clip release, using-object removals, base C_actor::GameDone, base
+    /// frame lightness drop, shadow drop, animation stop, frame release, pose
+    /// releases, collision erase, sound stops). The model/frame/shadow/sound/
+    /// using-object owners do not exist here, so no state is touched and no
+    /// owner is filed; the stub exists only to pin the address while those
+    /// owners stay DEFERRED.
+    pub fn human_game_done_unsupported() {}
+    /// GAME 0x584620 (RVA 0x184620) C_human::Shooting EXPLICIT UNSUPPORTED
+    /// STUB (mafia-re 113b5b6 game/actors/C_human.cpp:7351-7470 and following
+    /// lines): the shot program (fire-table end gate, weapon change, ammo
+    /// check with the player reload, car-seat shot, displacement repair, timed
+    /// table select, grenade cheat, throw-dir aim gate, police firing note,
+    /// spread direction over range, wagon hit, shoot/light/sound effects,
+    /// weapon fire-table claim). The inventory/frame/police/sound/grenade/
+    /// weapon/light/force-feedback owners do not exist here, so no state is
+    /// touched and no owner is filed; the stub exists only to pin the address
+    /// while those owners stay DEFERRED.
+    pub fn shooting_unsupported() {}
+    /// GAME 0x58b8d0 (RVA 0x18b8d0) C_human::RecompileDeathPos EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:9313-9358
+    /// and following lines): the death animation's last frame drives a dummy
+    /// frame until neck/feet/base settle on the ground, out of walls and off
+    /// edges, and the human frame takes its rotation/position over death_length
+    /// (ProcessDeathPos). The model/frame/animation-cache owners (SettleOn-
+    /// Ground, PushOutOfWalls, SlideOffEdge) do not exist here, so no state
+    /// is touched and no owner is filed; the stub exists only to pin the
+    /// address while those owners stay DEFERRED.
+    pub fn recompile_death_pos_unsupported() {}
+    /// GAME 0x56b8d0 (RVA 0x16b8d0) C_human::PlayStep EXPLICIT UNSUPPORTED
+    /// STUB (mafia-re 113b5b6 game/actors/C_human.cpp:250-366): the cutscene
+    /// step player (blended record position/rotation, next-anim-id arming
+    /// with the PersonAnim/cutscene-anim select, blend stepping, model
+    /// SetAnimation/SetAnimTime ticks, sector placement and end-of-records
+    /// handling). The records/cutscene/model/frame owners do not exist here,
+    /// so no state is touched and no owner is filed; the stub exists only to
+    /// pin the address while those owners stay DEFERRED.
+    pub fn play_step_unsupported(_time_ms: u32) {}
+    /// GAME 0x56c6e0 (RVA 0x16c6e0) C_human::DumpRecords EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:536-559):
+    /// the debug dump of the record list to "<frame name>.dump" (last key
+    /// time, then each record's time, animation id and flags). The frame-name,
+    /// record-list and host-file owners do not exist here, so no state is
+    /// touched and no owner is filed; the stub exists only to pin the address
+    /// while those owners stay DEFERRED.
+    pub fn dump_records_unsupported() {}
     /// GAME 0x578ee0 (RVA 0x178ee0) C_human::PoseInterpolate EXPLICIT
     /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.h:537,
     /// game/actors/C_human.cpp:4557-4622): the body eases the three staged
@@ -6162,6 +6283,130 @@ mod human_state_flags_tests {
         HumanState::pose_interpolate_unsupported(1000);
     }
     #[test]
+    // GAME 0x570570 (RVA 0x170570) C_human::Death (mafia-re 113b5b6
+    // game/actors/C_human.cpp:1671): explicit unsupported stub, shadow/
+    // collision/animation/police/camera/lightness/lock owners; invoking it
+    // touches no staged words.
+    fn death_rva_170570_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        human.set_alive(true);
+        let before = (human.alive(), human.action_state(), human.anim_id());
+        HumanState::death_unsupported();
+        assert_eq!((human.alive(), human.action_state(), human.anim_id()), before);
+    }
+    #[test]
+    // GAME 0x570660 (RVA 0x170660) C_human::Extern_AI_Update (mafia-re 113b5b6
+    // game/actors/C_human.cpp:1699): explicit unsupported stub, animation-
+    // machine/frame/collision owners; invoking it touches no staged words.
+    fn extern_ai_update_rva_170660_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        let before = (human.action_state(), human.next_anim_id(), human.turn_speed());
+        HumanState::extern_ai_update_unsupported(16);
+        assert_eq!(
+            (human.action_state(), human.next_anim_id(), human.turn_speed()),
+            before
+        );
+    }
+    #[test]
+    // GAME 0x5716d0 (RVA 0x1716d0) C_human::Intern_UseCar(bool) (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:2068): explicit unsupported stub, car/
+    // frame/police/indicator/shadow/inventory owners; distinct from the
+    // claimed 0x57e020 seat-placement overload. Invoking it touches no staged
+    // words.
+    fn intern_use_car_flag_rva_1716d0_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        let before = (human.car(), human.using_car(), human.action_state());
+        HumanState::intern_use_car_flag_unsupported(true);
+        HumanState::intern_use_car_flag_unsupported(false);
+        assert_eq!((human.car(), human.using_car(), human.action_state()), before);
+    }
+    #[test]
+    // GAME 0x571b90 (RVA 0x171b90) C_human::Intern_UseRailway (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:2159): explicit unsupported stub,
+    // railway/frame/matrix/collision/camera/police/shadow owners; invoking
+    // it touches no staged words.
+    fn intern_use_railway_rva_171b90_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        let before = (human.car(), human.using_car(), human.action_state());
+        HumanState::intern_use_railway_unsupported(true);
+        HumanState::intern_use_railway_unsupported(false);
+        assert_eq!((human.car(), human.using_car(), human.action_state()), before);
+    }
+    #[test]
+    // GAME 0x5721b0 (RVA 0x1721b0) C_human::_intern_UseCarTruck (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:2234): explicit unsupported stub,
+    // truck/frame/collision/camera/police/navigation owners; invoking it
+    // touches no staged words.
+    fn intern_use_car_truck_rva_1721b0_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        let before = (human.car(), human.using_car(), human.seat());
+        HumanState::intern_use_car_truck_unsupported();
+        assert_eq!((human.car(), human.using_car(), human.seat()), before);
+    }
+    #[test]
+    // GAME 0x572530 (RVA 0x172530) C_human::ThrowFromCarTruck (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:2300): explicit unsupported stub,
+    // truck/frame/scene/collision/damage owners; invoking it touches no
+    // staged words.
+    fn throw_from_car_truck_rva_172530_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        let before = (human.car(), human.action_state(), human.velocity());
+        HumanState::throw_from_car_truck_unsupported();
+        assert_eq!((human.car(), human.action_state(), human.velocity()), before);
+    }
+    #[test]
+    // GAME 0x5757c0 (RVA 0x1757c0) C_human::GameDone (mafia-re 113b5b6
+    // game/actors/C_human.cpp:3407): explicit unsupported stub, model/frame/
+    // shadow/sound/using-object owners; invoking it touches no staged words.
+    fn human_game_done_rva_1757c0_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        let before = (human.action_state(), human.anim_id(), human.next_anim_id());
+        HumanState::human_game_done_unsupported();
+        assert_eq!((human.action_state(), human.anim_id(), human.next_anim_id()), before);
+    }
+    #[test]
+    // GAME 0x584620 (RVA 0x184620) C_human::Shooting (mafia-re 113b5b6
+    // game/actors/C_human.cpp:7351): explicit unsupported stub, inventory/
+    // frame/police/sound/grenade/weapon/light/force-feedback owners;
+    // invoking it touches no staged words.
+    fn shooting_rva_184620_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        let before = (human.reloading(), human.fire_held(), human.note_fire());
+        HumanState::shooting_unsupported();
+        assert_eq!((human.reloading(), human.fire_held(), human.note_fire()), before);
+    }
+    #[test]
+    // GAME 0x58b8d0 (RVA 0x18b8d0) C_human::RecompileDeathPos (mafia-re
+    // 113b5b6 game/actors/C_human.cpp:9313): explicit unsupported stub,
+    // model/frame/animation-cache owners; invoking it touches no staged
+    // words.
+    fn recompile_death_pos_rva_18b8d0_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        let before = (human.action_state(), human.anim_id(), human.next_anim_id());
+        HumanState::recompile_death_pos_unsupported();
+        assert_eq!((human.action_state(), human.anim_id(), human.next_anim_id()), before);
+    }
+    #[test]
+    // GAME 0x56b8d0 (RVA 0x16b8d0) C_human::PlayStep (mafia-re 113b5b6
+    // game/actors/C_human.cpp:250): explicit unsupported stub, records/
+    // cutscene/model/frame owners; invoking it touches no staged words.
+    fn play_step_rva_16b8d0_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        let before = (human.action_state(), human.anim_id(), human.next_anim_id());
+        HumanState::play_step_unsupported(100);
+        assert_eq!((human.action_state(), human.anim_id(), human.next_anim_id()), before);
+    }
+    #[test]
+    // GAME 0x56c6e0 (RVA 0x16c6e0) C_human::DumpRecords (mafia-re 113b5b6
+    // game/actors/C_human.cpp:536): explicit unsupported stub, frame-name/
+    // record-list/host-file owners; invoking it touches no staged words.
+    fn dump_records_rva_16c6e0_stub_runs_without_state() {
+        let human = HumanState::construct(seed());
+        let before = (human.action_state(), human.anim_id(), human.next_anim_id());
+        HumanState::dump_records_unsupported();
+        assert_eq!((human.action_state(), human.anim_id(), human.next_anim_id()), before);
+    }
+    #[test]
     // GAME 0x5747d0 (RVA 0x1747d0) C_human::ShiftAnimation (mafia-re 113b5b6
     // game/actors/C_human.cpp:3033): explicit unsupported stub, animation
     // cache/table/frame owners; invoking it touches no staged words.
@@ -7636,6 +7881,21 @@ mod working_name_small_leaves_tests {
         assert!(!drop_out_items_gate(false, true, 1));
         assert!(!drop_out_items_gate(true, false, 1));
         assert!(!drop_out_items_gate(true, true, 0));
+    }
+
+    #[test]
+    fn net_direct_empty_runs_without_state() {
+        // Working name: no RVA claimed (linker-folded empty, C_human.h:509-510
+        // into 0x4ab130, whose RVA 0xab130 the frozen ledger already retains).
+        HumanState::net_direct_empty();
+    }
+
+    #[test]
+    fn universal_use_empty_runs_without_state() {
+        // Working name: no RVA claimed (empty on the PC, C_human.h:594-595 and
+        // C_human.cpp:10078-10081, folded into 0x4aabe0, whose RVA 0xaabe0 the
+        // frozen ledger already retains).
+        HumanState::universal_use_empty();
     }
 }
 

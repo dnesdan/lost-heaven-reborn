@@ -422,7 +422,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +13 weapon/use STUB contracts (FreeHand/WeaponEffect x2/EineMeine/
         # ChangeModel/Use_Actor/settle/slide/notify/EnterProtect/Energy/
         # Repair/Placement; all STUBs held as contract).
-        self.assertEqual(game["ported"], 149 + 799)
+        # +11 lifecycle STUB contracts (Death/ExternAI/UseCar x2/Truck x2/
+        # Done/Shooting/Recompile/PlayStep/DumpRecords; 2 working-name
+        # empties uncredited; all STUBs held as contract).
+        self.assertEqual(game["ported"], 149 + 810)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

@@ -15538,6 +15538,105 @@
       "symbol": "lhr_engine::vehicle_small_accessors::car_get_placement_from_tck1_unsupported",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x170570",
+      "va": "0x570570",
+      "name": "C_human::Death",
+      "symbol": "lhr_engine::human_actor::HumanState::death_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x170660",
+      "va": "0x570660",
+      "name": "C_human::Extern_AI_Update",
+      "symbol": "lhr_engine::human_actor::HumanState::extern_ai_update_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1716d0",
+      "va": "0x5716d0",
+      "name": "C_human::Intern_UseCar",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_use_car_flag_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x171b90",
+      "va": "0x571b90",
+      "name": "C_human::Intern_UseRailway",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_use_railway_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1721b0",
+      "va": "0x5721b0",
+      "name": "C_human::_intern_UseCarTruck",
+      "symbol": "lhr_engine::human_actor::HumanState::intern_use_car_truck_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x172530",
+      "va": "0x572530",
+      "name": "C_human::ThrowFromCarTruck",
+      "symbol": "lhr_engine::human_actor::HumanState::throw_from_car_truck_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1757c0",
+      "va": "0x5757c0",
+      "name": "C_human::GameDone",
+      "symbol": "lhr_engine::human_actor::HumanState::human_game_done_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x184620",
+      "va": "0x584620",
+      "name": "C_human::Shooting",
+      "symbol": "lhr_engine::human_actor::HumanState::shooting_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x18b8d0",
+      "va": "0x58b8d0",
+      "name": "C_human::RecompileDeathPos",
+      "symbol": "lhr_engine::human_actor::HumanState::recompile_death_pos_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16b8d0",
+      "va": "0x56b8d0",
+      "name": "C_human::PlayStep",
+      "symbol": "lhr_engine::human_actor::HumanState::play_step_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16c6e0",
+      "va": "0x56c6e0",
+      "name": "C_human::DumpRecords",
+      "symbol": "lhr_engine::human_actor::HumanState::dump_records_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
