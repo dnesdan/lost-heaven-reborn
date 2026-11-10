@@ -3694,3 +3694,6 @@ fn rva_7b010_program_set_ai_priority_stores_word() {
     program_set_ai_priority(&mut slot, -1.0);
     assert_eq!(slot, -1.0);
 }
+
+#[path = "program_flow_register_guards_tests.rs"]
+mod flow_register_guards_tests;

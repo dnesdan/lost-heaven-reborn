@@ -3741,10 +3741,14 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                             "register-indirect jump without register",
                         ));
                     }
-                    let value = self.resolve_float(goto.target.register, goto.target.value)?;
-                    let name = Self::indirect_label(value);
-                    if let Some(target) = self.jump_to_label(name.as_bytes()) {
-                        advance = Advance::Jump(target);
+                    // Native signed-count guard precedes the bank read.
+                    // GOSUB's return push above remains visible on a skipped jump.
+                    if (*self.float_count as i32) > goto.target.register {
+                        let value = self.resolve_float(goto.target.register, goto.target.value)?;
+                        let name = Self::indirect_label(value);
+                        if let Some(target) = self.jump_to_label(name.as_bytes()) {
+                            advance = Advance::Jump(target);
+                        }
                     }
                 }
             }
@@ -3782,8 +3786,16 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         return Err(RuntimeError::Domain("current wait parameter unavailable"));
                     }
                 };
-                let value = self.resolve_float(operand.register, operand.value)?;
-                if *self.command_time < Self::wait_word(value) {
+                // Native WAIT defaults to zero when the register's upper
+                // bound fails; neither backing nor operand value is read then.
+                let wait = if operand.register == -1
+                    || (*self.float_count as i32) > operand.register
+                {
+                    Self::wait_word(self.resolve_float(operand.register, operand.value)?)
+                } else {
+                    0
+                };
+                if *self.command_time < wait {
                     advance = Advance::Stay;
                 }
             }
