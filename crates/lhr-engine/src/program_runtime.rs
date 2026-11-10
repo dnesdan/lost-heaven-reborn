@@ -988,6 +988,13 @@ pub enum RuntimeEffect {
     /// A backend without game ownership records it without applying; the
     /// animation_catalog preload flag is the future owner.
     DisableAnimPreload,
+    /// Timer start (`TIMERON` 50): matches `TimerSetTime(p[0..2])`,
+    /// `TimerSetInterval(p[3])`, `AddFlags(INDF_TIMER)` and
+    /// `C_traffic_generator::ZrusVsechnyMavajici()` (mafia-re fe7e746
+    /// game/mission/C_program.cpp:3547-3555). Carries the raw hour,
+    /// minute, second and interval words; the HUD countdown display
+    /// stays deferred.
+    TimerOn(u32, u32, u32, u32),
     /// Mission objective staging (`MISSION_OBJECTIVES` 164): matches
     /// `ObjectivesAdd(*(int *)params)` (mafia-re 113b5b6
     /// game/mission/C_program.cpp:5164-5166, `G_LoadSaveClass::ObjectivesAdd`
@@ -4609,6 +4616,25 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         .unwrap_or(0.0) as i32;
                     self.effect(state, RuntimeEffect::PlayStream(handle))?;
                 }
+            }
+            50 => {
+                // Original CMD_TIMERON (mafia-re fe7e746
+                // game/mission/C_program.cpp:3547-3555, dispatching
+                // C_program::Process GAME 0x46d3b0): `TimerSetTime(p[0..2])`,
+                // `TimerSetInterval(p[3])`, `AddFlags(INDF_TIMER)` and
+                // `C_traffic_generator::ZrusVsechnyMavajici()`. The four
+                // words ride the quad payload; the backend stages the
+                // timer and cancels waving over its live pedestrians.
+                let [hour, minute, second, interval] = self.quad_payload(state)?;
+                self.effect(
+                    state,
+                    RuntimeEffect::TimerOn(
+                        hour as u32,
+                        minute as u32,
+                        second as u32,
+                        interval as u32,
+                    ),
+                )?;
             }
             0x1004 | 0x101a | 0x1031 | 0x103a | 0x103b => {
                 advance = self.dispatch_entity(state, opcode)?;

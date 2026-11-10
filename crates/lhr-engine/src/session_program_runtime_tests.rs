@@ -201,6 +201,29 @@ fn stream_play_missing_show_advances_and_live_show_refuses() {
 }
 
 #[test]
+fn timeron_stages_request_and_clears_no_waving_pedestrians() {
+    use crate::game_housekeeping::StagedTimer;
+    let source = fixture(b"commandblock 1\ntimeron 7,8,9,10\ncommandblock 0");
+    let mut session = source.session();
+    load(&mut session, &[]).unwrap();
+    assert_eq!(session.game_state().timer_request(), None);
+    session.initialize_owned_global_programs().unwrap();
+    run(&mut session).unwrap();
+    // All four words stage for the deferred HUD countdown; no pedestrian
+    // elements exist to wave, so the cancel is a vacuous pass.
+    assert_eq!(
+        session.game_state().timer_request(),
+        Some(StagedTimer {
+            hour: 7,
+            minute: 8,
+            second: 9,
+            interval: 10,
+        })
+    );
+    finish(&mut session);
+}
+
+#[test]
 fn use_lightcache_collects_empty_prefix_on_a_sceneless_session() {    // The fixture session selects no scene, so the collector has nothing to
     // walk yet the opcode itself is owned: it succeeds with an empty cache
     // instead of stopping at the reached effect.

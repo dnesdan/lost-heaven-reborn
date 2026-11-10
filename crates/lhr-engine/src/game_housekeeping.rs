@@ -797,6 +797,11 @@ pub struct GameInlineState {
     /// runs through [`GameInlineState::light_cache_time`] and the session
     /// light-cache tick owner.
     pub light_cache: Option<crate::mission_effects::SessionLightCache>,
+    /// Staged timer request (`TIMERON` 50: `TimerSetTime(h, m, s)` plus
+    /// `TimerSetInterval(i)` and the `INDF_TIMER` flag, mafia-re
+    /// game/mission/C_program.cpp:3547-3555 at pin fe7e746). Written by the
+    /// `timer_on` setter below; the HUD countdown display stays deferred.
+    pub timer_request: Option<StagedTimer>,
     /// Live IShow ids (`C_game::i_shows` ids at +0x2f18, mafia-re
     /// game/mission/game.h:592 at pin fe7e746). Empty until `STREAM_CREATE`
     /// lands; `GetIShow` misses on an empty registry, so `STREAM_PLAY`
@@ -828,6 +833,21 @@ pub enum StagedSubtitle {
     Intro(u32, u32),
     /// `IntroSubtitlesAddSimple(id)` id.
     Simple(u32),
+}
+
+/// One staged timer request, in call order. Host staging for the HUD
+/// side of `TIMERON`; the countdown display and the traffic wave-cancel
+/// run through their own owners (the cancel is staged alongside).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StagedTimer {
+    /// `TimerSetTime` hour word.
+    pub hour: u32,
+    /// `TimerSetTime` minute word.
+    pub minute: u32,
+    /// `TimerSetTime` second word.
+    pub second: u32,
+    /// `TimerSetInterval` seconds.
+    pub interval: u32,
 }
 
 impl GameInlineState {
@@ -1599,6 +1619,23 @@ impl GameInlineState {
     /// Appended without dedup, mirroring the native list append.
     pub fn mission_subtitle_add(&mut self, id: u32) {
         self.subtitles.push(StagedSubtitle::Simple(id));
+    }
+
+    /// `TIMERON` (opcode 50): stages the timer request words. Overwrites
+    /// any earlier request, mirroring the native stores; the HUD
+    /// countdown display stays deferred.
+    pub fn timer_on(&mut self, hour: u32, minute: u32, second: u32, interval: u32) {
+        self.timer_request = Some(StagedTimer {
+            hour,
+            minute,
+            second,
+            interval,
+        });
+    }
+
+    /// Reads the staged timer request, if a `TIMERON` effect staged one.
+    pub fn timer_request(&self) -> Option<StagedTimer> {
+        self.timer_request
     }
 
     /// Reads the retained light-cache collection, if a `UseLightCache`

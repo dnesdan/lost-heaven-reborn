@@ -1177,17 +1177,20 @@ fn weapon_id_truncates_to_u16_and_host_failures_propagate() {
     );
 }
 #[test]
-fn quad_family_refuses_execution_and_reports_disposal() {
+fn timeron_reports_staged_request_through_backend() {
     let mut memory = Memory::default();
     let mut p = program(b"timeron 1,2,3,4", &mut memory);
     let progress = p.init_fresh_runtime(&mut memory).unwrap();
     assert_eq!((progress.accepted, progress.errors), (1, 0));
-    let error = p
-        .call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
-        .unwrap_err();
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
     assert!(
-        format!("{error:?}").contains("UnsupportedCommand(50)"),
-        "{error:?}"
+        memory
+            .events
+            .iter()
+            .any(|event| event.0 == RuntimeEffect::TimerOn(1, 2, 3, 4)),
+        "missing TimerOn(1, 2, 3, 4) effect"
     );
     let report = p.discard_runtime_host().unwrap();
     assert_eq!(report.quad_allocations, 1);
@@ -3083,6 +3086,24 @@ fn stream_play_reports_resolved_handle_through_backend() {
             .iter()
             .any(|event| event.0 == RuntimeEffect::PlayStream(9)),
         "missing PlayStream(9) effect"
+    );
+}
+
+#[test]
+fn timeron_reports_staged_words_through_backend() {
+    let mut memory = Memory::default();
+    let mut p = program(b"timeron 7,8,9,10", &mut memory);
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (1, 0));
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 1);
+    assert!(
+        memory
+            .events
+            .iter()
+            .any(|event| event.0 == RuntimeEffect::TimerOn(7, 8, 9, 10)),
+        "missing TimerOn(7, 8, 9, 10) effect"
     );
 }
 

@@ -43,6 +43,14 @@ pub enum SessionActorProgramError {
     Detector(DetectorTickError),
 }
 
+/// Empty pedestrian set for the timer wave-cancel: no pedestrian traffic
+/// elements exist in the mission world yet (traffic Tick/spawn stay
+/// deferred), so the native reverse loop would find nothing waving. The
+/// default backend refuses loudly, pinning that assumption for the day
+/// pedestrian elements land.
+struct NoPedestrians;
+impl crate::traffic_generator::TrafficElementBackend for NoPedestrians {}
+
 impl RuntimeBackend for SessionProgramEffects<'_> {
     fn effect(
         &mut self,
@@ -63,6 +71,18 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
             },
             SetCityTrafficVisible(_) => {
                 return Err("session city-traffic visibility owner unavailable".into());
+            }
+            TimerOn(hour, minute, second, interval) => {
+                self.game.timer_on(hour, minute, second, interval);
+                // C_traffic_generator::ZrusVsechnyMavajici over the live
+                // pedestrians; the set is empty (see NoPedestrians), so
+                // this only runs the native early-out shape.
+                if let Err(error) = crate::traffic_generator::zrus_vsechny_mavajici(
+                    &[],
+                    &mut NoPedestrians,
+                ) {
+                    return Err(format!("timer traffic wave-cancel: {error}"));
+                }
             }
             PlayStream(handle) => {
                 // Native GetIShow misses on an empty registry, so the arm
