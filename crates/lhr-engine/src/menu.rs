@@ -546,6 +546,24 @@ impl MenuComponent {
     }
 }
 
+/// Explicit-unsupported menu call: the looked-up component class is missing,
+/// so the call changes no state and is rejected. The payload names the
+/// missing owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuStubError {
+    Unsupported(&'static str),
+}
+
+impl std::fmt::Display for MenuStubError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MenuStubError::Unsupported(what) => write!(f, "unsupported menu call: {what}"),
+        }
+    }
+}
+
+impl std::error::Error for MenuStubError {}
+
 /// Marker-only GM_Menu component stack (Game.exe GM_Menu 0x30, Create RVA
 /// 0x1ea2e0; siblings game/ui/g_menu.h:150-290, game/ui/g_menu.cpp:610-625,
 /// cited only). Owns only the pure list contracts: intake, lookup, activation
@@ -690,6 +708,18 @@ impl MenuStack {
         self.staged_texts.get(&id).map(Vec::as_slice)
     }
 
+    /// GM_Menu::SetString (GAME RVA 0x1eb030, VA 0x5eb030; reference mafia-re
+    /// pin fe7e746 `game/ui/g_menu.cpp:954-960`, cited only):
+    /// explicit-Unsupported STUB. The body looks the component up and calls
+    /// its `SetString` virtual, but the base virtual is an empty no-op
+    /// (sibling `game/ui/g_m_comps.h:109`) and every override needs the
+    /// missing component-class owners, so nothing observable stages and the
+    /// call is rejected. Unlike `set_text`, nothing lands in the staged
+    /// texts, matching the native base-class effect (none).
+    pub fn set_string(&self, _id: u32, _text: Option<&[u8]>) -> Result<(), MenuStubError> {
+        Err(MenuStubError::Unsupported("component classes"))
+    }
+
     /// GM_Menu::SetFloat (GAME VA 0x5eb070, RVA 0x1eb070; sibling
     /// game/ui/g_menu.cpp:971-977, cited only): stages the float on the
     /// looked-up component (progress bars, sliders); no-op where missing.
@@ -749,6 +779,46 @@ impl MenuStack {
             return false;
         }
         self.staged_bools.get(&id).copied().unwrap_or(false)
+    }
+
+    /// GM_Menu::SetPointer (GAME RVA 0x1eb140, VA 0x5eb140; reference
+    /// mafia-re pin fe7e746 `game/ui/g_menu.cpp:1022-1028`, cited only):
+    /// explicit-Unsupported STUB. The body looks the component up and calls
+    /// its `SetPointer` virtual, but the base virtual is an empty no-op
+    /// (sibling `game/ui/g_m_comps.h:117`) and the only override stores a
+    /// raw player pointer needing the missing component-class owner. The
+    /// address stages as an opaque integer and is never dereferenced or
+    /// converted into a host pointer; the call is rejected before any use.
+    pub fn set_pointer(&self, _id: u32, _value_addr: usize) -> Result<(), MenuStubError> {
+        Err(MenuStubError::Unsupported("component classes"))
+    }
+
+    /// GM_Menu::GetRangeFloat (GAME RVA 0x1eb160, VA 0x5eb160; reference
+    /// mafia-re pin fe7e746 `game/ui/g_menu.cpp:1030-1036`, cited only):
+    /// explicit-Unsupported STUB. The body looks the component up and reads
+    /// its float range, leaving the out-words untouched where the menu has
+    /// no such component; the ranges live in the missing component-class
+    /// owners (the base virtual is an empty no-op, sibling
+    /// `game/ui/g_m_comps.h:120`), so the out-words stay untouched here and
+    /// the call is rejected.
+    pub fn get_range_float(
+        &self,
+        _id: u32,
+        _min: &mut f32,
+        _max: &mut f32,
+    ) -> Result<(), MenuStubError> {
+        Err(MenuStubError::Unsupported("component classes"))
+    }
+
+    /// GM_Menu::SetRangeDword (GAME RVA 0x1eb190, VA 0x5eb190; reference
+    /// mafia-re pin fe7e746 `game/ui/g_menu.cpp:1038-1044`, cited only):
+    /// explicit-Unsupported STUB. The body looks the component up and writes
+    /// its dword range (scrollbar classes, siblings `game/ui/g_m_comps.h:875,
+    /// 1336, 1707`), whose component-class owners are missing; the base
+    /// virtual is an empty no-op (sibling `game/ui/g_m_comps.h:121`), so
+    /// nothing stages and the call is rejected.
+    pub fn set_range_dword(&self, _id: u32, _min: u32, _max: u32) -> Result<(), MenuStubError> {
+        Err(MenuStubError::Unsupported("component classes"))
     }
 
     fn set_active_id(&mut self, id: Option<u32>) {
@@ -969,6 +1039,25 @@ impl MenuStack {
         self.close_code = close_code;
         self.activate_by_id_or_next(id);
         self.active
+    }
+
+    /// GM_Menu::Destroy pure subset (GAME RVA 0x1ea690, VA 0x5ea690;
+    /// reference mafia-re pin fe7e746 `game/ui/g_menu.cpp:693-700`, cited
+    /// only): drops every admitted component with its staged values and
+    /// resets the active/close latches. The native `delete this` frees the
+    /// menu object itself, which has no host spelling: the caller drops this
+    /// stack for that half.
+    pub fn destroy(&mut self) {
+        *self = Self::new();
+    }
+
+    /// GM_Menu::ForceUpdate (GAME RVA 0x1ea6d0, VA 0x5ea6d0; reference
+    /// mafia-re pin fe7e746 `game/ui/g_menu.cpp:702-707`, cited only):
+    /// explicit-Unsupported STUB. The body fans out to the components'
+    /// `ForceUpdate` virtuals, whose component-class owners are missing, so
+    /// nothing runs and the call is rejected.
+    pub fn force_update(&self) -> Result<(), MenuStubError> {
+        Err(MenuStubError::Unsupported("component classes"))
     }
 }
 
@@ -2062,5 +2151,98 @@ mod tests {
         let mid = load_progress_mission_open_value(0.7, 0.5);
         assert!((mid - 0.35).abs() < 1e-6, "{mid}");
         assert_eq!(load_progress_mission_open_value(0.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn rva_1ea690_destroy_clears_components_values_and_latches() {
+        // GM_Menu::Destroy GAME VA 0x5ea690 (RVA 0x1ea690): every admitted
+        // component goes with its staged values; the native `delete this`
+        // half is the caller dropping the stack.
+        let mut stack = MenuStack::create(&stack_definition());
+        stack.set_text(main_menu::MAINMENU_ITEM_INTRO, b"intro".to_vec());
+        stack.set_float(main_menu::MAINMENU_ITEM_NEW_GAME, 0.5);
+        stack.set_dword(main_menu::MAINMENU_ITEM_QUIT, 3);
+        stack.set_bool(main_menu::MAINMENU_ITEM_QUIT, true);
+        stack.menu_close(7);
+        assert!(!stack.is_empty());
+        stack.destroy();
+        assert!(stack.is_empty());
+        assert_eq!(stack.len(), 0);
+        assert_eq!(stack.active_id(), None);
+        assert!(!stack.is_closing());
+        assert_eq!(stack.close_code(), 0);
+        assert_eq!(stack.open_id(), 0);
+        assert_eq!(stack.get_text(main_menu::MAINMENU_ITEM_INTRO), None);
+        assert_eq!(stack.get_float(main_menu::MAINMENU_ITEM_NEW_GAME), 0.0);
+        assert_eq!(stack.get_dword(main_menu::MAINMENU_ITEM_QUIT), 0);
+        assert!(!stack.get_bool(main_menu::MAINMENU_ITEM_QUIT));
+        // Destroying an empty stack is a stable rewrite.
+        stack.destroy();
+        assert!(stack.is_empty());
+    }
+
+    #[test]
+    fn rva_1ea6d0_force_update_is_unsupported() {
+        // GM_Menu::ForceUpdate GAME VA 0x5ea6d0 (RVA 0x1ea6d0): the
+        // component-class fan-out is missing, so nothing runs.
+        let stack = MenuStack::create(&stack_definition());
+        let error = stack.force_update().unwrap_err();
+        assert_eq!(error, MenuStubError::Unsupported("component classes"));
+    }
+
+    #[test]
+    fn rva_1eb030_set_string_is_unsupported_and_stages_nothing() {
+        // GM_Menu::SetString GAME VA 0x5eb030 (RVA 0x1eb030): the base
+        // component virtual is an empty no-op, so unlike SetText nothing
+        // lands in the staged texts.
+        let stack = MenuStack::create(&stack_definition());
+        let error = stack
+            .set_string(main_menu::MAINMENU_ITEM_INTRO, Some(b"intro"))
+            .unwrap_err();
+        assert_eq!(error, MenuStubError::Unsupported("component classes"));
+        assert_eq!(stack.get_text(main_menu::MAINMENU_ITEM_INTRO), None);
+        let error = stack.set_string(424242, None).unwrap_err();
+        assert_eq!(error, MenuStubError::Unsupported("component classes"));
+    }
+
+    #[test]
+    fn rva_1eb140_set_pointer_is_unsupported() {
+        // GM_Menu::SetPointer GAME VA 0x5eb140 (RVA 0x1eb140): the raw
+        // pointer has no typed owner, so the address is never stored.
+        let stack = MenuStack::create(&stack_definition());
+        let error = stack.set_pointer(main_menu::MAINMENU_ITEM_INTRO, 0x1234).unwrap_err();
+        assert_eq!(error, MenuStubError::Unsupported("component classes"));
+        let error = stack.set_pointer(424242, 0).unwrap_err();
+        assert_eq!(error, MenuStubError::Unsupported("component classes"));
+    }
+
+    #[test]
+    fn rva_1eb160_get_range_float_leaves_outputs_untouched() {
+        // GM_Menu::GetRangeFloat GAME VA 0x5eb160 (RVA 0x1eb160): the ranges
+        // live in the missing component classes, so the out-words stay
+        // untouched for known and missing ids alike.
+        let stack = MenuStack::create(&stack_definition());
+        let (mut min, mut max) = (1.0, 2.0);
+        let error = stack
+            .get_range_float(main_menu::MAINMENU_ITEM_INTRO, &mut min, &mut max)
+            .unwrap_err();
+        assert_eq!(error, MenuStubError::Unsupported("component classes"));
+        assert_eq!((min, max), (1.0, 2.0));
+        let error = stack.get_range_float(424242, &mut min, &mut max).unwrap_err();
+        assert_eq!(error, MenuStubError::Unsupported("component classes"));
+        assert_eq!((min, max), (1.0, 2.0));
+    }
+
+    #[test]
+    fn rva_1eb190_set_range_dword_is_unsupported() {
+        // GM_Menu::SetRangeDword GAME VA 0x5eb190 (RVA 0x1eb190): the dword
+        // ranges live in the missing component classes, so nothing stages.
+        let stack = MenuStack::create(&stack_definition());
+        let error = stack
+            .set_range_dword(main_menu::MAINMENU_ITEM_QUIT, 0, 10)
+            .unwrap_err();
+        assert_eq!(error, MenuStubError::Unsupported("component classes"));
+        let error = stack.set_range_dword(424242, 0, 10).unwrap_err();
+        assert_eq!(error, MenuStubError::Unsupported("component classes"));
     }
 }

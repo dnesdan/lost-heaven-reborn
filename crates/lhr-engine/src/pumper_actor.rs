@@ -130,6 +130,53 @@ impl PumperState {
     }
 }
 
+/// RVA 0x81840, VA 0x481840 (`C_pumper::ScriptCanPump`, mafia-re fe7e746
+/// `game/actors/C_pumper.cpp:15-20`).
+/// Already ported in the overlay as `game_housekeeping::script_can_pump`,
+/// so this spelling carries no new function credit: same native, second host
+/// spelling.
+/// STUB: explicit Unsupported. The upstream stub body logs and returns 0; the
+/// mission attendant lookup that decides `PUMPER_CAN_PUMP`/`PUMPER_BUSY`
+/// (mafia-re fe7e746 `game/actors/C_pumper.h:7-10`) has no mission owner here,
+/// so the stub literal 0 (neither servable nor busy) is returned.
+pub fn pumper_script_can_pump_stub() -> i32 {
+    0
+}
+
+/// RVA 0x805d0, VA 0x4805d0 (`C_pumper::CanPump`, mafia-re fe7e746
+/// `game/actors/C_pumper.cpp:121-126`).
+/// STUB: explicit Unsupported. The upstream stub body logs and returns 0; the
+/// `C_car` service check has no car owner here, so the stub literal is
+/// returned.
+pub fn pumper_can_pump_stub() -> i32 {
+    0
+}
+
+/// RVA 0x80190, VA 0x480190 (`C_pumper::Start`, mafia-re fe7e746
+/// `game/actors/C_pumper.cpp:115-119`).
+/// STUB: explicit Unsupported. Refuelling the car runs through the car/fuel
+/// owners, which do not exist here, so no state is changed.
+pub fn pumper_start_unsupported() {}
+
+/// RVA 0x81190, VA 0x481190 (`C_pumper::SaveGameGetSize`, mafia-re fe7e746
+/// `game/actors/C_pumper.cpp:101-106`).
+/// STUB: explicit Unsupported. The upstream body delegates to
+/// `C_actor::SaveGameGetSize`; the base chunk-size owner does not exist here,
+/// so no size is reported.
+pub fn pumper_savegame_size_unsupported() {}
+
+/// RVA 0x811a0, VA 0x4811a0 (`C_pumper::SaveGameSave`, mafia-re fe7e746
+/// `game/actors/C_pumper.cpp:108-113`).
+/// STUB: explicit Unsupported. The save buffer cursor lives with the deferred
+/// record owner, so no bytes are written.
+pub fn pumper_savegame_save_unsupported() {}
+
+/// RVA 0x813e0, VA 0x4813e0 (`C_pumper::SaveGameLoad`, mafia-re fe7e746
+/// `game/actors/C_pumper.cpp:128-132`).
+/// STUB: explicit Unsupported. The load buffer cursor lives with the deferred
+/// record owner, so no bytes are consumed.
+pub fn pumper_savegame_load_unsupported() {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,5 +239,46 @@ mod tests {
         assert_eq!(state.counter_b(), 669);
         assert_eq!(state.mode_word(), 2);
         assert_eq!(state.price_word(), 300748);
+    }
+
+    #[test]
+    fn script_can_pump_second_spelling_returns_stub_zero() {
+        // Same native as overlay-ported script_can_pump (RVA 0x81840): no credit.
+        assert_eq!(pumper_script_can_pump_stub(), 0);
+    }
+
+    #[test]
+    fn can_pump_rva_805d0_returns_stub_zero() {
+        // STUB: GAME 0x4805d0 (VA 0x4805d0), mafia-re fe7e746
+        // game/actors/C_pumper.cpp:121-126: car owner deferred.
+        assert_eq!(pumper_can_pump_stub(), 0);
+    }
+
+    #[test]
+    fn start_rva_80190_is_unsupported_stub() {
+        // STUB: GAME 0x480190 (VA 0x480190), mafia-re fe7e746
+        // game/actors/C_pumper.cpp:115-119: car/fuel owners deferred.
+        pumper_start_unsupported();
+    }
+
+    #[test]
+    fn savegame_size_rva_81190_is_unsupported_stub() {
+        // STUB: GAME 0x481190 (VA 0x481190), mafia-re fe7e746
+        // game/actors/C_pumper.cpp:101-106: base chunk owner deferred.
+        pumper_savegame_size_unsupported();
+    }
+
+    #[test]
+    fn savegame_save_rva_811a0_is_unsupported_stub() {
+        // STUB: GAME 0x4811a0 (VA 0x4811a0), mafia-re fe7e746
+        // game/actors/C_pumper.cpp:108-113: record owner deferred.
+        pumper_savegame_save_unsupported();
+    }
+
+    #[test]
+    fn savegame_load_rva_813e0_is_unsupported_stub() {
+        // STUB: GAME 0x4813e0 (VA 0x4813e0), mafia-re fe7e746
+        // game/actors/C_pumper.cpp:128-132: record owner deferred.
+        pumper_savegame_load_unsupported();
     }
 }

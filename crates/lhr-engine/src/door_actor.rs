@@ -274,6 +274,46 @@ impl Default for DoorControlState {
     }
 }
 
+/// RVA 0x39390, VA 0x439390 (`C_door::~C_door`, mafia-re fe7e746
+/// `game/actors/C_door.cpp:15-19`).
+/// FUNCTION marker: the declared destructor body is empty apart from the
+/// compiler-emitted vtable store handled by construction; no byte is read or
+/// written, so the host drop path performs no additional work.
+pub fn door_destructor_empty() {}
+
+/// Working-name projection of `C_door::ResetUnknown110` (mafia-re fe7e746
+/// `game/actors/C_door.h:49-55`: `unknown_114/118/110 = 0`, invoked by
+/// `C_game::Init`). No standalone GAME entry exists for the three stores, so
+/// no RVA is claimed here. The stores run in place on the derived bytes.
+impl DoorState {
+    pub fn reset_unknown110(&mut self) {
+        self.put_word(0x110, 0);
+        self.put_word(0x114, 0);
+        self.put_word(0x118, 0);
+    }
+
+    /// Working-name read of the `locked` byte at +0x125 (mafia-re fe7e746
+    /// `game/actors/C_door.h:57-65`: `DOOR_LOCK`'s flag). The script path
+    /// writes the byte in place and no standalone FUNCTION copy exists, so no
+    /// RVA is claimed here.
+    pub fn is_locked(&self) -> bool {
+        self.bytes[0x125] != 0
+    }
+
+    /// Working-name store of the `locked` byte at +0x125. Same ownership note
+    /// as [`DoorState::is_locked`].
+    pub fn set_locked(&mut self, locked: bool) {
+        self.put_byte(0x125, u8::from(locked));
+    }
+}
+
+/// RVA 0x3bab0, VA 0x43bab0 (`C_door::GetBoundPoints2D`, mafia-re fe7e746
+/// `game/actors/C_door.cpp:125-131`).
+/// STUB: explicit Unsupported. The native body logs and delegates to
+/// `C_actor::GetBoundPoints2D`; the frame/sector owners that resolve the
+/// hierarchy points do not exist here, so no points are produced.
+pub fn door_bound_points_2d_unsupported() {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,5 +429,50 @@ mod tests {
         assert!(!control.using_enabled());
         control.enable_using_object(true);
         assert!(control.using_enabled());
+    }
+
+    #[test]
+    fn door_destructor_empty_rva_39390_is_noop() {
+        // FUNCTION: GAME 0x439390 (VA 0x439390), mafia-re fe7e746
+        // game/actors/C_door.cpp:15-19: empty destructor body, no stores.
+        let before = constructed();
+        door_destructor_empty();
+        assert_eq!(constructed(), before);
+    }
+
+    #[test]
+    fn reset_unknown110_zeroes_three_words() {
+        // Working name: C_door::ResetUnknown110 (mafia-re fe7e746
+        // game/actors/C_door.h:49-55) has no standalone GAME entry.
+        let mut state = constructed();
+        state.put_load_word(0x110, 0x11111111);
+        state.put_load_word(0x114, 0x22222222);
+        state.put_load_word(0x118, 0x33333333);
+        state.reset_unknown110();
+        assert_eq!(state.word(0x110), 0);
+        assert_eq!(state.word(0x114), 0);
+        assert_eq!(state.word(0x118), 0);
+        // Neighbouring constructor words survive the reset.
+        assert_eq!(state.word(0x128), 0x3b83126f);
+    }
+
+    #[test]
+    fn locked_flag_round_trips() {
+        // Working name: +0x125 locked byte (mafia-re fe7e746
+        // game/actors/C_door.h:57-65), written in place by the script path.
+        let mut state = constructed();
+        assert!(!state.is_locked());
+        state.set_locked(true);
+        assert!(state.is_locked());
+        assert_eq!(state.bytes[0x125], 1);
+        state.set_locked(false);
+        assert!(!state.is_locked());
+    }
+
+    #[test]
+    fn door_bound_points_rva_3bab0_is_unsupported_stub() {
+        // STUB: GAME 0x43bab0 (VA 0x43bab0), mafia-re fe7e746
+        // game/actors/C_door.cpp:125-131: frame owner deferred.
+        door_bound_points_2d_unsupported();
     }
 }

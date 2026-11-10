@@ -16636,6 +16636,231 @@
       "symbol": "lhr_engine::turnout_actor::turnout_start",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x39390",
+      "va": "0x439390",
+      "name": "C_door::~C_door",
+      "symbol": "lhr_engine::door_actor::door_destructor_empty",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x3bab0",
+      "va": "0x43bab0",
+      "name": "C_door::GetBoundPoints2D",
+      "symbol": "lhr_engine::door_actor::door_bound_points_2d_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x805d0",
+      "va": "0x4805d0",
+      "name": "C_pumper::CanPump",
+      "symbol": "lhr_engine::pumper_actor::pumper_can_pump_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x80190",
+      "va": "0x480190",
+      "name": "C_pumper::Start",
+      "symbol": "lhr_engine::pumper_actor::pumper_start_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x81190",
+      "va": "0x481190",
+      "name": "C_pumper::SaveGameGetSize",
+      "symbol": "lhr_engine::pumper_actor::pumper_savegame_size_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x811a0",
+      "va": "0x4811a0",
+      "name": "C_pumper::SaveGameSave",
+      "symbol": "lhr_engine::pumper_actor::pumper_savegame_save_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x813e0",
+      "va": "0x4813e0",
+      "name": "C_pumper::SaveGameLoad",
+      "symbol": "lhr_engine::pumper_actor::pumper_savegame_load_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x32c10",
+      "va": "0x432c10",
+      "name": "C_detector::SaveGameGetSize",
+      "symbol": "lhr_engine::actor_world::detector_savegame_size_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x32c30",
+      "va": "0x432c30",
+      "name": "C_detector::SaveGameSave",
+      "symbol": "lhr_engine::actor_world::detector_savegame_save_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x32ca0",
+      "va": "0x432ca0",
+      "name": "C_detector::SaveGameLoad",
+      "symbol": "lhr_engine::actor_world::detector_savegame_load_stub",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x33c60",
+      "va": "0x433c60",
+      "name": "C_detector::UseDetector",
+      "symbol": "lhr_engine::actor_world::use_detector_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f75f0",
+      "va": "0x5f75f0",
+      "name": "G_IndicatorsClass::TimerGetTime",
+      "symbol": "lhr_engine::indicators::IndicatorsState::timer_get_time",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f9480",
+      "va": "0x5f9480",
+      "name": "G_IndicatorsClass::IntroSubtitlesAdd",
+      "symbol": "lhr_engine::indicators::IndicatorsState::intro_subtitles_add",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f9690",
+      "va": "0x5f9690",
+      "name": "G_IndicatorsClass::IntroSubtitlesAddSimple",
+      "symbol": "lhr_engine::indicators::IndicatorsState::intro_subtitles_add_simple",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f99b0",
+      "va": "0x5f99b0",
+      "name": "G_IndicatorsClass::MissionHelpClear",
+      "symbol": "lhr_engine::indicators::IndicatorsState::mission_help_clear",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f9a00",
+      "va": "0x5f9a00",
+      "name": "G_IndicatorsClass::MissionHelpAdd",
+      "symbol": "lhr_engine::indicators::IndicatorsState::mission_help_add",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f9ce0",
+      "va": "0x5f9ce0",
+      "name": "G_IndicatorsClass::MissionHelpSetTime",
+      "symbol": "lhr_engine::indicators::IndicatorsState::mission_help_set_time",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f9de0",
+      "va": "0x5f9de0",
+      "name": "G_IndicatorsClass::ConsoleAddTextByID",
+      "symbol": "lhr_engine::indicators::IndicatorsState::console_add_text_by_id",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa300",
+      "va": "0x5fa300",
+      "name": "G_IndicatorsClass::WideScreenSetOn",
+      "symbol": "lhr_engine::indicators::IndicatorsState::widescreen_set_on",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ea690",
+      "va": "0x5ea690",
+      "name": "GM_Menu::Destroy",
+      "symbol": "lhr_engine::menu::MenuStack::destroy",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ea6d0",
+      "va": "0x5ea6d0",
+      "name": "GM_Menu::ForceUpdate",
+      "symbol": "lhr_engine::menu::MenuStack::force_update",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb030",
+      "va": "0x5eb030",
+      "name": "GM_Menu::SetString",
+      "symbol": "lhr_engine::menu::MenuStack::set_string",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb140",
+      "va": "0x5eb140",
+      "name": "GM_Menu::SetPointer",
+      "symbol": "lhr_engine::menu::MenuStack::set_pointer",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb160",
+      "va": "0x5eb160",
+      "name": "GM_Menu::GetRangeFloat",
+      "symbol": "lhr_engine::menu::MenuStack::get_range_float",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1eb190",
+      "va": "0x5eb190",
+      "name": "GM_Menu::SetRangeDword",
+      "symbol": "lhr_engine::menu::MenuStack::set_range_dword",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
     }
   ],
   "vm": {

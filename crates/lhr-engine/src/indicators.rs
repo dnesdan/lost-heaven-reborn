@@ -818,6 +818,16 @@ impl IndicatorsState {
         self.timer_interval_ms / 1000
     }
 
+    /// `TimerGetTime` (GAME RVA 0x1f75f0, VA 0x5f75f0; reference mafia-re
+    /// pin fe7e746 `game/ui/g_indicators.cpp:429-435`, cited only): writes the
+    /// stored hour, minute and second into the three out-words, in that order.
+    /// The caller stages the words; no device or text owner is involved.
+    pub fn timer_get_time(&self, hour: &mut u32, minute: &mut u32, second: &mut u32) {
+        *hour = self.timer_hour;
+        *minute = self.timer_minute;
+        *second = self.timer_second;
+    }
+
     /// `TachometrSetGear` (GAME 0x5f8690, `g_indicators.cpp:951-955`): the
     /// gear's column is 11 texels apart; the flag picks the manual/automatic
     /// icon half (`C_Vehicle::auto_gearing`, `CTRL_GEARING`).
@@ -930,6 +940,49 @@ impl IndicatorsState {
     /// same retention note as `clear_subtitles`.
     pub fn clear_intro_subtitle_slots(&mut self) {}
 
+    /// `IntroSubtitlesAdd` (GAME RVA 0x1f9480, VA 0x5f9480; reference
+    /// mafia-re pin fe7e746 `game/ui/g_indicators.cpp:1076-1080`, cited
+    /// only): explicit-Unsupported STUB. The reference marks the body STUB
+    /// (opaque slot/text arguments, upstream names `a`/`b`); the
+    /// intro-subtitle text owner is missing, so no state changes and the call
+    /// is rejected.
+    pub fn intro_subtitles_add(&self, _a: u32, _b: u32) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("intro subtitle text owner"))
+    }
+
+    /// `IntroSubtitlesAddSimple` (GAME RVA 0x1f9690, VA 0x5f9690; reference
+    /// mafia-re pin fe7e746 `game/ui/g_indicators.cpp:1082-1086`, cited
+    /// only): explicit-Unsupported STUB, same missing owner as
+    /// `intro_subtitles_add`.
+    pub fn intro_subtitles_add_simple(&self, _id: u32) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("intro subtitle text owner"))
+    }
+
+    /// `MissionHelpClear` (GAME RVA 0x1f99b0, VA 0x5f99b0; reference mafia-re
+    /// pin fe7e746 `game/ui/g_indicators.cpp:1095-1099`, cited only):
+    /// explicit-Unsupported STUB. The reference marks the body STUB; the
+    /// mission-help text owner is missing, so no state changes and the call
+    /// is rejected.
+    pub fn mission_help_clear(&self) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("mission help text owner"))
+    }
+
+    /// `MissionHelpAdd` (GAME RVA 0x1f9a00, VA 0x5f9a00; reference mafia-re
+    /// pin fe7e746 `game/ui/g_indicators.cpp:1101-1105`, cited only):
+    /// explicit-Unsupported STUB, same missing owner as
+    /// `mission_help_clear`.
+    pub fn mission_help_add(&self, _id: u32) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("mission help text owner"))
+    }
+
+    /// `MissionHelpSetTime` (GAME RVA 0x1f9ce0, VA 0x5f9ce0; reference
+    /// mafia-re pin fe7e746 `game/ui/g_indicators.cpp:1107-1111`, cited
+    /// only): explicit-Unsupported STUB, same missing owner as
+    /// `mission_help_clear`.
+    pub fn mission_help_set_time(&self, _time: u32) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("mission help text owner"))
+    }
+
     /// `MapEnable` (GAME 0x5f9d10, `g_indicators.cpp:1106-1110`): the
     /// `textDatabase.GetText(0x5f)` refresh stays with the text owner.
     pub fn map_enable(&mut self, enable: bool) {
@@ -938,9 +991,23 @@ impl IndicatorsState {
 
     /// `ConsoleClear` (GAME 0x5f9d40, `g_indicators.cpp:1114-1117`): only the
     /// count clears; retained lines stay. `ConsoleAddText` (GAME 0x5f9d50)
-    /// and `ConsoleAddTextByID` are stubs/deferred (text owner).
+    /// stays deferred (text owner); `ConsoleAddTextByID` is an
+    /// explicit-Unsupported STUB (`console_add_text_by_id`).
     pub fn console_clear(&mut self) {
         self.console_count = 0;
+    }
+
+    /// `ConsoleAddTextByID` (GAME RVA 0x1f9de0, VA 0x5f9de0; reference
+    /// mafia-re pin fe7e746 `game/ui/g_indicators.cpp:1127-1131`, cited
+    /// only): explicit-Unsupported STUB. The reference marks the body STUB;
+    /// the console text-database owner is missing, so no line stages and the
+    /// call is rejected.
+    pub fn console_add_text_by_id(
+        &self,
+        _id: u32,
+        _color: u32,
+    ) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("console text owner"))
     }
 
     /// `CompassSetDestination` (GAME 0x5fa020, `g_indicators.cpp:1126-1129`):
@@ -951,10 +1018,19 @@ impl IndicatorsState {
 
     /// `WideScreenSetRatio` (GAME 0x5fa050, `g_indicators.cpp:1135-1203`):
     /// the `_VtxWideScreen` writes stay with the device owner; the ratio
-    /// stages. `WideScreenSetOn` (GAME 0x5fa300) is a stub and stays
-    /// deferred.
+    /// stages. `WideScreenSetOn` is an explicit-Unsupported STUB
+    /// (`widescreen_set_on`).
     pub fn set_widescreen_ratio(&mut self, ratio: f32) {
         self.widescreen_ratio = ratio;
+    }
+
+    /// `WideScreenSetOn` (GAME RVA 0x1fa300, VA 0x5fa300; reference mafia-re
+    /// pin fe7e746 `game/ui/g_indicators.cpp:1213-1217`, cited only):
+    /// explicit-Unsupported STUB. The reference marks the body STUB; the
+    /// widescreen vertex/device owner is missing, so the on/time pair stages
+    /// nothing and the call is rejected.
+    pub fn widescreen_set_on(&self, _on: bool, _time: u32) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("widescreen device owner"))
     }
 
     /// `FadeInOutIsDark` (GAME 0x5fa400, `g_indicators.cpp:1225-1228`).
@@ -1357,6 +1433,26 @@ impl std::fmt::Display for IndicatorsEffectError {
 }
 
 impl std::error::Error for IndicatorsEffectError {}
+
+/// Explicit-unsupported HUD call: the reference marks the body STUB or the
+/// device/text owner is missing, so the call changes no state and is
+/// rejected. The payload names the missing owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IndicatorsStubError {
+    Unsupported(&'static str),
+}
+
+impl std::fmt::Display for IndicatorsStubError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IndicatorsStubError::Unsupported(what) => {
+                write!(f, "unsupported indicators call: {what}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for IndicatorsStubError {}
 
 /// Real `LoadSaveEffects` backend for the three HUD-owned calls
 /// (`G_LoadSaveClass::Init` GAME 0x604ee0 at `g_loadsave.cpp:116-120`,
@@ -2111,5 +2207,98 @@ mod tests {
         assert_eq!(state.progress(), 0.25);
         state.set_progress(1.5);
         assert_eq!(state.progress(), 1.5);
+    }
+
+    #[test]
+    fn rva_1f75f0_timer_get_time_writes_stored_hms() {
+        // GAME VA 0x5f75f0 (RVA 0x1f75f0): three plain member stores, in
+        // hour/minute/second order.
+        let state = IndicatorsState::constructed(staged_clock());
+        let (mut hour, mut minute, mut second) = (0, 0, 0);
+        state.timer_get_time(&mut hour, &mut minute, &mut second);
+        assert_eq!((hour, minute, second), (13, 30, 45));
+        assert_eq!((hour, minute, second), state.timer_hms());
+    }
+
+    #[test]
+    fn rva_1f9480_intro_subtitles_add_is_unsupported() {
+        // GAME VA 0x5f9480 (RVA 0x1f9480): reference STUB, no state change.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.intro_subtitles_add(1, 2).unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("intro subtitle text owner")
+        );
+    }
+
+    #[test]
+    fn rva_1f9690_intro_subtitles_add_simple_is_unsupported() {
+        // GAME VA 0x5f9690 (RVA 0x1f9690): reference STUB, no state change.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.intro_subtitles_add_simple(7).unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("intro subtitle text owner")
+        );
+    }
+
+    #[test]
+    fn rva_1f99b0_mission_help_clear_is_unsupported() {
+        // GAME VA 0x5f99b0 (RVA 0x1f99b0): reference STUB, no state change.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.mission_help_clear().unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("mission help text owner")
+        );
+    }
+
+    #[test]
+    fn rva_1f9a00_mission_help_add_is_unsupported() {
+        // GAME VA 0x5f9a00 (RVA 0x1f9a00): reference STUB, no state change.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.mission_help_add(3).unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("mission help text owner")
+        );
+    }
+
+    #[test]
+    fn rva_1f9ce0_mission_help_set_time_is_unsupported() {
+        // GAME VA 0x5f9ce0 (RVA 0x1f9ce0): reference STUB, no state change.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.mission_help_set_time(100).unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("mission help text owner")
+        );
+    }
+
+    #[test]
+    fn rva_1f9de0_console_add_text_by_id_is_unsupported() {
+        // GAME VA 0x5f9de0 (RVA 0x1f9de0): reference STUB; the console count
+        // stays 0 and no line stages.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.console_add_text_by_id(5, 0xffffff).unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("console text owner")
+        );
+        assert_eq!(state.console_count(), 0);
+    }
+
+    #[test]
+    fn rva_1fa300_widescreen_set_on_is_unsupported() {
+        // GAME VA 0x5fa300 (RVA 0x1fa300): reference STUB; the staged ratio
+        // is untouched.
+        let mut state = IndicatorsState::constructed(staged_clock());
+        state.set_widescreen_ratio(0.25);
+        let error = state.widescreen_set_on(true, 30).unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("widescreen device owner")
+        );
+        assert_eq!(state.widescreen_ratio(), 0.25);
     }
 }

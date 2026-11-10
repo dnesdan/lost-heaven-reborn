@@ -563,6 +563,33 @@ pub fn debustize_frame_unsupported() {}
 /// the same walk for the shadow mode. The frame/visual owners do not exist
 /// here, so no mode is cleared.
 pub fn no_shadow_frame_unsupported() {}
+/// RVA 0x32c10, VA 0x432c10 (`C_detector::SaveGameGetSize`, mafia-re fe7e746
+/// `game/actors/C_detector.cpp:83-88`).
+/// STUB: the upstream body logs and returns 0 without touching a buffer; the
+/// save-record owner does not exist here, so the stub literal is returned.
+pub fn detector_savegame_size_stub() -> i32 {
+    0
+}
+/// RVA 0x32c30, VA 0x432c30 (`C_detector::SaveGameSave`, mafia-re fe7e746
+/// `game/actors/C_detector.cpp:90-95`).
+/// STUB: the upstream body logs and returns false; the save buffer cursor
+/// lives with the deferred record owner, so the stub literal is returned.
+pub fn detector_savegame_save_stub() -> bool {
+    false
+}
+/// RVA 0x32ca0, VA 0x432ca0 (`C_detector::SaveGameLoad`, mafia-re fe7e746
+/// `game/actors/C_detector.cpp:97-102`).
+/// STUB: the upstream body logs and returns false; the load buffer cursor
+/// lives with the deferred record owner, so the stub literal is returned.
+pub fn detector_savegame_load_stub() -> bool {
+    false
+}
+/// RVA 0x33c60, VA 0x433c60 (`C_detector::UseDetector`, mafia-re fe7e746
+/// `game/actors/C_detector.cpp:305-308`).
+/// STUB: explicit Unsupported. Taking the using object away and ending the
+/// script's wait runs through the using-object/script owners, which do not
+/// exist here, so no state is changed.
+pub fn use_detector_unsupported() {}
 /// Byte offset of the 0x24 pos triplet inside the staged 0x21 window.
 const POS_WINDOW_OFFSET: usize = 0x24 - 0x21;
 /// Byte offset of the 0x30 dir triplet inside the staged 0x21 window.
@@ -6912,6 +6939,31 @@ mod tests {
         );
         // The rejected store must not touch base bytes.
         assert_eq!(w.state(a).unwrap().bytes_64_65, [0x65; 2]);
+    }
+    #[test]
+    fn detector_savegame_size_rva_32c10_returns_stub_zero() {
+        // STUB: GAME 0x432c10 (VA 0x432c10), mafia-re fe7e746
+        // game/actors/C_detector.cpp:83-88: logs and returns 0.
+        assert_eq!(detector_savegame_size_stub(), 0);
+    }
+    #[test]
+    fn detector_savegame_save_rva_32c30_returns_stub_false() {
+        // STUB: GAME 0x432c30 (VA 0x432c30), mafia-re fe7e746
+        // game/actors/C_detector.cpp:90-95: logs and returns false.
+        assert!(!detector_savegame_save_stub());
+    }
+    #[test]
+    fn detector_savegame_load_rva_32ca0_returns_stub_false() {
+        // STUB: GAME 0x432ca0 (VA 0x432ca0), mafia-re fe7e746
+        // game/actors/C_detector.cpp:97-102: logs and returns false.
+        assert!(!detector_savegame_load_stub());
+    }
+    #[test]
+    fn use_detector_rva_33c60_is_unsupported_stub() {
+        // STUB: GAME 0x433c60 (VA 0x433c60), mafia-re fe7e746
+        // game/actors/C_detector.cpp:305-308: using-object/script owners
+        // deferred.
+        use_detector_unsupported();
     }
     #[test]
     fn detector_process_owners_default_clear_and_round_trip() {

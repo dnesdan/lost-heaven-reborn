@@ -453,7 +453,13 @@ class RewriteProgressTests(unittest.TestCase):
         # PlayerPromluvil/ActivateFree/SetNewNode/EndMavani/Deactivate/
         # Lock/Unlock/GetVagon/GetEntry/SetRainDummy/Start; subagent counter
         # bug fixed to STUB; all held as contract).
-        self.assertEqual(game["ported"], 149 + 907)
+        # +11 door/pumper/detector contracts (Dtor/GetBoundPoints2D/CanPump/
+        # Start/SaveGame x3 + SaveGame x3/UseDetector; 0x81840 ledger-dup held,
+        # 3 working-name uncredited; all held as contract).
+        # +14 indicators/menu contracts (TimerGetTime/IntroSubtitles x2/
+        # MissionHelp x3/ConsoleAddText/WideScreen + Destroy/ForceUpdate/
+        # SetString/SetPointer/GetRangeFloat/SetRangeDword; marker-only).
+        self.assertEqual(game["ported"], 149 + 932)
         self.assertEqual(game["verified"], 149 + 512)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
