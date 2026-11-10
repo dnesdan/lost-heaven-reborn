@@ -537,6 +537,26 @@ impl MissionActorNumberState {
     pub fn last_actor_number(&self) -> i32 {
         self.last_actor_number
     }
+
+    /// Working name (no outline RVA; counter stage, mafia-re
+    /// `game/mission/Mission.h:119-121` at pin 113b5b6,
+    /// `C_mission::last_actor_number` at +0x8): stages the number
+    /// `C_actor::Init` assigns. The numbering itself stays with the actor
+    /// owner (DEFERRED); `Open` (`Mission.cpp:626`) only clears it via
+    /// `reset_last_actor_number`. No dedicated mission setter exists, so no
+    /// Game.exe function entry is claimed.
+    pub fn set_last_actor_number(&mut self, value: i32) {
+        self.last_actor_number = value;
+    }
+
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:119-121`): whether any actor number has been
+    /// staged (nonzero). The native word is tested inline where the actor
+    /// registry consumes it, with no dedicated flag getter, so no Game.exe
+    /// function entry is claimed.
+    pub fn has_last_actor_number(&self) -> bool {
+        self.last_actor_number != 0
+    }
 }
 
 /// Cutscene flag bits of `C_actor::act_flags` (mafia-re pin 113b5b6,
@@ -867,6 +887,25 @@ impl MissionCounterState {
     /// with no dedicated getter, so no Game.exe function entry is claimed.
     pub fn has_skip_frames(&self) -> bool {
         self.skip_frames != 0
+    }
+
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:123-124`, `C_mission::render_number` at
+    /// +0x64): whether a render number is staged (nonzero). `Tick` copies
+    /// the scene number each frame and tests it inline with no dedicated
+    /// flag getter, so no Game.exe function entry is claimed.
+    pub fn has_render_number(&self) -> bool {
+        self.render_number != 0
+    }
+
+    /// Working name (no outline RVA; flag read, mafia-re
+    /// `game/mission/Mission.h:140-143`, `C_mission::mission_number` at +0x74):
+    /// whether a current mission number is staged (nonzero). The native word
+    /// is read by `GetMissionNumber` and consumed where `CHANGE_MISSION`
+    /// applies it, with no dedicated nonzero getter, so no Game.exe function
+    /// entry is claimed.
+    pub fn has_mission_number(&self) -> bool {
+        self.mission_number != 0
     }
 }
 
@@ -1705,6 +1744,57 @@ mod tests {
         assert_eq!(state.get_skip_frames(), 10);
         state.set_skip_frames(0);
         assert!(!state.has_skip_frames());
+    }
+
+    #[test]
+    fn actor_number_stage_working_name_stores_number() {
+        // last_actor_number at +0x8 (Mission.h:119-121); C_actor::Init
+        // stages it, Open clears it (Mission.cpp:626). No outline RVA.
+        let mut state = MissionActorNumberState::default();
+        assert_eq!(state.last_actor_number(), 0);
+        state.set_last_actor_number(41);
+        assert_eq!(state.last_actor_number(), 41);
+        state.reset_last_actor_number();
+        assert_eq!(state.last_actor_number(), 0);
+    }
+
+    #[test]
+    fn has_last_actor_number_working_name_tracks_presence() {
+        // Nonzero test of last_actor_number; no dedicated getter in the
+        // reference, so no RVA is claimed.
+        let mut state = MissionActorNumberState::default();
+        assert!(!state.has_last_actor_number());
+        state.set_last_actor_number(7);
+        assert!(state.has_last_actor_number());
+        state.set_last_actor_number(0);
+        assert!(!state.has_last_actor_number());
+    }
+
+    #[test]
+    fn has_render_number_working_name_tracks_staged_latch() {
+        // render_number at +0x64 (Mission.h:123-124); Tick copies it.
+        // No dedicated flag getter, so no RVA is claimed.
+        let mut state = MissionCounterState::default();
+        assert!(!state.has_render_number());
+        state.set_render_number(44);
+        assert!(state.has_render_number());
+        assert_eq!(state.get_render_number(), 44);
+        state.set_render_number(0);
+        assert!(!state.has_render_number());
+    }
+
+    #[test]
+    fn has_mission_number_working_name_tracks_current_slot() {
+        // mission_number at +0x74 (Mission.h:140-143); KeepMissionNumber
+        // writes it. No dedicated nonzero getter, so no RVA is claimed.
+        let mut state = MissionCounterState::default();
+        assert!(!state.has_mission_number());
+        state.set_mission_number(6);
+        state.keep_mission_number();
+        assert!(state.has_mission_number());
+        assert_eq!(state.get_mission_number(), 6);
+        state.reset_mission_numbers();
+        assert!(!state.has_mission_number());
     }
 
     #[test]

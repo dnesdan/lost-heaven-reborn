@@ -212,6 +212,16 @@ impl MissionOptions {
         self.far_range
     }
 
+    /// Working name (no outline RVA; inline store, mafia-re
+    /// `game/mission/Mission.cpp:891,897,940` at pin 113b5b6,
+    /// `C_mission::OpenBin`): stages the camera range `Open` keeps in
+    /// `far_range` (+0x8). `OpenBin` writes the parsed value (250.0 or the
+    /// file's own) with no dedicated setter, so no Game.exe function entry
+    /// is claimed.
+    pub fn set_far_range(&mut self, range: f32) {
+        self.far_range = range;
+    }
+
     /// Working name (no outline RVA; inline read-only, mafia-re
     /// `game/mission/Mission.h:28`, `S_mission_options::game_effects` at
     /// +0xc): reads the stored effects level. The native body is inlined
@@ -587,6 +597,18 @@ mod tests {
         assert_eq!(options.get_far_range(), 0.0);
         options.far_range = 250.0;
         assert_eq!(options.get_far_range(), 250.0);
+    }
+
+    #[test]
+    fn set_far_range_working_name_stages_camera_range() {
+        // Working name: OpenBin far_range store (Mission.cpp:891,897,940,
+        // +0x8); no outline setter exists, so no RVA is claimed.
+        let mut options = MissionOptions::new();
+        assert_eq!(options.get_far_range(), 0.0);
+        options.set_far_range(250.0);
+        assert_eq!(options.get_far_range(), 250.0);
+        options.set_far_range(123.5);
+        assert_eq!(options.get_far_range(), 123.5);
     }
 
     #[test]

@@ -1618,6 +1618,162 @@ impl PoliceGameInitState {
         false
     }
 
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half for the record `car` latch (`S_shvestky::car` at +0x4, mafia-re
+    /// game/ai/C_shvestky.h:62, owned by `DriveCar` 0x49cbb0 and `AddPerson`
+    /// 0x49c7e0): scans the records back to front for the human and returns
+    /// that record's car (`None` for the native null, or without a record).
+    /// The single record-effect outline covers the field write, so no second
+    /// RVA is claimed.
+    pub fn car_for_human(&self, human: PoliceHumanId) -> Option<PoliceActorId> {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.car();
+            }
+        }
+        None
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half for the record `flags2` word (`S_shvestky::flags2` at +0xa,
+    /// `SHVF2_*`, mafia-re game/ai/C_shvestky.h:30-32): scans the records
+    /// back to front for the human and returns that record's word (`0`
+    /// without a record). The native word is touched inline in `Tick`
+    /// 0x49a300 with no dedicated getter, so no RVA is claimed.
+    pub fn flags2_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.flags2();
+            }
+        }
+        0
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half for the record `SHVF_FIRE` bit (mafia-re game/ai/C_shvestky.h:17,
+    /// `Firing` 0x49cb20): scans the records back to front for the human and
+    /// returns that record's bit (`false` without a record). No second RVA
+    /// is claimed.
+    pub fn has_fire_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_fire();
+            }
+        }
+        false
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half for the record `SHVF_BOXING` bit (mafia-re
+    /// game/ai/C_shvestky.h:22, `HumanBoxing` 0x49d030): scans the records
+    /// back to front for the human and returns that record's bit (`false`
+    /// without a record). No second RVA is claimed.
+    pub fn has_boxing_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_boxing();
+            }
+        }
+        false
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half for the record `SHVF2_CRASH` bits (mafia-re
+    /// game/ai/C_shvestky.h:30-32, `flags2` crash bits cleared once
+    /// `crash_time` runs out): scans the records back to front for the human
+    /// and returns that record's bits (`false` without a record). The native
+    /// word is maintained inline in `Tick` 0x49a300, so no RVA is claimed.
+    pub fn has_flags2_crash_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_flags2_crash();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): manager lookup half for
+    /// the record ground position (`S_shvestky::pos` at +0x34, `S_vector2`,
+    /// mafia-re game/ai/C_shvestky.h:80): scans the records back to front
+    /// for the human and returns that record's `[x, z]` (`None` without a
+    /// record). `TestOverRed` reads the previous value and stores the current
+    /// car position inline with no dedicated getter, so no RVA is claimed.
+    pub fn pos_for_human(&self, human: PoliceHumanId) -> Option<[f32; 2]> {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return Some(record.pos());
+            }
+        }
+        None
+    }
+
+    /// Working name (no outline entry is claimed): manager lookup half for
+    /// the record hard-ram latch (`S_shvestky::hard_ram` at +0x6c, mafia-re
+    /// game/ai/C_shvestky.h:109, staged by `set_hard_ram` for the
+    /// `CarCollision` owner): scans the records back to front for the human
+    /// and returns that record's latch (`false` without a record). No
+    /// dedicated native getter exists, so no RVA is claimed.
+    pub fn hard_ram_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.is_hard_ram();
+            }
+        }
+        false
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::PocetNasranych` 0x49d460 (already ported by
+    /// `angry_count`): scans the records back to front for the human and
+    /// returns the length of the index-aligned angry list (`0` without a
+    /// record or past the shared prefix). The caller keeps each record's
+    /// angry list; `angry` runs index-aligned with `records` like
+    /// `raise_record_state_for_human`. The single outline covers the lookup
+    /// plus the count, so no second RVA is claimed.
+    pub fn angry_count_for_human(
+        &self,
+        angry: &[Vec<PoliceActorId>],
+        human: PoliceHumanId,
+    ) -> usize {
+        for (index, record) in self.records.iter().enumerate().rev() {
+            if record.human == human {
+                if index < angry.len() {
+                    return angry[index].len();
+                }
+                return 0;
+            }
+        }
+        0
+    }
+
+    /// Working name (no separate outline entry is claimed): manager lookup
+    /// half of `C_shvestky::PocetNasranychZivych` 0x49d4b0 (already ported by
+    /// `angry_alive_count`): scans the records back to front for the human
+    /// and counts the index-aligned angry actors the host reports alive (`0`
+    /// without a record or past the shared prefix). The host owns actors and
+    /// supplies the deadness probe; the single outline covers the lookup
+    /// plus the filtered count, so no second RVA is claimed.
+    pub fn angry_alive_count_for_human(
+        &self,
+        angry: &[Vec<PoliceActorId>],
+        human: PoliceHumanId,
+        is_dead: impl Fn(PoliceActorId) -> bool,
+    ) -> usize {
+        for (index, record) in self.records.iter().enumerate().rev() {
+            if record.human == human {
+                if index < angry.len() {
+                    return angry[index]
+                        .iter()
+                        .copied()
+                        .filter(|&actor| !is_dead(actor))
+                        .count();
+                }
+                return 0;
+            }
+        }
+        0
+    }
+
     /// Record road-block arm at GAME VA 0x49d2e0 (RVA 0x9d2e0): Ghidra
     /// procedure with a 35-instruction body (REA ev_e8aed070) that does
     /// nothing while the manager is inactive, then scans the records back to
@@ -5362,6 +5518,131 @@ mod tests {
         state.records.push(flagged);
         assert!(state.has_illegal_path_for_human(7));
         assert!(!state.has_illegal_path_for_human(8));
+    }
+
+    #[test]
+    fn car_for_human_working_name_reads_latest_car_or_none() {
+        // Working name: DriveCar/AddPerson car latch; None without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.car_for_human(7), None);
+        let mut first = PolicePursuitRecord::new(7);
+        first.apply_drive_car(Some(11));
+        let mut second = PolicePursuitRecord::new(7);
+        second.apply_drive_car(Some(13));
+        state.records.push(first);
+        state.records.push(second);
+        assert_eq!(state.car_for_human(7), Some(13));
+        assert_eq!(state.car_for_human(8), None);
+    }
+
+    #[test]
+    fn flags2_for_human_working_name_reads_latest_word_or_zero() {
+        // Working name: inline-only flags2 read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.flags2_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.flags2 = SHVF2_CRASH;
+        state.records.push(record);
+        assert_eq!(state.flags2_for_human(7), SHVF2_CRASH);
+        assert_eq!(state.flags2_for_human(8), 0);
+    }
+
+    #[test]
+    fn has_fire_for_human_working_name_reads_latest_bit_or_false() {
+        // Working name: Firing SHVF_FIRE bit; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_fire_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        record.record_firing(1200);
+        state.records.push(record);
+        assert!(state.has_fire_for_human(7));
+        assert!(!state.has_fire_for_human(8));
+    }
+
+    #[test]
+    fn has_boxing_for_human_working_name_reads_latest_bit_or_false() {
+        // Working name: HumanBoxing SHVF_BOXING bit; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_boxing_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        record.record_boxing();
+        state.records.push(record);
+        assert!(state.has_boxing_for_human(7));
+        assert!(!state.has_boxing_for_human(8));
+    }
+
+    #[test]
+    fn has_flags2_crash_for_human_working_name_reads_latest_bits_or_false() {
+        // Working name: inline-only SHVF2_CRASH bits; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_flags2_crash_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        record.flags2 = SHVF2_CRASH;
+        state.records.push(record);
+        assert!(state.has_flags2_crash_for_human(7));
+        assert!(!state.has_flags2_crash_for_human(8));
+    }
+
+    #[test]
+    fn pos_for_human_working_name_reads_latest_position_or_none() {
+        // Working name: TestOverRed S_vector2 pos; None without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.pos_for_human(7), None);
+        let mut record = PolicePursuitRecord::new(7);
+        record.set_pos(1.5, -2.5);
+        state.records.push(record);
+        assert_eq!(state.pos_for_human(7), Some([1.5, -2.5]));
+        assert_eq!(state.pos_for_human(8), None);
+    }
+
+    #[test]
+    fn hard_ram_for_human_working_name_reads_latest_latch_or_false() {
+        // Working name: CarCollision hard_ram latch; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.hard_ram_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        record.set_hard_ram(true);
+        state.records.push(record);
+        assert!(state.hard_ram_for_human(7));
+        assert!(!state.hard_ram_for_human(8));
+    }
+
+    #[test]
+    fn angry_count_for_human_working_name_counts_index_aligned_list() {
+        // Working name: PocetNasranych lookup half; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        let empty: Vec<Vec<PoliceActorId>> = Vec::new();
+        assert_eq!(state.angry_count_for_human(&empty, 7), 0);
+        state.records.push(PolicePursuitRecord::new(7));
+        state.records.push(PolicePursuitRecord::new(9));
+        let angry = vec![vec![1, 2], vec![3]];
+        assert_eq!(state.angry_count_for_human(&angry, 7), 2);
+        assert_eq!(state.angry_count_for_human(&angry, 9), 1);
+        assert_eq!(state.angry_count_for_human(&angry, 8), 0);
+        // Past the shared prefix the lookup cannot reach the list.
+        let short = vec![vec![1]];
+        assert_eq!(state.angry_count_for_human(&short, 9), 0);
+    }
+
+    #[test]
+    fn angry_alive_count_for_human_working_name_counts_living_only() {
+        // Working name: PocetNasranychZivych lookup half; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        let empty: Vec<Vec<PoliceActorId>> = Vec::new();
+        assert_eq!(
+            state.angry_alive_count_for_human(&empty, 7, |_| false),
+            0
+        );
+        state.records.push(PolicePursuitRecord::new(7));
+        let angry = vec![vec![1, 2, 3]];
+        assert_eq!(
+            state.angry_alive_count_for_human(&angry, 7, |actor| actor == 2),
+            2
+        );
+        assert_eq!(
+            state.angry_alive_count_for_human(&angry, 8, |_| false),
+            0
+        );
     }
 
     #[test]
