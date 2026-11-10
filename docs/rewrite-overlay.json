@@ -15781,6 +15781,132 @@
       "symbol": "lhr_engine::vehicle_small_accessors::car_get_inv_model_matrix",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (record/cutscene/base owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6ca80",
+      "va": "0x46ca80",
+      "name": "C_program::GetFloatReg",
+      "symbol": "lhr_engine::original_program::get_float_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::get_float_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cae0",
+      "va": "0x46cae0",
+      "name": "C_program::SetFloatReg",
+      "symbol": "lhr_engine::original_program::set_float_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::set_float_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6caa0",
+      "va": "0x46caa0",
+      "name": "C_program::GetFrameReg",
+      "symbol": "lhr_engine::original_program::get_frame_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::get_frame_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cb00",
+      "va": "0x46cb00",
+      "name": "C_program::SetFrameReg",
+      "symbol": "lhr_engine::original_program::set_frame_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::set_frame_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cac0",
+      "va": "0x46cac0",
+      "name": "C_program::GetActorReg",
+      "symbol": "lhr_engine::original_program::get_actor_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::get_actor_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cb20",
+      "va": "0x46cb20",
+      "name": "C_program::SetActorReg",
+      "symbol": "lhr_engine::original_program::set_actor_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::set_actor_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cec0",
+      "va": "0x46cec0",
+      "name": "C_program::InvalidateActorReg",
+      "symbol": "lhr_engine::original_program::invalidate_actor_reg",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::invalidate_actor_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6ce70",
+      "va": "0x46ce70",
+      "name": "C_program::IsEventID",
+      "symbol": "lhr_engine::original_program::program_is_event_id",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_is_event_id (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b010",
+      "va": "0x47b010",
+      "name": "C_program::SetAIPriority",
+      "symbol": "lhr_engine::original_program::program_set_ai_priority",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_set_ai_priority (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6d380",
+      "va": "0x46d380",
+      "name": "C_program::FindActorLater",
+      "symbol": "lhr_engine::original_program::program_find_actor_later",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_find_actor_later (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6ccf0",
+      "va": "0x46ccf0",
+      "name": "C_program::ClearAfterEnd",
+      "symbol": "lhr_engine::original_program::program_clear_after_end",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_clear_after_end (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cef0",
+      "va": "0x46cef0",
+      "name": "C_program::SaveGameGetSize",
+      "symbol": "lhr_engine::original_program::program_save_game_size",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_save_game_size (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6cf70",
+      "va": "0x46cf70",
+      "name": "C_program::SaveGameSave",
+      "symbol": "lhr_engine::original_program::program_save_game_save",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_save_game_save (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x6d100",
+      "va": "0x46d100",
+      "name": "C_program::SaveGameLoad",
+      "symbol": "lhr_engine::original_program::program_save_game_load",
+      "tier": "contract",
+      "evidence": "Canonical path crate::original_program::owned_runtime::program_save_game_load (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

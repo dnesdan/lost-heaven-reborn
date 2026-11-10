@@ -429,7 +429,10 @@ class RewriteProgressTests(unittest.TestCase):
         # GetRecordPos/GetRecordRot x2 + GetMaterialID/ChangeState/Sounds/
         # SaveLoad/PlayStep/AddToCutscene/GetInvModelMatrix car STUBs;
         # all held as contract).
-        self.assertEqual(game["ported"], 149 + 824)
+        # +14 program register contracts (Get/SetFloat/Frame/ActorReg,
+        # InvalidateActorReg/IsEventID/SetAIPriority/STUBs x5;
+        # owned_runtime symbols shortened per validator module rules).
+        self.assertEqual(game["ported"], 149 + 838)
         self.assertEqual(game["verified"], 149 + 499)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

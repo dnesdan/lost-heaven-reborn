@@ -210,6 +210,228 @@ impl RuntimeView<'_> {
     }
 }
 impl RuntimeFields {
+    /// Original `C_program::GetFloatReg` (mafia-re game/mission/C_program.cpp
+    /// at pin 113b5b6; FUNCTION: GAME VA 0x46ca80, RVA 0x6ca80): reads float
+    /// register `index`. A negative or out-of-range index reads 0.0, as
+    /// natively. A missing bank reads 0.0: `DIM_FLT` zero-fills the admitted
+    /// bank, so no allocation happens here.
+    pub fn get_float_reg(&self, index: i32) -> f32 {
+        if index < 0 {
+            return 0.0;
+        }
+        self.floats
+            .as_ref()
+            .and_then(|bank| bank.get(index as usize).copied())
+            .unwrap_or(0.0)
+    }
+
+    /// Original `C_program::SetFloatReg` (mafia-re game/mission/C_program.cpp
+    /// at pin 113b5b6; FUNCTION: GAME VA 0x46cae0, RVA 0x6cae0): stores float
+    /// register `index`. A negative or out-of-range index stores nothing, and
+    /// a missing bank stores nothing, as natively.
+    pub fn set_float_reg(&mut self, index: i32, value: f32) {
+        if index < 0 {
+            return;
+        }
+        if let Some(bank) = self.floats.as_mut() {
+            if let Some(slot) = bank.get_mut(index as usize) {
+                *slot = value;
+            }
+        }
+    }
+
+    /// Original `C_program::GetFrameReg` (mafia-re game/mission/C_program.cpp
+    /// at pin 113b5b6; FUNCTION: GAME VA 0x46caa0, RVA 0x6caa0): reads frame
+    /// register `index`. Native null (a negative or out-of-range index, an
+    /// empty slot, a missing bank) reads as `None`; a stored reference reads
+    /// as `Some`. An uninitialized slot also reads as `None`: `DIM_FRM`
+    /// zero-fills the admitted bank (native null), so it is unreachable in
+    /// admitted state and disclosed here.
+    pub fn get_frame_reg(&self, index: i32) -> Option<FrameReferenceId> {
+        if index < 0 {
+            return None;
+        }
+        match self.frames.as_ref()?.get(index as usize)? {
+            RuntimeReferenceSlot::Reference(id) => Some(*id),
+            RuntimeReferenceSlot::Empty | RuntimeReferenceSlot::Uninitialized => None,
+        }
+    }
+
+    /// Original `C_program::SetFrameReg` (mafia-re game/mission/C_program.cpp
+    /// at pin 113b5b6; FUNCTION: GAME VA 0x46cb00, RVA 0x6cb00): stores frame
+    /// register `index`. Native null stores as an empty slot. A negative or
+    /// out-of-range index stores nothing, and a missing bank stores nothing,
+    /// as natively.
+    pub fn set_frame_reg(&mut self, index: i32, frame: Option<FrameReferenceId>) {
+        if index < 0 {
+            return;
+        }
+        if let Some(bank) = self.frames.as_mut() {
+            if let Some(slot) = bank.get_mut(index as usize) {
+                *slot = match frame {
+                    Some(id) => RuntimeReferenceSlot::Reference(id),
+                    None => RuntimeReferenceSlot::Empty,
+                };
+            }
+        }
+    }
+
+    /// Original `C_program::GetActorReg` (mafia-re game/mission/C_program.cpp
+    /// at pin 113b5b6; FUNCTION: GAME VA 0x46cac0, RVA 0x6cac0): reads actor
+    /// register `index`. Native null (a negative or out-of-range index, an
+    /// empty slot, a missing bank) reads as `None`; a stored reference reads
+    /// as `Some`. An uninitialized slot also reads as `None`, same admission
+    /// as `get_frame_reg`.
+    pub fn get_actor_reg(&self, index: i32) -> Option<ActorReferenceId> {
+        if index < 0 {
+            return None;
+        }
+        match self.actors.as_ref()?.get(index as usize)? {
+            RuntimeReferenceSlot::Reference(id) => Some(*id),
+            RuntimeReferenceSlot::Empty | RuntimeReferenceSlot::Uninitialized => None,
+        }
+    }
+
+    /// Original `C_program::SetActorReg` (mafia-re game/mission/C_program.cpp
+    /// at pin 113b5b6; FUNCTION: GAME VA 0x46cb20, RVA 0x6cb20): stores actor
+    /// register `index`. Native null stores as an empty slot. A negative or
+    /// out-of-range index stores nothing, and a missing bank stores nothing,
+    /// as natively.
+    pub fn set_actor_reg(&mut self, index: i32, actor: Option<ActorReferenceId>) {
+        if index < 0 {
+            return;
+        }
+        if let Some(bank) = self.actors.as_mut() {
+            if let Some(slot) = bank.get_mut(index as usize) {
+                *slot = match actor {
+                    Some(id) => RuntimeReferenceSlot::Reference(id),
+                    None => RuntimeReferenceSlot::Empty,
+                };
+            }
+        }
+    }
+
+    /// Original `C_program::InvalidateActorReg` (mafia-re
+    /// game/mission/C_program.cpp at pin 113b5b6; FUNCTION: GAME VA 0x46cec0,
+    /// RVA 0x6cec0): clears every actor register holding `actor` back to the
+    /// empty (native null) slot. The native back-to-front order is
+    /// unobservable: every match is cleared either way.
+    pub fn invalidate_actor_reg(&mut self, actor: ActorReferenceId) {
+        if let Some(bank) = self.actors.as_mut() {
+            for slot in bank.iter_mut() {
+                if *slot == RuntimeReferenceSlot::Reference(actor) {
+                    *slot = RuntimeReferenceSlot::Empty;
+                }
+            }
+        }
+    }
+}
+
+/// Still-unimplemented `C_program` register-adjacent calls. Entries name the
+/// original PC addresses; the game actor, saved-code and chunk owners stay
+/// outside this contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgramRegistryError {
+    Unsupported { entry: u32 },
+}
+
+/// `C_program::FindActorLater` 0x46d380.
+pub const FIND_ACTOR_LATER_ENTRY: u32 = 0x46d380;
+/// `C_program::ClearAfterEnd` 0x46ccf0.
+pub const CLEAR_AFTER_END_ENTRY: u32 = 0x46ccf0;
+/// `C_program::SaveGameGetSize` 0x46cef0.
+pub const PROGRAM_SAVE_GAME_SIZE_ENTRY: u32 = 0x46cef0;
+/// `C_program::SaveGameSave` 0x46cf70.
+pub const PROGRAM_SAVE_GAME_SAVE_ENTRY: u32 = 0x46cf70;
+/// `C_program::SaveGameLoad` 0x46d100.
+pub const PROGRAM_SAVE_GAME_LOAD_ENTRY: u32 = 0x46d100;
+
+/// Original `C_program::IsEventID` (mafia-re game/mission/C_program.cpp at pin
+/// 113b5b6; FUNCTION: GAME VA 0x46ce70, RVA 0x6ce70): whether the decoded
+/// instructions hold an `EVENT` of that id, with its extra parameter. Scans
+/// the active instructions back to front; the first hit from the end wins,
+/// matching the native `while (i--)` order. Only decoded `EVENT` payloads
+/// match (opcode 73, the same gate `try_set_event` uses). Like the native
+/// `if (param) *param = p[1]`, a hit always reports the stored extra word
+/// (the decoder stores 0 for a parameterless `event <id>`).
+pub fn program_is_event_id(instructions: &InstructionStorage, id: i32) -> (bool, Option<i32>) {
+    for instruction in instructions.active().iter().rev() {
+        if instruction.opcode != 73 {
+            continue;
+        }
+        if let Some(param) = instruction
+            .parameter
+            .as_ref()
+            .and_then(|payload| payload.event_parameter())
+        {
+            if param.id() == Some(id) {
+                return (true, param.extra());
+            }
+        }
+    }
+    (false, None)
+}
+
+/// Original `C_program::SetAIPriority` (mafia-re game/mission/C_program.h at
+/// pin 113b5b6; FUNCTION: GAME VA 0x47b010, RVA 0x7b010): stores the `ai_priority`
+/// word. The caller owns the word; this keeps the plain store with no
+/// scheduling side effect.
+pub fn program_set_ai_priority(slot: &mut f32, priority: f32) {
+    *slot = priority;
+}
+
+/// Original `C_program::FindActorLater` (mafia-re game/mission/C_program.cpp
+/// at pin 113b5b6; FUNCTION: GAME VA 0x46d380, RVA 0x6d380): writes the game's
+/// actor of that GUID into the actor register. The game actor-by-GUID owner
+/// (`C_game::GetActorFromGUID`) stays outside this contract, so the boundary
+/// is explicit.
+pub fn program_find_actor_later(_register: i32, _guid: u32) -> Result<(), ProgramRegistryError> {
+    Err(ProgramRegistryError::Unsupported {
+        entry: FIND_ACTOR_LATER_ENTRY,
+    })
+}
+
+/// Original `C_program::ClearAfterEnd` (mafia-re game/mission/C_program.cpp at
+/// pin 113b5b6; FUNCTION: GAME VA 0x46ccf0, RVA 0x6ccf0): restores the
+/// saved-code chain and parks the program's actor. The saved-code chain and
+/// the program actor owners stay outside this contract, so the boundary is
+/// explicit.
+pub fn program_clear_after_end() -> Result<(), ProgramRegistryError> {
+    Err(ProgramRegistryError::Unsupported {
+        entry: CLEAR_AFTER_END_ENTRY,
+    })
+}
+
+/// Original `C_program::SaveGameGetSize` (mafia-re game/mission/C_program.cpp
+/// at pin 113b5b6; STUB: GAME VA 0x46cef0, RVA 0x6cef0): the original only
+/// logs and returns zero. The save-chunk owner stays outside this contract,
+/// so the boundary is explicit.
+pub fn program_save_game_size() -> Result<u32, ProgramRegistryError> {
+    Err(ProgramRegistryError::Unsupported {
+        entry: PROGRAM_SAVE_GAME_SIZE_ENTRY,
+    })
+}
+
+/// Original `C_program::SaveGameSave` (mafia-re game/mission/C_program.cpp at
+/// pin 113b5b6; STUB: GAME VA 0x46cf70, RVA 0x6cf70): the original only logs
+/// and returns true. The save-chunk owner stays outside this contract, so the
+/// boundary is explicit.
+pub fn program_save_game_save() -> Result<bool, ProgramRegistryError> {
+    Err(ProgramRegistryError::Unsupported {
+        entry: PROGRAM_SAVE_GAME_SAVE_ENTRY,
+    })
+}
+
+/// Original `C_program::SaveGameLoad` (mafia-re game/mission/C_program.cpp at
+/// pin 113b5b6; STUB: GAME VA 0x46d100, RVA 0x6d100): the original only logs
+/// and returns true. The save-chunk owner stays outside this contract, so the
+/// boundary is explicit.
+pub fn program_save_game_load() -> Result<bool, ProgramRegistryError> {
+    Err(ProgramRegistryError::Unsupported {
+        entry: PROGRAM_SAVE_GAME_LOAD_ENTRY,
+    })
+}
+impl RuntimeFields {
     fn initialized() -> Self {
         Self {
             flags: RuntimeFlags::default(),
