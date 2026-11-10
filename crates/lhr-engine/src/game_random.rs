@@ -14,21 +14,31 @@ fn step(state: u32) -> u32 {
 #[derive(Debug)]
 pub struct GameRandom(Arc<AtomicU32>);
 impl Default for GameRandom {
-    fn default() -> Self { Self(Arc::new(AtomicU32::new(1))) }
+    fn default() -> Self {
+        Self(Arc::new(AtomicU32::new(1)))
+    }
 }
 impl GameRandom {
-    pub fn seed(&mut self, seed: u32) { self.0.store(seed, Ordering::Relaxed); }
+    pub fn seed(&mut self, seed: u32) {
+        self.0.store(seed, Ordering::Relaxed);
+    }
     /// Read-only observation; never a replacement gameplay owner.
-    pub fn state(&self) -> u32 { self.0.load(Ordering::Relaxed) }
+    pub fn state(&self) -> u32 {
+        self.0.load(Ordering::Relaxed)
+    }
     pub fn source(&self) -> GameRandomSource {
         GameRandomSource(Arc::downgrade(&self.0))
     }
 }
 impl Clone for GameRandom {
-    fn clone(&self) -> Self { Self(Arc::new(AtomicU32::new(self.state()))) }
+    fn clone(&self) -> Self {
+        Self(Arc::new(AtomicU32::new(self.state())))
+    }
 }
 impl PartialEq for GameRandom {
-    fn eq(&self, other: &Self) -> bool { self.state() == other.state() }
+    fn eq(&self, other: &Self) -> bool {
+        self.state() == other.state()
+    }
 }
 impl Eq for GameRandom {}
 
@@ -40,9 +50,15 @@ pub struct GameRandomSource(Weak<AtomicU32>);
 impl GameRandomSource {
     pub fn next_raw(&mut self) -> Option<u32> {
         let state = self.0.upgrade()?;
-        let previous = state.fetch_update(Ordering::Relaxed, Ordering::Relaxed,
-            |value| Some(step(value))).expect("random update always supplies a value");
-        Some((step(previous) >> 16) & 0x7fff)
+        let mut previous = state.load(Ordering::Relaxed);
+        loop {
+            let next = step(previous);
+            match state.compare_exchange_weak(previous, next, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => return Some((next >> 16) & 0x7fff),
+                Err(observed) => previous = observed,
+            }
+        }
     }
 }
 
@@ -54,8 +70,16 @@ mod tests {
         let owner = GameRandom::default();
         let mut a = owner.source();
         let mut b = a.clone();
-        assert_eq!([a.next_raw(), b.next_raw(), a.next_raw(), b.next_raw(), a.next_raw()],
-            [Some(41), Some(18467), Some(6334), Some(26500), Some(19169)]);
+        assert_eq!(
+            [
+                a.next_raw(),
+                b.next_raw(),
+                a.next_raw(),
+                b.next_raw(),
+                a.next_raw()
+            ],
+            [Some(41), Some(18467), Some(6334), Some(26500), Some(19169)]
+        );
     }
     #[test]
     fn reseeding_is_visible_to_existing_consumers() {

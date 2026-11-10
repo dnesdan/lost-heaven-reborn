@@ -10,7 +10,9 @@ fn initialized(source: &[u8], memory: &mut Memory) -> CProgram {
 fn run(p: &mut CProgram, memory: &mut Memory) -> Result<(), RuntimeError> {
     p.call_owned_process(7, &mut DispatchBudget::new(32).unwrap(), memory)
 }
-fn value(p: &CProgram) -> f32 { p.runtime().unwrap().fields.floats.as_ref().unwrap()[0] }
+fn value(p: &CProgram) -> f32 {
+    p.runtime().unwrap().fields.floats.as_ref().unwrap()[0]
+}
 const SCRIPT: &[u8] = b"commandblock 1\ndim_flt 1\nrnd 0,100\ncommandblock 0";
 #[test]
 fn separate_and_late_programs_consume_one_sequence() {
@@ -21,7 +23,10 @@ fn separate_and_late_programs_consume_one_sequence() {
     run(&mut second, &mut memory).unwrap();
     let mut late = initialized(SCRIPT, &mut memory);
     run(&mut late, &mut memory).unwrap();
-    assert_eq!([value(&first), value(&second), value(&late)], [41.0, 67.0, 34.0]);
+    assert_eq!(
+        [value(&first), value(&second), value(&late)],
+        [41.0, 67.0, 34.0]
+    );
 }
 #[test]
 fn non_script_draws_and_reseed_are_visible_to_retained_programs() {
@@ -37,10 +42,13 @@ fn non_script_draws_and_reseed_are_visible_to_retained_programs() {
 }
 #[test]
 fn rejected_registers_do_not_consume_a_draw() {
-    for source in [b"rnd 9,100".as_slice(), b"rnd -1,100".as_slice()] {
+    for (index, source) in [b"rnd 9,100".as_slice(), b"rnd -1,100".as_slice()]
+        .into_iter()
+        .enumerate()
+    {
         let mut memory = Memory::default();
         let mut p = initialized(source, &mut memory);
-        let _ = run(&mut p, &mut memory);
+        assert_eq!(run(&mut p, &mut memory).is_err(), index == 1);
         assert_eq!(memory.random.state(), 1);
     }
 }
@@ -83,22 +91,31 @@ fn missing_source_fails_only_at_a_reached_draw() {
 }
 #[test]
 fn callbacks_share_the_same_consumption_order() {
-    struct Callback { memory: Memory }
+    struct Callback {
+        memory: Memory,
+    }
     impl RuntimeBackend for Callback {
         fn random_source(&self) -> Option<crate::game_housekeeping::GameRandomSource> {
             Some(self.memory.random.source())
         }
-        fn effect(&mut self, fields: RuntimeView<'_>, effect: RuntimeEffect,
-            published: Option<&ScalarParameter>) -> Result<(), String> {
+        fn effect(
+            &mut self,
+            fields: RuntimeView<'_>,
+            effect: RuntimeEffect,
+            published: Option<&ScalarParameter>,
+        ) -> Result<(), String> {
             if matches!(effect, RuntimeEffect::AllocateFloats(_)) {
                 assert_eq!(self.memory.random.source().next_raw(), Some(41));
             }
             self.memory.effect(fields, effect, published)
         }
     }
-    let mut backend = Callback { memory: Memory::default() };
+    let mut backend = Callback {
+        memory: Memory::default(),
+    };
     let mut p = program(SCRIPT, &mut backend.memory);
     p.init_fresh_runtime(&mut backend).unwrap();
-    p.call_owned_process(7, &mut DispatchBudget::new(32).unwrap(), &mut backend).unwrap();
+    p.call_owned_process(7, &mut DispatchBudget::new(32).unwrap(), &mut backend)
+        .unwrap();
     assert_eq!(value(&p), 67.0);
 }
