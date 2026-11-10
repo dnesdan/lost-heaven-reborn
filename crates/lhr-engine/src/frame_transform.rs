@@ -1017,11 +1017,18 @@ pub fn frame_release_deletes_last(refcount: u32) -> bool {
 pub fn frame_set_property_stores_null(prop_len: Option<usize>) -> bool {
     matches!(prop_len, None | Some(0))
 }
-/// Working name for the in-class empty base `I3D_frame::Tick`
+/// Port of the out-of-line empty base `I3D_frame::Tick`
 /// (mafia-re ls3df/I3D/I3D.h:350 at pin 113b5b6: `Tick(int time) {}`).
-/// The reference records no LS3DF FUNCTION address for it: every kind with
-/// tick work overrides it (scene, model, joint, target), and the base body
-/// is empty. The time argument is ignored and no state moves.
+/// PC LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6;
+/// LS3DF RVA 0x5240, VA 0x10005240.
+/// The reference records the out-of-line copy at I3D.h:4311-4317 ("The
+/// frame's empty Tick ... the original keeps the area file's copy"):
+/// Ghidra FUN_10005240 is a 3-byte body (`RET 0x8`, thiscall cleanup for
+/// the single `int` argument), REA ev_ca37de54f3881e816d8dd35cadb68749ef85b81bd2779fd21ead1c67749486b9.
+/// Both vtable slots that need it share this address: the frame vtable
+/// slot 5 (frame vtable 0x1009b9b8) and the scene vtable slot 9
+/// (`I3D_scene::SetOn`, scene vtable 0x1009c8f8), folded by shape.
+/// The time argument is ignored and no state moves.
 pub fn frame_tick_noop(_time: i32) {}
 /// Working name for the in-class empty base `I3D_frame::SaveImage`
 /// (mafia-re ls3df/I3D/I3D.h:367 at pin 113b5b6: `SaveImage() {}`).
@@ -6601,9 +6608,10 @@ mod tests {
     }
     #[test]
     fn frame_set_on_stores_bit_zero_and_empty_bases_move_nothing() {
-        // Working names for SetOn (I3d_frame.cpp:238-244, RVA 0x1b400) and
-        // the empty bases Tick (I3D.h:350) and SaveImage (I3D.h:367): the
-        // RVA is occupied and not claimed; the bases have no LS3DF address.
+        // Working names for SetOn (I3d_frame.cpp:238-244, RVA 0x1b400):
+        // the RVA is occupied and not claimed. The empty base SaveImage
+        // (I3D.h:367) has no LS3DF address; the empty base Tick is pinned
+        // to LS3DF RVA 0x5240 at `frame_tick_noop` above.
         assert_eq!(frame_flags_after_set_on(0, true), 1);
         assert_eq!(frame_flags_after_set_on(0xfffffffe, true), u32::MAX);
         assert_eq!(frame_flags_after_set_on(1, true), 1);
@@ -6614,6 +6622,19 @@ mod tests {
         frame_tick_noop(-1);
         frame_tick_noop(i32::MAX);
         frame_save_image_noop();
+    }
+    #[test]
+    fn frame_tick_noop_pins_rva_0x5240_empty_body() {
+        // LS3DF RVA 0x5240 (VA 0x10005240) is the 3-byte `RET 0x8` empty
+        // shared by the frame vtable Tick slot and the scene vtable SetOn
+        // slot: every `int` time value is accepted and no state moves.
+        // i32::MIN exercises the full argument domain like the sibling
+        // coverage above.
+        frame_tick_noop(0);
+        frame_tick_noop(-1);
+        frame_tick_noop(1);
+        frame_tick_noop(i32::MIN);
+        frame_tick_noop(i32::MAX);
     }
     #[test]
     fn frame_duplicate_and_hierarchy_bits_match_native_words() {

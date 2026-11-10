@@ -609,7 +609,10 @@ class RewriteProgressTests(unittest.TestCase):
         # helpers uncredited; 2 subagent mut bugs fixed).
         # +2 collision static STUB contracts (testVisual/sphTestVisual;
         # 13 colf working-name predicates uncredited; marker-only, green).
-        self.assertEqual(ls3df["ported"], 145 + 875)
+        # +12 IGraph/global contracts (TEV/GetIGraph/drivers/HWND x2/AppName x2/
+        # DlgHWND x2/SetTexture STUB + Tick-empty tail; VA-form fixed in docs;
+        # 11 working-name uncredited; marker-only, tests green).
+        self.assertEqual(ls3df["ported"], 145 + 887)
         self.assertEqual(ls3df["verified"], 145 + 458)
 
     def test_overlay_rejects_duplicates_and_unknown_symbols(self):

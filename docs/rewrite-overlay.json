@@ -15907,6 +15907,114 @@
       "symbol": "lhr_engine::original_program::program_save_game_load",
       "tier": "contract",
       "evidence": "Canonical path crate::original_program::owned_runtime::program_save_game_load (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6b6e0",
+      "va": "0x1006b6e0",
+      "name": "TEV",
+      "symbol": "lhr_engine::original_system::tev_version_ok",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6b740",
+      "va": "0x1006b740",
+      "name": "GetIGraph",
+      "symbol": "lhr_engine::original_system::igraph_handle",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6b760",
+      "va": "0x1006b760",
+      "name": "I3DGetDriver",
+      "symbol": "lhr_engine::original_system::i3d_driver_handle",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6b750",
+      "va": "0x1006b750",
+      "name": "ISndGetDriver",
+      "symbol": "lhr_engine::original_system::sound_driver_handle",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c800",
+      "va": "0x1006c800",
+      "name": "IGraph::GetMainHWND",
+      "symbol": "lhr_engine::original_system::SystemState::main_window",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c810",
+      "va": "0x1006c810",
+      "name": "IGraph::GetChildHWND",
+      "symbol": "lhr_engine::original_system::SystemState::child_window",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c8f0",
+      "va": "0x1006c8f0",
+      "name": "IGraph::GetAppName",
+      "symbol": "lhr_engine::original_system::SystemState::app_name",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c820",
+      "va": "0x1006c820",
+      "name": "IGraph::SetAppName",
+      "symbol": "lhr_engine::original_system::SystemState::set_app_name",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c910",
+      "va": "0x1006c910",
+      "name": "IGraph::AddDlgHWND",
+      "symbol": "lhr_engine::original_system::SystemState::add_dialog_window",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c9a0",
+      "va": "0x1006c9a0",
+      "name": "IGraph::DeleteDlgHWND",
+      "symbol": "lhr_engine::original_system::SystemState::delete_dialog_window",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x6c7c0",
+      "va": "0x1006c7c0",
+      "name": "IGraph::SetTexture STUB",
+      "symbol": "lhr_engine::original_system::set_device_texture",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x5240",
+      "va": "0x10005240",
+      "name": "frame/Scene Tick empty tail",
+      "symbol": "lhr_engine::frame_transform::frame_tick_noop",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {
