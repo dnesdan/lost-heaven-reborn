@@ -7057,6 +7057,21 @@ pub const ANIM_USKOK_BACK_RIGHT: i32 = 0x148;
 /// Original side-jump animation upper bound (mafia-re 113b5b6
 /// game/actors/C_actor.h:753 ANIM_USKOK_FRONT_RIGHT 0x149).
 pub const ANIM_USKOK_FRONT_RIGHT: i32 = 0x149;
+/// Original fists direct-strike base animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:665 ANIM_BOJ_BOX_L_DIRECT 0xb9,
+/// "boj box L direct.i3d"). The Do_Shoot fists STAND arm adds the staged
+/// strike index to this base; the animation owner stays DEFERRED.
+pub const ANIM_BOJ_BOX_L_DIRECT: i32 = 0xb9;
+/// Original knife direct-strike base animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:662 ANIM_BOJ_NUZ_BOD 0xb2, "boj nuz bod.i3d").
+/// The Do_Shoot knife STAND arm adds the staged strike index to this base;
+/// the animation owner stays DEFERRED.
+pub const ANIM_BOJ_NUZ_BOD: i32 = 0xb2;
+/// Original bat strike base animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:659 ANIM_BOJ_BASB_Z_LH 0xa9,
+/// "boj basb z LH.i3d"). The Do_Shoot bat STAND arm adds the staged strike
+/// index to this base; the animation owner stays DEFERRED.
+pub const ANIM_BOJ_BASB_Z_LH: i32 = 0xa9;
 
 /// Entry verdict of the C_human::Do_ChangeWeapon latch (mafia-re 113b5b6
 /// game/actors/C_human.cpp:5990-5994 and :6074-6076).
@@ -7946,6 +7961,193 @@ pub fn grenade_throw_words(game_time: u32) -> GrenadeThrowWords {
     }
 }
 
+/// Working-name melee-press gate of C_human::Do_Shoot (no RVA claimed:
+/// inline gate at mafia-re 113b5b6 game/actors/C_human.cpp:7010 inside
+/// Do_Shoot 0x583590, with no standalone FUNCTION copy; only the entry gate
+/// [`shoot_entry_gate`] carries that address). The press reaches the
+/// fists/knuckle/knife/bat arm only outside a car seat and while no strike
+/// animation runs (`strike_anim_time < 0`). `in_car_seat` stages whether the
+/// caller rides a car actor seat; the game/animation owners stay DEFERRED.
+pub fn shoot_melee_press_gate(in_car_seat: bool, strike_anim_time: i32) -> bool {
+    !in_car_seat && strike_anim_time < 0
+}
+
+/// Working-name fists-release arm select of C_human::Do_Shoot (no RVA
+/// claimed: inline branch at mafia-re 113b5b6 game/actors/C_human.cpp:7072
+/// inside Do_Shoot 0x583590, with no standalone FUNCTION copy). True takes
+/// the direct-strike arm (next id from the strike index), false the combo
+/// reset arm. `action_state` is the staged HUMAN_ACTION_* word.
+pub fn fists_release_continues(dt_ms: u32, strike_index: i32, action_state: i32) -> bool {
+    dt_ms <= 500 && (strike_index != 3 || action_state != HUMAN_ACTION_STAND)
+}
+
+/// Working-name fists STAND strike id of C_human::Do_Shoot (no RVA claimed:
+/// inline add at mafia-re 113b5b6 game/actors/C_human.cpp:7076 inside
+/// Do_Shoot 0x583590, with no standalone FUNCTION copy). Adds the staged
+/// strike index to [`ANIM_BOJ_BOX_L_DIRECT`]. The SetWaitAnim/DelExtendedAnim
+/// handoff stays DEFERRED with the animation owner.
+pub fn fists_stand_strike_anim(strike_index: i32) -> i32 {
+    strike_index + ANIM_BOJ_BOX_L_DIRECT
+}
+
+/// Working-name knife-release arm select of C_human::Do_Shoot (no RVA
+/// claimed: inline branch at mafia-re 113b5b6 game/actors/C_human.cpp:7112
+/// inside Do_Shoot 0x583590, with no standalone FUNCTION copy). True takes
+/// the bod arm, false the kombo arm.
+pub fn knife_release_continues(dt_ms: u32, strike_index: i32) -> bool {
+    dt_ms <= 500 && strike_index != 3
+}
+
+/// Working-name knife STAND strike id of C_human::Do_Shoot (no RVA claimed:
+/// inline add at mafia-re 113b5b6 game/actors/C_human.cpp:7116 inside
+/// Do_Shoot 0x583590, with no standalone FUNCTION copy). Adds the staged
+/// strike index to [`ANIM_BOJ_NUZ_BOD`]. The SetWaitAnim/DelExtendedAnim
+/// handoff stays DEFERRED with the animation owner.
+pub fn knife_stand_strike_anim(strike_index: i32) -> i32 {
+    strike_index + ANIM_BOJ_NUZ_BOD
+}
+
+/// Working-name bat-release arm select of C_human::Do_Shoot (no RVA claimed:
+/// inline branch at mafia-re 113b5b6 game/actors/C_human.cpp:7138 inside
+/// Do_Shoot 0x583590, with no standalone FUNCTION copy). True takes the
+/// left-hand strike arm, false the right-hand kombo arm.
+pub fn bat_release_continues(dt_ms: u32, strike_index: i32) -> bool {
+    dt_ms <= 500 && strike_index != 3
+}
+
+/// Working-name bat STAND strike id of C_human::Do_Shoot (no RVA claimed:
+/// inline add at mafia-re 113b5b6 game/actors/C_human.cpp:7142 inside
+/// Do_Shoot 0x583590, with no standalone FUNCTION copy). Adds the staged
+/// strike index to [`ANIM_BOJ_BASB_Z_LH`]. The SetWaitAnim/DelExtendedAnim
+/// handoff stays DEFERRED with the animation owner.
+pub fn bat_stand_strike_anim(strike_index: i32) -> i32 {
+    strike_index + ANIM_BOJ_BASB_Z_LH
+}
+
+/// Working-name strike damage of C_human::Do_Castrate/Do_HardHead (no RVA
+/// claimed: inline expression at mafia-re 113b5b6
+/// game/actors/C_human.cpp:7232 and :7255 inside Do_Castrate 0x584480 and
+/// Do_HardHead 0x584550, with no standalone FUNCTION copy; only the strike
+/// slices carry those addresses). The target energy drops by ten times the
+/// striker strength. Both words arrive staged as f32; the PersonAnim
+/// handoffs and property owners stay DEFERRED.
+pub fn strike_energy_after(energy: f32, strength: f32) -> f32 {
+    energy - strength * 10.0
+}
+
+/// Working-name target readiness gate shared by C_human::Do_Castrate and
+/// C_human::Do_HardHead (no RVA claimed: inline null/IsReady gates at
+/// mafia-re 113b5b6 game/actors/C_human.cpp:7216-7219 and :7240-7242 inside
+/// Do_Castrate 0x584480 and Do_HardHead 0x584550, with no standalone
+/// FUNCTION copy). The invulnerability-cheat refusal arrives staged through
+/// [`strike_cheat_refusal`]; the IsReady verdict arrives staged as
+/// `target_ready`.
+pub fn strike_target_gate(human_present: bool, target_ready: bool) -> bool {
+    human_present && target_ready
+}
+
+/// Working-name variant clamp of C_human::Do_ShockStart (no RVA claimed:
+/// inline clamp at mafia-re 113b5b6 game/actors/C_human.cpp:8112-8115 inside
+/// Do_ShockStart 0x587bc0, with no standalone FUNCTION copy; only the owned
+/// select slice carries that address). Clamps the staged variant to 0..3.
+pub fn shock_start_variant_clamp(variant: i32) -> i32 {
+    variant.clamp(0, 3)
+}
+
+/// Working-name variant clamp of C_human::Do_ShockDown (no RVA claimed:
+/// inline clamp at mafia-re 113b5b6 game/actors/C_human.cpp:8125-8128 inside
+/// Do_ShockDown 0x587c20, with no standalone FUNCTION copy; only the owned
+/// step slice carries that address). Clamps the staged variant to 0..2.
+pub fn shock_down_variant_clamp(variant: i32) -> i32 {
+    variant.clamp(0, 2)
+}
+
+/// Latch words staged by the C_human::Do_FuckingBox pickup arm (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:8570-8577).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BoxPickupLatchReset {
+    /// The pickup never counts as thrown.
+    pub throw_swung: bool,
+    /// The pickup clears the reload-effects latch.
+    pub reload_effects: bool,
+    /// The pickup clears the held-shot latch.
+    pub fire_held: bool,
+}
+
+/// Working-name latch reset of the C_human::Do_FuckingBox pickup arm (no RVA
+/// claimed: inline clears at mafia-re 113b5b6 game/actors/C_human.cpp:8570,
+/// :8575 and :8577 inside Do_FuckingBox 0x589140, with no standalone FUNCTION
+/// copy; only the [`fucking_box_entry_gate`] gate carries that address). The
+/// ChangeAnim program, the frame link/sector/pose program, the weapon-model
+/// visibility, DelExtendedAnim/ResetWeaponEffects/Do_Aimed handoffs and the
+/// using-object bookkeeping stay DEFERRED with their owners.
+pub fn box_pickup_latch_reset() -> BoxPickupLatchReset {
+    BoxPickupLatchReset {
+        throw_swung: false,
+        reload_effects: false,
+        fire_held: false,
+    }
+}
+
+/// Words staged by the C_human::Do_DeadBody pickup arm (mafia-re 113b5b6
+/// game/actors/C_human.cpp:8754-8755 and :8821-8828).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeadBodyPickupWords {
+    /// No carrier animation runs yet on pickup.
+    pub dead_body_time: i32,
+    /// The pickup animation selected through the animation owner.
+    pub next_anim_id: i32,
+    /// The pickup never counts as thrown.
+    pub throw_swung: bool,
+    /// The pickup clears the reload-effects latch.
+    pub reload_effects: bool,
+    /// The pickup clears the held-shot latch.
+    pub fire_held: bool,
+}
+
+/// Working-name word latch of the C_human::Do_DeadBody pickup arm (no RVA
+/// claimed: inline writes at mafia-re 113b5b6 game/actors/C_human.cpp:8754,
+/// :8755, :8821 and :8826-8828 inside Do_DeadBody 0x589c20, with no standalone
+/// FUNCTION copy; only the [`dead_body_entry_gate`] gate carries that
+/// address). The ChangeAnim program, the carrier-human lookup, the frame
+/// link/sector/pose program, the pickup sound, DelExtendedAnim/
+/// ResetWeaponEffects/Do_Aimed handoffs and the using-object bookkeeping stay
+/// DEFERRED with their owners.
+pub fn dead_body_pickup_words() -> DeadBodyPickupWords {
+    DeadBodyPickupWords {
+        dead_body_time: -1,
+        next_anim_id: ANIM_NOSENI_MRTVOLY_TOM_NAHOZENI,
+        throw_swung: false,
+        reload_effects: false,
+        fire_held: false,
+    }
+}
+
+/// Working-name animation-base list restored by the C_human::Do_FuckingBox
+/// put-down arm (no RVA claimed: inline ChangeAnim restores at mafia-re
+/// 113b5b6 game/actors/C_human.cpp:8476-8502 inside Do_FuckingBox 0x589140,
+/// with no standalone FUNCTION copy; only the [`fucking_box_entry_gate`]
+/// gate carries that address). Each base is restored with a NULL replacement
+/// through the animation owner, which stays DEFERRED.
+pub fn box_put_down_anim_bases() -> [&'static str; 14] {
+    [
+        "breath01a.i3d",
+        "breath01b.i3d",
+        "breath01c.i3d",
+        "breath01d.i3d",
+        "walk1.i3d",
+        "back1.i3d",
+        "left1.i3d",
+        "right1.i3d",
+        "strafL1.i3d",
+        "strafR1.i3d",
+        "walkL1.i3d",
+        "walkR1.i3d",
+        "backL1.i3d",
+        "backR1.i3d",
+    ]
+}
+
 /// GAME 0x589140 (RVA 0x189140) C_human::Do_FuckingBox entry gate (mafia-re
 /// 113b5b6 game/actors/C_human.cpp:8459-8469; `FuckingBox` is the upstream
 /// working-name family for the carried box, NOT original): a carried dead
@@ -8670,6 +8872,138 @@ mod working_name_small_leaves_tests {
             change_weapon_fire_select(),
             (FireActionTable::OnOff, 0)
         );
+    }
+
+    #[test]
+    fn melee_press_gate_needs_open_seat_and_idle_strike() {
+        // Working name: no RVA claimed (inline gate, C_human.cpp:7010).
+        assert!(shoot_melee_press_gate(false, -1));
+        assert!(!shoot_melee_press_gate(true, -1));
+        assert!(!shoot_melee_press_gate(false, 0));
+        assert!(!shoot_melee_press_gate(true, 100));
+    }
+
+    #[test]
+    fn fists_release_selects_direct_or_combo_arm() {
+        // Working name: no RVA claimed (inline branch, C_human.cpp:7072).
+        assert!(fists_release_continues(0, 0, HUMAN_ACTION_STAND));
+        assert!(fists_release_continues(500, 2, HUMAN_ACTION_STAND));
+        assert!(!fists_release_continues(501, 0, HUMAN_ACTION_STAND));
+        assert!(fists_release_continues(100, 3, HUMAN_ACTION_WALK));
+        assert!(!fists_release_continues(100, 3, HUMAN_ACTION_STAND));
+    }
+
+    #[test]
+    fn fists_stand_anim_adds_index_to_direct_base() {
+        // Working name: no RVA claimed (inline add, C_human.cpp:7076).
+        assert_eq!(fists_stand_strike_anim(0), ANIM_BOJ_BOX_L_DIRECT);
+        assert_eq!(fists_stand_strike_anim(2), ANIM_BOJ_BOX_L_DIRECT + 2);
+        assert_eq!(fists_stand_strike_anim(-1), ANIM_BOJ_BOX_L_DIRECT - 1);
+    }
+
+    #[test]
+    fn knife_release_selects_bod_or_kombo_arm() {
+        // Working name: no RVA claimed (inline branch, C_human.cpp:7112).
+        assert!(knife_release_continues(0, 0));
+        assert!(knife_release_continues(500, 2));
+        assert!(!knife_release_continues(501, 0));
+        assert!(!knife_release_continues(100, 3));
+    }
+
+    #[test]
+    fn knife_stand_anim_adds_index_to_bod_base() {
+        // Working name: no RVA claimed (inline add, C_human.cpp:7116).
+        assert_eq!(knife_stand_strike_anim(0), ANIM_BOJ_NUZ_BOD);
+        assert_eq!(knife_stand_strike_anim(1), ANIM_BOJ_NUZ_BOD + 1);
+    }
+
+    #[test]
+    fn bat_release_selects_left_or_right_arm() {
+        // Working name: no RVA claimed (inline branch, C_human.cpp:7138).
+        assert!(bat_release_continues(0, 0));
+        assert!(bat_release_continues(500, 3 - 1));
+        assert!(!bat_release_continues(501, 0));
+        assert!(!bat_release_continues(0, 3));
+    }
+
+    #[test]
+    fn bat_stand_anim_adds_index_to_left_base() {
+        // Working name: no RVA claimed (inline add, C_human.cpp:7142).
+        assert_eq!(bat_stand_strike_anim(0), ANIM_BOJ_BASB_Z_LH);
+        assert_eq!(bat_stand_strike_anim(3), ANIM_BOJ_BASB_Z_LH + 3);
+    }
+
+    #[test]
+    fn strike_damage_subtracts_tenfold_strength() {
+        // Working name: no RVA claimed (inline expr, C_human.cpp:7232/:7255).
+        assert_eq!(strike_energy_after(100.0, 2.0), 80.0);
+        assert_eq!(strike_energy_after(0.0, 0.0), 0.0);
+        assert_eq!(strike_energy_after(50.0, 0.5), 45.0);
+    }
+
+    #[test]
+    fn strike_target_gate_needs_presence_and_readiness() {
+        // Working name: no RVA claimed (inline gates, C_human.cpp:7216-7219).
+        assert!(strike_target_gate(true, true));
+        assert!(!strike_target_gate(false, true));
+        assert!(!strike_target_gate(true, false));
+        assert!(!strike_target_gate(false, false));
+    }
+
+    #[test]
+    fn shock_start_variant_clamp_matches_native_bounds() {
+        // Working name: no RVA claimed (inline clamp, C_human.cpp:8112-8115).
+        assert_eq!(shock_start_variant_clamp(-5), 0);
+        assert_eq!(shock_start_variant_clamp(0), 0);
+        assert_eq!(shock_start_variant_clamp(3), 3);
+        assert_eq!(shock_start_variant_clamp(9), 3);
+    }
+
+    #[test]
+    fn shock_down_variant_clamp_matches_native_bounds() {
+        // Working name: no RVA claimed (inline clamp, C_human.cpp:8125-8128).
+        assert_eq!(shock_down_variant_clamp(-1), 0);
+        assert_eq!(shock_down_variant_clamp(2), 2);
+        assert_eq!(shock_down_variant_clamp(3), 2);
+    }
+
+    #[test]
+    fn box_pickup_latch_clears_throw_reload_and_hold() {
+        // Working name: no RVA claimed (inline clears, C_human.cpp:8570-8577).
+        assert_eq!(
+            box_pickup_latch_reset(),
+            BoxPickupLatchReset {
+                throw_swung: false,
+                reload_effects: false,
+                fire_held: false,
+            }
+        );
+    }
+
+    #[test]
+    fn dead_body_pickup_words_stage_time_anim_and_latches() {
+        // Working name: no RVA claimed (inline writes, C_human.cpp:8754-8755
+        // and :8821-8828).
+        assert_eq!(
+            dead_body_pickup_words(),
+            DeadBodyPickupWords {
+                dead_body_time: -1,
+                next_anim_id: ANIM_NOSENI_MRTVOLY_TOM_NAHOZENI,
+                throw_swung: false,
+                reload_effects: false,
+                fire_held: false,
+            }
+        );
+    }
+
+    #[test]
+    fn box_put_down_restores_fourteen_base_slots() {
+        // Working name: no RVA claimed (inline restores, C_human.cpp:8476-8502).
+        let bases = box_put_down_anim_bases();
+        assert_eq!(bases.len(), 14);
+        assert_eq!(bases[0], "breath01a.i3d");
+        assert_eq!(bases[4], "walk1.i3d");
+        assert_eq!(bases[13], "backR1.i3d");
     }
 
     #[test]
