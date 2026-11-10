@@ -16400,8 +16400,8 @@
       "va": "0x4f01a0",
       "name": "C_controls::GetValues",
       "symbol": "lhr_engine::game_controls::GameControls::get_values",
-      "tier": "contract",
-      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+      "tier": "differential",
+      "evidence": "REA ev_1914abe638 + complete walk all branches (pressed/live select, empty->-1/None, ptr+count store); port branch-words match native; pin tests game_control 18 pass"
     },
     {
       "binary": "Game.exe",
@@ -16409,8 +16409,8 @@
       "va": "0x4f0240",
       "name": "C_controls::GetValue",
       "symbol": "lhr_engine::game_controls::GameControls::get_value",
-      "tier": "contract",
-      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+      "tier": "differential",
+      "evidence": "REA ev_f3cc15bb14 + complete walk all branches (pressed/live select, OOB/negative->FLD [0x623230] zero-word); port branch-words match native; pin tests game_control 18 pass"
     },
     {
       "binary": "Game.exe",
@@ -16418,8 +16418,8 @@
       "va": "0x4f05b0",
       "name": "C_controls::GetControl",
       "symbol": "lhr_engine::game_controls::GameControls::copy_control",
-      "tier": "contract",
-      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+      "tier": "differential",
+      "evidence": "REA ev_05e666e319 + complete walk all branches (null->false, JL/JZ/JNC OOB->true untouched, copy 12B->true); port branch-words match native; pin tests game_control 18 pass"
     },
     {
       "binary": "Game.exe",
@@ -16427,8 +16427,8 @@
       "va": "0x4f1180",
       "name": "C_controls::SaveJoyStates",
       "symbol": "lhr_engine::game_controls::GameControls::save_joy_states",
-      "tier": "contract",
-      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+      "tier": "differential",
+      "evidence": "REA ev_d0ffcf2ef3 + complete walk (count==0 skip, descending sample+keep loop with virtual calls); port branch-words match native; pin tests game_control 18 pass"
     },
     {
       "binary": "Game.exe",

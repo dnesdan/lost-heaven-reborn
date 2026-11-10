@@ -447,8 +447,10 @@ class RewriteProgressTests(unittest.TestCase):
         # Hit/UpdateControls/ShootDeAimed/InvalidateCarDamage/ShowWeaponName/
         # SetBoxer + GetValues/GetValue/GetControl/SaveJoyStates;
         # ShootDeAimed companions noted, one entry per RVA).
+        # +4 controls differential (GetValues/GetValue/GetControl/
+        # SaveJoyStates complete walks; pin tests game_control 18 pass).
         self.assertEqual(game["ported"], 149 + 893)
-        self.assertEqual(game["verified"], 149 + 508)
+        self.assertEqual(game["verified"], 149 + 512)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")
