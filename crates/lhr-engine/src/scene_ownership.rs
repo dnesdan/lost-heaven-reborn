@@ -448,6 +448,26 @@ pub fn scene_anim_slot_is_last(index: u32) -> bool {
 pub fn scene_tick_list_is_single(count: usize) -> bool {
     count == 1
 }
+/// Working name for the self-ownership early-out of `I3D_scene::AddFrame`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:254-256 at pin fe7e746: a frame the
+/// scene already owns returns without touching the reference count).
+/// The `AddFrame` body lives at frozen ledger RVA 0x49290 (not claimed
+/// here); only the gate is modeled, and the reference/list stores stay
+/// caller-owned. Reports whether the add is skipped. Pure helper, no list
+/// moves.
+pub fn scene_add_frame_self_owned_noop(is_self_owned: bool) -> bool {
+    is_self_owned
+}
+/// Working name for the push gate of `I3D_scene::AddTickFrame` (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:446-450 at pin fe7e746: `push_back_unique`
+/// skips frames the list already holds, then the `FRMFLAGS_TICK` bit
+/// sets). The `AddTickFrame` body lives at overlay RVA 0x49f90 (not claimed
+/// here); only the dedup gate is modeled, and the list plus the flag store
+/// stay caller-owned. Reports whether the frame is pushed. Pure helper, no
+/// list moves.
+pub fn scene_add_tick_frame_pushes(is_listed: bool) -> bool {
+    !is_listed
+}
 
 #[derive(Debug)]
 pub struct SceneFrameOwner {
@@ -4104,6 +4124,18 @@ mod scene_frame_getter_working_name_tests {
         // has no tick branch, and is not claimed here).
         assert!(scene_add_frame_registers_tick(true));
         assert!(!scene_add_frame_registers_tick(false));
+    }
+    #[test]
+    fn add_frame_self_owned_gate_and_tick_push_gate() {
+        // Working names for the AddFrame self-ownership early-out
+        // (I3d_scene.cpp:254-256) and the AddTickFrame push gate
+        // (I3d_scene.cpp:446-450): both bodies are occupied (frozen ledger
+        // 0x49290, overlay 0x49f90), so no RVA is claimed here. Only the
+        // gates are modeled.
+        assert!(scene_add_frame_self_owned_noop(true));
+        assert!(!scene_add_frame_self_owned_noop(false));
+        assert!(scene_add_tick_frame_pushes(false));
+        assert!(!scene_add_tick_frame_pushes(true));
     }
     #[test]
     fn anim_slot_guard_names_eight_slots() {

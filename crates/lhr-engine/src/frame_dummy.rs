@@ -58,6 +58,20 @@ pub fn dummy_is_center_normalized(dummy_flags: u32) -> bool {
 pub fn dummy_normalize_mode_is_center(mode: u32) -> bool {
     mode == 2
 }
+/// Working name for the bound-box remap of `I3D_dummy::Normalize` (mafia-re
+/// ls3df/I3D/frames/I3d_dummy.cpp:58-59 and :67-68 at pin fe7e746: the
+/// center limb leaves a unit box around the old center, the min-corner limb
+/// a unit box from the old minimum). The `Normalize` body lives at overlay
+/// RVA 0x1a350 (not claimed here); only the remapped extents are modeled,
+/// and the position/scale/flag stores stay caller-owned. Reports the
+/// `(min, max)` pair for the limb the mode selects; no state moves.
+pub fn dummy_normalize_box_extents(center: bool) -> ([f32; 3], [f32; 3]) {
+    if center {
+        ([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0])
+    } else {
+        ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0])
+    }
+}
 
 impl ModelArena {
     pub fn create_dummy_frame(&mut self) -> Result<FrameKey, ModelError> {
@@ -377,6 +391,20 @@ mod tests {
         arena.graph.dummy_update_v(key).unwrap();
         assert_eq!(arena.state(key).unwrap().dummy_flags & 0x10, 0);
         arena.release(key).unwrap();
+    }
+    #[test]
+    fn dummy_normalize_box_extents_match_limbs() {
+        // Working name for the bound-box remap of I3D_dummy::Normalize
+        // (I3d_dummy.cpp:58-59,67-68): the occupied body at PC RVA 0x1a350
+        // is not claimed here. Only the remapped extents are modeled.
+        assert_eq!(
+            dummy_normalize_box_extents(true),
+            ([-1.0, -1.0, -1.0], [1.0, 1.0, 1.0])
+        );
+        assert_eq!(
+            dummy_normalize_box_extents(false),
+            ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0])
+        );
     }
     #[test]
     fn dummy_normalize_limbs_set_box_and_flag_words() {

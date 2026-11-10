@@ -1145,6 +1145,22 @@ pub fn frame_flags_after_set_on(flags: u32, on: bool) -> u32 {
 pub fn frame_release_deletes_last(refcount: u32) -> bool {
     refcount == 1
 }
+/// Working name for the exact return word of `I3D_frame::Release`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:98-104 at pin fe7e746:
+/// `if (--m_RefCount > 0) return m_RefCount; delete this; return 0;`).
+/// Same occupied-body status as `frame_release_deletes_last` (frozen ledger
+/// RVA 0x1aae0, not claimed here); only the return word is modeled, and the
+/// count store plus the destruction stay caller-owned. Unsigned wrap matches
+/// the native word op: a zero input wraps to `u32::MAX` and is returned.
+/// Pure helper, no lifetime moves.
+pub fn frame_release_return_word(refcount: u32) -> u32 {
+    let next = refcount.wrapping_sub(1);
+    if next > 0 {
+        next
+    } else {
+        0
+    }
+}
 /// Working name for the null/empty limbs of `I3D_frame::SetProperty`
 /// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:834-845 at pin 113b5b6). The
 /// reference records the body at PC RVA 0x1c700, which is already occupied
@@ -1253,6 +1269,17 @@ pub fn frame_flags_after_set_world_dir(flags: u32) -> u32 {
 /// caller-owned.
 pub fn world_dir_applies_roll(roll: f32) -> bool {
     roll.abs() > 1e-8
+}
+/// Working name for the parentless direct-store gate of
+/// `I3D_frame::SetWorldPos` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:189-198
+/// at pin fe7e746: without a parent the position stores directly, otherwise
+/// it goes through the parent's inverse matrix). The `SetWorldPos` body
+/// lives at overlay RVA 0x1b160 (not claimed here); only the gate is
+/// modeled, and the matrix inverse plus the stores stay caller-owned.
+/// Reports whether the caller position stores without a parent inverse.
+/// Pure helper, no matrix moves.
+pub fn frame_set_world_pos_direct_without_parent(has_parent: bool) -> bool {
+    !has_parent
 }
 /// Working name for the sector-ancestor early-out of
 /// `I3D_scene::SetFrameSectorPos` (mafia-re ls3df/I3D/I3d_scene.cpp:517-533
@@ -1578,6 +1605,27 @@ pub fn frame_set_name_is_content_equal(
 pub fn frame_set_name_null_clears(incoming: Option<&[u8]>) -> bool {
     incoming.is_none()
 }
+/// Working name for the pointer-identity early-out of `I3D_frame::SetName`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:352-356 at pin fe7e746:
+/// `if (m_pName == new_name) return I3D_OK;`, ahead of the content compare).
+/// The `SetName` body lives at frozen ledger RVA 0x1b6f0 (not claimed here);
+/// only the identity gate is modeled, and the stores stay caller-owned.
+/// Reports whether the incoming pointer already is the stored one; the
+/// byte-compare twin `frame_set_name_is_content_equal` covers different
+/// pointers with equal bytes. Pure helper, no allocation moves.
+pub fn frame_set_name_pointer_identity_noop(same_pointer: bool) -> bool {
+    same_pointer
+}
+/// Working name for the name-buffer size of `I3D_frame::SetName` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:366 at pin fe7e746:
+/// `new char[strlen(new_name) + 1]`). Same occupied-body status as
+/// `frame_set_name_pointer_identity_noop`. Returns the byte count for the
+/// caller's copy; checked addition reports overflow as `None` (the native
+/// failure path is fatal, disclosed like `frame_set_model_name_layout`).
+/// Pure helper, no allocation moves.
+pub fn frame_set_name_alloc_len(name_len: usize) -> Option<usize> {
+    name_len.checked_add(1)
+}
 /// Working name for the already-reset early-out of
 /// `I3D_frame::ResetModelName` (mafia-re
 /// ls3df/I3D/frames/I3d_frame.cpp:407-408 at pin 113b5b6: the original
@@ -1614,6 +1662,21 @@ pub fn frame_set_model_name_layout(model_len: usize, orig_len: usize) -> Option<
 /// nothing). Pure helper, no hierarchy walk.
 pub fn frame_get_child_index_in_range(index: i32, child_count: u32) -> bool {
     index >= 0 && index < child_count as i32
+}
+/// Working name for the count limb of `I3D_frame::AddChild` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:559-577 at pin fe7e746: an empty child
+/// list stores count one, otherwise the count increments). The `AddChild`
+/// body lives at overlay RVA 0x1bea0 (not claimed here); only the count
+/// word is modeled, and the link stores stay caller-owned. The increment
+/// wraps like the native two's-complement word; admitted hierarchies stay
+/// far below `u32::MAX` (host policy, disclosed). Pure helper, no link
+/// moves.
+pub fn frame_add_child_result_count(was_empty: bool, count: u32) -> u32 {
+    if was_empty {
+        1
+    } else {
+        count.wrapping_add(1)
+    }
 }
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
@@ -7193,6 +7256,15 @@ mod tests {
     }
 
     #[test]
+    fn set_world_pos_parentless_gate_stores_direct() {
+        // Working name for the parentless gate of I3D_frame::SetWorldPos
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:189-198): the occupied
+        // body at PC RVA 0x1b160 is not claimed here.
+        assert!(frame_set_world_pos_direct_without_parent(false));
+        assert!(!frame_set_world_pos_direct_without_parent(true));
+    }
+
+    #[test]
     fn release_deletes_only_the_last_reference() {
         // Working name for the last-reference limb of I3D_frame::Release
         // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:98-104): the occupied
@@ -7202,6 +7274,20 @@ mod tests {
         assert!(!frame_release_deletes_last(0));
         assert!(!frame_release_deletes_last(2));
         assert!(!frame_release_deletes_last(u32::MAX));
+    }
+
+    #[test]
+    fn release_return_word_matches_unsigned_decrement() {
+        // Working name for the exact return word of I3D_frame::Release
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:98-104): the occupied
+        // body at PC RVA 0x1aae0 is not claimed here. The pre-decrement
+        // count above one returns one less; one returns zero after the
+        // delete; zero wraps to u32::MAX like the native word op.
+        assert_eq!(frame_release_return_word(3), 2);
+        assert_eq!(frame_release_return_word(2), 1);
+        assert_eq!(frame_release_return_word(1), 0);
+        assert_eq!(frame_release_return_word(0), u32::MAX);
+        assert_eq!(frame_release_return_word(u32::MAX), u32::MAX - 1);
     }
 
     #[test]
@@ -7446,6 +7532,24 @@ mod tests {
         assert!(!frame_set_name_null_clears(Some(b"")));
     }
     #[test]
+    fn set_name_pointer_identity_is_a_noop() {
+        // Working name for the pointer-identity early-out of
+        // I3D_frame::SetName (I3d_frame.cpp:352-356): occupied body
+        // (ledger 0x1b6f0), no RVA claimed here. Identity reports noop
+        // before any byte compare.
+        assert!(frame_set_name_pointer_identity_noop(true));
+        assert!(!frame_set_name_pointer_identity_noop(false));
+    }
+    #[test]
+    fn set_name_alloc_len_counts_terminator() {
+        // Working name for the SetName buffer size (I3d_frame.cpp:366):
+        // `strlen + 1`; occupied body (ledger 0x1b6f0), no RVA claimed
+        // here. Overflow reports None instead of the native fatal path.
+        assert_eq!(frame_set_name_alloc_len(0), Some(1));
+        assert_eq!(frame_set_name_alloc_len(11), Some(12));
+        assert_eq!(frame_set_name_alloc_len(usize::MAX), None);
+    }
+    #[test]
     fn reset_model_name_collapse_is_noop() {
         // Working name for the ResetModelName collapse
         // (I3d_frame.cpp:407-408): occupied body (overlay 0x1b8f0), no RVA
@@ -7461,6 +7565,19 @@ mod tests {
         assert_eq!(frame_set_model_name_layout(5, 4), Some((11, 6)));
         assert_eq!(frame_set_model_name_layout(0, 0), Some((2, 1)));
         assert_eq!(frame_set_model_name_layout(usize::MAX, 1), None);
+    }
+    #[test]
+    fn add_child_count_limb_sets_one_or_increments() {
+        // Working name for the count limb of I3D_frame::AddChild
+        // (I3d_frame.cpp:559-577): occupied body (overlay 0x1bea0), no RVA
+        // claimed here. An empty child list stores one; otherwise the
+        // stored count increments with native two's-complement wrap.
+        assert_eq!(frame_add_child_result_count(true, 0), 1);
+        assert_eq!(frame_add_child_result_count(true, 41), 1);
+        assert_eq!(frame_add_child_result_count(false, 0), 1);
+        assert_eq!(frame_add_child_result_count(false, 1), 2);
+        assert_eq!(frame_add_child_result_count(false, 7), 8);
+        assert_eq!(frame_add_child_result_count(false, u32::MAX), 0);
     }
     #[test]
     fn update_children_bump_gate_needs_changed_word() {

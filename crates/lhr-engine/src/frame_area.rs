@@ -217,6 +217,53 @@ impl AreaFrame {
     pub fn face_count_of(&self) -> u32 {
         self.face_count
     }
+    /// Working name for the allocation sizes of `I3D_area::Build` (mafia-re
+    /// ls3df/I3D/frames/I3d_area.cpp:163-166 at pin fe7e746: vertex words at
+    /// `nv * 12`, face halfwords at `nf * 6`, planes at `nf * 16`). The
+    /// `Build` body lives at overlay RVA 0x5880 (not claimed here); only the
+    /// layout triple is modeled, and the frees plus stores stay
+    /// caller-owned. Checked math reports overflow as `None` (the native
+    /// failure path is fatal, disclosed like `frame_set_model_name_layout`).
+    /// Pure helper, no buffer moves.
+    pub fn area_build_alloc_layout(
+        num_verts: usize,
+        num_faces: usize,
+    ) -> Option<(usize, usize, usize)> {
+        Some((
+            num_verts.checked_mul(12)?,
+            num_faces.checked_mul(6)?,
+            num_faces.checked_mul(16)?,
+        ))
+    }
+    /// Working name for the kind gate of `I3D_area::Duplicate` (mafia-re
+    /// ls3df/I3D/frames/I3d_area.cpp:146-150 at pin fe7e746: only an area
+    /// source rebuilds the faces through `Build`). The `Duplicate` body
+    /// lives at overlay RVA 0x5820 (not claimed here); only the gate is
+    /// modeled, and the base duplicate plus the builds stay caller-owned.
+    /// Reports whether the source geometry is rebuilt. Pure helper, no
+    /// buffer moves.
+    pub fn area_duplicate_copies_geometry(is_area: bool) -> bool {
+        is_area
+    }
+    /// Working name for the first early-out of `I3D_area::AddSound`
+    /// (mafia-re ls3df/I3D/frames/I3d_area.cpp:201-203 at pin fe7e746: an
+    /// already listed sound returns without touching the last-update
+    /// count). The `AddSound` body lives at overlay RVA 0x5a30 (not claimed
+    /// here); only the duplicate gate is modeled, and the list plus the
+    /// backlink stay caller-owned. Reports whether the add is skipped.
+    /// Pure helper, no list moves.
+    pub fn area_add_sound_skips_duplicate(already_listed: bool) -> bool {
+        already_listed
+    }
+    /// Working name for the second early-out of `I3D_area::AddSound`
+    /// (mafia-re ls3df/I3D/frames/I3d_area.cpp:204-206 at pin fe7e746: the
+    /// backlink pushes only when the sound does not list the area yet).
+    /// Same occupied-body status as `area_add_sound_skips_duplicate`.
+    /// Reports whether the sound-to-area backlink is pushed. Pure helper,
+    /// no list moves.
+    pub fn area_add_sound_pushes_backlink(sound_lists_area: bool) -> bool {
+        !sound_lists_area
+    }
     /// Working name for the scene-ring previous link at +0x154 (mafia-re
     /// ls3df/I3D/I3D.h:2473: the scene's ring of areas). The reference
     /// records no LS3DF FUNCTION address for a standalone reader: only
@@ -1066,6 +1113,25 @@ mod tests {
         arena.release(dst.frame()).unwrap();
         arena.release(sector.frame()).unwrap();
         assert_eq!(arena.area_storage().live_allocations(), 0);
+    }
+    #[test]
+    fn area_build_alloc_layout_matches_buffer_slots() {
+        // Working names for the Build allocation sizes (I3d_area.cpp:163-166):
+        // vertex words nv*12, face halfwords nf*6, planes nf*16. The occupied
+        // body at PC RVA 0x5880 is not claimed here.
+        assert_eq!(AreaFrame::area_build_alloc_layout(0, 0), Some((0, 0, 0)));
+        assert_eq!(
+            AreaFrame::area_build_alloc_layout(3, 1),
+            Some((36, 6, 16))
+        );
+        assert_eq!(AreaFrame::area_build_alloc_layout(usize::MAX, 1), None);
+        assert_eq!(AreaFrame::area_build_alloc_layout(1, usize::MAX), None);
+        assert!(AreaFrame::area_duplicate_copies_geometry(true));
+        assert!(!AreaFrame::area_duplicate_copies_geometry(false));
+        assert!(AreaFrame::area_add_sound_skips_duplicate(true));
+        assert!(!AreaFrame::area_add_sound_skips_duplicate(false));
+        assert!(AreaFrame::area_add_sound_pushes_backlink(false));
+        assert!(!AreaFrame::area_add_sound_pushes_backlink(true));
     }
     #[test]
     fn duplicate_oom_keeps_base_ok_with_partial_prefix() {
