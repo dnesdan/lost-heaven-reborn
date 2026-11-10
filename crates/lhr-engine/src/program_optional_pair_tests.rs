@@ -129,7 +129,10 @@ fn optional_second_allocation_failure_never_converts() {
             } else {
                 RemainingDecodeError::Allocation("allocation failure")
             };
-            assert_eq!(slot.decode(opcode, &mut source, &mut backend), Err(expected));
+            assert_eq!(
+                slot.decode(opcode, &mut source, &mut backend),
+                Err(expected)
+            );
             assert!(slot.parameter().is_none());
             assert_eq!(backend.allocations, vec![2]);
             assert!(backend.conversions.is_empty());
@@ -148,7 +151,10 @@ fn firetarget_defaults_to_no_target_and_preserves_explicit_values() {
         let count = if source.contains(&b',') { 2 } else { 1 };
         let mut backend = RecordingBackend::default();
         let mut slot = RemainingParameterSlot::default();
-        assert_eq!(slot.decode(142, &mut source.to_vec(), &mut backend), Ok(true));
+        assert_eq!(
+            slot.decode(142, &mut source.to_vec(), &mut backend),
+            Ok(true)
+        );
         assert_eq!(slot.parameter().unwrap().values(), &[Some(7), Some(target)]);
         assert_eq!(backend.allocations, vec![2]);
         assert_eq!(backend.conversions.len(), count);
@@ -168,7 +174,10 @@ fn emitter_default_precedes_optional_third_conversion() {
     ] {
         let mut backend = RecordingBackend::default();
         let mut slot = RemainingParameterSlot::default();
-        assert_eq!(slot.decode(113, &mut source.to_vec(), &mut backend), Ok(true));
+        assert_eq!(
+            slot.decode(113, &mut source.to_vec(), &mut backend),
+            Ok(true)
+        );
         assert_eq!(
             slot.parameter().unwrap().values(),
             &[Some(7), Some(9), Some(third)]
@@ -178,7 +187,10 @@ fn emitter_default_precedes_optional_third_conversion() {
         assert_eq!(backend.conversions[0], (0, vec![None, None, None]));
         assert_eq!(backend.conversions[1], (1, vec![Some(7), None, None]));
         if count == 3 {
-            assert_eq!(backend.conversions[2], (2, vec![Some(7), Some(9), Some(-1)]));
+            assert_eq!(
+                backend.conversions[2],
+                (2, vec![Some(7), Some(9), Some(-1)])
+            );
         }
     }
 }
