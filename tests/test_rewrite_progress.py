@@ -437,8 +437,11 @@ class RewriteProgressTests(unittest.TestCase):
         # all STUBs held as contract).
         # +2 cutscene size contracts (GetBlockRecordsSize/GetRecordsSize;
         # 11 working-name helpers uncredited; marker-only, tests green).
+        # +9 program register differential (Get/SetFloat/Frame/ActorReg,
+        # InvalidateActorReg/IsEventID/SetAIPriority complete walks; pin
+        # tests owned_runtime 165 pass).
         self.assertEqual(game["ported"], 149 + 866)
-        self.assertEqual(game["verified"], 149 + 499)
+        self.assertEqual(game["verified"], 149 + 508)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

@@ -15788,8 +15788,8 @@
       "va": "0x46ca80",
       "name": "C_program::GetFloatReg",
       "symbol": "lhr_engine::original_program::get_float_reg",
-      "tier": "contract",
-      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::get_float_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_684c306fe5 + complete walk (JL/JGE OOB->FLD [0x623230] zero-word; in-bounds FLD bank[index]; RET 4); port branch-words match native; pin tests owned_runtime 165 pass"
     },
     {
       "binary": "Game.exe",
@@ -15797,8 +15797,8 @@
       "va": "0x46cae0",
       "name": "C_program::SetFloatReg",
       "symbol": "lhr_engine::original_program::set_float_reg",
-      "tier": "contract",
-      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::set_float_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_29917b6749 + complete walk (JL/JGE OOB->RET 8 no store; in-bounds FSTP bank[index]; RET 8); port branch-words match native; pin tests owned_runtime 165 pass"
     },
     {
       "binary": "Game.exe",
@@ -15806,8 +15806,8 @@
       "va": "0x46caa0",
       "name": "C_program::GetFrameReg",
       "symbol": "lhr_engine::original_program::get_frame_reg",
-      "tier": "contract",
-      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::get_frame_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_33f04ff791 + complete walk (JL/JGE OOB->XOR EAX null; in-bounds MOV bank[index]; RET 4); port branch-words match native; pin tests owned_runtime 165 pass"
     },
     {
       "binary": "Game.exe",
@@ -15815,8 +15815,8 @@
       "va": "0x46cb00",
       "name": "C_program::SetFrameReg",
       "symbol": "lhr_engine::original_program::set_frame_reg",
-      "tier": "contract",
-      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::set_frame_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_4a17a1d6fe + complete walk (JL/JGE OOB->RET 8 no store; in-bounds MOV bank[index]; RET 8); port branch-words match native; pin tests owned_runtime 165 pass"
     },
     {
       "binary": "Game.exe",
@@ -15824,8 +15824,8 @@
       "va": "0x46cac0",
       "name": "C_program::GetActorReg",
       "symbol": "lhr_engine::original_program::get_actor_reg",
-      "tier": "contract",
-      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::get_actor_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_7c1ffe6b35 + complete walk (JL/JGE OOB->XOR EAX null; in-bounds MOV bank[index]; RET 4); port branch-words match native; pin tests owned_runtime 165 pass"
     },
     {
       "binary": "Game.exe",
@@ -15833,8 +15833,8 @@
       "va": "0x46cb20",
       "name": "C_program::SetActorReg",
       "symbol": "lhr_engine::original_program::set_actor_reg",
-      "tier": "contract",
-      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::set_actor_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_31ae234486 + complete walk (JL/JGE OOB->RET 8 no store; in-bounds MOV bank[index]; RET 8); port branch-words match native; pin tests owned_runtime 165 pass"
     },
     {
       "binary": "Game.exe",
@@ -15842,8 +15842,8 @@
       "va": "0x46cec0",
       "name": "C_program::InvalidateActorReg",
       "symbol": "lhr_engine::original_program::invalidate_actor_reg",
-      "tier": "contract",
-      "evidence": "Canonical path crate::original_program::owned_runtime::RuntimeFields::invalidate_actor_reg (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_00f4f9d6f3 + complete loop walk (back-to-front DEC scan, NULL-match clear; order unobservable); port branch-words match native; pin tests owned_runtime 165 pass"
     },
     {
       "binary": "Game.exe",
@@ -15851,8 +15851,8 @@
       "va": "0x46ce70",
       "name": "C_program::IsEventID",
       "symbol": "lhr_engine::original_program::program_is_event_id",
-      "tier": "contract",
-      "evidence": "Canonical path crate::original_program::owned_runtime::program_is_event_id (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_a8a63dbd24 + complete loop walk (while(i--) CMD_EVENT match, unconditional *param=p[1]; C_program.cpp:2790); port branch-words match native; pin tests owned_runtime 165 pass"
     },
     {
       "binary": "Game.exe",
@@ -15860,8 +15860,8 @@
       "va": "0x47b010",
       "name": "C_program::SetAIPriority",
       "symbol": "lhr_engine::original_program::program_set_ai_priority",
-      "tier": "contract",
-      "evidence": "Canonical path crate::original_program::owned_runtime::program_set_ai_priority (via glob re-export; overlay key shortened per validator module rules). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_a0be30883d + complete walk (single MOV [ECX+0x60]; RET 4); port branch-words match native; pin tests owned_runtime 165 pass"
     },
     {
       "binary": "Game.exe",
