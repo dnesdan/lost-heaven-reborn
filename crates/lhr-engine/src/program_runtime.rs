@@ -3827,13 +3827,14 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     }
                 };
                 let num = *self.float_count as i32;
-                let a = self.resolve_float(let_param.a.register, let_param.a.value)?;
-                let b = self.resolve_float(let_param.b.register, let_param.b.value)?;
                 if num > let_param.dest
                     && let_param.dest >= 0
                     && num > let_param.a.register
                     && num > let_param.b.register
                 {
+                    // Native register guards precede source operand reads.
+                    let a = self.resolve_float(let_param.a.register, let_param.a.value)?;
+                    let b = self.resolve_float(let_param.b.register, let_param.b.value)?;
                     let result = match let_param.op {
                         LetOp::None => a,
                         LetOp::Add => a + b,
@@ -3867,9 +3868,10 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     }
                 };
                 let num = *self.float_count as i32;
-                let a = self.resolve_float(if_param.a.register, if_param.a.value)?;
-                let b = self.resolve_float(if_param.b.register, if_param.b.value)?;
                 if num > if_param.a.register && num > if_param.b.register {
+                    // An invalid register skips IF without touching either source.
+                    let a = self.resolve_float(if_param.a.register, if_param.a.value)?;
+                    let b = self.resolve_float(if_param.b.register, if_param.b.value)?;
                     let result = match if_param.op {
                         IfOp::Less => a < b,
                         IfOp::Greater => a > b,
