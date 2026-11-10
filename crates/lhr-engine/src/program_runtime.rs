@@ -4030,9 +4030,11 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             }
             37 | 52 | 164 | 165 | 166 => {
                 // Mission flow: ENDOFMISSION (37), CHANGE_MISSION (52),
-                // MISSION_OBJECTIVES (164), REMOVE (165), CLEAR (166). Decode
-                // admitted; execution is a no-op advance for now (fade/menu
-                // and objectives vector remain stubs).
+                // MISSION_OBJECTIVES (164), REMOVE (165), CLEAR (166).
+                // Decoding is supported, but no retained mission/objectives
+                // owner can apply these effects yet. Never advance past an
+                // effect that has not actually happened.
+                return Err(RuntimeError::UnsupportedCommand(opcode));
             }
             27 => {
                 // Original CMD_DETECTOR_ISSIGNAL (mafia-re 113b5b6
