@@ -80,9 +80,10 @@ struct ScriptRunReport {
 }
 
 /// Bounded GameInit scheduling diagnostic: entity/detector program init
-/// plus five 16 ms scheduler ticks over the live session. Counts stepped
-/// programs; the first unavailable owner stops the schedule and is
-/// reported, never skipped.
+/// plus five 16 ms scheduler ticks over the live session, with the
+/// session-owned light-cache tick advanced once per tick. Counts stepped
+/// programs and light evaluations; the first unavailable owner stops the
+/// schedule and is reported, never skipped.
 #[derive(Default)]
 struct ScheduleReport {
     entity_init: usize,
@@ -90,6 +91,9 @@ struct ScheduleReport {
     entity_ticks: usize,
     detector_ticks: usize,
     ticks_run: usize,
+    light_tick_evals: usize,
+    lights_on: u32,
+    lights_off: u32,
     error: Option<String>,
 }
 
@@ -126,6 +130,19 @@ fn run_schedule_ticks(
             Ok(stepped) => report.detector_ticks += stepped,
             Err(error) => {
                 report.error = Some(format!("detector tick: {error:?}"));
+                break;
+            }
+        }
+        match session.tick_owned_light_cache(16) {
+            Ok(outcome) => {
+                if outcome.evaluated {
+                    report.light_tick_evals += 1;
+                    report.lights_on += outcome.turned_on;
+                    report.lights_off += outcome.turned_off;
+                }
+            }
+            Err(error) => {
+                report.error = Some(format!("light tick: {error:?}"));
                 break;
             }
         }
@@ -515,21 +532,27 @@ pub fn run(
             match &schedule.error {
                 None => writeln!(
                     report,
-                    "GameInit scheduling: entity_init={} detector_init={} ticks={} entity_ticks={} detector_ticks={}",
+                    "GameInit scheduling: entity_init={} detector_init={} ticks={} entity_ticks={} detector_ticks={} light_tick_evals={} lights_on={} lights_off={}",
                     schedule.entity_init,
                     schedule.detector_init,
                     schedule.ticks_run,
                     schedule.entity_ticks,
-                    schedule.detector_ticks
+                    schedule.detector_ticks,
+                    schedule.light_tick_evals,
+                    schedule.lights_on,
+                    schedule.lights_off
                 ),
                 Some(detail) => writeln!(
                     report,
-                    "GameInit scheduling stopped: {detail} after entity_init={} detector_init={} ticks={} entity_ticks={} detector_ticks={}",
+                    "GameInit scheduling stopped: {detail} after entity_init={} detector_init={} ticks={} entity_ticks={} detector_ticks={} light_tick_evals={} lights_on={} lights_off={}",
                     schedule.entity_init,
                     schedule.detector_init,
                     schedule.ticks_run,
                     schedule.entity_ticks,
-                    schedule.detector_ticks
+                    schedule.detector_ticks,
+                    schedule.light_tick_evals,
+                    schedule.lights_on,
+                    schedule.lights_off
                 ),
             }
             .unwrap();

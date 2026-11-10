@@ -710,6 +710,83 @@ pub fn collect_session_lights(graph: &SessionLightGraph) -> Result<SessionLightC
     })
 }
 
+/// Backend for the per-frame light-cache cull: live world positions and
+/// ranges plus the evidenced on/off switch. No allocation or traversal.
+pub trait LightTickBackend {
+    type Error;
+    /// Live world-space position of one collected light (native
+    /// `GetWorldPos`, the frame inline GAME 0x47a730, not the `w_pos` cache).
+    fn light_world_position(&mut self, id: LightFrameId) -> Result<[f32; 3], Self::Error>;
+    /// Native `far_range` word of one collected light.
+    fn light_far_range(&mut self, id: LightFrameId) -> Result<f32, Self::Error>;
+    /// Evidenced on/off switch (PC RVA 0x21400).
+    fn set_light_on(&mut self, id: LightFrameId, on: bool) -> Result<(), Self::Error>;
+}
+
+/// Outcome of one LightCacheTick pass. Counts are culling decisions in
+/// native reverse call order, not allocator traffic.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LightTickOutcome {
+    /// False when the cache was empty (native early return, time untouched)
+    /// or the countdown deferred the pass.
+    pub evaluated: bool,
+    /// Lights switched on by this pass.
+    pub turned_on: u32,
+    /// Lights switched off by this pass.
+    pub turned_off: u32,
+}
+
+/// Original `C_game::LightCacheTick` countdown plus culling pass (mafia-re
+/// game/mission/game.cpp:1670-1692 at pin fe7e746; the function itself is
+/// inline, the evidenced out-of-line caller is `RecomputeLightCache`
+/// GAME 0x5b5d40): empty caches return before touching time; a positive
+/// countdown subtracts the tick and defers; otherwise time resets to 2023
+/// and every collected light, latest first, turns on exactly when
+/// `(far_range + cam_range + 15.0)^2` exceeds its squared camera distance
+/// (strict `>`: NaN distances read as miss and switch off, matching the
+/// native false-compare flow; f32 host arithmetic, no epsilon). Differential
+/// filing stays deferred: the inline body has no standalone RVA and full
+/// REA ev IDs plus a Ghidra walk are still open for 0x5b5d40.
+pub fn tick_light_cache<B: LightTickBackend>(
+    time: &mut i32,
+    lights: &[LightFrameId],
+    dt_ms: u32,
+    cam_pos: [f32; 3],
+    cam_range: f32,
+    backend: &mut B,
+) -> Result<LightTickOutcome, B::Error> {
+    if lights.is_empty() {
+        return Ok(LightTickOutcome::default());
+    }
+    if *time > 0 {
+        *time -= dt_ms as i32;
+        return Ok(LightTickOutcome::default());
+    }
+    *time = 2023;
+    let mut outcome = LightTickOutcome {
+        evaluated: true,
+        turned_on: 0,
+        turned_off: 0,
+    };
+    for index in (0..lights.len()).rev() {
+        let id = lights[index];
+        let pos = backend.light_world_position(id)?;
+        let dx = pos[0] - cam_pos[0];
+        let dy = pos[1] - cam_pos[1];
+        let dz = pos[2] - cam_pos[2];
+        let dist_sq = dx * dx + dy * dy + dz * dz;
+        let reach = backend.light_far_range(id)? + cam_range + 15.0;
+        let on = reach * reach > dist_sq;
+        backend.set_light_on(id, on)?;
+        if on {
+            outcome.turned_on += 1;
+        } else {
+            outcome.turned_off += 1;
+        }
+    }
+    Ok(outcome)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1271,6 +1348,153 @@ mod tests {
         let mut partial = light_graph(&[(9, light_view(5, 0, Some(0), None, None))]);
         partial.root = Some(LightFrameId(2));
         assert!(collect_session_lights(&partial).is_err());
+    }
+
+    struct TickBackend {
+        pos: Vec<(LightFrameId, [f32; 3])>,
+        far: Vec<(LightFrameId, f32)>,
+        sets: Vec<(LightFrameId, bool)>,
+    }
+
+    impl TickBackend {
+        fn find_pos(&self, id: LightFrameId) -> Option<[f32; 3]> {
+            self.pos
+                .iter()
+                .find(|(entry, _)| *entry == id)
+                .map(|(_, pos)| *pos)
+        }
+
+        fn find_far(&self, id: LightFrameId) -> Option<f32> {
+            self.far
+                .iter()
+                .find(|(entry, _)| *entry == id)
+                .map(|(_, far)| *far)
+        }
+    }
+
+    impl LightTickBackend for TickBackend {
+        type Error = String;
+
+        fn light_world_position(&mut self, id: LightFrameId) -> Result<[f32; 3], Self::Error> {
+            self.find_pos(id)
+                .ok_or_else(|| format!("tick light {id:?} outside the backend"))
+        }
+
+        fn light_far_range(&mut self, id: LightFrameId) -> Result<f32, Self::Error> {
+            self.find_far(id)
+                .ok_or_else(|| format!("tick light {id:?} outside the backend"))
+        }
+
+        fn set_light_on(&mut self, id: LightFrameId, on: bool) -> Result<(), Self::Error> {
+            self.sets.push((id, on));
+            Ok(())
+        }
+    }
+
+    fn tick_backend(entries: &[(u32, [f32; 3], f32)]) -> TickBackend {
+        TickBackend {
+            pos: entries
+                .iter()
+                .map(|(id, pos, _)| (LightFrameId(*id), *pos))
+                .collect(),
+            far: entries
+                .iter()
+                .map(|(id, _, far)| (LightFrameId(*id), *far))
+                .collect(),
+            sets: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn light_tick_skips_empty_caches_and_honors_the_countdown() {
+        // Empty cache: native early return leaves time untouched.
+        let mut backend = tick_backend(&[]);
+        let mut time = -5;
+        let outcome = tick_light_cache(&mut time, &[], 16, [0.0; 3], 10.0, &mut backend).unwrap();
+        assert_eq!(time, -5);
+        assert!(!outcome.evaluated);
+        assert!(backend.sets.is_empty());
+        // Positive countdown: subtract the tick, defer, touch nothing.
+        let mut backend = tick_backend(&[(2, [0.0, 0.0, 0.0], 5.0)]);
+        let mut time = 100;
+        let outcome = tick_light_cache(
+            &mut time,
+            &[LightFrameId(2)],
+            16,
+            [0.0; 3],
+            10.0,
+            &mut backend,
+        )
+        .unwrap();
+        assert_eq!(time, 84);
+        assert!(!outcome.evaluated);
+        assert!(backend.sets.is_empty());
+        // A short countdown goes negative like the native `-=`; the next
+        // tick evaluates instead of sticking at zero.
+        let mut time = 5;
+        tick_light_cache(
+            &mut time,
+            &[LightFrameId(2)],
+            16,
+            [0.0; 3],
+            10.0,
+            &mut backend,
+        )
+        .unwrap();
+        assert_eq!(time, -11);
+    }
+
+    #[test]
+    fn light_tick_culls_latest_first_by_strict_camera_distance() {
+        // Camera at the origin with range 10: light 2 sits 5 m out with
+        // far 5 (reach (5+10+15)^2=900 > 25: on), light 3 sits 100 m out
+        // with far 5 (900 < 10000: off). Native order is latest first.
+        let mut backend = tick_backend(&[(2, [5.0, 0.0, 0.0], 5.0), (3, [100.0, 0.0, 0.0], 5.0)]);
+        let mut time = 0;
+        let outcome = tick_light_cache(
+            &mut time,
+            &[LightFrameId(2), LightFrameId(3)],
+            16,
+            [0.0; 3],
+            10.0,
+            &mut backend,
+        )
+        .unwrap();
+        assert_eq!(time, 2023);
+        assert!(outcome.evaluated);
+        assert_eq!((outcome.turned_on, outcome.turned_off), (1, 1));
+        assert_eq!(
+            backend.sets,
+            vec![(LightFrameId(3), false), (LightFrameId(2), true)]
+        );
+        // Exact-boundary distance reads as miss: strict `>`, like native.
+        let mut backend = tick_backend(&[(4, [30.0, 0.0, 0.0], 5.0)]);
+        let mut time = 0;
+        let outcome = tick_light_cache(
+            &mut time,
+            &[LightFrameId(4)],
+            16,
+            [0.0; 3],
+            10.0,
+            &mut backend,
+        )
+        .unwrap();
+        assert_eq!((outcome.turned_on, outcome.turned_off), (0, 1));
+        assert_eq!(backend.sets, vec![(LightFrameId(4), false)]);
+        // NaN positions read as miss and switch off, never panic.
+        let mut backend = tick_backend(&[(5, [f32::NAN, 0.0, 0.0], 5.0)]);
+        let mut time = 0;
+        let outcome = tick_light_cache(
+            &mut time,
+            &[LightFrameId(5)],
+            16,
+            [0.0; 3],
+            10.0,
+            &mut backend,
+        )
+        .unwrap();
+        assert_eq!((outcome.turned_on, outcome.turned_off), (0, 1));
+        assert_eq!(backend.sets, vec![(LightFrameId(5), false)]);
     }
 
     #[test]

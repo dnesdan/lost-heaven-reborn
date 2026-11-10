@@ -793,9 +793,16 @@ pub struct GameInlineState {
     pub subtitles: Vec<StagedSubtitle>,
     /// Retained light-cache collection (`C_game::light_cache` plus the reset
     /// words, mafia-re game/mission/game.cpp:314-315, 5923-5928 at pin fe7e746).
-    /// `None` until a `UseLightCache` effect collects it; the per-frame
-    /// `LightCacheTick` application stays deferred with the scene owner.
+    /// `None` until a `UseLightCache` effect collects it; per-frame culling
+    /// runs through [`GameInlineState::light_cache_time`] and the session
+    /// light-cache tick owner.
     pub light_cache: Option<crate::mission_effects::SessionLightCache>,
+    /// Light-cache countdown word (`C_game::light_cache_time`, +0x178,
+    /// mafia-re game/mission/game.cpp:315, 1676-1681, 5926, 5951-5953 at pin
+    /// fe7e746). `UseLightCacheSystem` and `RecomputeLightCache` store -1;
+    /// the per-frame tick stores 2023 on expiry and subtracts the tick while
+    /// positive. Written by [`GameInlineState::set_light_cache_time`].
+    pub light_cache_time: i32,
     /// Script float-register handle for `RACING_MISSION6_START` (`game.h:459`,
     /// offset 0x2ee0). `None` is the native NULL; the register itself stays
     /// with the script owner. Written by [`GameInlineState::set_race6_result`].
@@ -1592,6 +1599,20 @@ impl GameInlineState {
     /// effect has collected one.
     pub fn light_cache(&self) -> Option<&crate::mission_effects::SessionLightCache> {
         self.light_cache.as_ref()
+    }
+
+    /// Reads the light-cache countdown word.
+    pub fn light_cache_time(&self) -> i32 {
+        self.light_cache_time
+    }
+
+    /// Stores the light-cache countdown word. `UseLightCacheSystem`
+    /// (mafia-re game/mission/game.cpp:5923-5928 at pin fe7e746) and
+    /// `RecomputeLightCache` (GAME 0x5b5d40, `game.cpp:5949-5954`) store -1;
+    /// the per-frame tick stores 2023 on expiry and subtracts the tick
+    /// while positive.
+    pub fn set_light_cache_time(&mut self, time: i32) {
+        self.light_cache_time = time;
     }
 
     /// Working name (no outline RVA; flag read, `game.h:404`,

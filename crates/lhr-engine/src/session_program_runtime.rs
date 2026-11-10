@@ -57,6 +57,7 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
             UseLightCache => match crate::mission_effects::collect_session_lights(&self.lights) {
                 Ok(collected) => {
                     self.game.light_cache = Some(collected);
+                    self.game.set_light_cache_time(-1);
                 }
                 Err(error) => return Err(error),
             },
@@ -206,6 +207,93 @@ impl MissionLoadSession {
                 .tick_detector_programs(world, delta, budget)
                 .map_err(SessionActorProgramError::Detector)
         })
+    }
+
+    /// Advance the session-owned light-cache countdown once and, on expiry,
+    /// cull the collected lights by camera distance through the evidenced
+    /// SetOn owner (native `C_game::Tick` calls `LightCacheTick(time)`,
+    /// mafia-re game/mission/game.cpp:2083, over the `UseLightCacheSystem`
+    /// collection). Empty caches evaluate nothing without touching time;
+    /// missing scenes, cameras or clip ranges report loudly instead of
+    /// inventing poses. This is an explicit host scheduling choice, not a
+    /// native order claim.
+    pub fn tick_owned_light_cache(
+        &mut self,
+        dt_ms: u32,
+    ) -> Result<crate::mission_effects::LightTickOutcome, String> {
+        use crate::frame_transform::FrameKey;
+        use crate::mission_effects::{LightFrameId, LightTickBackend};
+        struct ArenaLights<'a> {
+            arena: &'a mut crate::model_loading::ModelArena,
+        }
+        impl LightTickBackend for ArenaLights<'_> {
+            type Error = String;
+            fn light_world_position(&mut self, id: LightFrameId) -> Result<[f32; 3], String> {
+                let matrix = self
+                    .arena
+                    .world_matrix(FrameKey(id.0))
+                    .map_err(|error| format!("{error:?}"))?;
+                matrix
+                    .try_transform_point([0.0; 3])
+                    .map_err(|error| format!("{error:?}"))
+            }
+            fn light_far_range(&mut self, id: LightFrameId) -> Result<f32, String> {
+                self.arena
+                    .light_range_of(FrameKey(id.0))
+                    .map(|range| range[1])
+                    .map_err(|error| format!("{error:?}"))
+            }
+            fn set_light_on(&mut self, id: LightFrameId, on: bool) -> Result<(), String> {
+                self.arena
+                    .set_light_on(FrameKey(id.0), on)
+                    .map_err(|error| format!("{error:?}"))
+            }
+        }
+        Pc24PrecisionState::run_owner(
+            self,
+            |session| &mut session.precision,
+            |session| {
+                let scene = session
+                    .scene()
+                    .map_err(|error| format!("{error:?}"))?
+                    .ok_or("light tick: scene unavailable")?;
+                let camera = session
+                    .arena
+                    .scene_active_camera(scene)
+                    .map_err(|error| format!("{error:?}"))?
+                    .ok_or("light tick: no active camera")?;
+                let fcp = session
+                    .arena
+                    .camera_clip_range(camera)
+                    .map_err(|error| format!("{error:?}"))?
+                    .ok_or("light tick: camera clip range unavailable")?[1];
+                let matrix = session
+                    .arena
+                    .world_matrix(camera.frame())
+                    .map_err(|error| format!("{error:?}"))?;
+                let cam_pos = matrix
+                    .try_transform_point([0.0; 3])
+                    .map_err(|error| format!("{error:?}"))?;
+                let lights = session
+                    .game_inline
+                    .light_cache
+                    .as_ref()
+                    .map(|cache| cache.lights.clone())
+                    .unwrap_or_default();
+                let mut backend = ArenaLights {
+                    arena: &mut session.arena,
+                };
+                crate::mission_effects::tick_light_cache(
+                    &mut session.game_inline.light_cache_time,
+                    &lights,
+                    dt_ms,
+                    cam_pos,
+                    fcp,
+                    &mut backend,
+                )
+                .map_err(|error| format!("{error:?}"))
+            },
+        )
     }
 
     fn with_owned_actor_programs<D: MissionProgramDiagnostic, R>(

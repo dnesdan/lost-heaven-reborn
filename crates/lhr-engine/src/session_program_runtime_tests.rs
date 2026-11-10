@@ -187,6 +187,7 @@ fn use_lightcache_collects_empty_prefix_on_a_sceneless_session() {
         .expect("light cache retained");
     assert!(cache.lights.is_empty());
     assert_eq!(cache.header.end_token, cache.header.begin_token);
+    assert_eq!(session.game_state().light_cache_time(), -1);
     finish(&mut session);
 }
 
