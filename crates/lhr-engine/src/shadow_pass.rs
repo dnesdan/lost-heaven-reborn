@@ -30,6 +30,85 @@ pub const SHDF_DIR_CHANGED: u32 = 0x2;
 pub const SHDF_TEXTURE_VALID: u32 = 0x400;
 pub const SHDF_TEXTURE_CHANGED: u32 = 0x1;
 
+/// Working name for `SHDF_OPACITY_CHANGED` (mafia-re ls3df/I3D/I3D.h:2551 at
+/// pin 113b5b6: the light pass changed the opacity). The reference records
+/// no LS3DF FUNCTION address for a standalone reader; the bit is set by the
+/// occupied `UpdateLight` body (PC RVA 0x51c00, already ported, not claimed
+/// here) and cleared by the occupied `Prepare` head. Value from the header,
+/// same provenance as the instruction-evidenced words above.
+pub const SHDF_OPACITY_CHANGED: u32 = 0x8;
+/// Working name for `SHDF_RECEIVERS_CHANGED` (mafia-re ls3df/I3D/I3D.h:2552
+/// at pin 113b5b6: `ProcessShadow` found other receivers). Same inline-only
+/// status as `SHDF_OPACITY_CHANGED`: no standalone LS3DF FUNCTION entry
+/// exists, so no RVA is claimed here.
+pub const SHDF_RECEIVERS_CHANGED: u32 = 0x10;
+/// Working name for `SHDF_LIGHT_VALID` (mafia-re ls3df/I3D/I3D.h:2554 at pin
+/// 113b5b6: the light and its direction are up to date). Same inline-only
+/// status as `SHDF_OPACITY_CHANGED`: no standalone LS3DF FUNCTION entry
+/// exists, so no RVA is claimed here.
+pub const SHDF_LIGHT_VALID: u32 = 0x800;
+/// Working name for `SHDF_RECEIVERS_VALID` (mafia-re ls3df/I3D/I3D.h:2556 at
+/// pin 113b5b6: the receivers' faces are clipped). Same inline-only status
+/// as `SHDF_OPACITY_CHANGED`: no standalone LS3DF FUNCTION entry exists, so
+/// no RVA is claimed here.
+pub const SHDF_RECEIVERS_VALID: u32 = 0x2000;
+
+/// Working name for the `SHDF_OPACITY_CHANGED` bit test over a `shd_flags`
+/// word (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:596,609,617 at pin
+/// 113b5b6: the `UpdateLight` tails set it beside `SHDF_LIGHT_VALID`).
+/// Same inline-only status as the const above: exact bit test on the
+/// caller-supplied word; no owner or backend is consulted.
+pub fn shdf_opacity_changed(flags: u32) -> bool {
+    flags & SHDF_OPACITY_CHANGED != 0
+}
+
+/// Working name for the `SHDF_RECEIVERS_CHANGED` bit test over a `shd_flags`
+/// word (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:949 at pin 113b5b6: the
+/// `ProcessShadow` tail sets it when other receivers are found). Same
+/// inline-only status as `shdf_opacity_changed`.
+pub fn shdf_receivers_changed(flags: u32) -> bool {
+    flags & SHDF_RECEIVERS_CHANGED != 0
+}
+
+/// Working name for the `SHDF_LIGHT_VALID` bit test over a `shd_flags` word
+/// (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:506,523,596,630-634 at pin
+/// 113b5b6: the `UpdateLight` head gates on it and the tails set it).
+/// Same inline-only status as `shdf_opacity_changed`.
+pub fn shdf_light_up_to_date(flags: u32) -> bool {
+    flags & SHDF_LIGHT_VALID != 0
+}
+
+/// Working name for the `SHDF_RECEIVERS_VALID` bit test over a `shd_flags`
+/// word (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:739,756,825,832,951 at
+/// pin 113b5b6: the `Prepare`/`ProcessShadow` tails gate on it and clear
+/// it). Same inline-only status as `shdf_opacity_changed`.
+pub fn shdf_receivers_clipped(flags: u32) -> bool {
+    flags & SHDF_RECEIVERS_VALID != 0
+}
+
+/// Working name for the `SHDF_NONE` bit test over a `shd_flags` word
+/// (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:596,609,612,635,677,697,702
+/// at pin 113b5b6: the light/texture tails set it when no light casts the
+/// shadow or it has no geometry). Same inline-only status as
+/// `shdf_opacity_changed`. Reports the no-caster mark; no cache moves.
+pub fn shdf_is_none(flags: u32) -> bool {
+    flags & SHDF_NONE != 0
+}
+
+/// Working name for the `Prepare` change-bit projection over a `shd_flags`
+/// word (mafia-re ls3df/I3D/visuals/I3d_shadow.cpp:746-747 at pin 113b5b6:
+/// the head clears `SHDF_TEXTURE_CHANGED | SHDF_DIR_CHANGED |
+/// SHDF_VERTS_CHANGED | SHDF_OPACITY_CHANGED | SHDF_RECEIVERS_CHANGED`).
+/// Keeps only those five change bits; the clear itself stays caller-owned.
+pub fn shdf_change_bits(flags: u32) -> u32 {
+    flags
+        & (SHDF_TEXTURE_CHANGED
+            | SHDF_DIR_CHANGED
+            | SHDF_VERTS_CHANGED
+            | SHDF_OPACITY_CHANGED
+            | SHDF_RECEIVERS_CHANGED)
+}
+
 /// X1-owned flag registry (bits Ghidra did not evidence in X3 bodies).
 /// Built by the X1 caller; X3 never defines these words.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2148,6 +2227,97 @@ mod tests {
                 false
             ),
             Err(ShadowPassError::NumericDomain)
+        );
+    }
+
+    #[test]
+    fn shdf_opacity_changed_reports_only_its_bit() {
+        // Working name for SHDF_OPACITY_CHANGED (I3D.h:2551): no standalone
+        // LS3DF FUNCTION entry; set by the UpdateLight tails.
+        assert_eq!(SHDF_OPACITY_CHANGED, 0x8);
+        assert!(shdf_opacity_changed(SHDF_OPACITY_CHANGED));
+        assert!(shdf_opacity_changed(SHDF_OPACITY_CHANGED | SHDF_LIGHT_VALID));
+        assert!(shdf_opacity_changed(u32::MAX));
+        assert!(!shdf_opacity_changed(0));
+        assert!(!shdf_opacity_changed(SHDF_RECEIVERS_CHANGED));
+        assert!(!shdf_opacity_changed(u32::MAX & !SHDF_OPACITY_CHANGED));
+    }
+
+    #[test]
+    fn shdf_receivers_changed_reports_only_its_bit() {
+        // Working name for SHDF_RECEIVERS_CHANGED (I3D.h:2552): no
+        // standalone LS3DF FUNCTION entry; set by the ProcessShadow tail.
+        assert_eq!(SHDF_RECEIVERS_CHANGED, 0x10);
+        assert!(shdf_receivers_changed(SHDF_RECEIVERS_CHANGED));
+        assert!(shdf_receivers_changed(
+            SHDF_RECEIVERS_CHANGED | SHDF_RECEIVERS_VALID
+        ));
+        assert!(shdf_receivers_changed(u32::MAX));
+        assert!(!shdf_receivers_changed(0));
+        assert!(!shdf_receivers_changed(SHDF_OPACITY_CHANGED));
+        assert!(!shdf_receivers_changed(u32::MAX & !SHDF_RECEIVERS_CHANGED));
+    }
+
+    #[test]
+    fn shdf_light_valid_reports_only_its_bit() {
+        // Working name for SHDF_LIGHT_VALID (I3D.h:2554): no standalone
+        // LS3DF FUNCTION entry; gated and set by the UpdateLight body.
+        assert_eq!(SHDF_LIGHT_VALID, 0x800);
+        assert!(shdf_light_up_to_date(SHDF_LIGHT_VALID));
+        assert!(shdf_light_up_to_date(SHDF_LIGHT_VALID | SHDF_DIR_CHANGED));
+        assert!(shdf_light_up_to_date(u32::MAX));
+        assert!(!shdf_light_up_to_date(0));
+        assert!(!shdf_light_up_to_date(SHDF_RECEIVERS_VALID));
+        assert!(!shdf_light_up_to_date(u32::MAX & !SHDF_LIGHT_VALID));
+    }
+
+    #[test]
+    fn shdf_receivers_valid_reports_only_its_bit() {
+        // Working name for SHDF_RECEIVERS_VALID (I3D.h:2556): no standalone
+        // LS3DF FUNCTION entry; gated and cleared by Prepare/ProcessShadow.
+        assert_eq!(SHDF_RECEIVERS_VALID, 0x2000);
+        assert!(shdf_receivers_clipped(SHDF_RECEIVERS_VALID));
+        assert!(shdf_receivers_clipped(
+            SHDF_RECEIVERS_VALID | SHDF_RECEIVERS_CHANGED
+        ));
+        assert!(shdf_receivers_clipped(u32::MAX));
+        assert!(!shdf_receivers_clipped(0));
+        assert!(!shdf_receivers_clipped(SHDF_LIGHT_VALID));
+        assert!(!shdf_receivers_clipped(u32::MAX & !SHDF_RECEIVERS_VALID));
+    }
+
+    #[test]
+    fn shdf_none_reports_only_its_bit() {
+        // Working name for the SHDF_NONE test (I3D.h:2557): the const is
+        // instruction-evidenced, but no standalone reader body exists.
+        assert_eq!(SHDF_NONE, 0x8000);
+        assert!(shdf_is_none(SHDF_NONE));
+        assert!(shdf_is_none(SHDF_NONE | SHDF_LIGHT_VALID));
+        assert!(shdf_is_none(u32::MAX));
+        assert!(!shdf_is_none(0));
+        assert!(!shdf_is_none(SHDF_LIGHT_VALID));
+        assert!(!shdf_is_none(u32::MAX & !SHDF_NONE));
+    }
+
+    #[test]
+    fn shdf_change_bits_keep_only_the_prepare_mask() {
+        // Working name for the Prepare clear mask (I3d_shadow.cpp:746-747):
+        // TEXTURE|DIR|VERTS|OPACITY|RECEIVERS changed = 0x1f.
+        assert_eq!(
+            SHDF_TEXTURE_CHANGED
+                | SHDF_DIR_CHANGED
+                | SHDF_VERTS_CHANGED
+                | SHDF_OPACITY_CHANGED
+                | SHDF_RECEIVERS_CHANGED,
+            0x1f
+        );
+        assert_eq!(shdf_change_bits(0x1f), 0x1f);
+        assert_eq!(shdf_change_bits(u32::MAX), 0x1f);
+        assert_eq!(shdf_change_bits(0), 0);
+        assert_eq!(shdf_change_bits(SHDF_LIGHT_VALID | SHDF_NONE), 0);
+        assert_eq!(
+            shdf_change_bits(SHDF_TEXTURE_CHANGED | SHDF_NONE),
+            SHDF_TEXTURE_CHANGED
         );
     }
 }

@@ -8,6 +8,49 @@ use crate::scene_ownership::{FrameOwner, SceneKey, SectorKey};
 use crate::script_scheduler::FrameReferenceId;
 
 pub const OCCLUDER_WORDS: usize = 0x5ec / 4;
+
+/// Working name for `OCCLF_ACTIVE` (mafia-re ls3df/I3D/I3D.h:2350 at pin
+/// 113b5b6: `UpdateShadow` made the occluder volume this frame and nothing
+/// hides it). The reference records no LS3DF FUNCTION address for a
+/// standalone reader; the word is stored by the occupied `Build`/`UpdateV`
+/// bodies (PC RVAs 0x3ac60/0x3a800, already ported, not claimed here).
+pub const OCCLF_ACTIVE: u32 = 0x2;
+/// Working name for `OCCLF_PORTAL` (mafia-re ls3df/I3D/I3D.h:2351 at pin
+/// 113b5b6: the camera is on both sides of the sector portals, so the
+/// occluder hides no portal). Same inline-only status as `OCCLF_ACTIVE`:
+/// no standalone LS3DF FUNCTION entry exists, so no RVA is claimed here.
+pub const OCCLF_PORTAL: u32 = 0x4;
+/// Working name for `OCCLFF_FACING` (mafia-re ls3df/I3D/I3D.h:2356 at pin
+/// 113b5b6: the face turns toward the camera). Same inline-only status as
+/// `OCCLF_ACTIVE`, over the per-face `face_flags` words (+0x168) instead of
+/// the `occl_flags` word (+0x5c4).
+pub const OCCLFF_FACING: u32 = 0x1;
+
+/// Working name for the `OCCLF_ACTIVE` bit test over the `occl_flags` word
+/// (+0x5c4; mafia-re ls3df/I3D/I3D.h:2400 at pin 113b5b6). The reference
+/// records no LS3DF FUNCTION address for a standalone reader (same status
+/// as the `occluder_occl_flags_of` word read below). Exact bit test on the
+/// caller-supplied word; no owner or backend is consulted.
+pub fn occl_is_active(occl_flags: u32) -> bool {
+    occl_flags & OCCLF_ACTIVE != 0
+}
+
+/// Working name for the `OCCLF_PORTAL` bit test over the `occl_flags` word
+/// (+0x5c4; mafia-re ls3df/I3D/I3D.h:2400 at pin 113b5b6). Same inline-only
+/// status as `occl_is_active`: no standalone LS3DF FUNCTION entry exists,
+/// so no RVA is claimed here. Reports whether portal hiding is suppressed;
+/// no cache moves.
+pub fn occl_hides_no_portal(occl_flags: u32) -> bool {
+    occl_flags & OCCLF_PORTAL != 0
+}
+
+/// Working name for the `OCCLFF_FACING` bit test over one `face_flags` word
+/// (+0x168; mafia-re ls3df/I3D/I3D.h:2394 at pin 113b5b6). Same inline-only
+/// status as `occl_is_active`. Reports whether that face turns toward the
+/// camera; no cache moves.
+pub fn occl_face_is_facing(face_flags: u32) -> bool {
+    face_flags & OCCLFF_FACING != 0
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OccluderKey {
     frame: FrameKey,
@@ -1899,5 +1942,44 @@ mod tests {
         assert_eq!(world.arena.sector_occluder_links(sct).unwrap().0, Some(key));
         world.arena.release(key.frame()).unwrap();
         world.destroy();
+    }
+    #[test]
+    fn occl_active_reports_only_its_bit() {
+        // Working names for OCCLF_ACTIVE (I3D.h:2350): no LS3DF FUNCTION
+        // address for a standalone reader; the word is stored by the taken
+        // Build/UpdateV/UpdateShadow paths.
+        assert_eq!(OCCLF_ACTIVE, 0x2);
+        assert!(occl_is_active(OCCLF_ACTIVE));
+        assert!(occl_is_active(OCCLF_ACTIVE | OCCLF_PORTAL));
+        assert!(occl_is_active(u32::MAX));
+        assert!(!occl_is_active(0));
+        assert!(!occl_is_active(OCCLF_PORTAL));
+        assert!(!occl_is_active(OCCLFF_FACING));
+        assert!(!occl_is_active(u32::MAX & !OCCLF_ACTIVE));
+    }
+    #[test]
+    fn occl_portal_reports_only_its_bit() {
+        // Working name for OCCLF_PORTAL (I3D.h:2351): same inline-only
+        // status as OCCLF_ACTIVE.
+        assert_eq!(OCCLF_PORTAL, 0x4);
+        assert!(occl_hides_no_portal(OCCLF_PORTAL));
+        assert!(occl_hides_no_portal(OCCLF_ACTIVE | OCCLF_PORTAL));
+        assert!(occl_hides_no_portal(u32::MAX));
+        assert!(!occl_hides_no_portal(0));
+        assert!(!occl_hides_no_portal(OCCLF_ACTIVE));
+        assert!(!occl_hides_no_portal(OCCLFF_FACING));
+        assert!(!occl_hides_no_portal(u32::MAX & !OCCLF_PORTAL));
+    }
+    #[test]
+    fn occl_facing_reports_only_its_bit() {
+        // Working name for OCCLFF_FACING (I3D.h:2356): same inline-only
+        // status, over a per-face face_flags word (+0x168).
+        assert_eq!(OCCLFF_FACING, 0x1);
+        assert!(occl_face_is_facing(OCCLFF_FACING));
+        assert!(occl_face_is_facing(u32::MAX));
+        assert!(!occl_face_is_facing(0));
+        assert!(!occl_face_is_facing(OCCLF_ACTIVE));
+        assert!(!occl_face_is_facing(OCCLF_PORTAL));
+        assert!(!occl_face_is_facing(u32::MAX & !OCCLFF_FACING));
     }
 }
