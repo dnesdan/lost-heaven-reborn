@@ -68,6 +68,17 @@ fn length(v: [f32; 3]) -> Out<f32> {
     }
 }
 
+/// I3D_LIGHTNESS_TESTCOL 0x1 (mafia-re ls3df/I3D/I3D.h:1325-1326 at pin 113b5b6):
+/// GetLightness only counts what reaches the point unoccluded.
+pub const LIGHTNESS_TESTCOL: u32 = 0x1;
+/// Working name for the I3D_LIGHTNESS_TESTCOL bit test (mafia-re ls3df/I3D/I3D.h:1326).
+/// The reference records no LS3DF FUNCTION address for a standalone reader;
+/// the bit is only consumed inline by `I3D_scene::GetLightness` flags.
+/// Reports occlusion testing; no state moves.
+pub fn lightness_tests_collision(flags: u32) -> bool {
+    flags & LIGHTNESS_TESTCOL != 0
+}
+
 /// Original GetLightness(scene,position,NULL,0,NULL), spilled to binary32 by
 /// C_Vehicle::Update. Reverse light order, luminance association and the two
 /// separate sums follow the supplied PC instructions.
@@ -206,6 +217,16 @@ mod tests {
         let primary = arena.scene(scene).unwrap().sectors[0];
         arena.sector_add_light(primary, light).unwrap();
         light
+    }
+    #[test]
+    fn lightness_flag_reports_only_occlusion_bit() {
+        // Working name for I3D_LIGHTNESS_TESTCOL (I3D.h:1326): no LS3DF FUNCTION entry.
+        assert_eq!(LIGHTNESS_TESTCOL, 0x1);
+        assert!(lightness_tests_collision(LIGHTNESS_TESTCOL));
+        assert!(lightness_tests_collision(u32::MAX));
+        assert!(!lightness_tests_collision(0));
+        assert!(!lightness_tests_collision(0x2));
+        assert!(!lightness_tests_collision(u32::MAX & !LIGHTNESS_TESTCOL));
     }
     #[test]
     fn empty_and_disabled_registered_lights_retain_original_zero_result() {

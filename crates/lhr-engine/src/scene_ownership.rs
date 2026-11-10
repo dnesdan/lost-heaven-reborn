@@ -1622,6 +1622,39 @@ impl ModelArena {
     pub fn scene_backdrop_range_of(&self, scene: SceneKey) -> Result<[f32; 2], ModelError> {
         Ok(self.scene(scene)?.backdrop_range)
     }
+    /// Working name for the backdrop near plane at scene +0x24c
+    /// (mafia-re `ls3df/I3D/I3D.h:1571` `backdrop_ncp`; written by
+    /// `SetBackdropRange`). No LS3DF FUNCTION address exists for a near
+    /// getter: only the setter has one. Reports the stored word
+    /// bit-exactly; no render moves.
+    pub fn scene_backdrop_near_of(&self, scene: SceneKey) -> Result<f32, ModelError> {
+        Ok(self.scene(scene)?.backdrop_range[0])
+    }
+    /// Working name for the backdrop far plane at scene +0x250
+    /// (mafia-re `ls3df/I3D/I3D.h:1571` `backdrop_fcp`; written by
+    /// `SetBackdropRange`). No LS3DF FUNCTION address exists for a far
+    /// getter: only the setter has one. Reports the stored word
+    /// bit-exactly; no render moves.
+    pub fn scene_backdrop_far_of(&self, scene: SceneKey) -> Result<f32, ModelError> {
+        Ok(self.scene(scene)?.backdrop_range[1])
+    }
+    /// Working name for the callback presence at scene +0x140
+    /// (mafia-re `ls3df/I3D/I3D.h:1552` `callback`; written by
+    /// `SetCallback` PC RVA 0x49120, already occupied). No LS3DF FUNCTION
+    /// address exists for a presence getter. Reports whether a callback is
+    /// installed; no device is consulted.
+    pub fn scene_has_callback(&self, scene: SceneKey) -> Result<bool, ModelError> {
+        Ok(self.scene(scene)?.callback.is_some())
+    }
+    /// Working name for the callback flags word at scene +0x144
+    /// (mafia-re `ls3df/I3D/I3D.h:1553` `cb_flags`; written by
+    /// `SetCallback` PC RVA 0x49120, already occupied). No LS3DF FUNCTION
+    /// address exists for a flags getter: the word is only read back with
+    /// the callback. A null callback always reads zero, like the native
+    /// null store. Reports the live word; no device is consulted.
+    pub fn scene_callback_flags_of(&self, scene: SceneKey) -> Result<u32, ModelError> {
+        Ok(self.scene(scene)?.callback_flags)
+    }
     /// LS3DF.dll SHA-256 e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
     /// RVA 0x4a8c0, VA 0x1004a8c0. Upstream static
     /// `MakeReadySectors::EnumHelp::I3D_EnumProc` used by
@@ -3085,6 +3118,63 @@ mod tests {
         assert!(arena.scene_sector_count_of(bad).is_err());
         assert!(arena.scene_portal_count_of(bad).is_err());
         assert!(arena.scene_backdrop_range_of(bad).is_err());
+    }
+    #[test]
+    fn working_name_backdrop_near_reports_first_range_word() {
+        // Working name for inlined backdrop_ncp read (I3D.h:1571): no LS3DF
+        // FUNCTION address exists for a standalone getter.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_backdrop_near_of(scene).unwrap(), 1.);
+        assert_eq!(
+            arena.scene_backdrop_near_of(scene).unwrap().to_bits(),
+            arena.scene_backdrop_range_of(scene).unwrap()[0].to_bits()
+        );
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_backdrop_near_of(bad).is_err());
+    }
+    #[test]
+    fn working_name_backdrop_far_reports_second_range_word() {
+        // Working name for inlined backdrop_fcp read (I3D.h:1571): no LS3DF
+        // FUNCTION address exists for a standalone getter.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_backdrop_far_of(scene).unwrap(), 10000.);
+        assert_eq!(
+            arena.scene_backdrop_far_of(scene).unwrap().to_bits(),
+            arena.scene_backdrop_range_of(scene).unwrap()[1].to_bits()
+        );
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_backdrop_far_of(bad).is_err());
+    }
+    #[test]
+    fn working_name_callback_presence_tracks_set_callback() {
+        // Working name for inlined callback presence read (I3D.h:1552): no
+        // LS3DF FUNCTION address exists; only SetCallback (PC RVA 0x49120,
+        // already occupied) writes it.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_has_callback(scene).unwrap(), false);
+        arena.scene_set_callback(scene, Some(SceneCallback(0x1234)), 0x7).unwrap();
+        assert_eq!(arena.scene_has_callback(scene).unwrap(), true);
+        arena.scene_set_callback(scene, None, 0x7).unwrap();
+        assert_eq!(arena.scene_has_callback(scene).unwrap(), false);
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_has_callback(bad).is_err());
+    }
+    #[test]
+    fn working_name_callback_flags_track_set_callback() {
+        // Working name for inlined cb_flags read (I3D.h:1553): no LS3DF
+        // FUNCTION address exists; null forces zero like the native store.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_callback_flags_of(scene).unwrap(), 0);
+        arena.scene_set_callback(scene, Some(SceneCallback(0x1234)), 0x7).unwrap();
+        assert_eq!(arena.scene_callback_flags_of(scene).unwrap(), 0x7);
+        arena.scene_set_callback(scene, None, 0x7).unwrap();
+        assert_eq!(arena.scene_callback_flags_of(scene).unwrap(), 0);
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_callback_flags_of(bad).is_err());
     }
     #[test]
     fn lifecycle_construct_tick_close_forget_transitions() {
