@@ -3758,10 +3758,14 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                             "register-indirect jump without register",
                         ));
                     }
-                    let value = self.resolve_float(goto.target.register, goto.target.value)?;
-                    let name = Self::indirect_label(value);
-                    if let Some(target) = self.jump_to_label(name.as_bytes()) {
-                        advance = Advance::Jump(target);
+                    // Native signed-count guard precedes the bank read.
+                    // GOSUB's return push above remains visible on a skipped jump.
+                    if (*self.float_count as i32) > goto.target.register {
+                        let value = self.resolve_float(goto.target.register, goto.target.value)?;
+                        let name = Self::indirect_label(value);
+                        if let Some(target) = self.jump_to_label(name.as_bytes()) {
+                            advance = Advance::Jump(target);
+                        }
                     }
                 }
             }
@@ -3799,8 +3803,15 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         return Err(RuntimeError::Domain("current wait parameter unavailable"));
                     }
                 };
-                let value = self.resolve_float(operand.register, operand.value)?;
-                if *self.command_time < Self::wait_word(value) {
+                // Native WAIT defaults to zero when the register's upper
+                // bound fails; neither backing nor operand value is read then.
+                let wait =
+                    if operand.register == -1 || (*self.float_count as i32) > operand.register {
+                        Self::wait_word(self.resolve_float(operand.register, operand.value)?)
+                    } else {
+                        0
+                    };
+                if *self.command_time < wait {
                     advance = Advance::Stay;
                 }
             }
@@ -3844,13 +3855,14 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     }
                 };
                 let num = *self.float_count as i32;
-                let a = self.resolve_float(let_param.a.register, let_param.a.value)?;
-                let b = self.resolve_float(let_param.b.register, let_param.b.value)?;
                 if num > let_param.dest
                     && let_param.dest >= 0
                     && num > let_param.a.register
                     && num > let_param.b.register
                 {
+                    // Native register guards precede source operand reads.
+                    let a = self.resolve_float(let_param.a.register, let_param.a.value)?;
+                    let b = self.resolve_float(let_param.b.register, let_param.b.value)?;
                     let result = match let_param.op {
                         LetOp::None => a,
                         LetOp::Add => a + b,
@@ -3884,9 +3896,10 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     }
                 };
                 let num = *self.float_count as i32;
-                let a = self.resolve_float(if_param.a.register, if_param.a.value)?;
-                let b = self.resolve_float(if_param.b.register, if_param.b.value)?;
                 if num > if_param.a.register && num > if_param.b.register {
+                    // An invalid register skips IF without touching either source.
+                    let a = self.resolve_float(if_param.a.register, if_param.a.value)?;
+                    let b = self.resolve_float(if_param.b.register, if_param.b.value)?;
                     let result = match if_param.op {
                         IfOp::Less => a < b,
                         IfOp::Greater => a > b,
@@ -4038,18 +4051,19 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 }
             }
             78 | 79 | 80 | 132 | 239 | 240 => {
-                // Dialogue commands: DIALOG_BEGIN (78), DIALOG_END (79),
-                // DIALOG_CAMSWITCH (80), HUMAN_TALK (132), INTRO_SUBTITLE_ADD
-                // (239), SUBTITLE_ADD (240). Decode is admitted; execution
-                // is a no-op advance for now (camera/dabing are stubs). The
-                // talk channel persistence (v[3]) is preserved in the
-                // instruction's HumanTalkParameter but not yet consumed.
+                // Dialogue, camera switching, speech and subtitles have
+                // decoded arguments but no live presentation/audio owners.
+                // Retain the PC and decoded payload instead of discarding
+                // a gameplay event through the common advance.
+                return Err(RuntimeError::UnsupportedCommand(opcode));
             }
             37 | 52 | 164 | 165 | 166 => {
                 // Mission flow: ENDOFMISSION (37), CHANGE_MISSION (52),
-                // MISSION_OBJECTIVES (164), REMOVE (165), CLEAR (166). Decode
-                // admitted; execution is a no-op advance for now (fade/menu
-                // and objectives vector remain stubs).
+                // MISSION_OBJECTIVES (164), REMOVE (165), CLEAR (166).
+                // Decoding is supported, but no retained mission/objectives
+                // owner can apply these effects yet. Never advance past an
+                // effect that has not actually happened.
+                return Err(RuntimeError::UnsupportedCommand(opcode));
             }
             27 => {
                 // Original CMD_DETECTOR_ISSIGNAL (mafia-re 113b5b6

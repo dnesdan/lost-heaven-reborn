@@ -1825,36 +1825,66 @@ fn event_use_cb_toggles_top_flag_and_needs_stack() {
     assert!(p3.runtime().unwrap().fields.gosub_stack.is_empty());
 }
 #[test]
-fn dialogue_commands_advance_as_noop_and_count_in_discard() {
-    let mut memory = Memory::default();
-    let mut p = program(
-        b"human_talk 0,100\ndialog_begin 0,1\ndialog_end\nsubtitle_add 5",
-        &mut memory,
-    );
-    let progress = p.init_fresh_runtime(&mut memory).unwrap();
-    assert_eq!((progress.accepted, progress.errors), (4, 0));
-    for expected in 1..=4 {
-        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
-            .unwrap();
-        assert_eq!(p.runtime().unwrap().fields.program_counter(), expected);
+fn dialogue_commands_without_effect_owners_refuse_to_advance() {
+    let cases: &[(&[u8], u32)] = &[
+        (b"human_talk 0,100", 132),
+        (b"dialog_begin 0,1", 78),
+        (b"dialog_end", 79),
+        (b"subtitle_add 5", 240),
+    ];
+    for &(source, opcode) in cases {
+        let mut memory = Memory::default();
+        let mut p = program(source, &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (1, 0));
+        let effects_before = memory.events.len();
+        let result = p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory);
+        match result {
+            Err(RuntimeError::Scheduler(message)) => {
+                assert!(
+                    message.contains(&format!("UnsupportedCommand({opcode})")),
+                    "{message}"
+                );
+            }
+            other => panic!("expected unsupported opcode {opcode}, got {other:?}"),
+        }
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+        assert_eq!(memory.events.len(), effects_before);
+        let report = p.discard_runtime_host().unwrap();
+        assert_eq!(report.human_talk_allocations, usize::from(opcode == 132));
     }
-    let report = p.discard_runtime_host().unwrap();
-    assert_eq!(report.human_talk_allocations, 1);
 }
 #[test]
-fn mission_flow_commands_advance_as_noop_and_count_in_discard() {
-    let mut memory = Memory::default();
-    let mut p = program(b"mission_objectives 5\nmission_objectivesclear\nendofmission 1,2\nchange_mission \"a\",\"b\",1.0", &mut memory);
-    let progress = p.init_fresh_runtime(&mut memory).unwrap();
-    assert_eq!((progress.accepted, progress.errors), (4, 0));
-    for expected in 1..=4 {
-        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
-            .unwrap();
-        assert_eq!(p.runtime().unwrap().fields.program_counter(), expected);
+fn unimplemented_mission_flow_refuses_execution_without_advancing() {
+    let cases: &[(&[u8], u32)] = &[
+        (b"mission_objectives 5", 164),
+        (b"mission_objectivesclear", 166),
+        (b"endofmission 1,2", 37),
+        (b"change_mission \"a\",\"b\",1.0", 52),
+    ];
+    for &(source, opcode) in cases {
+        let mut memory = Memory::default();
+        let mut p = program(source, &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (1, 0));
+        let before = memory.events.len();
+        // The public scheduler API wraps non-destructive VM errors.
+        let result = p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory);
+        match result {
+            Err(RuntimeError::Scheduler(message)) => {
+                assert!(
+                    message.contains(&format!("UnsupportedCommand({opcode})")),
+                    "{message}"
+                );
+            }
+            other => panic!("expected unsupported opcode {opcode}, got {other:?}"),
+        }
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+        assert_eq!(memory.events.len(), before);
+        let report = p.discard_runtime_host().unwrap();
+        assert_eq!(report.end_of_mission_allocations, usize::from(opcode == 37));
+        assert_eq!(report.change_mission_allocations, usize::from(opcode == 52));
     }
-    let report = p.discard_runtime_host().unwrap();
-    assert_eq!(report.end_of_mission_allocations, 1);
-    assert_eq!(report.change_mission_allocations, 1);
 }
 #[test]
 fn get_tick_and_game_time_write_float_regs() {
@@ -2763,9 +2793,37 @@ fn let_guard_failure_and_bad_register_leave_bank_untouched() {
         &mut memory,
     );
     p.init_fresh_runtime(&mut memory).unwrap();
-    assert!(p
-        .call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
-        .is_err());
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 4);
+    assert_eq!(
+        p.runtime()
+            .unwrap()
+            .fields
+            .floats
+            .as_ref()
+            .unwrap()
+            .as_ref(),
+        &[0.0f32, 0.0f32]
+    );
+}
+
+#[test]
+fn if_out_of_range_register_skips_without_reading_it() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 2\nif flt[9] = 0, yes, no\nlet flt[0] = 17\ncommandblock 0",
+        &mut memory,
+    );
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (5, 0));
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 5);
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap()[0],
+        17.0
+    );
 }
 
 #[test]
@@ -3647,3 +3705,5 @@ fn rva_7b010_program_set_ai_priority_stores_word() {
 
 #[path = "program_game_clock_tests.rs"]
 mod game_clock_tests;
+#[path = "program_flow_register_guards_tests.rs"]
+mod flow_register_guards_tests;
