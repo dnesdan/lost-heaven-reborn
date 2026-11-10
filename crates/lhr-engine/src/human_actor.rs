@@ -759,6 +759,18 @@ pub const HUMAN_SEAT_NONE: i32 = -1;
 /// Do_StopAnim core of this slice; the PersonAnim stance/anim-set remap of
 /// the id stays DEFERRED to the PersonAnim owner.
 pub const ANIM_BREATH01A: i32 = 1;
+/// Original idle-breath animation id, second variant (mafia-re 113b5b6
+/// game/actors/C_actor.h:549: 0x2, "breath01b.i3d"). Read by the Do_Jump
+/// stance-arm select of this slice; the animation owner stays DEFERRED.
+pub const ANIM_BREATH01B: i32 = 2;
+/// Original idle-breath animation id, third variant (mafia-re 113b5b6
+/// game/actors/C_actor.h:550: 0x3, "breath01c.i3d"). Read by the Do_Jump
+/// stance-arm select of this slice; the animation owner stays DEFERRED.
+pub const ANIM_BREATH01C: i32 = 3;
+/// Original idle-breath animation id, fourth variant (mafia-re 113b5b6
+/// game/actors/C_actor.h:551: 0x4, "breath01d.i3d"). Upper bound of the
+/// Do_Jump stance-arm range; the animation owner stays DEFERRED.
+pub const ANIM_BREATH01D: i32 = 4;
 /// Original "Speed" property index (mafia-re 113b5b6
 /// game/actors/C_human.h:92 HUMAN_PROPERTY_SPEED 7): the multiplier the Go_*
 /// walk cores scale their base speeds by. Read from the live bank
@@ -6997,6 +7009,34 @@ pub const ANIM_JUMP1: i32 = 0x5f;
 /// Original running-jump animation id (mafia-re 113b5b6
 /// game/actors/C_actor.h:625 ANIM_JUMPSTAT 0x61).
 pub const ANIM_JUMPSTAT: i32 = 0x61;
+/// Original left side-jump animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:626 ANIM_JUMPL1 0x62, "jumpL1.i3d"). Selected by the
+/// Do_Jump left-strafe arm without a rifle or SMG; the animation owner stays
+/// DEFERRED.
+pub const ANIM_JUMPL1: i32 = 0x62;
+/// Original right side-jump animation id (mafia-re 113b5b6
+/// game/actors/C_actor.h:627 ANIM_JUMPR1 0x63, "jumpR1.i3d"). Selected by the
+/// Do_Jump right-strafe arm without a rifle or SMG; the animation owner stays
+/// DEFERRED.
+pub const ANIM_JUMPR1: i32 = 0x63;
+/// Original left side-jump animation id with a rifle or SMG (mafia-re 113b5b6
+/// game/actors/C_actor.h:628 ANIM_JUMPL3 0x64, "jumpL3.i3d"). Selected by the
+/// Do_Jump left-strafe arm with a rifle or SMG; the animation owner stays
+/// DEFERRED.
+pub const ANIM_JUMPL3: i32 = 0x64;
+/// Original right side-jump animation id with a rifle or SMG (mafia-re 113b5b6
+/// game/actors/C_actor.h:629 ANIM_JUMPR3 0x65, "jumpR3.i3d"). Selected by the
+/// Do_Jump right-strafe arm with a rifle or SMG; the animation owner stays
+/// DEFERRED.
+pub const ANIM_JUMPR3: i32 = 0x65;
+/// Original low-climb animation id (mafia-re 113b5b6 game/actors/C_actor.h:632
+/// ANIM_NA_BEDNU_06M 0x68, "na bednu 06m.i3d"). Selected by the Do_Climb
+/// low-wall arm below 0.8 m; the animation owner stays DEFERRED.
+pub const ANIM_NA_BEDNU_06M: i32 = 0x68;
+/// Original high-climb animation id (mafia-re 113b5b6 game/actors/C_actor.h:633
+/// ANIM_NA_BEDNU_1M 0x69, "na bednu 1m.i3d"). Selected by the Do_Climb
+/// high-wall arm at or above 0.8 m; the animation owner stays DEFERRED.
+pub const ANIM_NA_BEDNU_1M: i32 = 0x69;
 /// Original overhand-throw animation id (mafia-re 113b5b6
 /// game/actors/C_actor.h:656 ANIM_HOD_VRCHEM_HOD 0xa3): played by
 /// Do_ThrowGrenade through the animation owner.
@@ -7207,6 +7247,32 @@ pub fn reload_latch_select(
     }
 }
 
+/// Working-name invulnerability-cheat refusal shared by C_human::Do_Castrate
+/// and C_human::Do_HardHead (no RVA claimed: inline gates at mafia-re 113b5b6
+/// game/actors/C_human.cpp:7221-7227 and :7244-7250 inside Do_Castrate
+/// 0x584480 and Do_HardHead 0x584550, with no standalone FUNCTION copy; only
+/// the strike bodies carry those addresses). While the staged
+/// invulnerability-cheat word is set, a player or friend target is spared.
+/// The game/player/type owners stay DEFERRED.
+pub fn strike_cheat_refusal(
+    cheats_invulnerable: bool,
+    target_is_player: bool,
+    target_is_friend: bool,
+) -> bool {
+    cheats_invulnerable && (target_is_player || target_is_friend)
+}
+
+/// Working-name fire-table swap of C_human::Do_ChangeWeapon (no RVA claimed:
+/// inline swap at mafia-re 113b5b6 game/actors/C_human.cpp:6017-6019 inside
+/// Do_ChangeWeapon 0x57f550, with no standalone FUNCTION copy; only the
+/// entry latch above carries that address). The caller runs this on the
+/// admitted on-foot path while the game runs: the table swaps to the
+/// take-out/put-away program with a zeroed step, and the step time clears.
+/// The game/animation owners stay DEFERRED.
+pub fn change_weapon_fire_select() -> (FireActionTable, i32) {
+    (FireActionTable::OnOff, 0)
+}
+
 /// Working-name strike-index advance of C_human::Do_Shoot (no RVA claimed:
 /// inline update at mafia-re 113b5b6 game/actors/C_human.cpp:7015-7022
 /// inside Do_Shoot 0x583590, with no standalone FUNCTION copy). Advances the
@@ -7242,6 +7308,101 @@ pub fn throw_hold_clamp(dt_ms: u32) -> Option<u32> {
     }
 }
 
+/// State words staged by the C_human::Do_Shoot gun press arm (mafia-re 113b5b6
+/// game/actors/C_human.cpp:6973-6987).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShootGunPressWords {
+    /// The held-shot latch always claims on the press.
+    pub fire_held: bool,
+    /// The aim arm taken when not aimed yet (the aimed fire table plus its
+    /// zeroed step); None falls through to the deferred Shooting program.
+    pub aim_table: Option<FireActionTable>,
+    /// The zeroed fire step carried with the aim arm; None leaves it alone.
+    pub fire_step: Option<i32>,
+    /// The latched throw direction when the caller staged one.
+    pub throw_dir: Option<[f32; 3]>,
+}
+
+/// Working-name gun-arm words of C_human::Do_Shoot (no RVA claimed: inline
+/// writes at mafia-re 113b5b6 game/actors/C_human.cpp:6979-6986 inside
+/// Do_Shoot 0x583590, with no standalone FUNCTION copy). The changing-weapon
+/// handoff, the extended-anim clear, the throw timing, the aim-time stamp
+/// and the Shooting program stay DEFERRED with the weapon/animation owners.
+pub fn shoot_press_gun_words(aimed: bool, dir: Option<[f32; 3]>) -> ShootGunPressWords {
+    ShootGunPressWords {
+        fire_held: true,
+        aim_table: if aimed {
+            None
+        } else {
+            Some(FireActionTable::Aimed)
+        },
+        fire_step: if aimed { None } else { Some(0) },
+        throw_dir: dir,
+    }
+}
+
+/// State words staged by the C_human::Do_Shoot thrown-weapon press arm
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:6990-7003).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShootThrownPress {
+    /// The swing start time latched on the first press; None keeps the old
+    /// stamp on a held press.
+    pub throw_time: Option<u32>,
+    /// The throw always counts as swung after the press.
+    pub throw_swung: bool,
+}
+
+/// Working-name thrown-arm words of C_human::Do_Shoot (no RVA claimed:
+/// inline writes at mafia-re 113b5b6 game/actors/C_human.cpp:6991-7003
+/// inside Do_Shoot 0x583590, with no standalone FUNCTION copy). The
+/// extended-anim throw program stays DEFERRED with the animation owner;
+/// `game_time` is the staged clock.
+pub fn shoot_press_thrown_words(throw_swung: bool, game_time: u32) -> ShootThrownPress {
+    ShootThrownPress {
+        throw_time: if throw_swung { None } else { Some(game_time) },
+        throw_swung: true,
+    }
+}
+
+/// Release program of the C_human::Do_Shoot thrown-weapon arm (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:7048-7066).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShootThrownRelease {
+    /// Nothing is swung, the release is a no-op.
+    Idle,
+    /// A swung throw released too early: only the swing clears.
+    CancelSwing,
+    /// A swung throw released in time, with the clamped hold for the force.
+    ThrowStrike { clamped_dt_ms: u32 },
+}
+
+/// Working-name release program of C_human::Do_Shoot (no RVA claimed:
+/// inline branch at mafia-re 113b5b6 game/actors/C_human.cpp:7049-7065
+/// inside Do_Shoot 0x583590, with no standalone FUNCTION copy). Reuses the
+/// [`throw_hold_clamp`] window (past 400 ms, clamped at 2000 ms). The thief
+/// indicator clear, the direction normalize, the strength force scale, the
+/// HOD animation select and the game-time stamp stay DEFERRED with the
+/// indicator/animation owners.
+pub fn shoot_release_thrown_program(throw_swung: bool, dt_ms: u32) -> ShootThrownRelease {
+    if !throw_swung {
+        return ShootThrownRelease::Idle;
+    }
+    match throw_hold_clamp(dt_ms) {
+        None => ShootThrownRelease::CancelSwing,
+        Some(clamped_dt_ms) => ShootThrownRelease::ThrowStrike { clamped_dt_ms },
+    }
+}
+
+/// Working-name force magnitude of the C_human::Do_Shoot thrown release (no
+/// RVA claimed: inline scale at mafia-re 113b5b6 game/actors/C_human.cpp
+/// :7054-7058 inside Do_Shoot 0x583590, with no standalone FUNCTION copy).
+/// `clamped_dt_ms` is the staged [`throw_hold_clamp`] output and `strength`
+/// the staged HUMAN_PROPERTY_STRENGTH word; the direction normalize stays
+/// with the vector owner.
+pub fn throw_force_scale(clamped_dt_ms: u32, strength: f32) -> f32 {
+    clamped_dt_ms as f32 * 0.015 * strength
+}
+
 /// Working-name model-change verdict of C_human::Do_Holster (no RVA claimed:
 /// inline compare at mafia-re 113b5b6 game/actors/C_human.cpp:7563-7565
 /// inside Do_Holster 0x585c60, with no standalone FUNCTION copy). Reports
@@ -7249,6 +7410,53 @@ pub fn throw_hold_clamp(dt_ms: u32) -> Option<u32> {
 /// The inventory/ChangeWeaponModel/DropOutItems owners stay DEFERRED.
 pub fn holster_needs_model_change(prev_id: u32, next_id: u32) -> bool {
     prev_id != next_id
+}
+
+/// Model step selected by C_human::Do_Holster after an item change (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:7565-7574).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HolsterModelStep {
+    /// The right-hand item is unchanged: no model program runs.
+    Idle,
+    /// Skip-frames are pending: one is consumed and the model changes at
+    /// once.
+    SkipDecrementAndModel,
+    /// No skip-frames: the take-out/put-away change-weapon program runs; its
+    /// hide flag rides [`HolsterModelProgram::drop_out`].
+    ChangeWeapon,
+}
+
+/// Model program plus drop verdict of C_human::Do_Holster (mafia-re 113b5b6
+/// game/actors/C_human.cpp:7563-7576).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HolsterModelProgram {
+    /// The model step for a changed right-hand item; Idle without a change.
+    pub model: HolsterModelStep,
+    /// Dropped items leave the hands through DropOutItems.
+    pub drop_out: bool,
+}
+
+/// Working-name model program of C_human::Do_Holster (no RVA claimed: inline
+/// branch at mafia-re 113b5b6 game/actors/C_human.cpp:7565-7576 inside
+/// Do_Holster 0x585c60, with no standalone FUNCTION copy). `skip_frames` is
+/// the staged mission skip counter; the Holster inventory call, the
+/// ChangeWeaponModel/ChangeWeapon/DropOutItems effects and the thief
+/// indicator clear stay DEFERRED with their owners.
+pub fn holster_model_program(
+    id_changed: bool,
+    skip_frames: u32,
+    dropped_any: bool,
+) -> HolsterModelProgram {
+    HolsterModelProgram {
+        model: if !id_changed {
+            HolsterModelStep::Idle
+        } else if skip_frames > 0 {
+            HolsterModelStep::SkipDecrementAndModel
+        } else {
+            HolsterModelStep::ChangeWeapon
+        },
+        drop_out: dropped_any,
+    }
 }
 
 /// Working-name entry guard of C_human::DropOutItems (no RVA claimed: inline
@@ -7262,6 +7470,17 @@ pub fn drop_out_items_gate(
     item_count: usize,
 ) -> bool {
     has_right_hand && has_left_hand && item_count > 0
+}
+
+/// Working-name throw-away verdict of C_human::Do_WeaponDrop (no RVA claimed:
+/// inline chain at mafia-re 113b5b6 game/actors/C_human.cpp:7593-7604 inside
+/// Do_WeaponDrop 0x585d90, with no standalone FUNCTION copy). The right-hand
+/// item drops through the deferred Remove/DropOutItems owners; only when the
+/// staged drop succeeds does the throw-away change-weapon program run.
+/// `item_present` stages the right-hand item hit, `drop_succeeded` the
+/// DropOutItems verdict.
+pub fn weapon_drop_throw_away(item_present: bool, drop_succeeded: bool) -> bool {
+    item_present && drop_succeeded
 }
 
 /// State words cleared by C_human::Do_PlayAnim (mafia-re 113b5b6
@@ -7322,6 +7541,79 @@ pub fn do_play_anim_leaf(track: i32, length: u32) -> PlayAnimOutcome {
 /// program and the force-feedback/indicator effects stay DEFERRED.
 pub fn jump_entry_gate(carrying_box: bool, carrying_dead_body: bool, in_car: bool) -> bool {
     !carrying_box && !carrying_dead_body && !in_car
+}
+
+/// Jump program selected by C_human::Do_Jump (mafia-re 113b5b6
+/// game/actors/C_human.cpp:7650-7710).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum JumpAnimSelect {
+    /// No arm matches the masked id, or crouching blocks the run/stance arm.
+    NoJump,
+    /// Run arm: the caller attempts Do_Climb, then the JUMPSTAT program.
+    RunClimbAttempt,
+    /// Stance/walk arm: the caller attempts Do_Climb, then the JUMP1 program.
+    StanceClimbAttempt,
+    /// Left side-step arm with its animation and force-feedback direction.
+    LeftStrafe { anim_id: i32, ff_direction: f32 },
+    /// Right side-step arm with its animation and force-feedback direction.
+    RightStrafe { anim_id: i32, ff_direction: f32 },
+}
+
+/// Working-name arm select of C_human::Do_Jump (no RVA claimed: inline
+/// branch at mafia-re 113b5b6 game/actors/C_human.cpp:7650-7710 inside
+/// Do_Jump 0x586190, with no standalone FUNCTION copy; only the entry gate
+/// above carries that address). `masked_anim_id` is already masked with
+/// ANIM_BASE, `weapon_kind` is the staged WEAPON_KIND_* word. The Do_Climb
+/// fallback, the PersonAnim/SetWaitAnim/DelExtendedAnim handoffs, the
+/// velocity write and the player force-feedback/indicator effects stay
+/// DEFERRED with the collision/animation/device owners; `ff_direction`
+/// stages the shake direction (0.0 run/stance, PI/2 left, 3PI/2 right) for
+/// the deferred effect.
+pub fn jump_anim_select(
+    masked_anim_id: i32,
+    weapon_kind: u32,
+    crouching: bool,
+) -> JumpAnimSelect {
+    use core::f32::consts::PI;
+    if masked_anim_id == ANIM_RUN1 {
+        if crouching {
+            return JumpAnimSelect::NoJump;
+        }
+        return JumpAnimSelect::RunClimbAttempt;
+    }
+    if (ANIM_BREATH01A..=ANIM_BREATH01D).contains(&masked_anim_id)
+        || masked_anim_id == ANIM_WALK1
+        || masked_anim_id == ANIM_LEFT1
+        || masked_anim_id == ANIM_RIGHT1
+    {
+        if crouching {
+            return JumpAnimSelect::NoJump;
+        }
+        return JumpAnimSelect::StanceClimbAttempt;
+    }
+    if masked_anim_id == ANIM_STRAFL1 || masked_anim_id == ANIM_STRAFRL1 {
+        let anim_id = if weapon_kind == WEAPON_KIND_RIFLE || weapon_kind == WEAPON_KIND_SMG {
+            ANIM_JUMPL3
+        } else {
+            ANIM_JUMPL1
+        };
+        return JumpAnimSelect::LeftStrafe {
+            anim_id,
+            ff_direction: PI / 2.0,
+        };
+    }
+    if masked_anim_id == ANIM_STRAFR1 || masked_anim_id == ANIM_STRAFRR1 {
+        let anim_id = if weapon_kind == WEAPON_KIND_RIFLE || weapon_kind == WEAPON_KIND_SMG {
+            ANIM_JUMPR3
+        } else {
+            ANIM_JUMPR1
+        };
+        return JumpAnimSelect::RightStrafe {
+            anim_id,
+            ff_direction: PI * 3.0 / 2.0,
+        };
+    }
+    JumpAnimSelect::NoJump
 }
 
 /// GAME 0x586400 (RVA 0x186400) C_human::Do_Climb entry gate (mafia-re 113b5b6
@@ -7508,6 +7800,95 @@ pub fn climb_seat_target(
     }
 }
 
+/// Working-name seat scale of C_human::Do_ClimbInCarLR (no RVA claimed: inline
+/// ratio at mafia-re 113b5b6 game/actors/C_human.cpp:6653-6661 inside
+/// Do_ClimbInCarLR 0x581eb0, with no standalone FUNCTION copy). `seat_gap_x`
+/// is the staged seats' x distance, `mix_x` the staged TCK mixing-point x;
+/// a mixing point at most 0.1 wide leaves the scale at one. The seat
+/// animation/mixing-point program stays DEFERRED with the animation owner.
+pub fn climb_seat_scale(seat_gap_x: f32, mix_x: f32) -> f32 {
+    let len = mix_x.abs();
+    if len > 0.1 {
+        seat_gap_x.abs() / len
+    } else {
+        1.0
+    }
+}
+
+/// Working-name reach select of C_human::Do_Climb (no RVA claimed: inline
+/// select at mafia-re 113b5b6 game/actors/C_human.cpp:7818-7819 inside
+/// Do_Climb 0x586400, with no standalone FUNCTION copy). The track stretch
+/// along x doubles the reach only past half a metre; the wall probes stay
+/// DEFERRED with the collision owner.
+pub fn climb_reach_select(dist: f32) -> f32 {
+    if dist < 0.5 {
+        1.0
+    } else {
+        dist * 2.5
+    }
+}
+
+/// Climb animation plus track scale selected by C_human::Do_Climb (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:7820-7826).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClimbAnimSelect {
+    /// The low (0x68) or high (0x69) climb animation.
+    pub anim_id: i32,
+    /// The track stretch along x: the height over 0.6 low, the height high.
+    pub scale: f32,
+}
+
+/// Working-name animation select of C_human::Do_Climb (no RVA claimed:
+/// inline select at mafia-re 113b5b6 game/actors/C_human.cpp:7820-7826
+/// inside Do_Climb 0x586400, with no standalone FUNCTION copy). Walls below
+/// 0.8 m climb low, higher walls climb high. The climb animation itself
+/// stays DEFERRED with the animation owner.
+pub fn climb_anim_select(height: f32) -> ClimbAnimSelect {
+    if height < 0.8 {
+        ClimbAnimSelect {
+            anim_id: ANIM_NA_BEDNU_06M,
+            scale: height / 0.6,
+        }
+    } else {
+        ClimbAnimSelect {
+            anim_id: ANIM_NA_BEDNU_1M,
+            scale: height,
+        }
+    }
+}
+
+/// State words cleared when C_human::Do_Climb takes a new climb animation
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:7827-7843).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClimbChangedWords {
+    pub throw_swung: bool,
+    pub idle_time: i32,
+    pub breath_time: i32,
+    pub velocity_ramp: f32,
+    pub last_velocity: [f32; 3],
+    pub velocity: [f32; 3],
+}
+
+/// Working-name latch reset of C_human::Do_Climb (no RVA claimed: inline
+/// clears at mafia-re 113b5b6 game/actors/C_human.cpp:7827-7843 inside
+/// Do_Climb 0x586400, with no standalone FUNCTION copy). Only an animation
+/// change stages the words; otherwise None leaves the state alone. The thief
+/// indicator clear, the extended-anim clear, ResetWeaponEffects, the reload
+/// sounds and the PersonAnim handoff stay DEFERRED with their owners.
+pub fn climb_changed_reset(anim_id: i32, next_anim_id: i32) -> Option<ClimbChangedWords> {
+    if anim_id == next_anim_id {
+        return None;
+    }
+    Some(ClimbChangedWords {
+        throw_swung: false,
+        idle_time: -1,
+        breath_time: -1,
+        velocity_ramp: 0.0,
+        last_velocity: [0.0; 3],
+        velocity: [0.0; 3],
+    })
+}
+
 /// GAME 0x583590 (RVA 0x183590) C_human::Do_Shoot entry gate (mafia-re 113b5b6
 /// game/actors/C_human.cpp:6962-6966): a carried box or a carried body
 /// refuses the press at once. The pistol/rifle/SMG/thrown/melee programs,
@@ -7537,6 +7918,32 @@ pub fn throw_grenade_throw_dir(
         return None;
     }
     Some(dir)
+}
+
+/// State words staged by the admitted C_human::Do_ThrowGrenade path (mafia-re
+/// 113b5b6 game/actors/C_human.cpp:7174-7181).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GrenadeThrowWords {
+    /// The throw never counts as swung on the grenade path.
+    pub throw_swung: bool,
+    /// The overhand-throw animation selected through the animation owner.
+    pub next_anim_id: i32,
+    /// The game time stamped as the last fire time.
+    pub last_fire_time: u32,
+}
+
+/// Working-name word latch of C_human::Do_ThrowGrenade (no RVA claimed:
+/// inline writes at mafia-re 113b5b6 game/actors/C_human.cpp:7174-7181
+/// inside Do_ThrowGrenade 0x583f40, with no standalone FUNCTION copy; only
+/// the [`throw_grenade_throw_dir`] gate carries that address). The
+/// DelExtendedAnim/PersonAnim calls and the indicator clear stay DEFERRED
+/// with the animation/indicator owners; `game_time` is the staged clock.
+pub fn grenade_throw_words(game_time: u32) -> GrenadeThrowWords {
+    GrenadeThrowWords {
+        throw_swung: false,
+        next_anim_id: ANIM_HOD_VRCHEM_HOD,
+        last_fire_time: game_time,
+    }
 }
 
 /// GAME 0x589140 (RVA 0x189140) C_human::Do_FuckingBox entry gate (mafia-re
@@ -8004,6 +8411,265 @@ mod working_name_small_leaves_tests {
         assert!(!drop_out_items_gate(false, true, 1));
         assert!(!drop_out_items_gate(true, false, 1));
         assert!(!drop_out_items_gate(true, true, 0));
+    }
+
+    #[test]
+    fn jump_anim_select_covers_run_stance_strafe_and_miss() {
+        // Working name: no RVA claimed (inline branch, C_human.cpp:7650-7710).
+        assert_eq!(
+            jump_anim_select(ANIM_RUN1, WEAPON_KIND_PISTOL, false),
+            JumpAnimSelect::RunClimbAttempt
+        );
+        assert_eq!(
+            jump_anim_select(ANIM_RUN1, WEAPON_KIND_PISTOL, true),
+            JumpAnimSelect::NoJump
+        );
+        assert_eq!(
+            jump_anim_select(ANIM_WALK1, WEAPON_KIND_FISTS, false),
+            JumpAnimSelect::StanceClimbAttempt
+        );
+        assert_eq!(
+            jump_anim_select(ANIM_BREATH01C, WEAPON_KIND_FISTS, false),
+            JumpAnimSelect::StanceClimbAttempt
+        );
+        assert_eq!(
+            jump_anim_select(ANIM_WALK1, WEAPON_KIND_FISTS, true),
+            JumpAnimSelect::NoJump
+        );
+        assert_eq!(
+            jump_anim_select(ANIM_STRAFL1, WEAPON_KIND_PISTOL, false),
+            JumpAnimSelect::LeftStrafe {
+                anim_id: ANIM_JUMPL1,
+                ff_direction: core::f32::consts::PI / 2.0,
+            }
+        );
+        assert_eq!(
+            jump_anim_select(ANIM_STRAFRL1, WEAPON_KIND_SMG, false),
+            JumpAnimSelect::LeftStrafe {
+                anim_id: ANIM_JUMPL3,
+                ff_direction: core::f32::consts::PI / 2.0,
+            }
+        );
+        assert_eq!(
+            jump_anim_select(ANIM_STRAFR1, WEAPON_KIND_RIFLE, false),
+            JumpAnimSelect::RightStrafe {
+                anim_id: ANIM_JUMPR3,
+                ff_direction: core::f32::consts::PI * 3.0 / 2.0,
+            }
+        );
+        assert_eq!(
+            jump_anim_select(ANIM_STRAFRR1, WEAPON_KIND_FISTS, true),
+            JumpAnimSelect::RightStrafe {
+                anim_id: ANIM_JUMPR1,
+                ff_direction: core::f32::consts::PI * 3.0 / 2.0,
+            }
+        );
+        assert_eq!(
+            jump_anim_select(ANIM_JUMP1, WEAPON_KIND_PISTOL, false),
+            JumpAnimSelect::NoJump
+        );
+        assert_eq!(
+            jump_anim_select(0x7f, WEAPON_KIND_PISTOL, false),
+            JumpAnimSelect::NoJump
+        );
+    }
+
+    #[test]
+    fn climb_reach_select_threshold_at_half_metre() {
+        // Working name: no RVA claimed (inline select, C_human.cpp:7818-7819).
+        assert_eq!(climb_reach_select(0.0), 1.0);
+        assert_eq!(climb_reach_select(0.49), 1.0);
+        assert_eq!(climb_reach_select(0.5), 1.25);
+        assert_eq!(climb_reach_select(1.0), 2.5);
+    }
+
+    #[test]
+    fn climb_anim_select_splits_at_zero_point_eight() {
+        // Working name: no RVA claimed (inline select, C_human.cpp:7820-7826).
+        assert_eq!(
+            climb_anim_select(0.5),
+            ClimbAnimSelect {
+                anim_id: ANIM_NA_BEDNU_06M,
+                scale: 0.5 / 0.6,
+            }
+        );
+        assert_eq!(
+            climb_anim_select(0.79),
+            ClimbAnimSelect {
+                anim_id: ANIM_NA_BEDNU_06M,
+                scale: 0.79 / 0.6,
+            }
+        );
+        assert_eq!(
+            climb_anim_select(0.8),
+            ClimbAnimSelect {
+                anim_id: ANIM_NA_BEDNU_1M,
+                scale: 0.8,
+            }
+        );
+        assert_eq!(
+            climb_anim_select(1.1),
+            ClimbAnimSelect {
+                anim_id: ANIM_NA_BEDNU_1M,
+                scale: 1.1,
+            }
+        );
+    }
+
+    #[test]
+    fn climb_seat_scale_dead_zone_and_ratio() {
+        // Working name: no RVA claimed (inline ratio, C_human.cpp:6653-6661).
+        assert_eq!(climb_seat_scale(2.0, 0.05), 1.0);
+        assert_eq!(climb_seat_scale(2.0, -0.1), 1.0);
+        assert_eq!(climb_seat_scale(1.5, 0.5), 3.0);
+        assert_eq!(climb_seat_scale(-1.5, 0.5), 3.0);
+    }
+
+    #[test]
+    fn climb_changed_reset_gates_on_animation_change() {
+        // Working name: no RVA claimed (inline clears, C_human.cpp:7827-7843).
+        assert_eq!(climb_changed_reset(3, 3), None);
+        let words = climb_changed_reset(3, 4).expect("changed anim stages words");
+        assert!(!words.throw_swung);
+        assert_eq!(words.idle_time, -1);
+        assert_eq!(words.breath_time, -1);
+        assert_eq!(words.velocity_ramp, 0.0);
+        assert_eq!(words.last_velocity, [0.0; 3]);
+        assert_eq!(words.velocity, [0.0; 3]);
+    }
+
+    #[test]
+    fn shoot_press_gun_words_cover_both_aim_arms() {
+        // Working name: no RVA claimed (inline writes, C_human.cpp:6979-6986).
+        let fresh = shoot_press_gun_words(false, Some([1.0, 2.0, 3.0]));
+        assert!(fresh.fire_held);
+        assert_eq!(fresh.aim_table, Some(FireActionTable::Aimed));
+        assert_eq!(fresh.fire_step, Some(0));
+        assert_eq!(fresh.throw_dir, Some([1.0, 2.0, 3.0]));
+        let held = shoot_press_gun_words(true, None);
+        assert!(held.fire_held);
+        assert_eq!(held.aim_table, None);
+        assert_eq!(held.fire_step, None);
+        assert_eq!(held.throw_dir, None);
+    }
+
+    #[test]
+    fn shoot_press_thrown_words_latch_first_swing() {
+        // Working name: no RVA claimed (inline writes, C_human.cpp:6991-7003).
+        assert_eq!(
+            shoot_press_thrown_words(false, 1200),
+            ShootThrownPress {
+                throw_time: Some(1200),
+                throw_swung: true,
+            }
+        );
+        assert_eq!(
+            shoot_press_thrown_words(true, 1200),
+            ShootThrownPress {
+                throw_time: None,
+                throw_swung: true,
+            }
+        );
+    }
+
+    #[test]
+    fn shoot_release_thrown_program_covers_idle_cancel_and_strike() {
+        // Working name: no RVA claimed (inline branch, C_human.cpp:7049-7065).
+        assert_eq!(
+            shoot_release_thrown_program(false, 1000),
+            ShootThrownRelease::Idle
+        );
+        assert_eq!(
+            shoot_release_thrown_program(true, 400),
+            ShootThrownRelease::CancelSwing
+        );
+        assert_eq!(
+            shoot_release_thrown_program(true, 1000),
+            ShootThrownRelease::ThrowStrike {
+                clamped_dt_ms: 1000,
+            }
+        );
+        assert_eq!(
+            shoot_release_thrown_program(true, 5000),
+            ShootThrownRelease::ThrowStrike {
+                clamped_dt_ms: 2000,
+            }
+        );
+    }
+
+    #[test]
+    fn throw_force_scale_matches_native_factor() {
+        // Working name: no RVA claimed (inline scale, C_human.cpp:7054-7058).
+        assert_eq!(throw_force_scale(1000, 2.0), 1000.0 * 0.015 * 2.0);
+        assert_eq!(throw_force_scale(0, 5.0), 0.0);
+        assert_eq!(throw_force_scale(2000, 0.0), 0.0);
+    }
+
+    #[test]
+    fn holster_model_program_covers_all_branches() {
+        // Working name: no RVA claimed (inline branch, C_human.cpp:7565-7576).
+        assert_eq!(
+            holster_model_program(false, 0, false),
+            HolsterModelProgram {
+                model: HolsterModelStep::Idle,
+                drop_out: false,
+            }
+        );
+        assert_eq!(
+            holster_model_program(true, 2, true),
+            HolsterModelProgram {
+                model: HolsterModelStep::SkipDecrementAndModel,
+                drop_out: true,
+            }
+        );
+        assert_eq!(
+            holster_model_program(true, 0, false),
+            HolsterModelProgram {
+                model: HolsterModelStep::ChangeWeapon,
+                drop_out: false,
+            }
+        );
+    }
+
+    #[test]
+    fn grenade_throw_words_latch_time_and_animation() {
+        // Working name: no RVA claimed (inline writes, C_human.cpp:7174-7181).
+        assert_eq!(
+            grenade_throw_words(4321),
+            GrenadeThrowWords {
+                throw_swung: false,
+                next_anim_id: ANIM_HOD_VRCHEM_HOD,
+                last_fire_time: 4321,
+            }
+        );
+    }
+
+    #[test]
+    fn weapon_drop_throw_away_needs_item_and_drop() {
+        // Working name: no RVA claimed (inline chain, C_human.cpp:7593-7604).
+        assert!(weapon_drop_throw_away(true, true));
+        assert!(!weapon_drop_throw_away(false, true));
+        assert!(!weapon_drop_throw_away(true, false));
+        assert!(!weapon_drop_throw_away(false, false));
+    }
+
+    #[test]
+    fn strike_cheat_refusal_spares_player_and_friend() {
+        // Working name: no RVA claimed (inline gates, C_human.cpp:7221-7227
+        // and :7244-7250).
+        assert!(!strike_cheat_refusal(false, true, true));
+        assert!(!strike_cheat_refusal(true, false, false));
+        assert!(strike_cheat_refusal(true, true, false));
+        assert!(strike_cheat_refusal(true, false, true));
+    }
+
+    #[test]
+    fn change_weapon_fire_select_swaps_to_on_off() {
+        // Working name: no RVA claimed (inline swap, C_human.cpp:6017-6019).
+        assert_eq!(
+            change_weapon_fire_select(),
+            (FireActionTable::OnOff, 0)
+        );
     }
 
     #[test]
