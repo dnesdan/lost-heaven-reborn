@@ -669,13 +669,18 @@ impl ActorDeallocationBackend for ContentMemory {
         actor: ActorReferenceId,
         slot: EntityResourceSlot,
     ) -> Result<(), String> {
-        if !world
-            .entity(actor)
-            .map_err(|e| format!("{e:?}"))?
-            .collection_is_empty(slot)
-        {
-            return Err("populated entity collection disposal unavailable".into());
-        }
+        // Validate the live owner first so stale/foreign actors still fail
+        // loudly; the slot only selects which typed collection the
+        // immediately-following world.clear_resource drains. Symmetric with
+        // free_human_collection: populated stores drain via that world step
+        // (the Rust drops mirror the native member-destructor frees; entity
+        // slots are EmptyHumanCollection/Vec<Infallible> today, so the
+        // populated arm is currently unreachable, but the backend must not
+        // become a trap if a populate API ever lands). This backend retains
+        // no per-slot allocation, so approval here claims no original
+        // function and invents no bytes.
+        world.entity(actor).map_err(|e| format!("{e:?}"))?;
+        let _ = slot;
         Ok(())
     }
     fn free_actor(&mut self, _: &ActorWorld, identity: u32) -> Result<(), String> {
@@ -1101,10 +1106,13 @@ mod human_source_tests {
     #[test]
     fn populated_human_inventory_disposes_for_terminal_cleanup() {
         use crate::actor_world::ActorDeallocationBackend;
+        use crate::entity_actor::EntityResourceSlot;
         use crate::human_actor::HumanResourceSlot;
         // Ticking scripts attach weapons via human_add_weapon; terminal
         // cleanup must drain them like the native member destructors do
-        // instead of stopping at the populated gate.
+        // instead of stopping at the populated gate. Entity slots are
+        // EmptyHumanCollection/Vec<Infallible> today (unpopulatable), so the
+        // symmetric approval is pinned as an invariant for every slot.
         for kind in [2, 27] {
             let (mut arena, model, mut map, _) = setup(true);
             bind_actual_two_slot_model_controller(&mut arena, model);
@@ -1141,6 +1149,24 @@ mod human_source_tests {
                 ),
                 Ok(())
             );
+            if kind == 27 {
+                for slot in [
+                    EntityResourceSlot::Last,
+                    EntityResourceSlot::Auxiliary,
+                    EntityResourceSlot::ThirdUnsigned,
+                    EntityResourceSlot::SecondUnsigned,
+                    EntityResourceSlot::FirstUnsigned,
+                    EntityResourceSlot::SubstateLocks,
+                    EntityResourceSlot::CharacterLogs,
+                ] {
+                    assert_eq!(
+                        owner
+                            .memory
+                            .free_entity_collection(&owner.actors.world, a, slot),
+                        Ok(())
+                    );
+                }
+            }
             owner.discard_terminal(&mut arena).unwrap();
             assert!(owner.terminal_complete());
             assert_eq!(owner.live_allocation_count(), 0);
