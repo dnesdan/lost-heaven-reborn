@@ -25,6 +25,9 @@
 #[path = "game_clock.rs"]
 mod game_clock;
 pub use game_clock::{GameClock, GameClockSource};
+#[path = "game_random.rs"]
+mod game_random;
+pub use game_random::{GameRandom, GameRandomSource};
 
 /// Opaque frame handle. Native `I3D_frame*` identity is the caller's concern.
 pub type FrameId = u32;
@@ -750,6 +753,7 @@ pub struct GameInlineState {
     player: Option<ActorId>,
     clear_diff_data: bool,
     game_time: GameClock,
+    random: GameRandom,
     init_frames: u32,
     timeout_program: u32,
     timeout_event: i32,
@@ -834,6 +838,13 @@ impl GameInlineState {
     pub fn game_clock(&self) -> GameClockSource {
         self.game_time.reader()
     }
+
+    /// Shared with scripts and other consumers of the represented game stream.
+    pub fn random_source(&self) -> GameRandomSource { self.random.source() }
+
+    /// Call at the original initialization boundary with its observed seed.
+    /// Never seed at program Init or at each Tick.
+    pub fn seed_random(&mut self, seed: u32) { self.random.seed(seed); }
 
     /// FUNCTION: GAME 0x47b570 (RVA 0x7b570, VA 0x47b570; `game.h:874-878`,
     /// `C_game::GetInitFrames`): reads the frames counted since `Init`.

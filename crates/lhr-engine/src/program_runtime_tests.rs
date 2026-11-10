@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Default)]
 struct Memory {
     clock: crate::game_housekeeping::GameClock,
+    random: crate::game_housekeeping::GameRandom,
     next: u64,
     events: Vec<(RuntimeEffect, u32, u32, u32, u32)>,
     fail: Option<RuntimeEffect>,
@@ -364,6 +365,9 @@ impl ProgramBackend for Memory {
     }
 }
 impl RuntimeBackend for Memory {
+    fn random_source(&self) -> Option<crate::game_housekeeping::GameRandomSource> {
+        Some(self.random.source())
+    }
     fn game_clock(&self) -> Option<crate::game_housekeeping::GameClockSource> {
         Some(self.clock.reader())
     }
@@ -2879,7 +2883,7 @@ fn rnd_follows_msvc_sequence_range_rule_and_guards() {
     assert_eq!(bank[0].to_bits(), 0x42240000);
     assert_eq!(bank[1].to_bits(), 0x3f104721);
     assert_eq!(bank[2].to_bits(), 0x3e45f18c);
-    assert_eq!(p.runtime().unwrap().fields.rand_state, 415139642);
+    assert_eq!(memory.random.state(), 415139642);
 
     let mut memory = Memory::default();
     let mut p = program(
@@ -3707,3 +3711,6 @@ fn rva_7b010_program_set_ai_priority_stores_word() {
 mod game_clock_tests;
 #[path = "program_flow_register_guards_tests.rs"]
 mod flow_register_guards_tests;
+
+#[path = "program_shared_random_tests.rs"]
+mod shared_random_tests;

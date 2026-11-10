@@ -27,6 +27,9 @@ pub enum SessionActorProgramError {
 }
 
 impl RuntimeBackend for SessionProgramEffects<'_> {
+    fn random_source(&self) -> Option<crate::game_housekeeping::GameRandomSource> {
+        Some(self.game.random_source())
+    }
     fn game_clock(&self) -> Option<crate::game_housekeeping::GameClockSource> {
         Some(self.game.game_clock())
     }
@@ -111,6 +114,14 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
 }
 
 impl MissionLoadSession {
+    /// Explicit host seed boundary. Not automatic native GameInit scheduling.
+    pub fn seed_owned_game_random(&mut self, seed: u32) -> Result<(), SessionActorProgramError> {
+        self.global_program_source_admission()
+            .map_err(SessionActorProgramError::SourceUnavailable)?;
+        self.game_inline.seed_random(seed);
+        Ok(())
+    }
+
     /// Explicit host clock step, once per caller-selected game tick, never per
     /// program or actor pass. This does not implement native Game scheduling.
     pub fn advance_owned_game_time(&mut self, delta: u32) -> Result<i32, SessionActorProgramError> {

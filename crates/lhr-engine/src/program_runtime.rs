@@ -28,7 +28,7 @@
 //! outside admission. Explicit host discard releases actual Rust allocations;
 //! it is additional cleanup, not original Done or a mission completion result.
 use super::*;
-use crate::game_housekeeping::GameClockSource;
+use crate::game_housekeeping::{GameClockSource, GameRandomSource};
 #[path = "program_runtime_lookup.rs"]
 mod lookup;
 pub use lookup::{LookupRuntimeBackend, RuntimeLookupWorld};
@@ -192,7 +192,7 @@ pub struct RuntimeFields {
     pub event_command_time: u32,
     pub event_time: u32,
     game_clock: Option<GameClockSource>,
-    pub rand_state: u32,
+    random_source: Option<GameRandomSource>,
 }
 impl RuntimeFields {
     pub fn program_counter(&self) -> u32 {
@@ -463,10 +463,7 @@ impl RuntimeFields {
             event_command_time: 0,
             event_time: 0,
             game_clock: None,
-            // The C runtime seeds rand() from the host clock at GameInit;
-            // that lifecycle is not implemented, so scripts observe the CRT
-            // default sequence deterministically instead of host time.
-            rand_state: 1,
+            random_source: None,
         }
     }
 }
@@ -1016,7 +1013,6 @@ pub struct RuntimeView<'a> {
     pub command_time: &'a mut u32,
     pub event_command_time: &'a mut u32,
     pub event_time: &'a mut u32,
-    pub rand_state: &'a mut u32,
 }
 impl RuntimeFields {
     fn view(&mut self) -> RuntimeView<'_> {
@@ -1036,11 +1032,13 @@ impl RuntimeFields {
             command_time: &mut self.command_time,
             event_command_time: &mut self.event_command_time,
             event_time: &mut self.event_time,
-            rand_state: &mut self.rand_state,
         }
     }
 }
 pub trait RuntimeBackend {
+    /// A retained shared stream; absent owners fail only when RND reaches a draw.
+    fn random_source(&self) -> Option<GameRandomSource> { None }
+
     /// Bind a live game clock at Init. Allocation-only backends may omit it;
     /// reached time operations refuse rather than invent program-local time.
     fn game_clock(&self) -> Option<GameClockSource> { None }
@@ -2187,6 +2185,7 @@ impl CProgram {
         self.runtime_started = true;
         self.runtime = Some(ProgramRuntime::fresh());
         self.runtime.as_mut().unwrap().fields.game_clock = backend.game_clock();
+        self.runtime.as_mut().unwrap().fields.random_source = backend.random_source();
         let runtime = self.runtime.as_mut().unwrap();
         let Some(source) = self.source.as_ref() else {
             runtime.fields.command_budget_bits = 0;
@@ -2321,7 +2320,7 @@ impl CProgram {
             event_command_time,
             event_time,
             game_clock,
-            rand_state,
+            random_source,
         } = &mut runtime.fields;
         let mut dispatch = Process {
             owner: &mut self.owner,
@@ -2343,7 +2342,7 @@ impl CProgram {
             event_command_time,
             event_time,
             game_clock,
-            rand_state,
+            random_source,
             backend,
         };
         let result = run_scheduler(scheduler, &mut dispatch, delta, budget);
@@ -2763,7 +2762,7 @@ struct Process<'a, B> {
     event_command_time: &'a mut u32,
     event_time: &'a mut u32,
     game_clock: &'a Option<GameClockSource>,
-    rand_state: &'a mut u32,
+    random_source: &'a Option<GameRandomSource>,
     backend: &'a mut B,
 }
 impl<B: RuntimeBackend> Process<'_, B> {
@@ -3304,7 +3303,6 @@ impl<B: RuntimeBackend> Process<'_, B> {
                 command_time: self.command_time,
                 event_command_time: self.event_command_time,
                 event_time: self.event_time,
-                rand_state: self.rand_state,
             },
             effect,
             None,
@@ -3552,10 +3550,7 @@ enum Advance {
 
 /// Original MSVC rand() used by RND: linear congruential step 214013/2531011
 /// with the high 15 bits out. RAND_MAX is 0x7fff.
-fn msvc_rand_step(state: &mut u32) -> u32 {
-    *state = state.wrapping_mul(214013).wrapping_add(2531011);
-    (*state >> 16) & 0x7fff
-}
+
 
 /// Original `1.0f / RAND_MAX` multiplier, evaluated once as in the C
 /// translation unit.
@@ -3936,10 +3931,13 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     // The original calls rnd(range) for range > 1 and the
                     // float rnd() otherwise; rnd(int) itself guards n < 1,
                     // which the range check already excludes here.
+                    let raw = self.random_source.as_ref().cloned()
+                        .and_then(|mut source| source.next_raw())
+                        .ok_or(RuntimeError::Domain("game random owner unavailable"))?;
                     let sample = if range > 1 {
-                        (msvc_rand_step(&mut *self.rand_state) % (range as u32)) as f32
+                        (raw % (range as u32)) as f32
                     } else {
-                        msvc_rand_step(&mut *self.rand_state) as f32 * RAND_MAX_RECIPROCAL
+                        raw as f32 * RAND_MAX_RECIPROCAL
                     };
                     let bank = self
                         .floats
