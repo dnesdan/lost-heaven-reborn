@@ -219,7 +219,8 @@ fn actor_optional_parameters_reject_wrong_arity_without_effects() {
 
 #[test]
 fn actor_optional_parameters_retain_failed_conversion_prefixes() {
-    let cases: &[(u32, &[u8], usize, &[Option<i32>])] = &[
+    type FallbackCase<'a> = (u32, &'a [u8], usize, &'a [Option<i32>]);
+    let cases: &[FallbackCase<'_>] = &[
         (142, b"7\0", 0, &[None, None]),
         (142, b"7,9\0", 1, &[Some(7), None]),
         (113, b"7,9\0", 0, &[None, None, None]),
