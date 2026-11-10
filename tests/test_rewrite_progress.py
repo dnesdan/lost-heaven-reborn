@@ -460,7 +460,7 @@ class RewriteProgressTests(unittest.TestCase):
         # MissionHelp x3/ConsoleAddText/WideScreen + Destroy/ForceUpdate/
         # SetString/SetPointer/GetRangeFloat/SetRangeDword; marker-only).
         self.assertEqual(game["ported"], 149 + 932)
-        self.assertEqual(game["verified"], 149 + 512)
+        self.assertEqual(game["verified"], 149 + 515)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

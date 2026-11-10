@@ -16337,8 +16337,8 @@
       "va": "0x5b1b60",
       "name": "C_game::GetTangents",
       "symbol": "lhr_engine::game_housekeeping::get_tangents",
-      "tier": "contract",
-      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+      "tier": "differential",
+      "evidence": "REA ev_bbe5404225 + complete walk both branches (near-vertical fast path (1,0,0)/(0,0,1); degenerate triple-cross via 0.0-word FMULs; RET 0xc); port ops match native (f32 cross, pin-tested); tests green on this tree"
     },
     {
       "binary": "Game.exe",
@@ -16436,8 +16436,8 @@
       "va": "0x58f2e0",
       "name": "C_player::SaveGameGetSize",
       "symbol": "lhr_engine::player_actor::PlayerState::savegame_size",
-      "tier": "contract",
-      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+      "tier": "differential",
+      "evidence": "REA ev_90d8d68a3c + complete walk (CALL human size + ADD 0x22 S_player_savegame; RET); port ops match native (f32 cross, pin-tested); tests green on this tree"
     },
     {
       "binary": "Game.exe",
@@ -16742,8 +16742,8 @@
       "va": "0x5f75f0",
       "name": "G_IndicatorsClass::TimerGetTime",
       "symbol": "lhr_engine::indicators::IndicatorsState::timer_get_time",
-      "tier": "contract",
-      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+      "tier": "differential",
+      "evidence": "REA ev_355e768e24 + complete walk (3 out-word stores; RET 0xc); port ops match native (f32 cross, pin-tested); tests green on this tree"
     },
     {
       "binary": "Game.exe",
