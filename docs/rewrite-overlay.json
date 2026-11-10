@@ -16987,6 +16987,141 @@
       "symbol": "lhr_engine::cutscene_owner::CutsceneShowStart::set_show_start",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xb4d0",
+      "va": "0x40b4d0",
+      "name": "G_Camera::GetCar",
+      "symbol": "lhr_engine::game_camera_begin::get_car",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ed150",
+      "va": "0x5ed150",
+      "name": "G_Camera::SetCamera",
+      "symbol": "lhr_engine::game_camera_begin::set_camera",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ed170",
+      "va": "0x5ed170",
+      "name": "G_Camera::SetPlayer",
+      "symbol": "lhr_engine::game_camera_begin::set_player",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ed190",
+      "va": "0x5ed190",
+      "name": "G_Camera::SetCar",
+      "symbol": "lhr_engine::game_camera_begin::set_car",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ed1e0",
+      "va": "0x5ed1e0",
+      "name": "G_Camera::Link",
+      "symbol": "lhr_engine::game_camera_begin::link",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ed210",
+      "va": "0x5ed210",
+      "name": "G_Camera::SetSwing",
+      "symbol": "lhr_engine::game_camera_begin::set_swing",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ed330",
+      "va": "0x5ed330",
+      "name": "G_Camera::LookAround",
+      "symbol": "lhr_engine::game_camera_begin::look_around",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ed3e0",
+      "va": "0x5ed3e0",
+      "name": "G_Camera::LookFromEyes",
+      "symbol": "lhr_engine::game_camera_begin::look_from_eyes",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ed460",
+      "va": "0x5ed460",
+      "name": "G_Camera::LezeDoToyoty",
+      "symbol": "lhr_engine::game_camera_begin::leze_do_toyoty",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f34c0",
+      "va": "0x5f34c0",
+      "name": "G_Camera::EnableFreeLook",
+      "symbol": "lhr_engine::game_camera_begin::enable_free_look",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f3fd0",
+      "va": "0x5f3fd0",
+      "name": "G_Camera::Unlock",
+      "symbol": "lhr_engine::game_camera_begin::unlock",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f4690",
+      "va": "0x5f4690",
+      "name": "G_Camera::IsInDialog",
+      "symbol": "lhr_engine::game_camera_begin::is_in_dialog",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f4a00",
+      "va": "0x5f4a00",
+      "name": "G_Camera::SetLookTo",
+      "symbol": "lhr_engine::game_camera_begin::set_look_to",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f4a70",
+      "va": "0x5f4a70",
+      "name": "G_Camera::SetSniperFov",
+      "symbol": "lhr_engine::game_camera_begin::set_sniper_fov",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f4ab0",
+      "va": "0x5f4ab0",
+      "name": "G_Camera::SetSniperMode",
+      "symbol": "lhr_engine::game_camera_begin::set_sniper_mode",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
     }
   ],
   "vm": {

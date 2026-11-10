@@ -60,6 +60,7 @@
 use crate::game_camera_reset::CAMERA_BYTES;
 
 // Slice-evidenced `G_Camera` words/bytes touched here (see module docs).
+const OFF_LINK: usize = 0x0;
 const OFF_CAMERA: usize = 0x4;
 const OFF_PLAYER: usize = 0x8;
 const OFF_CAR: usize = 0xc;
@@ -68,7 +69,15 @@ const OFF_NEXT_MODE: usize = 0x14;
 const OFF_FLAGS: usize = 0x18;
 const OFF_PARAMS: usize = 0x1c;
 const OFF_UNKNOWN_22: usize = 0x22;
+const OFF_LOOK_AROUND_WANT: usize = 0x2c;
+const OFF_LOOK_AROUND: usize = 0x30;
+const OFF_SWING: usize = 0x58;
+const OFF_SWING_AMOUNT: usize = 0x5c;
+const OFF_SWING_FRAME: usize = 0x60;
 const OFF_MODE_CHANGED: usize = 0x64;
+const OFF_LOOK_TO: usize = 0x88;
+const OFF_SNIPER_FOV: usize = 0x90;
+const OFF_FREE_LOOK: usize = 0x94;
 
 // Camera numbers (S_camera_params::id, G_Camera::mode). All names are mafia-re
 // working guesses (`g_camera.h:34-67`); only modes referenced by the three bodies
@@ -92,6 +101,12 @@ pub const CAMERA_C_LOCK: u32 = 22;
 pub const CAMERA_P_BEHIND_23: u32 = 23;
 // SetMode's next-mode request (`g_camera.h:60-61`, name ours).
 pub const CAMERA_NEXT: u32 = 0xffff_ffff;
+// LookAround's turn targets (mafia-re `game/camera/g_camera.h:71-74` @ fe7e746;
+// the names are upstream working guesses, the values are the original's).
+pub const LOOK_LEFT: i32 = -1;
+pub const LOOK_AHEAD: i32 = 0;
+pub const LOOK_RIGHT: i32 = 1;
+pub const LOOK_BEHIND: i32 = 2;
 // Profile-kept ranges (`g_camera.h:62-67`, names ours).
 pub const CAMERA_P_FIRST: u32 = 1;
 pub const CAMERA_P_END: u32 = 4;
@@ -450,6 +465,496 @@ pub fn set_mode(
     })
 }
 
+// ---- Small `G_Camera` setters, getters and state flags (reference pin fe7e746).
+//
+// The fifteen items below port the remaining small `G_Camera` bodies of
+// `game/camera/g_camera.cpp` that need no scene, collision, HUD or model
+// device beyond what this module already borrows: the 0xa0-byte camera slice,
+// the live `needLookFromEyes` bits and the two free-look angle globals.
+// (`game/actors/C_animations.cpp` needs nothing: every one of its FUNCTION
+// entries already lives in `actor_animation` or `animation_blending`.)
+// Bigger neighbors stay unclaimed here on purpose: `WantPosCar`/`WantPos`
+// (GAME 0x5f2100/0x5f2580, filter math plus scene owners), `FreeLook`/
+// `FreeLookBase` (GAME 0x5f3520/0x5f3810, profile sensitivity plus the I3D
+// camera device), `LockAt`/`CumNaNe` (GAME 0x5f39f0/0x5f3a70, collision plus
+// camera placement), `PushMode`/`PopMode` (GAME 0x5f3ff0/0x5f4220, camera
+// FOV/range device reads plus the `push_pop` vector owner), `DialogLook`/
+// `DialogStart`/`DialogStop` (GAME 0x5f42e0/0x5f4370/0x5f4650, human and
+// dialog-list owners), `AddRaceCamera`/`RemoveRaceCamera`/`InitRaceCameras`
+// (GAME 0x5f46a0/0x5f4870/0x5f48d0, race/circuit owners), `GameDone` (GAME
+// 0x5ed120, a `PopMode` loop with the same owners) and the constructor/
+// destructor pair (GAME 0x5ecf90/0x5ed000: the constructor is `Reset`, already
+// claimed at RVA 0x1ed040; the destructor is empty). `SetModeChanged` (inline
+// copy at GAME 0x5b4550, inside the `C_game::Init` range) and `GetMode`
+// (folded copies only) claim no standalone camera code and stay working names
+// without an RVA. `C_animations.cpp` is fully covered already: every one of
+// its FUNCTION entries lives in `actor_animation` (`GetTrack`) or
+// `animation_blending` with overlay pins and tests.
+// The tests for the items below are hand-derived vectors authored without
+// cargo (no execution is claimed), placed in this module's existing tests
+// which already own the `camera_with` helper.
+
+/// Live profile camera numbers for the setters that store them.
+///
+/// Only the taken branch reads: `set_car` reads one of the two, `link` reads
+/// the foot camera only when the link frame is NULL, `leze_do_toyoty` reads
+/// the car camera only on its off path.
+pub trait CameraSettings {
+    type Error;
+    fn car_camera(&mut self) -> Result<u32, Self::Error>;
+    fn foot_camera(&mut self) -> Result<u32, Self::Error>;
+}
+
+/// Owner/settings failure of the small setters below.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CameraSetterError<E> {
+    UnavailableOwner,
+    Settings(E),
+}
+
+/// Shared `End`-then-`Begin` outcome of the member rebinds (`set_camera`,
+/// `set_player`, `leze_do_toyoty`): `end` saw the previous member word,
+/// `begin` sees the newly stored one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RebindOutcome {
+    pub end: EndOutcome,
+    pub begin: BeginOutcome,
+}
+
+fn word_f32(bytes: &[u8], offset: usize) -> f32 {
+    f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
+}
+
+fn set_word_f32(bytes: &mut [u8], offset: usize, value: f32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn map_owner<E>(_: CameraBeginError) -> CameraSetterError<E> {
+    CameraSetterError::UnavailableOwner
+}
+
+/// `G_Camera::GetCar` (GAME VA 0x47b4d0 / RVA 0xb4d0; evidenced original
+/// symbol `?GetCar@G_Camera@@QBEPAVC_car@@XZ`, mafia-re
+/// `game/camera/g_camera.h:270-274` @ fe7e746; the reference keeps the single
+/// folded copy the linker retains, declared at `g_camera.h:264-268`).
+/// Reads the car word (`G_Camera+0xc`, `g_camera.h:128` @ fe7e746): `None`
+/// is the native NULL. Read-only; only an actual owned 0xa0-byte camera slice
+/// is admitted.
+pub fn get_car(camera: &[u8]) -> Result<Option<u32>, CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    Ok(match word(camera, OFF_CAR) {
+        0 => None,
+        car => Some(car),
+    })
+}
+
+/// `G_Camera::SetCamera` (GAME VA 0x5ed150 / RVA 0x1ed150; mafia-re
+/// `game/camera/g_camera.cpp:225-232` @ fe7e746; PS2 name per its declaration
+/// comment in `game/camera/g_camera.h` @ fe7e746).
+/// Native order: `End()` on the old camera word, store `cam` at
+/// `G_Camera+0x4`, `Begin()` on the new word. The stores after `End` run even
+/// when `End` reported `NoCamera`, so rebinding from NULL can still let
+/// `Begin` apply.
+pub fn set_camera(
+    camera: &mut [u8],
+    need_look_from_eyes: &mut u32,
+    cam: u32,
+) -> Result<RebindOutcome, CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    let end_outcome = end(&*camera)?;
+    set_word(camera, OFF_CAMERA, cam);
+    let begin_outcome = begin(camera, need_look_from_eyes)?;
+    Ok(RebindOutcome {
+        end: end_outcome,
+        begin: begin_outcome,
+    })
+}
+
+/// `G_Camera::SetPlayer` (GAME VA 0x5ed170 / RVA 0x1ed170; mafia-re
+/// `game/camera/g_camera.cpp:233-241` @ fe7e746; PS2 name per
+/// `game/camera/g_camera.h` @ fe7e746).
+/// Same shape as `set_camera` for the player word (`G_Camera+0x8`): `End()`,
+/// store, `Begin()`.
+pub fn set_player(
+    camera: &mut [u8],
+    need_look_from_eyes: &mut u32,
+    player: u32,
+) -> Result<RebindOutcome, CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    let end_outcome = end(&*camera)?;
+    set_word(camera, OFF_PLAYER, player);
+    let begin_outcome = begin(camera, need_look_from_eyes)?;
+    Ok(RebindOutcome {
+        end: end_outcome,
+        begin: begin_outcome,
+    })
+}
+
+/// `G_Camera::SetCar` (GAME VA 0x5ed190 / RVA 0x1ed190; mafia-re
+/// `game/camera/g_camera.cpp:242-258` @ fe7e746; PS2 name per
+/// `game/camera/g_camera.h` @ fe7e746).
+/// Native order: `End()`, store `car` at `G_Camera+0xc`, then with a car the
+/// profile's car camera becomes `mode`, on foot the profile's foot camera
+/// becomes `mode` and `free_look` (`G_Camera+0x94`) clears, then `Begin()` and
+/// `mode_changed = true`. Unlike `SetMode` no profile keep is evaluated and
+/// neither callee is skipped; the settings reads are live through
+/// [`CameraSettings`] (only the taken branch reads).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SetCarOutcome {
+    pub end: EndOutcome,
+    pub begin: BeginOutcome,
+}
+
+pub fn set_car<S: CameraSettings>(
+    camera: &mut [u8],
+    need_look_from_eyes: &mut u32,
+    car: u32,
+    settings: &mut S,
+) -> Result<SetCarOutcome, CameraSetterError<S::Error>> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraSetterError::UnavailableOwner);
+    }
+    let end_outcome = end(&*camera).map_err(map_owner)?;
+    set_word(camera, OFF_CAR, car);
+    if car != 0 {
+        let kept = settings.car_camera().map_err(CameraSetterError::Settings)?;
+        set_word(camera, OFF_MODE, kept);
+    } else {
+        let kept = settings
+            .foot_camera()
+            .map_err(CameraSetterError::Settings)?;
+        set_word(camera, OFF_MODE, kept);
+        camera[OFF_FREE_LOOK] = 0;
+    }
+    let begin_outcome = begin(camera, need_look_from_eyes).map_err(map_owner)?;
+    camera[OFF_MODE_CHANGED] = 1;
+    Ok(SetCarOutcome {
+        end: end_outcome,
+        begin: begin_outcome,
+    })
+}
+
+/// `G_Camera::Link` (GAME VA 0x5ed1e0 / RVA 0x1ed1e0; mafia-re
+/// `game/camera/g_camera.cpp:259-268` @ fe7e746; PS2 name per
+/// `game/camera/g_camera.h` @ fe7e746).
+/// Stores the link frame (`G_Camera+0x0`): a non-NULL frame selects
+/// `CAMERA_C_RAILWAY_IN` through `SetMode`, NULL selects the profile's foot
+/// camera (read live, only on that path) through `SetMode`. Returns the
+/// `SetMode` outcome with `begin` requested.
+pub fn link<S: CameraSettings>(
+    camera: &mut [u8],
+    need_look_from_eyes: &mut u32,
+    frame: u32,
+    settings: &mut S,
+) -> Result<SetModeOutcome, CameraSetterError<S::Error>> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraSetterError::UnavailableOwner);
+    }
+    set_word(camera, OFF_LINK, frame);
+    let mode = if frame != 0 {
+        CAMERA_C_RAILWAY_IN
+    } else {
+        settings.foot_camera().map_err(CameraSetterError::Settings)?
+    };
+    set_mode(camera, need_look_from_eyes, mode, true).map_err(map_owner)
+}
+
+/// `G_Camera::SetSwing` (GAME VA 0x5ed210 / RVA 0x1ed210; mafia-re
+/// `game/camera/g_camera.cpp:269-284` @ fe7e746; PS2 name per
+/// `game/camera/g_camera.h` @ fe7e746).
+/// Stores the swing triple (`G_Camera+0x58/0x5c/0x60`,
+/// `g_camera.h:154-156` @ fe7e746). With `on == false` and a non-NULL frame
+/// the scene and frame owners straighten the backdrop and the frame
+/// (DEFERRED, reported in the outcome); the stores run first either way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SetSwingOutcome {
+    pub backdrop_restore_pending: bool,
+}
+
+pub fn set_swing(
+    camera: &mut [u8],
+    on: bool,
+    amount: f32,
+    frame: u32,
+) -> Result<SetSwingOutcome, CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    camera[OFF_SWING] = u8::from(on);
+    set_word_f32(camera, OFF_SWING_AMOUNT, amount);
+    set_word(camera, OFF_SWING_FRAME, frame);
+    Ok(SetSwingOutcome {
+        backdrop_restore_pending: !on && frame != 0,
+    })
+}
+
+/// `G_Camera::LookAround` (GAME VA 0x5ed330 / RVA 0x1ed330; mafia-re
+/// `game/camera/g_camera.cpp:285-313` @ fe7e746; PS2 name per
+/// `game/camera/g_camera.h` @ fe7e746).
+/// Turns the car cameras toward the `LOOK_*` angle: from behind on the right
+/// the camera wraps the short way (`-= 2.0` past `+0.5`), mirrored from the
+/// left, ahead clears the want, and behind picks the side the camera already
+/// leans to. Only the `look_around_want` (`G_Camera+0x2c`) and `look_around`
+/// (`G_Camera+0x30`) words move; other `dir` values are a no-op like the
+/// native switch. Every constant and limit here is exactly representable, so
+/// host single-rounding matches the native stores bit for bit.
+pub fn look_around(camera: &mut [u8], dir: i32) -> Result<(), CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    match dir {
+        LOOK_LEFT => {
+            if word_f32(camera, OFF_LOOK_AROUND) > 0.5 {
+                let updated = word_f32(camera, OFF_LOOK_AROUND) - 2.0;
+                set_word_f32(camera, OFF_LOOK_AROUND, updated);
+            }
+            set_word_f32(camera, OFF_LOOK_AROUND_WANT, -0.5);
+        }
+        LOOK_AHEAD => set_word_f32(camera, OFF_LOOK_AROUND_WANT, 0.0),
+        LOOK_RIGHT => {
+            if word_f32(camera, OFF_LOOK_AROUND) < -0.5 {
+                let updated = word_f32(camera, OFF_LOOK_AROUND) + 2.0;
+                set_word_f32(camera, OFF_LOOK_AROUND, updated);
+            }
+            set_word_f32(camera, OFF_LOOK_AROUND_WANT, 0.5);
+        }
+        LOOK_BEHIND => {
+            if word_f32(camera, OFF_LOOK_AROUND) > 0.0 {
+                set_word_f32(camera, OFF_LOOK_AROUND_WANT, 1.0);
+            } else {
+                set_word_f32(camera, OFF_LOOK_AROUND_WANT, -1.0);
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// `G_Camera::LookFromEyes` (GAME VA 0x5ed3e0 / RVA 0x1ed3e0; mafia-re
+/// `game/camera/g_camera.cpp:314-318` @ fe7e746; PS2 name per its declaration
+/// comment in `game/camera/g_camera.h` @ fe7e746).
+/// Pure read of the borrowed `needLookFromEyes` global (GAME 0x6bdb10 scope,
+/// `g_camera.cpp:154-156` @ fe7e746): true while it is above `0.0`. NaN and
+/// non-positive values report false, matching the native comparison.
+pub fn look_from_eyes(need_look_from_eyes: u32) -> bool {
+    f32::from_bits(need_look_from_eyes) > 0.0
+}
+
+/// `G_Camera::LezeDoToyoty` (GAME VA 0x5ed460 / RVA 0x1ed460; mafia-re
+/// `game/camera/g_camera.cpp:341-360` @ fe7e746; PS2 name, Czech for "climbs
+/// into the Toyota", per its declaration comment (`game/camera/g_camera.h` @ fe7e746).
+/// With `on` the camera goes to `CAMERA_C_BEHIND_HELLBOY`, with `off` back to
+/// the profile's car camera (read live, only on that path); an already
+/// matching mode leaves every word untouched. The applied path is
+/// `End()`, the mode store, `Begin()`, `mode_changed = true`, in that order.
+/// The native off path reads the setting twice in the source text; the single
+/// live read here is observably identical (no callbacks run between).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LezeOutcome {
+    Unchanged,
+    Applied(RebindOutcome),
+}
+
+pub fn leze_do_toyoty<S: CameraSettings>(
+    camera: &mut [u8],
+    need_look_from_eyes: &mut u32,
+    on: bool,
+    settings: &mut S,
+) -> Result<LezeOutcome, CameraSetterError<S::Error>> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraSetterError::UnavailableOwner);
+    }
+    let target = if on {
+        CAMERA_C_BEHIND_HELLBOY
+    } else {
+        settings.car_camera().map_err(CameraSetterError::Settings)?
+    };
+    if word(camera, OFF_MODE) == target {
+        return Ok(LezeOutcome::Unchanged);
+    }
+    let end_outcome = end(&*camera).map_err(map_owner)?;
+    set_word(camera, OFF_MODE, target);
+    let begin_outcome = begin(camera, need_look_from_eyes).map_err(map_owner)?;
+    camera[OFF_MODE_CHANGED] = 1;
+    Ok(LezeOutcome::Applied(RebindOutcome {
+        end: end_outcome,
+        begin: begin_outcome,
+    }))
+}
+
+/// `G_Camera::EnableFreeLook` (GAME VA 0x5f34c0 / RVA 0x1f34c0; mafia-re
+/// `game/camera/g_camera.cpp:1259-1270` @ fe7e746; PS2 name per its declaration
+/// comment in `game/camera/g_camera.h` @ fe7e746).
+/// Native order over the borrowed camera and the live `freeLookX`/`freeLookZ`
+/// globals (GAME 0x6bdb20/0x6bdb24, `g_camera.cpp:169-172` @ fe7e746): when
+/// free look was off both angles restart from zero, then `free_look`
+/// (`G_Camera+0x94`) stores `on`, then with `behind` the car cameras from
+/// `CAMERA_C_CHASE` on (up to `CAMERA_C_END`, exclusive) go back to
+/// `CAMERA_C_BEHIND_HELLBOY` through `SetMode` with `begin`. Returns the
+/// `SetMode` outcome only when that rebind ran.
+pub fn enable_free_look(
+    camera: &mut [u8],
+    need_look_from_eyes: &mut u32,
+    free_look_x: &mut f32,
+    free_look_z: &mut f32,
+    on: bool,
+    behind: bool,
+) -> Result<Option<SetModeOutcome>, CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    if camera[OFF_FREE_LOOK] == 0 {
+        *free_look_x = 0.0;
+        *free_look_z = 0.0;
+    }
+    camera[OFF_FREE_LOOK] = u8::from(on);
+    let mode = word(camera, OFF_MODE);
+    if behind
+        && mode > CAMERA_C_BEHIND_HELLBOY
+        && mode < CAMERA_C_END
+        && mode >= CAMERA_C_CHASE
+    {
+        Ok(Some(set_mode(
+            camera,
+            need_look_from_eyes,
+            CAMERA_C_BEHIND_HELLBOY,
+            true,
+        )?))
+    } else {
+        Ok(None)
+    }
+}
+
+/// `G_Camera::Unlock` (GAME VA 0x5f3fd0 / RVA 0x1f3fd0; mafia-re
+/// `game/camera/g_camera.cpp:1429-1435` @ fe7e746; PS2 name per its declaration
+/// comment in `game/camera/g_camera.h` @ fe7e746).
+/// Pure classification: only `CAMERA_C_LOCK` pops back through
+/// `PopMode(clear)` (DEFERRED: the mode/vector owners apply it); any other
+/// mode leaves every word untouched. No slice stores happen here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnlockOutcome {
+    Unchanged,
+    PopPending { clear: bool },
+}
+
+pub fn unlock(camera: &[u8], clear: bool) -> Result<UnlockOutcome, CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    if word(camera, OFF_MODE) == CAMERA_C_LOCK {
+        Ok(UnlockOutcome::PopPending { clear })
+    } else {
+        Ok(UnlockOutcome::Unchanged)
+    }
+}
+
+/// `G_Camera::IsInDialog` (GAME VA 0x5f4690 / RVA 0x1f4690; mafia-re
+/// `game/camera/g_camera.cpp:1531-1535` @ fe7e746; PS2 name per its declaration
+/// comment in `game/camera/g_camera.h` @ fe7e746).
+/// Pure mode read: true exactly while `mode == CAMERA_C_DIALOG`.
+pub fn is_in_dialog(camera: &[u8]) -> Result<bool, CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    Ok(word(camera, OFF_MODE) == CAMERA_C_DIALOG)
+}
+
+/// `G_Camera::SetSniperFov` (GAME VA 0x5f4a70 / RVA 0x1f4a70; mafia-re
+/// `game/camera/g_camera.cpp:1608-1617` @ fe7e746; PS2 name per its declaration
+/// comment in `game/camera/g_camera.h` @ fe7e746).
+/// Stores the sniper field of view (`G_Camera+0x90`); in `CAMERA_CP_SNIPER`
+/// the HUD applies it to the camera at once and updates it (DEFERRED,
+/// reported in the outcome). The store runs first either way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SetSniperFovOutcome {
+    pub hud_apply_pending: bool,
+}
+
+pub fn set_sniper_fov(
+    camera: &mut [u8],
+    fov: f32,
+) -> Result<SetSniperFovOutcome, CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    set_word_f32(camera, OFF_SNIPER_FOV, fov);
+    Ok(SetSniperFovOutcome {
+        hud_apply_pending: word(camera, OFF_MODE) == CAMERA_CP_SNIPER,
+    })
+}
+
+/// `G_Camera::SetSniperMode` (GAME VA 0x5f4ab0 / RVA 0x1f4ab0; mafia-re
+/// `game/camera/g_camera.cpp:1619-1632` @ fe7e746, declared in
+/// `game/camera/g_camera.h` @ fe7e746; the header marks no separate PS2
+/// provenance for this declarator, so only the address and the body order are
+/// claimed).
+/// Pure dispatch classification: enabling from a non-sniper mode pushes the
+/// state and rebinds through `SetMode` (DEFERRED), disabling from the sniper
+/// mode pops back (DEFERRED); matching requests are a no-op. No slice stores
+/// happen here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SniperModeOutcome {
+    Unchanged,
+    EnterSniperPending,
+    ExitSniperPending,
+}
+
+pub fn set_sniper_mode(camera: &[u8], on: bool) -> Result<SniperModeOutcome, CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    let sniper = word(camera, OFF_MODE) == CAMERA_CP_SNIPER;
+    if on {
+        if sniper {
+            Ok(SniperModeOutcome::Unchanged)
+        } else {
+            Ok(SniperModeOutcome::EnterSniperPending)
+        }
+    } else if sniper {
+        Ok(SniperModeOutcome::ExitSniperPending)
+    } else {
+        Ok(SniperModeOutcome::Unchanged)
+    }
+}
+
+/// `G_Camera::SetLookTo` (GAME VA 0x5f4a00 / RVA 0x1f4a00; mafia-re
+/// `game/camera/g_camera.cpp:1596-1606` @ fe7e746; PS2 name per its declaration
+/// comment in `game/camera/g_camera.h` @ fe7e746).
+/// Stores the look-at frame (`G_Camera+0x88`), rebinds through
+/// `SetMode(CAMERA_C_LOOK_TO, true)`, and with a non-NULL camera the I3D owner
+/// places it at `pos` and updates it (DEFERRED; `pos` is carried in the
+/// outcome for that owner since this slice keeps no copy).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SetLookToOutcome {
+    pub mode: SetModeOutcome,
+    pub camera_place_pending: bool,
+    pub pos: [f32; 3],
+}
+
+pub fn set_look_to(
+    camera: &mut [u8],
+    need_look_from_eyes: &mut u32,
+    frame: u32,
+    pos: [f32; 3],
+) -> Result<SetLookToOutcome, CameraBeginError> {
+    if camera.len() != CAMERA_BYTES {
+        return Err(CameraBeginError::UnavailableOwner);
+    }
+    set_word(camera, OFF_LOOK_TO, frame);
+    let mode = set_mode(camera, need_look_from_eyes, CAMERA_C_LOOK_TO, true)?;
+    Ok(SetLookToOutcome {
+        camera_place_pending: word(camera, OFF_CAMERA) != 0,
+        mode,
+        pos,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -776,5 +1281,377 @@ mod tests {
         hud.apply_camera_end_sniper();
         assert!(hud.is_shown(INDF_CROSSHAIR));
         assert!(!hud.is_shown(INDF_SNIPER));
+    }
+    struct Settings {
+        car: u32,
+        foot: u32,
+        car_reads: usize,
+        foot_reads: usize,
+        fail: bool,
+    }
+    impl CameraSettings for Settings {
+        type Error = &'static str;
+        fn car_camera(&mut self) -> Result<u32, Self::Error> {
+            self.car_reads += 1;
+            if self.fail {
+                Err("settings unavailable")
+            } else {
+                Ok(self.car)
+            }
+        }
+        fn foot_camera(&mut self) -> Result<u32, Self::Error> {
+            self.foot_reads += 1;
+            if self.fail {
+                Err("settings unavailable")
+            } else {
+                Ok(self.foot)
+            }
+        }
+    }
+    fn settings(car: u32, foot: u32) -> Settings {
+        Settings {
+            car,
+            foot,
+            car_reads: 0,
+            foot_reads: 0,
+            fail: false,
+        }
+    }
+    #[test]
+    fn get_car_rva_b4d0_reads_car_word() {
+        // RVA 0xb4d0: NULL car reads as None, nonzero as Some; read-only.
+        let bytes = camera_with(0x1000, 0x2000, 0, 1, 0, 0xa5);
+        let before = bytes;
+        assert_eq!(get_car(&bytes), Ok(None));
+        assert_eq!(bytes, before);
+        let bytes = camera_with(0x1000, 0x2000, 0x3000, 1, 0, 0xa5);
+        assert_eq!(get_car(&bytes), Ok(Some(0x3000)));
+        assert_eq!(get_car(&bytes[..CAMERA_BYTES - 1]), Err(CameraBeginError::UnavailableOwner));
+    }
+    #[test]
+    fn set_camera_rva_1ed150_end_old_begin_new() {
+        // RVA 0x1ed150: End sees the old camera word, Begin the new one.
+        let mut bytes = camera_with(0x1000, 0x2000, 0x3000, 1, 4, 0);
+        let mut need_look = 0xdead_beef;
+        let outcome = set_camera(&mut bytes, &mut need_look, 0x4000).unwrap();
+        assert_eq!(outcome.end, EndOutcome::Classified(EndApplied {
+            sniper_hud_restore: false,
+            relink_primary: false,
+            car_restore_pending: true,
+            camera_update_pending: true,
+        }));
+        match outcome.begin {
+            BeginOutcome::Applied(applied) => assert!(applied.matched),
+            BeginOutcome::NoCamera => panic!("expected Applied"),
+        }
+        assert_eq!(word(&bytes, OFF_CAMERA), 0x4000);
+        // Rebinding from NULL: End reports NoCamera, the store still runs,
+        // and Begin applies on the new word.
+        let mut bytes = camera_with(0, 0x2000, 0x3000, 12, 0, 0);
+        let mut need_look = 0u32;
+        let outcome = set_camera(&mut bytes, &mut need_look, 0x4000).unwrap();
+        assert_eq!(outcome.end, EndOutcome::NoCamera);
+        assert_eq!(word(&bytes, OFF_PARAMS), 0x6388e4);
+        assert_eq!(need_look, 0);
+        // Rebinding to NULL: End classifies, Begin reports NoCamera.
+        let mut bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
+        let mut need_look = 0x1111_1111;
+        let outcome = set_camera(&mut bytes, &mut need_look, 0).unwrap();
+        assert!(matches!(outcome.end, EndOutcome::Classified(_)));
+        assert_eq!(outcome.begin, BeginOutcome::NoCamera);
+        assert_eq!(need_look, 0x1111_1111);
+    }
+    #[test]
+    fn set_player_rva_1ed170_end_old_begin_new() {
+        // RVA 0x1ed170: same End/store/Begin shape for the player word.
+        // Mode 12 (C Chase) takes the zero path, so the live player word
+        // drives the deferred fade gate and clears needLook.
+        let mut bytes = camera_with(0x1000, 0x2000, 0, 12, 0, 0);
+        let mut need_look = 0xdead_beef;
+        let outcome = set_player(&mut bytes, &mut need_look, 0x3000).unwrap();
+        assert!(matches!(outcome.end, EndOutcome::Classified(_)));
+        match outcome.begin {
+            BeginOutcome::Applied(applied) => {
+                assert!(applied.matched);
+                assert!(!applied.eyes);
+                assert!(applied.fade_reset_pending);
+                assert!(applied.need_look_cleared);
+            }
+            BeginOutcome::NoCamera => panic!("expected Applied"),
+        }
+        assert_eq!(need_look, 0);
+        assert_eq!(word(&bytes, OFF_PLAYER), 0x3000);
+    }
+    #[test]
+    fn set_car_rva_1ed190_branch_settings_and_flags() {
+        // RVA 0x1ed190, car path: the car camera becomes the mode.
+        let mut bytes = camera_with(0x1000, 0, 0, 1, 0, 0xa5);
+        bytes[OFF_FREE_LOOK] = 1;
+        let mut need_look = 0u32;
+        let mut profile = settings(12, 1);
+        let outcome = set_car(&mut bytes, &mut need_look, 0x3000, &mut profile).unwrap();
+        assert_eq!(word(&bytes, OFF_CAR), 0x3000);
+        assert_eq!(word(&bytes, OFF_MODE), 12);
+        assert_eq!(bytes[OFF_FREE_LOOK], 1);
+        assert_eq!(bytes[OFF_MODE_CHANGED], 1);
+        assert_eq!((profile.car_reads, profile.foot_reads), (1, 0));
+        assert!(matches!(outcome.begin, BeginOutcome::Applied(_)));
+        // Foot path: the foot camera becomes the mode and free look clears.
+        let mut bytes = camera_with(0x1000, 0, 0x3000, 12, 0, 0xa5);
+        bytes[OFF_FREE_LOOK] = 1;
+        let mut need_look = 0x2222_2222;
+        let mut profile = settings(12, 3);
+        let outcome = set_car(&mut bytes, &mut need_look, 0, &mut profile).unwrap();
+        assert_eq!(word(&bytes, OFF_MODE), 3);
+        assert_eq!(bytes[OFF_FREE_LOOK], 0);
+        assert_eq!((profile.car_reads, profile.foot_reads), (0, 1));
+        assert!(matches!(outcome.begin, BeginOutcome::Applied(_)));
+        // A failing settings read leaves the car store visible and reports.
+        let mut bytes = camera_with(0x1000, 0, 0, 12, 0, 0);
+        let mut need_look = 0u32;
+        let mut profile = settings(12, 3);
+        profile.fail = true;
+        assert_eq!(
+            set_car(&mut bytes, &mut need_look, 0, &mut profile),
+            Err(CameraSetterError::Settings("settings unavailable"))
+        );
+        assert_eq!(word(&bytes, OFF_CAR), 0);
+    }
+    #[test]
+    fn link_rva_1ed1e0_frame_selects_railway() {
+        // RVA 0x1ed1e0: a frame selects C_RAILWAY_IN without settings reads.
+        let mut bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
+        let mut need_look = 0u32;
+        let mut profile = settings(12, 1);
+        let outcome = link(&mut bytes, &mut need_look, 0x5000, &mut profile).unwrap();
+        assert_eq!(word(&bytes, OFF_LINK), 0x5000);
+        assert_eq!(word(&bytes, OFF_MODE), CAMERA_C_RAILWAY_IN);
+        assert_eq!((profile.car_reads, profile.foot_reads), (0, 0));
+        assert!(outcome.applied);
+        assert_eq!(outcome.keep, ProfileKeep::None);
+        // NULL selects the live foot camera.
+        let mut bytes = camera_with(0x1000, 0, 0, 17, 0, 0);
+        let mut need_look = 0u32;
+        let mut profile = settings(12, 3);
+        let outcome = link(&mut bytes, &mut need_look, 0, &mut profile).unwrap();
+        assert_eq!(word(&bytes, OFF_MODE), 3);
+        assert_eq!(outcome.keep, ProfileKeep::FootCamera(3));
+        assert_eq!((profile.car_reads, profile.foot_reads), (0, 1));
+    }
+    #[test]
+    fn set_swing_rva_1ed210_stores_and_defers_restore() {
+        // RVA 0x1ed210: the triple stores; only off-with-frame defers.
+        let mut bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
+        let outcome = set_swing(&mut bytes, true, 2.5, 0x6000).unwrap();
+        assert_eq!(bytes[OFF_SWING], 1);
+        assert_eq!(word_f32(&bytes, OFF_SWING_AMOUNT).to_bits(), 2.5f32.to_bits());
+        assert_eq!(word(&bytes, OFF_SWING_FRAME), 0x6000);
+        assert!(!outcome.backdrop_restore_pending);
+        let outcome = set_swing(&mut bytes, false, 0.0, 0x6000).unwrap();
+        assert_eq!(bytes[OFF_SWING], 0);
+        assert!(outcome.backdrop_restore_pending);
+        let outcome = set_swing(&mut bytes, false, 0.0, 0).unwrap();
+        assert!(!outcome.backdrop_restore_pending);
+        assert_eq!(set_swing(&mut bytes[..OFF_SWING], true, 1.0, 0), Err(CameraBeginError::UnavailableOwner));
+    }
+    #[test]
+    fn look_around_rva_1ed330_turns_want_and_wraps() {
+        // RVA 0x1ed330: LEFT wraps the short way, RIGHT mirrors it.
+        let mut bytes = [0u8; CAMERA_BYTES];
+        bytes[OFF_LOOK_AROUND..OFF_LOOK_AROUND + 4].copy_from_slice(&0.7f32.to_le_bytes());
+        look_around(&mut bytes, LOOK_LEFT).unwrap();
+        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND).to_bits(), (-1.3f32).to_bits());
+        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(), (-0.5f32).to_bits());
+        let mut bytes = [0u8; CAMERA_BYTES];
+        bytes[OFF_LOOK_AROUND..OFF_LOOK_AROUND + 4].copy_from_slice(&(-0.7f32).to_le_bytes());
+        look_around(&mut bytes, LOOK_RIGHT).unwrap();
+        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND).to_bits(), 1.3f32.to_bits());
+        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(), 0.5f32.to_bits());
+        // No wrap past the thresholds; AHEAD only clears the want.
+        let mut bytes = [0u8; CAMERA_BYTES];
+        bytes[OFF_LOOK_AROUND..OFF_LOOK_AROUND + 4].copy_from_slice(&0.5f32.to_le_bytes());
+        look_around(&mut bytes, LOOK_LEFT).unwrap();
+        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND).to_bits(), 0.5f32.to_bits());
+        look_around(&mut bytes, LOOK_AHEAD).unwrap();
+        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(), 0.0f32.to_bits());
+        // BEHIND follows the side the camera already leans to.
+        let mut bytes = [0u8; CAMERA_BYTES];
+        bytes[OFF_LOOK_AROUND..OFF_LOOK_AROUND + 4].copy_from_slice(&0.25f32.to_le_bytes());
+        look_around(&mut bytes, LOOK_BEHIND).unwrap();
+        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(), 1.0f32.to_bits());
+        let mut bytes = [0u8; CAMERA_BYTES];
+        look_around(&mut bytes, LOOK_BEHIND).unwrap();
+        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(), (-1.0f32).to_bits());
+        // Unknown directions are a no-op.
+        let mut bytes = [0x3c; CAMERA_BYTES];
+        let before = bytes;
+        look_around(&mut bytes, 99).unwrap();
+        assert_eq!(bytes, before);
+        assert_eq!(look_around(&mut bytes[..4], LOOK_AHEAD), Err(CameraBeginError::UnavailableOwner));
+    }
+    #[test]
+    fn look_from_eyes_rva_1ed3e0_positive_float_only() {
+        // RVA 0x1ed3e0: strictly above zero; NaN and negatives are false.
+        assert!(look_from_eyes(f32::MIN_POSITIVE.to_bits()));
+        assert!(!look_from_eyes(0.0f32.to_bits()));
+        assert!(!look_from_eyes((-1.0f32).to_bits()));
+        assert!(!look_from_eyes(f32::NAN.to_bits()));
+        assert!(!look_from_eyes(u32::MAX));
+    }
+    #[test]
+    fn leze_do_toyoty_rva_1ed460_guarded_rebind() {
+        // RVA 0x1ed460, on path: rebinds unless already behind Hellboy.
+        let mut bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
+        let mut need_look = 0u32;
+        let mut profile = settings(12, 3);
+        match leze_do_toyoty(&mut bytes, &mut need_look, true, &mut profile).unwrap() {
+            LezeOutcome::Applied(rebind) => {
+                assert!(matches!(rebind.begin, BeginOutcome::Applied(_)));
+            }
+            LezeOutcome::Unchanged => panic!("expected Applied"),
+        }
+        assert_eq!(word(&bytes, OFF_MODE), CAMERA_C_BEHIND_HELLBOY);
+        assert_eq!(bytes[OFF_MODE_CHANGED], 1);
+        assert_eq!((profile.car_reads, profile.foot_reads), (0, 0));
+        let mut bytes = camera_with(0x1000, 0, 0, CAMERA_C_BEHIND_HELLBOY, 0, 0);
+        let before = bytes;
+        let mut need_look = 0x99u32;
+        let mut profile = settings(12, 3);
+        assert_eq!(
+            leze_do_toyoty(&mut bytes, &mut need_look, true, &mut profile),
+            Ok(LezeOutcome::Unchanged)
+        );
+        assert_eq!(bytes, before);
+        // Off path: back to the live car camera, unchanged when it matches.
+        let mut bytes = camera_with(0x1000, 0, 0, 7, 0, 0);
+        let mut need_look = 0u32;
+        let mut profile = settings(12, 3);
+        assert!(matches!(
+            leze_do_toyoty(&mut bytes, &mut need_look, false, &mut profile).unwrap(),
+            LezeOutcome::Applied(_)
+        ));
+        assert_eq!(word(&bytes, OFF_MODE), 12);
+        assert_eq!(profile.car_reads, 1);
+        let mut bytes = camera_with(0x1000, 0, 0, 12, 0, 0);
+        let before = bytes;
+        let mut need_look = 0u32;
+        let mut profile = settings(12, 3);
+        assert_eq!(
+            leze_do_toyoty(&mut bytes, &mut need_look, false, &mut profile),
+            Ok(LezeOutcome::Unchanged)
+        );
+        assert_eq!(bytes, before);
+        assert_eq!(profile.car_reads, 1);
+    }
+    #[test]
+    fn enable_free_look_rva_1f34c0_zeroes_and_rebinds() {
+        // RVA 0x1f34c0: a settled-off free look restarts the angles from zero.
+        let mut bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
+        let mut need_look = 0u32;
+        let (mut x, mut z) = (1.5f32, -2.5f32);
+        assert_eq!(
+            enable_free_look(&mut bytes, &mut need_look, &mut x, &mut z, true, false),
+            Ok(None)
+        );
+        assert_eq!((x.to_bits(), z.to_bits()), (0, 0));
+        assert_eq!(bytes[OFF_FREE_LOOK], 1);
+        // An already-on free look keeps the angles.
+        let (mut x, mut z) = (1.5f32, -2.5f32);
+        assert_eq!(
+            enable_free_look(&mut bytes, &mut need_look, &mut x, &mut z, false, false),
+            Ok(None)
+        );
+        assert_eq!((x.to_bits(), z.to_bits()), (1.5f32.to_bits(), (-2.5f32).to_bits()));
+        assert_eq!(bytes[OFF_FREE_LOOK], 0);
+        // Behind rebinds only CHASE..END (12..16); 11 and 16 stay put.
+        for (mode, rebinds) in [(7u32, false), (11, false), (12, true), (15, true), (16, false)] {
+            let mut bytes = camera_with(0x1000, 0, 0, mode, 0, 0);
+            let mut need_look = 0u32;
+            let (mut x, mut z) = (0.0f32, 0.0f32);
+            let outcome = enable_free_look(&mut bytes, &mut need_look, &mut x, &mut z, true, true).unwrap();
+            assert_eq!(outcome.is_some(), rebinds, "mode {}", mode);
+            if rebinds {
+                let outcome = outcome.unwrap();
+                assert_eq!(word(&bytes, OFF_MODE), CAMERA_C_BEHIND_HELLBOY);
+                assert!(outcome.applied);
+            } else {
+                assert_eq!(word(&bytes, OFF_MODE), mode);
+            }
+        }
+        // Without behind no mode dispatch runs even inside the range.
+        let mut bytes = camera_with(0x1000, 0, 0, 12, 0, 0);
+        let mut need_look = 0u32;
+        let (mut x, mut z) = (0.0f32, 0.0f32);
+        assert_eq!(
+            enable_free_look(&mut bytes, &mut need_look, &mut x, &mut z, true, false),
+            Ok(None)
+        );
+        assert_eq!(word(&bytes, OFF_MODE), 12);
+    }
+    #[test]
+    fn unlock_rva_1f3fd0_classifies_pop() {
+        // RVA 0x1f3fd0: only CAMERA_C_LOCK defers a pop; no stores either way.
+        let bytes = camera_with(0x1000, 0, 0, CAMERA_C_LOCK, 0, 0xa5);
+        assert_eq!(unlock(&bytes, true), Ok(UnlockOutcome::PopPending { clear: true }));
+        assert_eq!(unlock(&bytes, false), Ok(UnlockOutcome::PopPending { clear: false }));
+        for mode in [1u32, 7, 12, 19, 23] {
+            let bytes = camera_with(0x1000, 0, 0, mode, 0, 0xa5);
+            assert_eq!(unlock(&bytes, true), Ok(UnlockOutcome::Unchanged), "mode {}", mode);
+            assert_eq!(bytes, camera_with(0x1000, 0, 0, mode, 0, 0xa5));
+        }
+        assert_eq!(unlock(&bytes[..4], true), Err(CameraBeginError::UnavailableOwner));
+    }
+    #[test]
+    fn is_in_dialog_rva_1f4690_mode_compare() {
+        // RVA 0x1f4690: true exactly in CAMERA_C_DIALOG.
+        for mode in [1u32, 5, 7, 12, 17, 23, 24] {
+            let bytes = camera_with(0x1000, 0, 0, mode, 0, 0);
+            assert_eq!(is_in_dialog(&bytes), Ok(false), "mode {}", mode);
+        }
+        let bytes = camera_with(0x1000, 0, 0, CAMERA_C_DIALOG, 0, 0);
+        assert_eq!(is_in_dialog(&bytes), Ok(true));
+        assert_eq!(is_in_dialog(&bytes[..4]), Err(CameraBeginError::UnavailableOwner));
+    }
+    #[test]
+    fn set_sniper_fov_rva_1f4a70_store_and_hud_gate() {
+        // RVA 0x1f4a70: the store always runs; HUD applies only in sniper.
+        let mut bytes = camera_with(0x1000, 0, 0, CAMERA_CP_SNIPER, 0, 0);
+        let outcome = set_sniper_fov(&mut bytes, 0.35).unwrap();
+        assert_eq!(word_f32(&bytes, OFF_SNIPER_FOV).to_bits(), 0.35f32.to_bits());
+        assert!(outcome.hud_apply_pending);
+        let mut bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
+        let outcome = set_sniper_fov(&mut bytes, 0.35).unwrap();
+        assert!(!outcome.hud_apply_pending);
+        assert_eq!(set_sniper_fov(&mut bytes[..OFF_SNIPER_FOV], 0.35), Err(CameraBeginError::UnavailableOwner));
+    }
+    #[test]
+    fn set_sniper_mode_rva_1f4ab0_dispatch() {
+        // RVA 0x1f4ab0: matching requests are a no-op; the rest defers.
+        let bytes = camera_with(0x1000, 0, 0, CAMERA_CP_SNIPER, 0, 0);
+        assert_eq!(set_sniper_mode(&bytes, true), Ok(SniperModeOutcome::Unchanged));
+        assert_eq!(set_sniper_mode(&bytes, false), Ok(SniperModeOutcome::ExitSniperPending));
+        let bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
+        assert_eq!(set_sniper_mode(&bytes, true), Ok(SniperModeOutcome::EnterSniperPending));
+        assert_eq!(set_sniper_mode(&bytes, false), Ok(SniperModeOutcome::Unchanged));
+        assert_eq!(set_sniper_mode(&bytes[..4], true), Err(CameraBeginError::UnavailableOwner));
+    }
+    #[test]
+    fn set_look_to_rva_1f4a00_store_and_rebind() {
+        // RVA 0x1f4a00: stores the frame, rebinds through SetMode, and the
+        // camera placement stays deferred with the position carried along.
+        let mut bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
+        let mut need_look = 0u32;
+        let outcome = set_look_to(&mut bytes, &mut need_look, 0x7000, [1.0, 2.0, 3.0]).unwrap();
+        assert_eq!(word(&bytes, OFF_LOOK_TO), 0x7000);
+        assert_eq!(word(&bytes, OFF_MODE), CAMERA_C_LOOK_TO);
+        assert!(outcome.camera_place_pending);
+        assert_eq!(outcome.pos, [1.0, 2.0, 3.0]);
+        assert!(outcome.mode.applied);
+        // NULL camera: SetMode still stores the mode; placement stays off.
+        let mut bytes = camera_with(0, 0, 0, 1, 0, 0);
+        let mut need_look = 0u32;
+        let outcome = set_look_to(&mut bytes, &mut need_look, 0x7000, [0.0, 0.0, 0.0]).unwrap();
+        assert_eq!(outcome.mode.begin, Some(BeginOutcome::NoCamera));
+        assert!(!outcome.camera_place_pending);
     }
 }

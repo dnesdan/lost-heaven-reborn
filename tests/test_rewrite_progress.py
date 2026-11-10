@@ -462,7 +462,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +14 mission/recorder contracts (Dtor/Init/Ease/GetState/GetCurTime/
         # GetScaledTime/AnimNames ctor+Clear/SpeedKeys x3/RecClear/vfunc_46/
         # SetShowStart; marker-only, tests green).
-        self.assertEqual(game["ported"], 149 + 946)
+        # +15 camera contracts (GetCar/SetCamera/SetPlayer/SetCar/Link/
+        # SetSwing/LookAround/LookFromEyes/LezeDoToyoty/EnableFreeLook/
+        # Unlock/IsInDialog/SetLookTo/SetSniperFov/SetSniperMode; marker-only).
+        self.assertEqual(game["ported"], 149 + 961)
         self.assertEqual(game["verified"], 149 + 515)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
