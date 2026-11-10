@@ -117,6 +117,14 @@ pub enum MissionLifecycleError {
     TerminalDiscardEntered,
 }
 
+/// Explicit unsupported boundary for `C_mission::Init`, GAME RVA 0x13f230, VA
+/// 0x53f230 (mafia-re `game/mission/Mission.cpp:91-111` at pin `fe7e746`):
+/// the scene driver/device owner is outside this lifecycle contract.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MissionInitError {
+    SceneDriverUnavailable,
+}
+
 pub struct MissionLifecycle {
     identity: u32,
     bytes: [u8; MISSION_BYTES],
@@ -1066,6 +1074,30 @@ impl MissionLifecycle {
     }
     pub fn is_destructed(&self) -> bool {
         self.destructed
+    }
+    /// `C_mission::~C_mission`, GAME RVA 0x13f110, VA 0x53f110 (mafia-re
+    /// `game/mission/Mission.cpp:83-87` at pin `fe7e746`): the destructor body
+    /// only runs `UnInit`. At this lifecycle level the admitted `UnInit`
+    /// prefix is the unopened `close` guard; member drops stay with their
+    /// owners. Marks destructed on success; an opened mission keeps its
+    /// `ActiveCloseUnavailable` and stays undestructed.
+    pub fn destructor_runs_uninit(&mut self) -> Result<(), MissionLifecycleError> {
+        if self.destructed {
+            return Err(MissionLifecycleError::Destructed);
+        }
+        self.close()?;
+        self.destructed = true;
+        Ok(())
+    }
+    /// Explicit unsupported boundary for `C_mission::Init`, GAME RVA 0x13f230,
+    /// VA 0x53f230 (mafia-re `game/mission/Mission.cpp:91-111` at pin
+    /// `fe7e746`): creates the scene through the driver (`CreateFrame`), the
+    /// `C_tshift`/`C_web_path`/`C_roads`/`C_effects` members and the
+    /// mission-owned `C_game`. The driver scene/device owner is outside this
+    /// lifecycle contract, so no state is changed and no credit beyond the
+    /// boundary is claimed.
+    pub fn init_unavailable(&self) -> Result<(), MissionInitError> {
+        Err(MissionInitError::SceneDriverUnavailable)
     }
     fn word(&self, offset: usize) -> u32 {
         u32::from_le_bytes(self.bytes[offset..offset + 4].try_into().unwrap())
@@ -2814,5 +2846,43 @@ mod tests {
         assert!(mission.has_game_staged());
         mission.put_word(0x24, 0);
         assert!(!mission.has_game_staged());
+    }
+
+    #[test]
+    fn rva_13f110_destructor_runs_unopened_close_and_marks_destructed() {
+        // C_mission::~C_mission GAME RVA 0x13f110 (VA 0x53f110).
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert!(!mission.is_destructed());
+        mission.destructor_runs_uninit().unwrap();
+        assert!(mission.is_destructed());
+        assert_eq!(
+            mission.destructor_runs_uninit(),
+            Err(MissionLifecycleError::Destructed)
+        );
+    }
+
+    #[test]
+    fn rva_13f110_destructor_opened_mission_keeps_active_guard() {
+        // C_mission::~C_mission GAME RVA 0x13f110 (VA 0x53f110): UnInit's Close
+        // step refuses an opened mission before touching members.
+        let mut mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        mission.bytes[0x0c] = 1;
+        assert_eq!(
+            mission.destructor_runs_uninit(),
+            Err(MissionLifecycleError::ActiveCloseUnavailable)
+        );
+        assert!(!mission.is_destructed());
+    }
+
+    #[test]
+    fn rva_13f230_init_reports_scene_driver_unavailable() {
+        // C_mission::Init GAME RVA 0x13f230 (VA 0x53f230): explicit
+        // unsupported boundary, no state change.
+        let mission = MissionLifecycle::construct(0, [0; MISSION_BYTES]);
+        assert_eq!(
+            mission.init_unavailable(),
+            Err(MissionInitError::SceneDriverUnavailable)
+        );
+        assert!(!mission.is_destructed());
     }
 }

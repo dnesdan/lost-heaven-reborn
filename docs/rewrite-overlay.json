@@ -16861,6 +16861,132 @@
       "symbol": "lhr_engine::menu::MenuStack::set_range_dword",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x13f110",
+      "va": "0x53f110",
+      "name": "C_mission::~C_mission",
+      "symbol": "lhr_engine::mission_lifecycle::MissionLifecycle::destructor_runs_uninit",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x13f230",
+      "va": "0x53f230",
+      "name": "C_mission::Init",
+      "symbol": "lhr_engine::mission_lifecycle::MissionLifecycle::init_unavailable",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x198410",
+      "va": "0x598410",
+      "name": "Ease",
+      "symbol": "lhr_engine::cutscene_owner::recorder_ease",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x198b70",
+      "va": "0x598b70",
+      "name": "C_recorder::GetState",
+      "symbol": "lhr_engine::cutscene_owner::CutsceneOwner::recorder_get_state",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x198d90",
+      "va": "0x598d90",
+      "name": "C_recorder::GetCurTime",
+      "symbol": "lhr_engine::cutscene_owner::CutsceneOwner::recorder_get_cur_time",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x198da0",
+      "va": "0x598da0",
+      "name": "C_recorder::GetScaledTime",
+      "symbol": "lhr_engine::cutscene_owner::CutsceneOwner::recorder_get_scaled_time",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x19b5f0",
+      "va": "0x59b5f0",
+      "name": "C_cutscene_anim_names::C_cutscene_anim_names",
+      "symbol": "lhr_engine::cutscene_owner::CutsceneAnimNameTable::new",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x19bb50",
+      "va": "0x59bb50",
+      "name": "C_cutscene_anim_names::Clear",
+      "symbol": "lhr_engine::cutscene_owner::CutsceneAnimNameTable::clear",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x19c5f0",
+      "va": "0x59c5f0",
+      "name": "C_recorder::ResetSpeedKeys",
+      "symbol": "lhr_engine::cutscene_owner::RecorderSpeedKeys::reset_speed_keys",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x19c600",
+      "va": "0x59c600",
+      "name": "C_recorder::SetSpeedKeysOn",
+      "symbol": "lhr_engine::cutscene_owner::RecorderSpeedKeys::set_speed_keys_on",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x19c610",
+      "va": "0x59c610",
+      "name": "C_recorder::GetSpeedKeysOn",
+      "symbol": "lhr_engine::cutscene_owner::RecorderSpeedKeys::get_speed_keys_on",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x19c620",
+      "va": "0x59c620",
+      "name": "C_recorder::RecClear",
+      "symbol": "lhr_engine::cutscene_owner::recorder_rec_clear_unavailable",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x19e100",
+      "va": "0x59e100",
+      "name": "C_recorder::vfunc_46",
+      "symbol": "lhr_engine::cutscene_owner::recorder_vfunc_46",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x19e1e0",
+      "va": "0x59e1e0",
+      "name": "C_recorder::SetShowStart",
+      "symbol": "lhr_engine::cutscene_owner::CutsceneShowStart::set_show_start",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION: GAME confirmed at fe7e746."
     }
   ],
   "vm": {

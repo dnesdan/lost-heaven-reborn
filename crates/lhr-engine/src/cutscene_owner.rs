@@ -1068,6 +1068,122 @@ mod tests {
         assert!(owner.resources().is_empty());
         owner.discard_prefix();
     }
+
+    #[test]
+    fn rva_198410_ease_returns_u_below_threshold_and_scales_ramps() {
+        // Ease GAME RVA 0x198410 (VA 0x598410).
+        assert_eq!(recorder_ease(0.3, 0.0004, 0.0004), 0.3);
+        assert_eq!(recorder_ease(0.0, 0.0, 0.0), 0.0);
+        // No easing: a + b == 0 is below threshold, identity.
+        assert_eq!(recorder_ease(0.7, 0.0, 0.0), 0.7);
+        // Pure quadratic head: a = 0.5, b = 0.0 -> k = 1/1.5, u = 0.25.
+        let eased = recorder_ease(0.25, 0.5, 0.0);
+        assert!((eased - (1.0 / 1.5) / 0.5 * 0.25 * 0.25).abs() < 1e-6);
+        // Constant middle: a = 0.2, b = 0.2, u = 0.5 -> k*(2u-a).
+        let mid = recorder_ease(0.5, 0.2, 0.2);
+        let k = 1.0 / (2.0 - 0.2 - 0.2);
+        assert!((mid - k * (1.0 - 0.2)).abs() < 1e-6);
+        // Tail mirror: u = 1 mirrors u = 0 for symmetric ramps.
+        assert!((recorder_ease(0.0, 0.2, 0.2) + recorder_ease(1.0, 0.2, 0.2) - 1.0).abs() < 1e-6);
+        // Over-long ramps scale to sum 1: a = b = 1.0 -> a = b = 0.5.
+        let scaled = recorder_ease(0.25, 1.0, 1.0);
+        let ks = 1.0 / (2.0 - 0.5 - 0.5);
+        assert!((scaled - ks / 0.5 * 0.25 * 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn rva_198b70_get_state_reads_constructed_stopped() {
+        // C_recorder::GetState GAME RVA 0x198b70 (VA 0x598b70).
+        assert_eq!(owner().recorder_get_state(), 4);
+        assert_eq!(owner().recorder_get_state(), owner().state());
+    }
+
+    #[test]
+    fn rva_198d90_get_cur_time_reads_time_clock() {
+        // C_recorder::GetCurTime GAME RVA 0x198d90 (VA 0x598d90).
+        assert_eq!(owner().recorder_get_cur_time(), 0);
+        assert_eq!(owner().recorder_get_cur_time(), owner().clocks().0 as i32);
+    }
+
+    #[test]
+    fn rva_198da0_get_scaled_time_reads_playback_clock() {
+        // C_recorder::GetScaledTime GAME RVA 0x198da0 (VA 0x598da0).
+        assert_eq!(owner().recorder_get_scaled_time(), 0);
+        assert_eq!(
+            owner().recorder_get_scaled_time(),
+            owner().clocks().1 as i32
+        );
+    }
+
+    #[test]
+    fn rva_19b5f0_anim_names_ctor_seeds_table() {
+        // C_cutscene_anim_names ctor GAME RVA 0x19b5f0 (VA 0x59b5f0).
+        let table = CutsceneAnimNameTable::new();
+        assert_eq!(table.unknown_c, 0x100);
+        assert_eq!(table.num_items, 0);
+        assert!(table.items.is_none());
+        assert_eq!(CutsceneAnimNameTable::default(), table);
+    }
+
+    #[test]
+    fn rva_19bb50_anim_names_clear_keeps_seed() {
+        // C_cutscene_anim_names::Clear GAME RVA 0x19bb50 (VA 0x59bb50).
+        let mut table = CutsceneAnimNameTable::new();
+        table.num_items = 3;
+        table.items = Some(vec![0xau8; 8]);
+        table.clear();
+        assert!(table.items.is_none());
+        assert_eq!(table.num_items, 0);
+        assert_eq!(table.unknown_c, 0x100);
+    }
+
+    #[test]
+    fn rva_19c5f0_reset_speed_keys_clears_index_two_only() {
+        // C_recorder::ResetSpeedKeys GAME RVA 0x19c5f0 (VA 0x59c5f0).
+        let mut keys = RecorderSpeedKeys::staged();
+        keys.speed_keys = [7, 9, 11];
+        keys.reset_speed_keys();
+        assert_eq!(keys.speed_keys, [7, 9, 0]);
+    }
+
+    #[test]
+    fn rva_19c600_set_and_rva_19c610_get_speed_keys_on_round_trip() {
+        // C_recorder::SetSpeedKeysOn GAME RVA 0x19c600 (VA 0x59c600) and
+        // C_recorder::GetSpeedKeysOn GAME RVA 0x19c610 (VA 0x59c610).
+        let mut keys = RecorderSpeedKeys::staged();
+        assert!(!keys.get_speed_keys_on());
+        keys.set_speed_keys_on(true);
+        assert!(keys.get_speed_keys_on());
+        keys.set_speed_keys_on(false);
+        assert!(!keys.get_speed_keys_on());
+    }
+
+    #[test]
+    fn rva_19c620_rec_clear_reports_missing_recording_owner() {
+        // C_recorder::RecClear GAME RVA 0x19c620 (VA 0x59c620): explicit
+        // unsupported boundary, recording owner outside this prefix.
+        assert_eq!(
+            recorder_rec_clear_unavailable(),
+            Err(RecorderPassError::RecordingOwnerUnavailable)
+        );
+    }
+
+    #[test]
+    fn rva_19e100_vfunc_46_returns_five() {
+        // C_recorder::vfunc_46 GAME RVA 0x19e100 (VA 0x59e100).
+        assert_eq!(recorder_vfunc_46(), 5);
+    }
+
+    #[test]
+    fn rva_19e1e0_set_show_start_stores_tick() {
+        // C_recorder::SetShowStart GAME RVA 0x19e1e0 (VA 0x59e1e0).
+        let mut show = CutsceneShowStart::default();
+        assert_eq!(show.staged_ticks(), 0);
+        show.set_show_start(44100);
+        assert_eq!(show.staged_ticks(), 44100);
+        show.set_show_start(-7);
+        assert_eq!(show.staged_ticks(), -7);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1120,5 +1236,192 @@ mod cutscene_close_overlay_reset_tests {
                 fade_color: 0,
             }
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// C_recorder small getters / setters / state flags (Game.exe).
+//
+// RVAs below are Game base-relative (VA = 0x400000 + RVA), verified as
+// `FUNCTION: GAME 0x...` code addresses in mafia-re
+// `game/mission/C_recorder.cpp` / `game/mission/C_recorder.h` at pin `fe7e746`.
+// Every claimed RVA is absent from both `docs/rewrite-overlay.json` and the
+// frozen `docs/progress.json` ledger (`scoped_ports` entry_rva).
+
+/// Key-ease interpolation, GAME RVA 0x198410, VA 0x598410 (mafia-re
+/// `game/mission/C_recorder.cpp:38-57` at pin `fe7e746`, `Ease`). `u` runs
+/// 0..1, eased in over `a` and out over `b`; the ramps scale to sum 1 and the
+/// middle runs at constant speed.
+pub fn recorder_ease(u: f32, mut a: f32, mut b: f32) -> f32 {
+    let s = a + b;
+    if s < 0.001 {
+        return u;
+    }
+    if s > 1.0 {
+        a /= s;
+        b /= s;
+    }
+    let k = 1.0 / (2.0 - a - b);
+    if u < a {
+        return k / a * u * u;
+    }
+    if u < 1.0 - b {
+        return k * (2.0 * u - a);
+    }
+    let v = 1.0 - u;
+    1.0 - k / b * v * v
+}
+
+/// `C_cutscene_anim_names` name/value table (mafia-re
+/// `game/mission/C_recorder.h:21-47` at pin `fe7e746`): one 0x38-byte item
+/// per animation id (index at +0x0, name at +0x4, value at +0x34). The id
+/// lookup bodies (`GetName`/`GetValue`/`SetValue`, GAME 0x59b7c0/0x59b800/
+/// 0x59b840) are `StubLog` stubs in the reference, so only construction and
+/// `Clear` are ported here; pass-through getters/setters stay unclaimed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CutsceneAnimNameTable {
+    /// +0xc, seeded `0x100` by the constructor.
+    pub unknown_c: u32,
+    /// +0x4, item count.
+    pub num_items: u32,
+    /// +0x8, `new[]` item array, `None` for the native `NULL`.
+    pub items: Option<Vec<u8>>,
+}
+
+impl CutsceneAnimNameTable {
+    /// `C_cutscene_anim_names::C_cutscene_anim_names`, GAME RVA 0x19b5f0, VA
+    /// 0x59b5f0 (mafia-re `game/mission/C_recorder.cpp:291-297` at pin
+    /// `fe7e746`): `unknown_c = 0x100`, `num_items = 0`, `items = NULL`.
+    pub fn new() -> Self {
+        Self {
+            unknown_c: 0x100,
+            num_items: 0,
+            items: None,
+        }
+    }
+
+    /// `C_cutscene_anim_names::Clear`, GAME RVA 0x19bb50, VA 0x59bb50
+    /// (mafia-re `game/mission/C_recorder.cpp:349-356` at pin `fe7e746`):
+    /// frees `items`, stores `NULL`/0; `unknown_c` is kept.
+    pub fn clear(&mut self) {
+        self.items = None;
+        self.num_items = 0;
+    }
+}
+
+impl Default for CutsceneAnimNameTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// `C_recorder` speed-key state (mafia-re `game/mission/C_recorder.h:265-295`
+/// at pin `fe7e746`): three key words at +0x68 with the on-flag at +0x129.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecorderSpeedKeys {
+    /// +0x68, the speed keys (0xc bytes); reset clears index 2.
+    pub speed_keys: [i32; 3],
+    /// +0x129, `SetTime` follows the keys while set.
+    pub speed_keys_on: bool,
+}
+
+impl RecorderSpeedKeys {
+    /// Working name (no outline RVA; the native `C_recorder` constructor,
+    /// GAME 0x59cc40, is not written in the reference): zeroed staging state.
+    pub fn staged() -> Self {
+        Self {
+            speed_keys: [0; 3],
+            speed_keys_on: false,
+        }
+    }
+
+    /// `C_recorder::ResetSpeedKeys`, GAME RVA 0x19c5f0, VA 0x59c5f0 (mafia-re
+    /// `game/mission/C_recorder.cpp:457-461` at pin `fe7e746`):
+    /// `speed_keys[2] = 0`.
+    pub fn reset_speed_keys(&mut self) {
+        self.speed_keys[2] = 0;
+    }
+
+    /// `C_recorder::SetSpeedKeysOn`, GAME RVA 0x19c600, VA 0x59c600 (mafia-re
+    /// `game/mission/C_recorder.cpp:463-467` at pin `fe7e746`).
+    pub fn set_speed_keys_on(&mut self, on: bool) {
+        self.speed_keys_on = on;
+    }
+
+    /// `C_recorder::GetSpeedKeysOn`, GAME RVA 0x19c610, VA 0x59c610 (mafia-re
+    /// `game/mission/C_recorder.cpp:469-473` at pin `fe7e746`).
+    pub fn get_speed_keys_on(&self) -> bool {
+        self.speed_keys_on
+    }
+}
+
+/// Explicit unsupported boundary for `C_recorder::RecClear`, GAME RVA
+/// 0x19c620, VA 0x59c620 (mafia-re `game/mission/C_recorder.cpp:475-479` at
+/// pin `fe7e746`): passes through to `C_cutscene_recording::RecClear` (GAME
+/// 0x59d4d0), which is a `StubLog` stub in the reference
+/// (`C_recorder.cpp:653-657`). The recording owner is outside this prefix
+/// contract, so no rows are touched.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecorderPassError {
+    RecordingOwnerUnavailable,
+}
+
+/// `C_recorder::RecClear` boundary: always reports the missing recording
+/// owner; no state is changed.
+pub fn recorder_rec_clear_unavailable() -> Result<(), RecorderPassError> {
+    Err(RecorderPassError::RecordingOwnerUnavailable)
+}
+
+/// `C_recorder::vfunc_46`, GAME RVA 0x19e100, VA 0x59e100 (mafia-re
+/// `game/mission/C_recorder.cpp:689-693` at pin `fe7e746`): constant 5.
+pub fn recorder_vfunc_46() -> i32 {
+    5
+}
+
+/// Staged `cutscene_show_start` global (GAME 0x647a54, mafia-re
+/// `game/mission/C_recorder.cpp:32-34` at pin `fe7e746`): `SetShowStart`
+/// writes it, `OpenShow` clears it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CutsceneShowStart {
+    ticks: i32,
+}
+
+impl CutsceneShowStart {
+    /// `C_recorder::SetShowStart`, GAME RVA 0x19e1e0, VA 0x59e1e0 (mafia-re
+    /// `game/mission/C_recorder.cpp:719-723` at pin `fe7e746`): stores the
+    /// argument into `cutscene_show_start`.
+    pub fn set_show_start(&mut self, value: i32) {
+        self.ticks = value;
+    }
+
+    /// Working name (no outline RVA; no native getter exists): reads the
+    /// staged show-start tick.
+    pub fn staged_ticks(&self) -> i32 {
+        self.ticks
+    }
+}
+
+impl CutsceneOwner {
+    /// `C_recorder::GetState`, GAME RVA 0x198b70, VA 0x598b70 (mafia-re
+    /// `game/mission/C_recorder.cpp:126-130` at pin `fe7e746`): reads the
+    /// cutscene `state` member (`C_recorder.h:279`, +0xe4).
+    pub fn recorder_get_state(&self) -> i32 {
+        self.state
+    }
+
+    /// `C_recorder::GetCurTime`, GAME RVA 0x198d90, VA 0x598d90 (mafia-re
+    /// `game/mission/C_recorder.cpp:138-142` at pin `fe7e746`): reads
+    /// `cur_time` (+0x11c, `C_recorder.h:291`), staged here as the `time`
+    /// clock word.
+    pub fn recorder_get_cur_time(&self) -> i32 {
+        self.time as i32
+    }
+
+    /// `C_recorder::GetScaledTime`, GAME RVA 0x198da0, VA 0x598da0 (mafia-re
+    /// `game/mission/C_recorder.cpp:144-148` at pin `fe7e746`): reads
+    /// `scaled_time` (+0x120, `C_recorder.h:292`), staged here as
+    /// `playback_time`.
+    pub fn recorder_get_scaled_time(&self) -> i32 {
+        self.playback_time as i32
     }
 }

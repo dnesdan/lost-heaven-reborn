@@ -459,7 +459,10 @@ class RewriteProgressTests(unittest.TestCase):
         # +14 indicators/menu contracts (TimerGetTime/IntroSubtitles x2/
         # MissionHelp x3/ConsoleAddText/WideScreen + Destroy/ForceUpdate/
         # SetString/SetPointer/GetRangeFloat/SetRangeDword; marker-only).
-        self.assertEqual(game["ported"], 149 + 932)
+        # +14 mission/recorder contracts (Dtor/Init/Ease/GetState/GetCurTime/
+        # GetScaledTime/AnimNames ctor+Clear/SpeedKeys x3/RecClear/vfunc_46/
+        # SetShowStart; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 946)
         self.assertEqual(game["verified"], 149 + 515)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
