@@ -1858,8 +1858,8 @@ fn unimplemented_mission_flow_refuses_execution_without_advancing() {
         assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
         assert_eq!(memory.events.len(), before);
         let report = p.discard_runtime_host().unwrap();
-        assert_eq!(report.end_of_mission_allocations, u32::from(opcode == 37));
-        assert_eq!(report.change_mission_allocations, u32::from(opcode == 52));
+        assert_eq!(report.end_of_mission_allocations, usize::from(opcode == 37));
+        assert_eq!(report.change_mission_allocations, usize::from(opcode == 52));
     }
 }
 #[test]
