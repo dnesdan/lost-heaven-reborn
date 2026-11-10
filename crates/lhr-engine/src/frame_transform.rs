@@ -1036,6 +1036,81 @@ pub fn frame_hr_bound_w_needs_local_refresh(flags: u32) -> bool {
 pub fn frame_discard_bound_skips_sector(is_sector: bool) -> bool {
     is_sector
 }
+/// Working name for the in-class empty base `I3D_frame::LoadImage`
+/// (mafia-re ls3df/I3D/I3D.h:368 at pin 113b5b6: `LoadImage() {}`).
+/// The reference records no LS3DF FUNCTION address for it: only kinds with
+/// image payloads override it (area, sector, light, sound, portal and the
+/// visuals), and the base body is empty like `Tick` and `SaveImage`.
+/// No state moves.
+pub fn frame_load_image_noop() {}
+/// Working name for the in-class empty base `I3D_frame::UpdateV`
+/// (mafia-re ls3df/I3D/I3D.h:366 at pin 113b5b6: `UpdateV() {}`).
+/// The reference records no LS3DF FUNCTION address for it: the out-of-line
+/// empty bodies are shared with the renderer base
+/// (`CBaseVideoRenderer::OnWaitEnd`, 0x10088540), not LS3DF frame code,
+/// so no RVA is claimed here. No state moves.
+pub fn frame_update_v_noop() {}
+/// Working name for the NUL-terminated name-length read shared by `GetName`,
+/// `GetOrigName` and `GetProperty` (mafia-re ls3df/I3D/I3D.h:583-587,589-593,
+/// 625-630 at pin 113b5b6: `m_pName ? m_pName : ""` and siblings). The
+/// reference records no LS3DF FUNCTION address for a standalone reader (the
+/// only out-of-line copy is Game.exe 0x47ad00 for `GetName`, which is not
+/// claimed here; `GetOrigName` and `GetProperty` have none). Returns the byte
+/// length before the first NUL; a slice without NUL reads whole. Pure helper,
+/// no owner consulted.
+pub fn frame_name_len_until_nul(name: &[u8]) -> usize {
+    name.iter().position(|&b| b == 0).unwrap_or(name.len())
+}
+/// Working name for the allocation-size limb of `I3D_frame::SetProperty`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:834-845 at pin 113b5b6). The
+/// reference records the body at PC RVA 0x1c700, which is already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. A non-empty
+/// property allocates `len + 1` bytes; checked addition reports overflow as
+/// `None` (the native calls the fatal ErrorHandler there, disclosed). Pure
+/// helper, no buffer moves.
+pub fn frame_property_alloc_len(prop_len: usize) -> Option<usize> {
+    prop_len.checked_add(1)
+}
+/// Working name for the supported-flags mask of `I3D_frame::LinkTo`
+/// (mafia-re ls3df/I3D/I3D.h:307-311 at pin 113b5b6: `I3DLINK_UPDMATRIX`,
+/// `I3DLINK_DISCARD_BOUND`, `I3DLINK_UPDATE`). The reference records no LS3DF
+/// FUNCTION address for the mask itself (defines, not functions); the flags
+/// word is consumed by `LinkTo` (PC RVA 0x1b9d0, already occupied, not claimed
+/// here). Reports the union of the three admitted bits. Pure helper.
+pub fn link_supported_flags_mask() -> u32 {
+    0x7
+}
+/// Working name for the content-equal early-out of `I3D_frame::SetName`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:350-377 at pin 113b5b6). The
+/// reference records the body at PC RVA 0x1b6f0, which is already occupied in
+/// `docs/rewrite-overlay.json`, so no RVA is claimed here. Compares C-string
+/// content truncated at the first NUL; `None` equals only `None`. Pure helper,
+/// no allocation or registration moves.
+pub fn frame_set_name_is_content_equal(
+    stored: Option<&[u8]>,
+    incoming: Option<&[u8]>,
+) -> bool {
+    match (stored, incoming) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            let a = &a[..frame_name_len_until_nul(a)];
+            let b = &b[..frame_name_len_until_nul(b)];
+            a == b
+        }
+        _ => false,
+    }
+}
+/// Working name for the index gate of `I3D_frame::GetChild`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:610-620 at pin 113b5b6:
+/// `if (index < m_numChildren)`). The reference records the body at PC RVA
+/// 0x1bfd0, which is already occupied in `docs/rewrite-overlay.json`, so no
+/// RVA is claimed here. Reports whether a signed index selects an existing
+/// child; negative indices never select. The native member is a signed int,
+/// so the comparison stays signed (`u32::MAX` reads back as -1 and admits
+/// nothing). Pure helper, no hierarchy walk.
+pub fn frame_get_child_index_in_range(index: i32, child_count: u32) -> bool {
+    index >= 0 && index < child_count as i32
+}
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
         let id = u32::try_from(self.nodes.len())
@@ -6470,5 +6545,84 @@ mod tests {
         // claimed here.
         assert!(link_to_same_parent_noop(true));
         assert!(!link_to_same_parent_noop(false));
+    }
+
+    #[test]
+    fn base_empty_load_image_does_not_move_state() {
+        // Working name for the in-class empty base LoadImage
+        // (mafia-re ls3df/I3D/I3D.h:368): no LS3DF FUNCTION address exists.
+        frame_load_image_noop();
+    }
+
+    #[test]
+    fn base_empty_update_v_does_not_move_state() {
+        // Working name for the in-class empty base UpdateV
+        // (mafia-re ls3df/I3D/I3D.h:366): the out-of-line empties are shared
+        // with the renderer base, not LS3DF frame code, so no RVA is claimed.
+        frame_update_v_noop();
+    }
+
+    #[test]
+    fn name_length_stops_at_first_nul() {
+        // Working name for the NUL-terminated length behind GetName/GetOrigName/
+        // GetProperty (mafia-re ls3df/I3D/I3D.h:583-593,625-630): no LS3DF
+        // FUNCTION address exists (only Game.exe 0x47ad00 for GetName).
+        assert_eq!(frame_name_len_until_nul(b""), 0);
+        assert_eq!(frame_name_len_until_nul(b"abc"), 3);
+        assert_eq!(frame_name_len_until_nul(b"a\0bc"), 1);
+        assert_eq!(frame_name_len_until_nul(b"\0abc"), 0);
+        assert_eq!(frame_name_len_until_nul(b"ab\0"), 2);
+    }
+
+    #[test]
+    fn property_allocation_adds_nul_or_reports_overflow() {
+        // Working name for the SetProperty len+1 limb (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:834-845): the occupied body at PC
+        // RVA 0x1c700 is not claimed here.
+        assert_eq!(frame_property_alloc_len(0), Some(1));
+        assert_eq!(frame_property_alloc_len(3), Some(4));
+        assert_eq!(frame_property_alloc_len(usize::MAX), None);
+    }
+
+    #[test]
+    fn link_mask_covers_the_three_admitted_bits() {
+        // Working name for the I3DLINK_* mask (mafia-re ls3df/I3D/I3D.h:307-311):
+        // defines, not functions, so no LS3DF FUNCTION address exists.
+        assert_eq!(link_supported_flags_mask(), 0x7);
+        assert_eq!(
+            link_supported_flags_mask(),
+            super::I3DLINK_UPDMATRIX | super::I3DLINK_DISCARD_BOUND | super::I3DLINK_UPDATE
+        );
+    }
+
+    #[test]
+    fn set_name_content_compare_uses_c_string_semantics() {
+        // Working name for the SetName content-equal early-out (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:350-377): the occupied body at PC
+        // RVA 0x1b6f0 is not claimed here.
+        assert!(frame_set_name_is_content_equal(None, None));
+        assert!(frame_set_name_is_content_equal(Some(b"a"), Some(b"a")));
+        assert!(frame_set_name_is_content_equal(
+            Some(b"a\0extra"),
+            Some(b"a")
+        ));
+        assert!(!frame_set_name_is_content_equal(Some(b"a"), Some(b"b")));
+        assert!(!frame_set_name_is_content_equal(None, Some(b"a")));
+        assert!(!frame_set_name_is_content_equal(Some(b"a"), None));
+        assert!(!frame_set_name_is_content_equal(Some(b""), Some(b"a")));
+    }
+
+    #[test]
+    fn get_child_gate_accepts_only_in_range_indices() {
+        // Working name for the GetChild index gate (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:610-620): the occupied body at PC
+        // RVA 0x1bfd0 is not claimed here.
+        assert!(frame_get_child_index_in_range(0, 1));
+        assert!(frame_get_child_index_in_range(2, 3));
+        assert!(!frame_get_child_index_in_range(3, 3));
+        assert!(!frame_get_child_index_in_range(-1, 3));
+        assert!(!frame_get_child_index_in_range(0, 0));
+        assert!(!frame_get_child_index_in_range(i32::MIN, 5));
+        assert!(!frame_get_child_index_in_range(i32::MAX, u32::MAX));
     }
 }

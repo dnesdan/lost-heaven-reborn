@@ -129,6 +129,38 @@ pub fn scene_callback_wants_post_scene(cb_flags: u32) -> bool {
 pub fn scene_callback_wants_post_render(cb_flags: u32) -> bool {
     cb_flags & 0x4 != 0
 }
+/// Working name for the `SCN_CALLBACK_PRE_RENDER` enum value (mafia-re
+/// ls3df/I3D/I3D.h:1317-1318 at pin 113b5b6: the scene began, before anything
+/// is drawn). The reference records no LS3DF FUNCTION address for enum values
+/// (not functions); the value is consumed through `cb_flags` bit n for
+/// message n by `SetCallback` (PC RVA 0x49120, already occupied, not claimed
+/// here). Reports 0. Pure helper.
+pub fn scene_callback_message_pre_render_value() -> u32 {
+    0
+}
+/// Working name for the `SCN_CALLBACK_POST_SCENE` enum value (mafia-re
+/// ls3df/I3D/I3D.h:1319 at pin 113b5b6: the scene is drawn, before the near
+/// sector and the lens flares). Same enum-only status as
+/// `scene_callback_message_pre_render_value`: no LS3DF FUNCTION entry exists,
+/// so no RVA is claimed here. Reports 1. Pure helper.
+pub fn scene_callback_message_post_scene_value() -> u32 {
+    1
+}
+/// Working name for the `SCN_CALLBACK_POST_RENDER` enum value (mafia-re
+/// ls3df/I3D/I3D.h:1320 at pin 113b5b6). Same enum-only status as
+/// `scene_callback_message_pre_render_value`: no LS3DF FUNCTION entry exists,
+/// so no RVA is claimed here. Reports 2. Pure helper.
+pub fn scene_callback_message_post_render_value() -> u32 {
+    2
+}
+/// Working name for the retained-sector mask (`PRIMARY | BACKDROP | OMNI |
+/// NEAR`, mafia-re ls3df/I3D/I3D.h:913,916-918 at pin 113b5b6; the four sectors
+/// assigned by the scene constructor, `I3d_scene.cpp:118-140`). The reference
+/// records no LS3DF FUNCTION address for the mask itself; only the constructor
+/// stores the bits. Reports 0x7200. Pure helper.
+pub fn scene_retained_sector_mask() -> u32 {
+    0x200 | 0x1000 | 0x2000 | 0x4000
+}
 
 #[derive(Debug)]
 pub struct SceneFrameOwner {
@@ -1608,6 +1640,39 @@ impl ModelArena {
     /// No LS3DF FUNCTION address exists for a growth getter.
     pub fn scene_tick_growth(&self, scene: SceneKey) -> Result<usize, ModelError> {
         Ok(self.scene(scene)?.tick_growth)
+    }
+    /// Working name for the Close effect-cursor read (host cursor tracking the
+    /// ordered `Close` BeforeFrames/AfterFrames progress, PC RVAs 0x48ed0 and
+    /// 0x4a390 already occupied, `I3d_scene.cpp` close paths). The reference
+    /// records no LS3DF FUNCTION address for a standalone cursor getter; only
+    /// the `Close` bodies move it. Reports the live cursor; no state moves.
+    pub fn scene_effect_cursor_of(&self, scene: SceneKey) -> Result<usize, ModelError> {
+        Ok(self.scene(scene)?.effect_cursor)
+    }
+    /// Working name for the allocation-incomplete flag read (native
+    /// capacity-growth guard set around `AddFrame`/`AddTickFrame` capacity
+    /// bumps, PC RVA 0x49290/0x49f90/0x4a300 paths, already occupied). The
+    /// reference records no LS3DF FUNCTION address for a standalone flag
+    /// getter. Reports the live host guard; no state moves.
+    pub fn scene_allocation_incomplete_of(
+        &self,
+        scene: SceneKey,
+    ) -> Result<bool, ModelError> {
+        Ok(self.scene(scene)?.allocation_incomplete)
+    }
+    /// Working name for the tick-list membership probe behind the
+    /// `AddTickFrame` duplicate gate (mafia-re
+    /// ls3df/I3D/I3d_scene.cpp:619-636, PC RVA 0x49f90 already occupied). The
+    /// reference records no LS3DF FUNCTION address for a standalone
+    /// membership getter; only `AddTickFrame`/`DeleteTickFrame` have code
+    /// addresses. Reports whether the frame is already tracked; live read, no
+    /// state moves.
+    pub fn scene_tick_contains(
+        &self,
+        scene: SceneKey,
+        frame: FrameKey,
+    ) -> Result<bool, ModelError> {
+        Ok(self.scene(scene)?.tick_frames.contains(&frame))
     }
     /// Working name for the `num_sectors` ring count at scene +0x260
     /// (mafia-re `ls3df/I3D/I3D.h:1575-1577`). No LS3DF FUNCTION address
@@ -3614,5 +3679,107 @@ mod scene_group_bits_and_trivial_rva_tests {
                 .unwrap(),
             0x8000_000e
         );
+    }
+}
+
+#[cfg(test)]
+mod scene_frame_getter_working_name_tests {
+    use super::*;
+    use crate::frame_transform::{FrameKind, I3dFrameState};
+
+    #[test]
+    fn callback_message_values_follow_enum_order() {
+        // Working names for SCN_CALLBACK_* enum values (mafia-re ls3df/I3D/I3D.h:1317-1320):
+        // enums, not functions, so no LS3DF FUNCTION addresses exist.
+        assert_eq!(scene_callback_message_pre_render_value(), 0);
+        assert_eq!(scene_callback_message_post_scene_value(), 1);
+        assert_eq!(scene_callback_message_post_render_value(), 2);
+    }
+
+    #[test]
+    fn retained_sector_mask_covers_the_four_ctor_sectors() {
+        // Working name for the PRIMARY|BACKDROP|OMNI|NEAR mask (mafia-re
+        // ls3df/I3D/I3D.h:913,916-918): no LS3DF FUNCTION address exists for
+        // the mask itself; only the constructor stores the bits.
+        assert_eq!(scene_retained_sector_mask(), 0x7200);
+        assert_eq!(
+            scene_retained_sector_mask(),
+            0x200 | 0x1000 | 0x2000 | 0x4000
+        );
+    }
+
+    #[test]
+    fn effect_cursor_starts_at_zero_and_rejects_unknown_scene() {
+        // Working name for the Close effect-cursor read (host cursor over the
+        // occupied Close bodies at PC RVAs 0x48ed0/0x4a390): no standalone
+        // LS3DF FUNCTION entry exists.
+        let arena = ModelArena::default();
+        // No scenes yet: unknown handle fails before any word read.
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_effect_cursor_of(bad).is_err());
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_effect_cursor_of(scene).unwrap(), 0);
+    }
+
+    #[test]
+    fn allocation_guard_starts_clear_and_rejects_unknown_scene() {
+        // Working name for the allocation-incomplete flag (native capacity-growth
+        // guard on the occupied AddFrame/AddTickFrame paths): no standalone
+        // LS3DF FUNCTION entry exists.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        assert_eq!(arena.scene_allocation_incomplete_of(scene).unwrap(), false);
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_allocation_incomplete_of(bad).is_err());
+    }
+
+    #[test]
+    fn tick_membership_tracks_add_and_rejects_unknown_scene() {
+        // Working name for the tick-list membership probe behind the occupied
+        // AddTickFrame duplicate gate (PC RVA 0x49f90): no standalone LS3DF
+        // FUNCTION entry exists.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let frame = arena
+            .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        assert_eq!(arena.scene_tick_contains(scene, frame).unwrap(), false);
+        arena.scene_add_tick_frame(scene, frame).unwrap();
+        assert_eq!(arena.scene_tick_contains(scene, frame).unwrap(), true);
+        // Duplicate add keeps membership without duplicating the list.
+        arena.scene_add_tick_frame(scene, frame).unwrap();
+        assert_eq!(arena.scene(scene).unwrap().tick_frames.len(), 1);
+        let bad = SceneKey(FrameKey(u32::MAX));
+        assert!(arena.scene_tick_contains(bad, frame).is_err());
+    }
+
+    #[test]
+    fn callback_message_gates_match_stage_bits() {
+        // Cross-checks the new enum values against the pre-existing stage-bit
+        // gates in this module (no new device or owner consulted).
+        assert!(scene_callback_wants_pre_render(1 << scene_callback_message_pre_render_value()));
+        assert!(scene_callback_wants_post_scene(1 << scene_callback_message_post_scene_value()));
+        assert!(scene_callback_wants_post_render(1 << scene_callback_message_post_render_value()));
+        assert!(!scene_callback_wants_pre_render(0));
+    }
+
+    #[test]
+    fn retained_mask_matches_ctor_sector_flags() {
+        // The four ctor sectors carry exactly the retained bits (mafia-re
+        // ls3df/I3D/I3d_scene.cpp:118-140); the mask is the union.
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sectors = arena.scene(scene).unwrap().sectors;
+        let mut union = 0u32;
+        for sector in sectors {
+            union |= arena.sector(sector).unwrap().sector_flags;
+        }
+        assert_eq!(union & scene_retained_sector_mask(), scene_retained_sector_mask());
+        // FrameKind check keeps this scene-typed: a dummy frame is not a sector.
+        let dummy = arena
+            .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        assert_eq!(arena.state(dummy).unwrap().kind, FrameKind::Dummy);
     }
 }
