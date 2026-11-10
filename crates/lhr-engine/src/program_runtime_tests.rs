@@ -2772,9 +2772,28 @@ fn let_guard_failure_and_bad_register_leave_bank_untouched() {
         &mut memory,
     );
     p.init_fresh_runtime(&mut memory).unwrap();
-    assert!(p
-        .call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
-        .is_err());
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 4);
+    assert_eq!(
+        p.runtime().unwrap().fields.floats.as_ref().unwrap().as_ref(),
+        &[0.0f32, 0.0f32]
+    );
+}
+
+#[test]
+fn if_out_of_range_register_skips_without_reading_it() {
+    let mut memory = Memory::default();
+    let mut p = program(
+        b"commandblock 1\ndim_flt 2\nif flt[9] = 0, yes, no\nlet flt[0] = 17\ncommandblock 0",
+        &mut memory,
+    );
+    let progress = p.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (5, 0));
+    p.call_owned_process(1, &mut DispatchBudget::new(10).unwrap(), &mut memory)
+        .unwrap();
+    assert_eq!(p.runtime().unwrap().fields.program_counter(), 5);
+    assert_eq!(p.runtime().unwrap().fields.floats.as_ref().unwrap()[0], 17.0);
 }
 
 #[test]
