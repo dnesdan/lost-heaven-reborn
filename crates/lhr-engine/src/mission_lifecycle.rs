@@ -1118,6 +1118,14 @@ impl TshiftStore {
     pub fn add(&mut self, elem: TshiftElem) {
         self.elems.push(elem);
     }
+
+    /// Working name (no outline entry is claimed): `C_mission::Close`
+    /// 0x5405e0 clears the shift list (`tshift->elems.clear()`, mafia-re
+    /// `game/mission/Mission.cpp:521` at pin 113b5b6). The clear is inlined
+    /// with no dedicated outline, so no RVA is claimed here.
+    pub fn clear(&mut self) {
+        self.elems.clear();
+    }
 }
 
 /// Host sink for the flag-gated mesh offset writes of
@@ -2354,5 +2362,20 @@ mod tests {
         mission.put_word(0x04, 0x3333_4444);
         assert_eq!(mission.unknown_0(), 0x1111_2222);
         assert_eq!(mission.unknown_4(), 0x3333_4444);
+    }
+
+    #[test]
+    fn tshift_store_clear_working_name_empties_elements() {
+        // Working name: C_mission::Close 0x5405e0 clears tshift->elems
+        // (Mission.cpp:521); inlined, no outline RVA is claimed.
+        let mut store = TshiftStore::default();
+        assert!(store.elems.is_empty());
+        store.add(TshiftElem::init(1, 2, 0.5, 0.25, TSHIFT_TEXTURE));
+        store.add(TshiftElem::init(3, 4, 0.25, 0.5, TSHIFT_ENVIRONMENT));
+        assert_eq!(store.elems.len(), 2);
+        store.clear();
+        assert!(store.elems.is_empty());
+        store.clear();
+        assert!(store.elems.is_empty());
     }
 }
