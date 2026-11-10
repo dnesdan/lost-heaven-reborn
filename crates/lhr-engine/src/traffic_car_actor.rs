@@ -136,6 +136,76 @@ impl TrafficCarState {
         self.word(0x230)
     }
 
+    /// Working-name presence query over the counted name records.
+    /// No RVA claimed: the original tests `num_names` directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:74-76, C_trf_c.cpp:85-86).
+    pub fn has_names(&self) -> bool {
+        !self.elements.is_empty()
+    }
+
+    /// Working-name total size of the counted name payload in bytes.
+    /// No RVA claimed: the original sizes `TRAFFIC_NAME_SIZE * num_names`
+    /// inline with no standalone C_traffic_car::Get* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:87).
+    pub fn names_byte_len(&self) -> usize {
+        self.elements.len()
+    }
+
+    /// Working-name indexed read of one copied 0x20-byte name record.
+    /// No RVA claimed: the original indexes the name array per record with
+    /// no standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.cpp:88-89).
+    pub fn name_record_at(&self, index: usize) -> Option<[u8; TRAFFIC_NAME_SIZE]> {
+        let start = index.checked_mul(TRAFFIC_NAME_SIZE)?;
+        let bytes = self.elements.get(start..start.checked_add(TRAFFIC_NAME_SIZE)?)?;
+        let mut record = [0u8; TRAFFIC_NAME_SIZE];
+        record.copy_from_slice(bytes);
+        Some(record)
+    }
+
+    /// Working-name setter for the DuplicateFrom word at +0x21c.
+    /// No RVA claimed: the original writes the word directly in
+    /// DuplicateFrom with no standalone C_traffic_car::Set* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:78, C_trf_c.h:68).
+    pub fn set_field_21c_word(&mut self, value: u32) {
+        self.put_word(0x21c, value);
+    }
+
+    /// Working-name setter for the speed word at +0x224.
+    /// No RVA claimed: the original writes the word directly in
+    /// DuplicateFrom with no standalone C_traffic_car::Set* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:79, C_trf_c.h:70).
+    pub fn set_speed_word(&mut self, value: u32) {
+        self.put_word(0x224, value);
+    }
+
+    /// Working-name setter for the tuning word at +0x228.
+    /// No RVA claimed: the original writes the word directly in
+    /// DuplicateFrom with no standalone C_traffic_car::Set* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:81, C_trf_c.h:71).
+    pub fn set_tuning_228_word(&mut self, value: u32) {
+        self.put_word(0x228, value);
+    }
+
+    /// Working-name setter for the tuning word at +0x22c.
+    /// No RVA claimed: the original writes the word directly in
+    /// DuplicateFrom with no standalone C_traffic_car::Set* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:82, C_trf_c.h:72).
+    pub fn set_tuning_22c_word(&mut self, value: u32) {
+        self.put_word(0x22c, value);
+    }
+
+    /// Working-name setter for the name-count word at +0x238.
+    /// No RVA claimed: the original copies `num_names` directly in
+    /// DuplicateFrom with no standalone C_traffic_car::Set* FUNCTION copy
+    /// (mafia-re 113b5b6 game/vehicles/C_trf_c.cpp:85, C_trf_c.h:76).
+    /// This writes the word only; the element bytes stay owned separately
+    /// and are replaced through `replace_elements`.
+    pub fn set_count_word(&mut self, value: u32) {
+        self.put_word(0x238, value);
+    }
+
     pub(crate) fn replace_elements(&mut self, elements: Vec<u8>) {
         self.elements = elements;
     }
@@ -494,6 +564,62 @@ impl TrafficCarLists {
     /// game/vehicles/C_trf_c.h:80-87).
     pub fn elem_car_at(&self, index: usize) -> Option<&TrafficListSlot> {
         self.elems.get(index)
+    }
+
+    /// Working-name push onto the parked-car list.
+    /// No RVA claimed: the original grows `v_elems_parking` with
+    /// `std::vector::push_back` directly and offers no standalone
+    /// C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64,79).
+    pub fn push_parking_slot(&mut self, slot: TrafficListSlot) {
+        self.parking.push(slot);
+    }
+
+    /// Working-name push onto the traffic-car list.
+    /// No RVA claimed: the original grows `v_elems` with
+    /// `std::vector::push_back` directly and offers no standalone
+    /// C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:80-87).
+    pub fn push_elem_slot(&mut self, slot: TrafficListSlot) {
+        self.elems.push(slot);
+    }
+
+    /// Working-name pop from the parked-car list.
+    /// No RVA claimed: the original shrinks the vector directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64).
+    pub fn pop_parking_slot(&mut self) -> Option<TrafficListSlot> {
+        self.parking.pop()
+    }
+
+    /// Working-name pop from the traffic-car list.
+    /// No RVA claimed: the original shrinks the vector directly with no
+    /// standalone C_traffic_car::Get* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:80-87).
+    pub fn pop_elem_slot(&mut self) -> Option<TrafficListSlot> {
+        self.elems.pop()
+    }
+
+    /// Working-name order-swapping removal from the parked-car list.
+    /// No RVA claimed: the original erases list entries directly with no
+    /// standalone C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:64).
+    pub fn swap_remove_parking(&mut self, index: usize) -> Option<TrafficListSlot> {
+        if index >= self.parking.len() {
+            return None;
+        }
+        Some(self.parking.swap_remove(index))
+    }
+
+    /// Working-name order-swapping removal from the traffic-car list.
+    /// No RVA claimed: the original erases list entries directly with no
+    /// standalone C_traffic_car::Set* FUNCTION copy (mafia-re 113b5b6
+    /// game/vehicles/C_trf_c.h:80-87).
+    pub fn swap_remove_elem(&mut self, index: usize) -> Option<TrafficListSlot> {
+        if index >= self.elems.len() {
+            return None;
+        }
+        Some(self.elems.swap_remove(index))
     }
 }
 
@@ -1096,6 +1222,168 @@ mod tests {
             Some(&TrafficListSlot { frame: 7, car: 8 })
         );
         assert_eq!(lists.elem_car_at(1), None);
+    }
+
+    #[test]
+    fn state_has_names_tracks_element_bytes() {
+        // Working-name presence query: no RVA claimed (direct num_names test).
+        let mut state = constructed();
+        assert!(!state.has_names());
+        state.replace_elements(vec![0u8; TRAFFIC_NAME_SIZE]);
+        assert!(state.has_names());
+        state.replace_elements(Vec::new());
+        assert!(!state.has_names());
+    }
+
+    #[test]
+    fn state_names_byte_len_counts_payload() {
+        // Working-name size query: no RVA claimed (inline SIZE * count).
+        let mut state = constructed();
+        assert_eq!(state.names_byte_len(), 0);
+        state.replace_elements(vec![0xabu8; TRAFFIC_NAME_SIZE * 3]);
+        assert_eq!(state.names_byte_len(), TRAFFIC_NAME_SIZE * 3);
+    }
+
+    #[test]
+    fn state_name_record_at_indexes_copied_records() {
+        // Working-name indexed read: no RVA claimed (per-record indexing).
+        let mut state = constructed();
+        assert_eq!(state.name_record_at(0), None);
+        let mut first = [0u8; TRAFFIC_NAME_SIZE];
+        first[..4].copy_from_slice(b"taxi");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&first);
+        bytes.extend_from_slice(&[0x5au8; TRAFFIC_NAME_SIZE]);
+        state.replace_elements(bytes);
+        assert_eq!(state.name_record_at(0), Some(first));
+        assert_eq!(state.name_record_at(1), Some([0x5au8; TRAFFIC_NAME_SIZE]));
+        assert_eq!(state.name_record_at(2), None);
+    }
+
+    #[test]
+    fn state_set_field_21c_word_round_trips() {
+        // Working-name setter: no RVA claimed (direct DuplicateFrom write).
+        let mut state = constructed();
+        state.set_field_21c_word(0x11223344);
+        assert_eq!(state.field_21c_word(), 0x11223344);
+        state.set_field_21c_word(0);
+        assert_eq!(state.field_21c_word(), 0);
+    }
+
+    #[test]
+    fn state_set_speed_word_round_trips() {
+        // Working-name setter: no RVA claimed (direct DuplicateFrom write).
+        let mut state = constructed();
+        assert_eq!(state.speed_word(), 0x43340000);
+        state.set_speed_word(0x01020304);
+        assert_eq!(state.speed_word(), 0x01020304);
+    }
+
+    #[test]
+    fn state_set_tuning_228_word_round_trips() {
+        // Working-name setter: no RVA claimed (direct DuplicateFrom write).
+        let mut state = constructed();
+        state.set_tuning_228_word(0x0a0b0c0d);
+        assert_eq!(state.tuning_228_word(), 0x0a0b0c0d);
+    }
+
+    #[test]
+    fn state_set_tuning_22c_word_round_trips() {
+        // Working-name setter: no RVA claimed (direct DuplicateFrom write).
+        let mut state = constructed();
+        state.set_tuning_22c_word(0x0e0f1011);
+        assert_eq!(state.tuning_22c_word(), 0x0e0f1011);
+    }
+
+    #[test]
+    fn state_set_count_word_writes_word_only() {
+        // Working-name setter: no RVA claimed (direct num_names write).
+        let mut state = constructed();
+        assert_eq!(state.count_word(), 0);
+        assert_eq!(state.element_count(), 0);
+        state.set_count_word(2);
+        assert_eq!(state.count_word(), 2);
+        // The word and the owned element bytes stay independent owners.
+        assert_eq!(state.element_count(), 0);
+        state.replace_elements(vec![0u8; TRAFFIC_NAME_SIZE * 2]);
+        assert_eq!(state.element_count(), 2);
+        assert_eq!(state.count_word(), 2);
+    }
+
+    #[test]
+    fn lists_push_parking_slot_appends() {
+        // Working-name push: no RVA claimed (direct vector push_back).
+        let mut lists = TrafficCarLists::default();
+        lists.push_parking_slot(TrafficListSlot { frame: 1, car: 2 });
+        lists.push_parking_slot(TrafficListSlot { frame: 3, car: 4 });
+        assert_eq!(lists.parking_len(), 2);
+        assert_eq!(lists.parking_car_at(0), Some(&TrafficListSlot { frame: 1, car: 2 }));
+        assert_eq!(get_parking_cars(&lists).len(), 2);
+    }
+
+    #[test]
+    fn lists_push_elem_slot_appends() {
+        // Working-name push: no RVA claimed (direct vector push_back).
+        let mut lists = TrafficCarLists::default();
+        lists.push_elem_slot(TrafficListSlot { frame: 7, car: 8 });
+        assert_eq!(lists.elems_len(), 1);
+        assert_eq!(lists.elem_car_at(0), Some(&TrafficListSlot { frame: 7, car: 8 }));
+        assert_eq!(get_elems(&lists), &[TrafficListSlot { frame: 7, car: 8 }]);
+    }
+
+    #[test]
+    fn lists_pop_parking_slot_returns_last() {
+        // Working-name pop: no RVA claimed (direct vector shrink).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.pop_parking_slot(), None);
+        lists.push_parking_slot(TrafficListSlot { frame: 1, car: 1 });
+        lists.push_parking_slot(TrafficListSlot { frame: 2, car: 2 });
+        assert_eq!(lists.pop_parking_slot(), Some(TrafficListSlot { frame: 2, car: 2 }));
+        assert_eq!(lists.parking_len(), 1);
+        assert_eq!(lists.pop_parking_slot(), Some(TrafficListSlot { frame: 1, car: 1 }));
+        assert!(lists.is_parking_empty());
+    }
+
+    #[test]
+    fn lists_pop_elem_slot_returns_last() {
+        // Working-name pop: no RVA claimed (direct vector shrink).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.pop_elem_slot(), None);
+        lists.push_elem_slot(TrafficListSlot { frame: 5, car: 6 });
+        assert_eq!(lists.pop_elem_slot(), Some(TrafficListSlot { frame: 5, car: 6 }));
+        assert!(lists.is_elems_empty());
+    }
+
+    #[test]
+    fn lists_swap_remove_parking_compacts() {
+        // Working-name removal: no RVA claimed (direct vector erase).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.swap_remove_parking(0), None);
+        lists.push_parking_slot(TrafficListSlot { frame: 1, car: 1 });
+        lists.push_parking_slot(TrafficListSlot { frame: 2, car: 2 });
+        lists.push_parking_slot(TrafficListSlot { frame: 3, car: 3 });
+        assert_eq!(
+            lists.swap_remove_parking(0),
+            Some(TrafficListSlot { frame: 1, car: 1 })
+        );
+        assert_eq!(lists.parking_len(), 2);
+        assert_eq!(lists.swap_remove_parking(5), None);
+        assert_eq!(lists.parking_len(), 2);
+    }
+
+    #[test]
+    fn lists_swap_remove_elem_compacts() {
+        // Working-name removal: no RVA claimed (direct vector erase).
+        let mut lists = TrafficCarLists::default();
+        assert_eq!(lists.swap_remove_elem(0), None);
+        lists.push_elem_slot(TrafficListSlot { frame: 7, car: 7 });
+        lists.push_elem_slot(TrafficListSlot { frame: 8, car: 8 });
+        assert_eq!(
+            lists.swap_remove_elem(1),
+            Some(TrafficListSlot { frame: 8, car: 8 })
+        );
+        assert_eq!(lists.elems_len(), 1);
+        assert_eq!(lists.elem_car_at(0), Some(&TrafficListSlot { frame: 7, car: 7 }));
     }
 }
 
