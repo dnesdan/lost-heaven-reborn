@@ -17248,6 +17248,123 @@
       "symbol": "lhr_engine::turnout_actor::turnout_save_game_save",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ba20",
+      "va": "0x47ba20",
+      "name": "ai_logs::Clear",
+      "symbol": "lhr_engine::ai_driver_tick::AiLogsState::clear",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ba50",
+      "va": "0x47ba50",
+      "name": "C_entity::GetVisLogs",
+      "symbol": "lhr_engine::ai_driver_tick::EntityAiState::get_vis_logs",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ba60",
+      "va": "0x47ba60",
+      "name": "C_entity::GetSensors",
+      "symbol": "lhr_engine::ai_driver_tick::EntityAiState::get_sensors",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ba70",
+      "va": "0x47ba70",
+      "name": "C_entity::GetLogs",
+      "symbol": "lhr_engine::ai_driver_tick::EntityAiState::get_logs",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7ba80",
+      "va": "0x47ba80",
+      "name": "C_entity::GetAIState",
+      "symbol": "lhr_engine::ai_driver_tick::EntityAiState::get_ai_state",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7bac0",
+      "va": "0x47bac0",
+      "name": "C_entity::ReturnFromPanic",
+      "symbol": "lhr_engine::ai_driver_tick::EntityAiState::return_from_panic",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7baf0",
+      "va": "0x47baf0",
+      "name": "C_entity::SetNoStateSwitch",
+      "symbol": "lhr_engine::ai_driver_tick::EntityAiState::set_no_state_switch",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7bb20",
+      "va": "0x47bb20",
+      "name": "C_entity::DelUsingObject",
+      "symbol": "lhr_engine::ai_driver_tick::del_using_object_entity",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x7b870",
+      "va": "0x47b870",
+      "name": "ai_groups::AddFreeActor",
+      "symbol": "lhr_engine::ai_driver_tick::AiFreeActorStore::add_free_actor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x127600",
+      "va": "0x527600",
+      "name": "ai_action_manager::GetBaseJob",
+      "symbol": "lhr_engine::ai_driver_tick::AiActionManager::get_base_job",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x130a70",
+      "va": "0x530a70",
+      "name": "ai_group::GetCarFactor",
+      "symbol": "lhr_engine::ai_driver_tick::AiGroupCars::get_car_factor",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4ccf0",
+      "va": "0x44ccf0",
+      "name": "C_don_ocas::Hit",
+      "symbol": "lhr_engine::traffic_generator::don_ocas_hit",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4d1c0",
+      "va": "0x44d1c0",
+      "name": "C_don_ocas::GetBoundPoints2D",
+      "symbol": "lhr_engine::traffic_generator::don_ocas_get_bound_points_2d",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
     }
   ],
   "vm": {

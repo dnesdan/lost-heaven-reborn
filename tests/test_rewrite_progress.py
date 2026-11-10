@@ -469,7 +469,10 @@ class RewriteProgressTests(unittest.TestCase):
         # GetMaterialID/Start x2/ShowDamage/ChangeState + Add/RemoveOuter/
         # InnerEntries/ChangeState + dtor/SaveGameSave; 0xbc490 RVA fixed;
         # 0xaaa00 already credited, held; all held as contract).
-        self.assertEqual(game["ported"], 149 + 975)
+        # +13 ai/don_ocas contracts (ai_logs Clear/EntityAi getters x6/
+        # DelUsingObject/AddFreeActor/GetBaseJob/GetCarFactor + Hit/
+        # GetBoundPoints2D; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 988)
         self.assertEqual(game["verified"], 149 + 515)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

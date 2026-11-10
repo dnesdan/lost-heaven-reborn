@@ -279,6 +279,425 @@ impl AiGhostStore {
     }
 }
 
+// ---------------------------------------------------------------------------
+// C_entity small accessors plus ai_groups/ai_action small state owners.
+// The header-inline accessors below survive as out-of-line copies in the
+// 0x460a50 block (docs/game-files.md); each entry cites its header
+// definition. All arithmetic is integer; flags are plain `u32` bit ops.
+// ---------------------------------------------------------------------------
+
+/// Added-state base stripped at most once by `C_entity::GetAIState` (mafia-re
+/// game/ai/jp_ai_entity.h:131-134 at pin fe7e746).
+pub const ENTITY_STATE_10000: u32 = 10000;
+/// Locked-substate marker stripped in a loop by `C_entity::GetAIState`
+/// (mafia-re game/ai/jp_ai_entity.h:131-134 at pin fe7e746).
+pub const ENTITY_STATE_666: u32 = 666;
+/// `C_entity::ai_flags` no-return-from-panic bit (mafia-re
+/// game/ai/jp_ai_entity.h:121-129 at pin fe7e746).
+pub const ENTITYF_NORETURNFROMPANIC: u32 = 0x1;
+/// `C_entity::ai_flags` no-state-switch bit (mafia-re
+/// game/ai/jp_ai_entity.h:121-129 at pin fe7e746).
+pub const ENTITYF_NOSTATESWITCH: u32 = 0x2;
+/// GAME 0x47ba20 (RVA 0x7ba20) `ai_logs::Clear` (mafia-re
+/// game/ai/jp_ai_entity.h:112-118 at pin fe7e746).
+pub const AI_LOGS_CLEAR_RVA: u32 = 0x7ba20;
+/// GAME 0x47ba50 (RVA 0x7ba50) `C_entity::GetVisLogs` (mafia-re
+/// game/ai/jp_ai_entity.h:216-220 at pin fe7e746).
+pub const ENTITY_GET_VIS_LOGS_RVA: u32 = 0x7ba50;
+/// GAME 0x47ba60 (RVA 0x7ba60) `C_entity::GetSensors` (mafia-re
+/// game/ai/jp_ai_entity.h:221-225 at pin fe7e746).
+pub const ENTITY_GET_SENSORS_RVA: u32 = 0x7ba60;
+/// GAME 0x47ba70 (RVA 0x7ba70) `C_entity::GetLogs` (mafia-re
+/// game/ai/jp_ai_entity.h:226-230 at pin fe7e746).
+pub const ENTITY_GET_LOGS_RVA: u32 = 0x7ba70;
+/// GAME 0x47ba80 (RVA 0x7ba80) `C_entity::GetAIState` (mafia-re
+/// game/ai/jp_ai_entity.h:231-242 at pin fe7e746).
+pub const ENTITY_GET_AI_STATE_RVA: u32 = 0x7ba80;
+/// GAME 0x47bac0 (RVA 0x7bac0) `C_entity::ReturnFromPanic` (mafia-re
+/// game/ai/jp_ai_entity.h:243-251 at pin fe7e746).
+pub const ENTITY_RETURN_FROM_PANIC_RVA: u32 = 0x7bac0;
+/// GAME 0x47baf0 (RVA 0x7baf0) `C_entity::SetNoStateSwitch` (mafia-re
+/// game/ai/jp_ai_entity.h:252-259 at pin fe7e746).
+pub const ENTITY_SET_NO_STATE_SWITCH_RVA: u32 = 0x7baf0;
+/// `C_entity::DelUsingObject` entry, GAME RVA 0x7bb20 (VA 0x47bb20; mafia-re
+/// game/ai/jp_ai_entity.h:260-265 at pin fe7e746; `FUNCTION: GAME` code in
+/// Game.exe, not a data offset and not another binary).
+pub const ENTITY_DEL_USING_OBJECT_ENTRY: u32 = 0x47bb20;
+/// GAME 0x47b870 (RVA 0x7b870) `ai_groups::AddFreeActor` (mafia-re
+/// game/ai/jp_ai_groups.h:90-96 at pin fe7e746).
+pub const AI_GROUPS_ADD_FREE_ACTOR_RVA: u32 = 0x7b870;
+/// `ai_action_manager::GetBaseJob` entry, GAME RVA 0x127600 (VA 0x527600;
+/// mafia-re game/ai/jp_ai_entity.cpp:48-53 at pin fe7e746; `STUB: GAME` code
+/// in Game.exe, not a data offset and not another binary).
+pub const AI_ACTION_GET_BASE_JOB_ENTRY: u32 = 0x527600;
+/// `ai_group::GetCarFactor` entry, GAME RVA 0x130a70 (VA 0x530a70; mafia-re
+/// game/ai/jp_ai_groups.cpp:844-849 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary).
+pub const AI_GROUP_GET_CAR_FACTOR_ENTRY: u32 = 0x530a70;
+
+/// Reached-effect boundary for entity/group calls whose owners stay outside
+/// this contract. Each `Err` names the original Game.exe entry it stands in
+/// for; no destructive effect is replayed automatically.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AiEntityError {
+    Unsupported { entry: u32 },
+}
+
+/// One remembered character of `ai_logs` (mafia-re
+/// game/ai/jp_ai_entity.h:87-98 at pin fe7e746): only the two game-time words
+/// the fights' `Tick` reads are carried (seen 0x24, shot 0x34); the remaining
+/// bytes stay out of this contract. Working names, offsets evidenced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AiCharacterLog {
+    pub seen_time: u32,
+    pub shot_time: u32,
+}
+
+impl AiCharacterLog {
+    /// Stage one remembered-character entry without running any AI behavior.
+    /// Working-name constructor, NOT original.
+    pub const fn from_parts(seen_time: u32, shot_time: u32) -> Self {
+        Self {
+            seen_time,
+            shot_time,
+        }
+    }
+}
+
+/// Typed owner of the `ai_logs::logs` vector (mafia-re
+/// game/ai/jp_ai_entity.h:100-119 at pin fe7e746). Staging only: the log
+/// refresh itself stays deferred.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AiLogsState {
+    entries: Vec<AiCharacterLog>,
+}
+
+impl AiLogsState {
+    /// Stage an empty log vector (constructor state).
+    pub fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    /// Stage entries without running any AI behavior. Working-name staging
+    /// constructor, NOT original.
+    pub fn from_parts(entries: Vec<AiCharacterLog>) -> Self {
+        Self { entries }
+    }
+
+    /// Staged log entries in push order.
+    pub fn entries(&self) -> &[AiCharacterLog] {
+        &self.entries
+    }
+
+    /// Number of staged log entries.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether no log entry is staged.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// GAME RVA 0x7ba20 (VA 0x47ba20) `ai_logs::Clear` (mafia-re
+    /// game/ai/jp_ai_entity.h:112-118 at pin fe7e746; `FUNCTION: GAME` code in
+    /// Game.exe, not a data offset and not another binary; the out-of-line
+    /// copy lives in the 0x460a50 block): drops the staged log entries.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
+
+/// Marker for `ai_vis_logs` (mafia-re game/ai/jp_ai_entity.h:62-72 at pin
+/// fe7e746): `Init` clears its eight entries and keeps its owner, but the
+/// entry layout is unknown, so this carries no behavior. Working name, NOT
+/// original.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AiVisLogsMarker;
+
+/// Marker for `ai_sensors` (mafia-re game/ai/jp_ai_entity.h:74-85 at pin
+/// fe7e746): same staging-limit rationale as [`AiVisLogsMarker`]. Working
+/// name, NOT original.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AiSensorsMarker;
+
+/// Typed owner of the `C_entity` AI slice read by the small accessors
+/// (mafia-re game/ai/jp_ai_entity.h:267-283 at pin fe7e746: `vis_logs` @0xb04,
+/// `sensors` @0xbb4, `logs` @0xe88, `ai_state` @0xf40, `ai_flags` @0xf50).
+/// One authoritative owner; later slices extend this struct, they do not fork
+/// it. Member names are working names (NOT original) except where the header
+/// evidences them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EntityAiState {
+    vis_logs: AiVisLogsMarker,
+    sensors: AiSensorsMarker,
+    logs: AiLogsState,
+    ai_state: u32,
+    ai_flags: u32,
+}
+
+impl EntityAiState {
+    /// Stage the constructor AI slice: empty logs, zero state and flags.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// GAME RVA 0x7ba50 (VA 0x47ba50) `C_entity::GetVisLogs` (mafia-re
+    /// game/ai/jp_ai_entity.h:216-220 at pin fe7e746; `FUNCTION: GAME` code in
+    /// Game.exe, not a data offset and not another binary; the out-of-line
+    /// copy lives in the 0x460a50 block): returns the staged vis-logs part.
+    pub fn get_vis_logs(&self) -> &AiVisLogsMarker {
+        &self.vis_logs
+    }
+
+    /// GAME RVA 0x7ba60 (VA 0x47ba60) `C_entity::GetSensors` (mafia-re
+    /// game/ai/jp_ai_entity.h:221-225 at pin fe7e746; `FUNCTION: GAME` code in
+    /// Game.exe, not a data offset and not another binary; the out-of-line
+    /// copy lives in the 0x460a50 block): returns the staged sensors part.
+    pub fn get_sensors(&self) -> &AiSensorsMarker {
+        &self.sensors
+    }
+
+    /// GAME RVA 0x7ba70 (VA 0x47ba70) `C_entity::GetLogs` (mafia-re
+    /// game/ai/jp_ai_entity.h:226-230 at pin fe7e746; `FUNCTION: GAME` code in
+    /// Game.exe, not a data offset and not another binary; the out-of-line
+    /// copy lives in the 0x460a50 block): returns the staged logs part.
+    pub fn get_logs(&self) -> &AiLogsState {
+        &self.logs
+    }
+
+    /// Mutable half of [`EntityAiState::get_logs`]: the original returns a
+    /// non-const `ai_logs *`, so mutation runs through this accessor. Same
+    /// entry (GAME RVA 0x7ba70, VA 0x47ba70).
+    pub fn get_logs_mut(&mut self) -> &mut AiLogsState {
+        &mut self.logs
+    }
+
+    /// GAME RVA 0x7ba80 (VA 0x47ba80) `C_entity::GetAIState` (mafia-re
+    /// game/ai/jp_ai_entity.h:231-242 at pin fe7e746; `FUNCTION: GAME` code in
+    /// Game.exe, not a data offset and not another binary; the out-of-line
+    /// copy lives in the 0x460a50 block): the state without the added
+    /// `ENTITY_STATE_*` markers. Subtracts 10000 at most once, then 666 in a
+    /// loop (the original counts the loop by division; the loop is exact here
+    /// for all `u32` inputs). Pure `u32` arithmetic, no float.
+    pub fn get_ai_state(&self) -> u32 {
+        let mut state = self.ai_state;
+        if state >= ENTITY_STATE_10000 {
+            state -= ENTITY_STATE_10000;
+        }
+        while state >= ENTITY_STATE_666 {
+            state -= ENTITY_STATE_666;
+        }
+        state
+    }
+
+    /// Reads the raw `ai_flags` word. Working-name accessor, NOT original;
+    /// the original reads the word inline at its call sites.
+    pub fn ai_flags(&self) -> u32 {
+        self.ai_flags
+    }
+
+    /// GAME RVA 0x7bac0 (VA 0x47bac0) `C_entity::ReturnFromPanic` (mafia-re
+    /// game/ai/jp_ai_entity.h:243-251 at pin fe7e746; `FUNCTION: GAME` code in
+    /// Game.exe, not a data offset and not another binary; the out-of-line
+    /// copy lives in the 0x460a50 block): a set parameter clears
+    /// `ENTITYF_NORETURNFROMPANIC`, an unset one sets it. Neighbor bits are
+    /// preserved.
+    pub fn return_from_panic(&mut self, on: bool) {
+        if on {
+            self.ai_flags &= !ENTITYF_NORETURNFROMPANIC;
+        } else {
+            self.ai_flags |= ENTITYF_NORETURNFROMPANIC;
+        }
+    }
+
+    /// GAME RVA 0x7baf0 (VA 0x47baf0) `C_entity::SetNoStateSwitch` (mafia-re
+    /// game/ai/jp_ai_entity.h:252-259 at pin fe7e746; `FUNCTION: GAME` code in
+    /// Game.exe, not a data offset and not another binary; the out-of-line
+    /// copy lives in the 0x460a50 block): a set parameter sets
+    /// `ENTITYF_NOSTATESWITCH`, an unset one clears it. Neighbor bits are
+    /// preserved.
+    pub fn set_no_state_switch(&mut self, on: bool) {
+        if on {
+            self.ai_flags |= ENTITYF_NOSTATESWITCH;
+        } else {
+            self.ai_flags &= !ENTITYF_NOSTATESWITCH;
+        }
+    }
+}
+
+/// Original `C_entity::DelUsingObject` (mafia-re
+/// game/ai/jp_ai_entity.h:260-265 at pin fe7e746; `FUNCTION: GAME` VA
+/// 0x47bb20, RVA 0x7bb20): takes the entity's action-button object from the
+/// game's holders. The `using_object`/game owners stay outside this contract,
+/// so the boundary is explicit.
+pub fn del_using_object_entity() -> Result<(), AiEntityError> {
+    Err(AiEntityError::Unsupported {
+        entry: ENTITY_DEL_USING_OBJECT_ENTRY,
+    })
+}
+
+/// Typed owner of the `ai_groups::free_actors` vector (mafia-re
+/// game/ai/jp_ai_groups.h:64-73 at pin fe7e746). Staging only: the `Tick`
+/// disposal scan stays deferred.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AiFreeActorStore {
+    actors: Vec<ActorReferenceId>,
+}
+
+impl AiFreeActorStore {
+    /// Stage an empty free-actor vector (constructor state).
+    pub fn new() -> Self {
+        Self {
+            actors: Vec::new(),
+        }
+    }
+
+    /// Staged free actors in push order.
+    pub fn actors(&self) -> &[ActorReferenceId] {
+        &self.actors
+    }
+
+    /// Number of staged free actors.
+    pub fn len(&self) -> usize {
+        self.actors.len()
+    }
+
+    /// Whether no free actor is staged.
+    pub fn is_empty(&self) -> bool {
+        self.actors.is_empty()
+    }
+
+    /// GAME RVA 0x7b870 (VA 0x47b870) `ai_groups::AddFreeActor` (mafia-re
+    /// game/ai/jp_ai_groups.h:90-96 at pin fe7e746; `FUNCTION: GAME` code in
+    /// Game.exe, not a data offset and not another binary; the out-of-line
+    /// copy lives in the 0x460a50 block): remembers one released actor. The
+    /// inline copy's `push_back` insert is inlined here in the same order.
+    pub fn add_free_actor(&mut self, actor: ActorReferenceId) {
+        self.actors.push(actor);
+    }
+}
+
+/// One `ai_action` job of an entity (mafia-re game/ai/jp_ai_entity.h:31-43 at
+/// pin fe7e746): only the `type` and `parent_id` (0xc) words the base-job
+/// walk reads are carried. Working names for the struct, offsets evidenced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AiActionEntry {
+    pub action_type: i32,
+    pub parent_id: i32,
+}
+
+impl AiActionEntry {
+    /// Stage one job entry without running any AI behavior. Working-name
+    /// constructor, NOT original.
+    pub const fn new(action_type: i32, parent_id: i32) -> Self {
+        Self {
+            action_type,
+            parent_id,
+        }
+    }
+}
+
+/// Typed owner of the `ai_action_manager::jobs` vector (mafia-re
+/// game/ai/jp_ai_entity.h:45-60 at pin fe7e746). The `idles`/`modifiers`
+/// vectors stay out of this contract: `GetBaseJob` walks `jobs` from the
+/// last, and whether it consults the others is unproven.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AiActionManager {
+    jobs: Vec<AiActionEntry>,
+}
+
+impl AiActionManager {
+    /// Stage an empty job vector (constructor state).
+    pub fn new() -> Self {
+        Self { jobs: Vec::new() }
+    }
+
+    /// Stage jobs without running any AI behavior. Working-name staging
+    /// constructor, NOT original.
+    pub fn from_parts(jobs: Vec<AiActionEntry>) -> Self {
+        Self { jobs }
+    }
+
+    /// Number of staged jobs.
+    pub fn len(&self) -> usize {
+        self.jobs.len()
+    }
+
+    /// Whether no job is staged.
+    pub fn is_empty(&self) -> bool {
+        self.jobs.is_empty()
+    }
+
+    /// GAME RVA 0x127600 (VA 0x527600) `ai_action_manager::GetBaseJob`
+    /// (mafia-re game/ai/jp_ai_entity.cpp:48-53 and
+    /// game/ai/jp_ai_entity.h:55-59 at pin fe7e746; `STUB: GAME` code in
+    /// Game.exe, not a data offset and not another binary): the kept body only
+    /// logs and returns NULL, but the header-evidenced contract is the last
+    /// job whose `parent_id` is 0, `None` for none. The port implements that
+    /// contract over the staged `jobs` from the last; `idles`/`modifiers`
+    /// stay out of scope.
+    pub fn get_base_job(&self) -> Option<&AiActionEntry> {
+        self.jobs.iter().rev().find(|job| job.parent_id == 0)
+    }
+}
+
+/// Opaque identity of a `C_car` in an `ai_group` car list. The native word is
+/// a pointer; the port never dereferences it. Working name, NOT original.
+pub type AiGroupCarId = u64;
+
+/// Typed owner of an `ai_group`'s car list and factor list (mafia-re
+/// game/ai/jp_ai_groups.h:50-54 at pin fe7e746: `cars` @0x40 and
+/// `car_factors` @0x50). Staging only.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AiGroupCars {
+    cars: Vec<AiGroupCarId>,
+    factors: Vec<f32>,
+}
+
+impl AiGroupCars {
+    /// Stage empty car/factor lists (constructor state).
+    pub fn new() -> Self {
+        Self {
+            cars: Vec::new(),
+            factors: Vec::new(),
+        }
+    }
+
+    /// Stage car/factor lists without running any AI behavior. Working-name
+    /// staging constructor, NOT original.
+    pub fn from_parts(cars: Vec<AiGroupCarId>, factors: Vec<f32>) -> Self {
+        Self { cars, factors }
+    }
+
+    /// Number of staged cars.
+    pub fn len(&self) -> usize {
+        self.cars.len()
+    }
+
+    /// Whether no car is staged.
+    pub fn is_empty(&self) -> bool {
+        self.cars.is_empty()
+    }
+
+    /// GAME RVA 0x130a70 (VA 0x530a70) `ai_group::GetCarFactor` (mafia-re
+    /// game/ai/jp_ai_groups.cpp:844-849 and game/ai/jp_ai_groups.h:58-61 at
+    /// pin fe7e746; `STUB: GAME` code in Game.exe, not a data offset and not
+    /// another binary): the kept body only logs and returns 1.0, but the
+    /// header-evidenced contract is the factor at the car's index in `cars`,
+    /// 1.0 without one. The port implements that contract with bit-exact
+    /// `f32` copies; no arithmetic, no fused ops. A short factor list falls
+    /// back to 1.0 instead of reading past its end.
+    pub fn get_car_factor(&self, car: AiGroupCarId) -> f32 {
+        match self.cars.iter().position(|&candidate| candidate == car) {
+            Some(index) => self.factors.get(index).copied().unwrap_or(1.0),
+            None => 1.0,
+        }
+    }
+}
+
 /// Owned dispatch boundary for the `C_game::Tick` AI slice (mafia-re 113b5b6
 /// game/mission/game.cpp:2061-2063). Each arm runs exactly one deferred
 /// manager body; no AI behavior is owned here.
@@ -517,5 +936,174 @@ mod tests {
         assert_eq!(AI_GROUPS_TICK_RVA, 0x131340);
         assert_eq!(AI_FOLLOW_UPDATE_RVA, 0x1325a0);
         assert_eq!(AI_FIGHT_TICK_RVA, 0x1350b0);
+    }
+
+    #[test]
+    fn rva_7ba20_ai_logs_clear_empties_staged_logs() {
+        // ai_logs::Clear GAME VA 0x47ba20 (RVA 0x7ba20): drops staged entries.
+        assert_eq!(AI_LOGS_CLEAR_RVA, 0x7ba20);
+        let mut logs = AiLogsState::from_parts(vec![
+            AiCharacterLog::from_parts(100, 200),
+            AiCharacterLog::from_parts(300, 400),
+        ]);
+        assert_eq!(logs.len(), 2);
+        assert!(!logs.is_empty());
+        logs.clear();
+        assert!(logs.is_empty());
+        assert!(logs.entries().is_empty());
+        // Clearing an empty log stays a no-op.
+        logs.clear();
+        assert!(logs.is_empty());
+    }
+
+    #[test]
+    fn rva_7ba50_7ba60_7ba70_entity_accessors_return_owned_parts() {
+        // C_entity::GetVisLogs/GetSensors/GetLogs GAME VAs
+        // 0x47ba50/0x47ba60/0x47ba70 (RVAs 0x7ba50/0x7ba60/0x7ba70): each
+        // returns its own staged part.
+        assert_eq!(ENTITY_GET_VIS_LOGS_RVA, 0x7ba50);
+        assert_eq!(ENTITY_GET_SENSORS_RVA, 0x7ba60);
+        assert_eq!(ENTITY_GET_LOGS_RVA, 0x7ba70);
+        let mut state = EntityAiState::new();
+        assert_eq!(state.get_vis_logs(), &AiVisLogsMarker);
+        assert_eq!(state.get_sensors(), &AiSensorsMarker);
+        assert!(state.get_logs().is_empty());
+        state.get_logs_mut().clear();
+        assert_eq!(state.ai_flags(), 0);
+    }
+
+    #[test]
+    fn rva_7ba80_get_ai_state_strips_added_state() {
+        // C_entity::GetAIState GAME VA 0x47ba80 (RVA 0x7ba80): 10000 off at
+        // most once, then 666 in a loop.
+        assert_eq!(ENTITY_GET_AI_STATE_RVA, 0x7ba80);
+        for (raw, expected) in [
+            (0u32, 0u32),
+            (665, 665),
+            (666, 0),
+            (667, 1),
+            (1998, 0),
+            (10000, 0),
+            (10001, 1),
+            (10666, 0),
+            (10667, 1),
+            (20000, 10),
+            (10000 + 666 * 7 + 5, 5),
+        ] {
+            let state = EntityAiState {
+                ai_state: raw,
+                ..Default::default()
+            };
+            assert_eq!(state.get_ai_state(), expected, "raw {raw}");
+        }
+    }
+
+    #[test]
+    fn rva_7bac0_return_from_panic_toggles_no_return_flag() {
+        // C_entity::ReturnFromPanic GAME VA 0x47bac0 (RVA 0x7bac0): an unset
+        // parameter sets ENTITYF_NORETURNFROMPANIC, a set one clears it.
+        assert_eq!(ENTITY_RETURN_FROM_PANIC_RVA, 0x7bac0);
+        let mut state = EntityAiState::new();
+        state.return_from_panic(false);
+        assert_eq!(state.ai_flags(), ENTITYF_NORETURNFROMPANIC);
+        state.return_from_panic(true);
+        assert_eq!(state.ai_flags(), 0);
+        // Neighbor bits are preserved both ways.
+        state = EntityAiState {
+            ai_flags: ENTITYF_NOSTATESWITCH,
+            ..Default::default()
+        };
+        state.return_from_panic(false);
+        assert_eq!(
+            state.ai_flags(),
+            ENTITYF_NOSTATESWITCH | ENTITYF_NORETURNFROMPANIC
+        );
+        state.return_from_panic(true);
+        assert_eq!(state.ai_flags(), ENTITYF_NOSTATESWITCH);
+    }
+
+    #[test]
+    fn rva_7baf0_set_no_state_switch_toggles_flag() {
+        // C_entity::SetNoStateSwitch GAME VA 0x47baf0 (RVA 0x7baf0): a set
+        // parameter sets ENTITYF_NOSTATESWITCH, an unset one clears it.
+        assert_eq!(ENTITY_SET_NO_STATE_SWITCH_RVA, 0x7baf0);
+        let mut state = EntityAiState::new();
+        state.set_no_state_switch(true);
+        assert_eq!(state.ai_flags(), ENTITYF_NOSTATESWITCH);
+        state.set_no_state_switch(false);
+        assert_eq!(state.ai_flags(), 0);
+        state = EntityAiState {
+            ai_flags: ENTITYF_NORETURNFROMPANIC,
+            ..Default::default()
+        };
+        state.set_no_state_switch(true);
+        assert_eq!(
+            state.ai_flags(),
+            ENTITYF_NORETURNFROMPANIC | ENTITYF_NOSTATESWITCH
+        );
+        state.set_no_state_switch(false);
+        assert_eq!(state.ai_flags(), ENTITYF_NORETURNFROMPANIC);
+    }
+
+    #[test]
+    fn rva_7bb20_del_using_object_reports_unsupported() {
+        // C_entity::DelUsingObject GAME VA 0x47bb20 (RVA 0x7bb20).
+        assert_eq!(ENTITY_DEL_USING_OBJECT_ENTRY, 0x47bb20);
+        assert_eq!(
+            del_using_object_entity(),
+            Err(AiEntityError::Unsupported { entry: 0x47bb20 })
+        );
+    }
+
+    #[test]
+    fn rva_7b870_add_free_actor_pushes_in_order() {
+        // ai_groups::AddFreeActor GAME VA 0x47b870 (RVA 0x7b870).
+        use crate::script_scheduler::ActorReferenceId;
+        assert_eq!(AI_GROUPS_ADD_FREE_ACTOR_RVA, 0x7b870);
+        let mut store = AiFreeActorStore::new();
+        assert!(store.is_empty());
+        store.add_free_actor(ActorReferenceId::from_existing(4));
+        store.add_free_actor(ActorReferenceId::from_existing(9));
+        assert_eq!(store.len(), 2);
+        assert_eq!(
+            store.actors(),
+            &[
+                ActorReferenceId::from_existing(4),
+                ActorReferenceId::from_existing(9)
+            ]
+        );
+    }
+
+    #[test]
+    fn rva_127600_get_base_job_returns_last_parent_zero_job() {
+        // ai_action_manager::GetBaseJob GAME VA 0x527600 (RVA 0x127600).
+        assert_eq!(AI_ACTION_GET_BASE_JOB_ENTRY, 0x527600);
+        assert_eq!(AiActionManager::new().get_base_job(), None);
+        let manager = AiActionManager::from_parts(vec![
+            AiActionEntry::new(1, 7),
+            AiActionEntry::new(2, 0),
+            AiActionEntry::new(3, 0),
+            AiActionEntry::new(4, 9),
+        ]);
+        assert_eq!(manager.get_base_job(), Some(&AiActionEntry::new(3, 0)));
+        let parented = AiActionManager::from_parts(vec![
+            AiActionEntry::new(1, 5),
+            AiActionEntry::new(2, 6),
+        ]);
+        assert_eq!(parented.get_base_job(), None);
+    }
+
+    #[test]
+    fn rva_130a70_get_car_factor_returns_index_factor_or_one() {
+        // ai_group::GetCarFactor GAME VA 0x530a70 (RVA 0x130a70).
+        assert_eq!(AI_GROUP_GET_CAR_FACTOR_ENTRY, 0x530a70);
+        let grouped = AiGroupCars::from_parts(vec![11, 22, 33], vec![0.5, 2.0]);
+        assert_eq!(grouped.get_car_factor(11), 0.5);
+        assert_eq!(grouped.get_car_factor(22), 2.0);
+        // A short factor list falls back to 1.0 instead of reading past it.
+        assert_eq!(grouped.get_car_factor(33), 1.0);
+        // A car without an entry counts 1.0.
+        assert_eq!(grouped.get_car_factor(44), 1.0);
+        assert_eq!(AiGroupCars::new().get_car_factor(11), 1.0);
     }
 }

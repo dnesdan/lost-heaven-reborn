@@ -935,6 +935,50 @@ pub fn deactivate_traffic_element() -> Result<(), TrafficGeneratorError> {
     })
 }
 
+/// `C_don_ocas::Hit` entry, GAME RVA 0x4ccf0 (VA 0x44ccf0; mafia-re
+/// game/ai/C_person_traffic.cpp:473-479 at pin fe7e746; `STUB: GAME` code in
+/// Game.exe, not a data offset and not another binary): forwards to
+/// `C_actor::Hit`.
+pub const DON_OCAS_HIT_ENTRY: u32 = 0x44ccf0;
+/// `C_don_ocas::GetBoundPoints2D` entry, GAME RVA 0x4d1c0 (VA 0x44d1c0;
+/// mafia-re game/ai/C_person_traffic.cpp:481-486 at pin fe7e746; `STUB: GAME`
+/// code in Game.exe, not a data offset and not another binary): forwards to
+/// `C_actor::GetBoundPoints2D`.
+pub const DON_OCAS_GET_BOUND_POINTS_2D_ENTRY: u32 = 0x44d1c0;
+
+/// Original `C_don_ocas::Hit` stub (mafia-re
+/// game/ai/C_person_traffic.cpp:473-479 at pin fe7e746; `STUB: GAME` VA
+/// 0x44ccf0, RVA 0x4ccf0): the original only logs and the `C_actor` base
+/// owner stays outside this contract, so the boundary is explicit. Positions
+/// are staged `[f32; 3]` triples and actor/frame identities are opaque `u32`
+/// values, never dereferenced.
+pub fn don_ocas_hit(
+    _kind: i32,
+    _v1: [f32; 3],
+    _v2: [f32; 3],
+    _v3: [f32; 3],
+    _power: f32,
+    _actor: u32,
+    _unknown: u32,
+    _frame: u32,
+) -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: DON_OCAS_HIT_ENTRY,
+    })
+}
+
+/// Original `C_don_ocas::GetBoundPoints2D` stub (mafia-re
+/// game/ai/C_person_traffic.cpp:481-486 at pin fe7e746; `STUB: GAME` VA
+/// 0x44d1c0, RVA 0x4d1c0): the original only logs and the `C_actor` base
+/// owner stays outside this contract, so the boundary is explicit. The frame
+/// identity is opaque and never dereferenced; the output point list has no
+/// typed owner here.
+pub fn don_ocas_get_bound_points_2d(_frame: u32) -> Result<(), TrafficGeneratorError> {
+    Err(TrafficGeneratorError::Unsupported {
+        entry: DON_OCAS_GET_BOUND_POINTS_2D_ENTRY,
+    })
+}
+
 /// `C_don_ocas` actor-kind marker, GAME RVA 0x44c640
 /// (mafia-re game/ai/C_person_traffic.cpp:50-54,
 /// game/actors/C_actor.h:33).
@@ -1403,6 +1447,35 @@ mod tests {
         assert_eq!(
             deactivate_traffic_element(),
             Err(TrafficGeneratorError::Unsupported { entry: 0x4587c0 })
+        );
+    }
+
+    #[test]
+    fn rva_4ccf0_don_ocas_hit_reports_unsupported() {
+        // C_don_ocas::Hit GAME RVA 0x4ccf0 (VA 0x44ccf0).
+        assert_eq!(DON_OCAS_HIT_ENTRY, 0x44ccf0);
+        assert_eq!(
+            don_ocas_hit(
+                1,
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                5.0,
+                7,
+                0,
+                9
+            ),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x44ccf0 })
+        );
+    }
+
+    #[test]
+    fn rva_4d1c0_don_ocas_get_bound_points_reports_unsupported() {
+        // C_don_ocas::GetBoundPoints2D GAME RVA 0x4d1c0 (VA 0x44d1c0).
+        assert_eq!(DON_OCAS_GET_BOUND_POINTS_2D_ENTRY, 0x44d1c0);
+        assert_eq!(
+            don_ocas_get_bound_points_2d(3),
+            Err(TrafficGeneratorError::Unsupported { entry: 0x44d1c0 })
         );
     }
 }
