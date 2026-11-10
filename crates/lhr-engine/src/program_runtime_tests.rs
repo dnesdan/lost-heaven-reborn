@@ -1821,21 +1821,34 @@ fn event_use_cb_toggles_top_flag_and_needs_stack() {
     assert!(p3.runtime().unwrap().fields.gosub_stack.is_empty());
 }
 #[test]
-fn dialogue_commands_advance_as_noop_and_count_in_discard() {
-    let mut memory = Memory::default();
-    let mut p = program(
-        b"human_talk 0,100\ndialog_begin 0,1\ndialog_end\nsubtitle_add 5",
-        &mut memory,
-    );
-    let progress = p.init_fresh_runtime(&mut memory).unwrap();
-    assert_eq!((progress.accepted, progress.errors), (4, 0));
-    for expected in 1..=4 {
-        p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory)
-            .unwrap();
-        assert_eq!(p.runtime().unwrap().fields.program_counter(), expected);
+fn dialogue_commands_without_effect_owners_refuse_to_advance() {
+    let cases: &[(&[u8], u32)] = &[
+        (b"human_talk 0,100", 132),
+        (b"dialog_begin 0,1", 78),
+        (b"dialog_end", 79),
+        (b"subtitle_add 5", 240),
+    ];
+    for &(source, opcode) in cases {
+        let mut memory = Memory::default();
+        let mut p = program(source, &mut memory);
+        let progress = p.init_fresh_runtime(&mut memory).unwrap();
+        assert_eq!((progress.accepted, progress.errors), (1, 0));
+        let effects_before = memory.events.len();
+        let result = p.call_owned_process(1, &mut DispatchBudget::new(8).unwrap(), &mut memory);
+        match result {
+            Err(RuntimeError::Scheduler(message)) => {
+                assert!(
+                    message.contains(&format!("UnsupportedCommand({opcode})")),
+                    "{message}"
+                );
+            }
+            other => panic!("expected unsupported opcode {opcode}, got {other:?}"),
+        }
+        assert_eq!(p.runtime().unwrap().fields.program_counter(), 0);
+        assert_eq!(memory.events.len(), effects_before);
+        let report = p.discard_runtime_host().unwrap();
+        assert_eq!(report.human_talk_allocations, usize::from(opcode == 132));
     }
-    let report = p.discard_runtime_host().unwrap();
-    assert_eq!(report.human_talk_allocations, 1);
 }
 #[test]
 fn unimplemented_mission_flow_refuses_execution_without_advancing() {
