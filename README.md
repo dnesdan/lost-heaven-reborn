@@ -54,7 +54,10 @@ obtained original PC installation as the asset root.
 
 Driving: W/S accelerate/brake, A/D steer, Space handbrake, R reload.
 Inspection: arrows and W/S move the camera. Menu New Game and `--mission mise01`
-remain inspection entry points; authored first-mission gameplay is incomplete.
+open the MISE01 scene with on-foot walking (WASD, Shift runs, arrows orbit,
+R/F zoom, C plays the intro cutscene stand-in, Enter skips it, E boards at the
+taxi stand); car driving stays available via `--car-driving`. Full mission
+scripts, traffic and car boarding remain open.
 [Setup and run commands](docs/RUNNING.md).
 
 ## Engine Lab

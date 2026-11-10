@@ -137,6 +137,7 @@ pub mod mission_load_session;
 pub mod mission_navigation_input;
 pub mod mission_open_order;
 pub mod mission_options;
+pub mod mission_play;
 pub mod mission_resources;
 pub mod mission_scene_loading;
 pub mod mission_scene_stream;

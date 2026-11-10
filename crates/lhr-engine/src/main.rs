@@ -178,7 +178,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 "--steer accepts a finite normalized request in [-1,1]; --steer-steps 0..600 (default 1) applies that request through controlled 16 ms host inspection-clock steps before presentation. This previews actual initialized wheel frames, without translating the car or claiming a driving simulation. ",
                 "Headless --animation-steps 0..600 uses controlled 16 ms inspection-clock steps; omit it for one platform-clock step. ",
                 "Root alone opens the supported original Czech main-menu subset (New Game/Exit). ",
-                "Menu: arrows, Tab/Shift+Tab, Enter or mouse. New Game loads static INTRO; Esc loads static MISE01, then returns to menu. ",
+                "Menu: arrows, Tab/Shift+Tab, Enter or mouse. New Game loads static INTRO; Esc loads MISE01 with on-foot walking (WASD, Shift runs, arrows orbit, R/F zoom, C intro cutscene, Enter skips, E boards), then returns to menu. ",
                 "Scene inspection: arrows orbit, W/S zoom. --animation alone admits a matched single-root position track. Add --skeletal-animation for sequential skeletal slot0 mode2 playback, or --sample-animation-ms MS for one independent skeletal pose. Original profile, cutscene, mission-script and gameplay execution are not implemented. ",
                 "Sampling is provisional nearest (or --linear), not verified original behavior."
             ).into()),
@@ -189,7 +189,11 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         for option in &provided_options {
             if !matches!(
                 option.as_str(),
-                "--mission-load-probe" | "--root" | "--mission" | "--probe-model-dir" | "--probe-render-capture"
+                "--mission-load-probe"
+                    | "--root"
+                    | "--mission"
+                    | "--probe-model-dir"
+                    | "--probe-render-capture"
             ) {
                 return Err(format!(
                     "{option} is not used by --mission-load-probe; omit it"
@@ -859,6 +863,10 @@ struct App {
     steering_preview_active: bool,
     driving_clock: driving_view::FixedClock,
     driving_controls: driving_view::Controls,
+    walk_player: Option<lhr_engine::mission_play::OnFootPlayer>,
+    walk_ground_y: f32,
+    cutscene: lhr_engine::mission_play::CutscenePlayback,
+    mise01: lhr_engine::mission_play::Mise01Progress,
     car_draws: usize,
     world_bucket: Option<DrivingWorldView>,
     audio_capture: Option<lhr_engine::runtime_audio::StereoWavCapture>,
@@ -1084,6 +1092,13 @@ impl App {
         self.steering_preview_active = false;
         self.driving_clock.reset();
         self.driving_controls = driving_view::Controls::default();
+        if mode == AppMode::FirstMissionScene {
+            self.spawn_mission_walk();
+        } else {
+            self.walk_player = None;
+            self.cutscene = lhr_engine::mission_play::CutscenePlayback::idle();
+            self.mise01 = lhr_engine::mission_play::Mise01Progress::fresh();
+        }
         if let Some(lab) = &mut self.lab {
             lab.scene_reloaded();
         }
@@ -1094,7 +1109,7 @@ impl App {
             );
         } else {
             println!(
-                "Application state: {mode:?}; scene assets loaded; gameplay and cutscene execution unsupported"
+                "Application state: {mode:?}; scene assets loaded; on-foot walk, host cutscene stand-in and objective tracking active in MISE01; mission scripts, traffic and car boarding unsupported"
             );
         }
         Ok(())
@@ -1105,6 +1120,107 @@ impl App {
     }
     fn reload_car(&mut self) -> Result<(), String> {
         self.transition(AppMode::Inspection)
+    }
+    /// True while the on-foot mission slice owns WASD in the mission scene.
+    fn walk_mode(&self) -> bool {
+        self.mode == AppMode::FirstMissionScene && self.walk_player.is_some()
+    }
+    /// Refresh the window title with the current MISE01 objective.
+    fn show_objective(&self) {
+        if let Some(window) = &self.window {
+            window.set_title(self.mise01.hud_line());
+        }
+    }
+    /// Spawn the on-foot player at the camera focus after the MISE01 scene
+    /// loads. The taxi-stand marker is an explicit host placement 25 m ahead
+    /// of the spawn along the camera view; original stand coordinates stay
+    /// open with the mission scripts.
+    fn spawn_mission_walk(&mut self) {
+        let focus = self.camera.target;
+        let mut forward = [focus.x - self.camera.eye.x, focus.z - self.camera.eye.z];
+        let length = forward[0].hypot(forward[1]).max(1e-3);
+        forward[0] /= length;
+        forward[1] /= length;
+        self.walk_ground_y = focus.y;
+        self.walk_player = Some(lhr_engine::mission_play::OnFootPlayer::spawn(
+            [focus.x, focus.y, focus.z],
+            forward[0].atan2(forward[1]),
+        ));
+        self.cutscene = lhr_engine::mission_play::CutscenePlayback::idle();
+        self.mise01 = lhr_engine::mission_play::Mise01Progress::fresh();
+        self.mise01.stage_taxi_stand(
+            [
+                focus.x + forward[0] * 25.0,
+                focus.y,
+                focus.z + forward[1] * 25.0,
+            ],
+            3.0,
+        );
+        println!(
+            "MISE01 on foot: spawn [{:.1}, {:.1}, {:.1}]; taxi stand 25 m ahead; {}",
+            focus.x,
+            focus.y,
+            focus.z,
+            self.mise01.hud_line()
+        );
+        self.show_objective();
+    }
+    /// Advance walking, cutscene playback and objectives for one frame.
+    fn walk_mission(&mut self) {
+        if !self.walk_mode() {
+            return;
+        }
+        if self.cutscene.is_playing() {
+            let finished = self.cutscene.advance(16);
+            // Slow cinematic pan while the cutscene holds the player.
+            let offset = self.camera.eye - self.camera.target;
+            let rotated = Quat::from_rotation_y(0.002) * offset;
+            self.camera.eye = self.camera.target + rotated;
+            if finished {
+                self.mise01.cutscene_done();
+                println!("Cutscene finished; {}", self.mise01.hud_line());
+                self.show_objective();
+            }
+            return;
+        }
+        let forward = u8::from(self.keys.contains(&KeyCode::KeyW)) as f32
+            - u8::from(self.keys.contains(&KeyCode::KeyS)) as f32;
+        let strafe = u8::from(self.keys.contains(&KeyCode::KeyD)) as f32
+            - u8::from(self.keys.contains(&KeyCode::KeyA)) as f32;
+        let run =
+            self.keys.contains(&KeyCode::ShiftLeft) || self.keys.contains(&KeyCode::ShiftRight);
+        if forward != 0.0 || strafe != 0.0 {
+            let offset = self.camera.eye - self.camera.target;
+            let cam_yaw = (-offset.x).atan2(-offset.z);
+            let before = self.mise01.stage();
+            if let Some(player) = &mut self.walk_player {
+                player.step(
+                    16,
+                    lhr_engine::mission_play::WalkInput {
+                        forward,
+                        strafe,
+                        run,
+                    },
+                    cam_yaw,
+                    Some(self.walk_ground_y),
+                    |_, _| None,
+                );
+                let pos = player.pos();
+                // Hard camera follow on the ground plane; orbit kept.
+                let delta = Vec3::new(
+                    pos[0] - self.camera.target.x,
+                    0.0,
+                    pos[2] - self.camera.target.z,
+                );
+                self.camera.target += delta;
+                self.camera.eye += delta;
+                self.mise01.player_moved(pos);
+            }
+            if self.mise01.stage() != before {
+                println!("Objective: {}", self.mise01.hud_line());
+                self.show_objective();
+            }
+        }
     }
     fn drive_car(&mut self, elapsed_ms: u32) -> Result<(), String> {
         if !self.options.car_driving {
@@ -1484,6 +1600,45 @@ impl ApplicationHandler for App {
                                     self.fail(event_loop, &error);
                                 }
                             }
+                        } else if self.walk_mode() && !event.repeat {
+                            match code {
+                                KeyCode::KeyC => {
+                                    if self.cutscene.is_playing() {
+                                        self.cutscene.stop();
+                                        println!("Cutscene stopped");
+                                    } else if self.mise01.stage()
+                                        == lhr_engine::mission_play::Mise01Stage::WatchIntro
+                                    {
+                                        self.cutscene.start(8000);
+                                        println!("Intro cutscene playing (8 s host stand-in)");
+                                    } else {
+                                        println!("No cutscene staged at this objective");
+                                    }
+                                }
+                                KeyCode::Enter | KeyCode::NumpadEnter => {
+                                    if self.cutscene.is_playing() {
+                                        self.cutscene.stop();
+                                    }
+                                    self.mise01.cutscene_done();
+                                    println!("Intro skipped; {}", self.mise01.hud_line());
+                                    self.show_objective();
+                                }
+                                KeyCode::KeyE => {
+                                    if self.mise01.stage()
+                                        == lhr_engine::mission_play::Mise01Stage::BoardTaxi
+                                    {
+                                        self.mise01.boarded_taxi();
+                                        println!("Boarded taxi; {}", self.mise01.hud_line());
+                                        self.show_objective();
+                                    } else {
+                                        println!(
+                                            "No drivable car in this scene; {}",
+                                            self.mise01.hud_line()
+                                        );
+                                    }
+                                }
+                                _ => {}
+                            }
                         } else if code == KeyCode::Escape && !event.repeat {
                             let next = if self.mode == AppMode::IntroScene {
                                 AppMode::FirstMissionScene
@@ -1651,6 +1806,7 @@ impl ApplicationHandler for App {
                         self.fail(event_loop, &error);
                         return;
                     }
+                    self.walk_mission();
                     if let Some(lab) = &mut self.lab {
                         lab.completed_frames += 1;
                         if lab.playback.paused() {
@@ -1692,12 +1848,14 @@ impl ApplicationHandler for App {
                         KeyCode::ArrowDown if !self.options.car_driving => {
                             pitch -= 0.025 * motion_scale
                         }
-                        KeyCode::KeyW if !self.options.car_driving => {
+                        KeyCode::KeyW if !self.options.car_driving && !self.walk_mode() => {
                             zoom *= 0.98_f32.powf(motion_scale)
                         }
-                        KeyCode::KeyS if !self.options.car_driving => {
+                        KeyCode::KeyS if !self.options.car_driving && !self.walk_mode() => {
                             zoom *= 1.02_f32.powf(motion_scale)
                         }
+                        KeyCode::KeyR if self.walk_mode() => zoom *= 0.98_f32.powf(motion_scale),
+                        KeyCode::KeyF if self.walk_mode() => zoom *= 1.02_f32.powf(motion_scale),
                         KeyCode::KeyJ if self.lab.is_some() && !self.options.car_driving => {
                             pan[0] -= 0.01 * motion_scale
                         }
@@ -2658,6 +2816,10 @@ fn run() -> Result<(), String> {
         steering_preview_active: false,
         driving_clock: driving_view::FixedClock::default(),
         driving_controls: driving_view::Controls::default(),
+        walk_player: None,
+        walk_ground_y: 0.0,
+        cutscene: lhr_engine::mission_play::CutscenePlayback::idle(),
+        mise01: lhr_engine::mission_play::Mise01Progress::fresh(),
         car_draws,
         world_bucket,
         audio_capture,
