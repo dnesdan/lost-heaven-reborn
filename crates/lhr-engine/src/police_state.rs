@@ -1128,6 +1128,208 @@ impl PoliceGameInitState {
         0
     }
 
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `wanted_time` (`-1` without a record, the cleared value).
+    /// The native latch (`S_shvestky::wanted_time` at +0x44, mafia-re
+    /// game/ai/C_shvestky.h:84-87) is read inline in `Tick` 0x49a300 and
+    /// cleared to `-1` by `ReleaseWantedHuman` 0x49f850 with no dedicated
+    /// getter, so no RVA is claimed.
+    pub fn wanted_time_for_human(&self, human: PoliceHumanId) -> i32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.wanted_time();
+            }
+        }
+        -1
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `wanted_time_start` (`0` without a record). The native word
+    /// (`S_shvestky::wanted_time_start` at +0x48, mafia-re
+    /// game/ai/C_shvestky.h:88-89) is stored by the wanted-clock refresh and
+    /// read back by the HUD bar inline with no dedicated getter, so no RVA
+    /// is claimed.
+    pub fn wanted_time_start_for_human(&self, human: PoliceHumanId) -> i32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.wanted_time_start();
+            }
+        }
+        0
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `signal_time` (`0` without a record). The native latch
+    /// (`S_shvestky::signal_time` at +0x24, mafia-re
+    /// game/ai/C_shvestky.h:71-73) is touched inline in `Tick` 0x49a300 with
+    /// no dedicated getter, so no RVA is claimed.
+    pub fn signal_time_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.signal_time();
+            }
+        }
+        0
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `car_steal_time` (`0` without a record). The native latch
+    /// (`S_shvestky::car_steal_time` at +0xc, mafia-re
+    /// game/ai/C_shvestky.h:65) expires inline in `Tick` 0x49a300 with no
+    /// dedicated getter, so no RVA is claimed.
+    pub fn car_steal_time_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.car_steal_time();
+            }
+        }
+        0
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `illegal_path_time` (`0` without a record). The native latch
+    /// (`S_shvestky::illegal_path_time` at +0x14, mafia-re
+    /// game/ai/C_shvestky.h:67) is maintained inline in `Tick` 0x49a300
+    /// (mafia-re game/ai/C_shvestky.cpp:261-276 at pin 113b5b6) with no
+    /// dedicated getter, so no RVA is claimed.
+    pub fn illegal_path_time_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.illegal_path_time();
+            }
+        }
+        0
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `collision_time` (`0` without a record). The native latch
+    /// (`S_shvestky::collision_time` at +0x18, mafia-re
+    /// game/ai/C_shvestky.h:68) expires inline in `Tick` 0x49a300 (mafia-re
+    /// game/ai/C_shvestky.cpp:243-250 at pin 113b5b6) with no dedicated
+    /// getter, so no RVA is claimed.
+    pub fn collision_time_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.collision_time();
+            }
+        }
+        0
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `boxing_time` (`0` without a record). The native latch
+    /// (`S_shvestky::boxing_time` at +0x20, mafia-re
+    /// game/ai/C_shvestky.h:70) expires inline in `Tick` 0x49a300 with no
+    /// dedicated getter, so no RVA is claimed.
+    pub fn boxing_time_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.boxing_time();
+            }
+        }
+        0
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `hits_time` (`-1` without a record, the cleared value). The
+    /// native latch (`S_shvestky::hits_time` at +0x40, mafia-re
+    /// game/ai/C_shvestky.h:83-85) is forgotten inline in `Tick` 0x49a300
+    /// (mafia-re game/ai/C_shvestky.cpp:327-331 at pin 113b5b6) with no
+    /// dedicated getter, so no RVA is claimed.
+    pub fn hits_time_for_human(&self, human: PoliceHumanId) -> i32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.hits_time();
+            }
+        }
+        -1
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `hits` count (`0` without a record). The native count
+    /// (`S_shvestky::hits` at +0x4c, mafia-re game/ai/C_shvestky.h:90) is
+    /// maintained inline in `Tick` 0x49a300 with no dedicated getter, so no
+    /// RVA is claimed.
+    pub fn hits_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.hits();
+            }
+        }
+        0
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `reason` word (`0` without a record). The native word
+    /// (`S_shvestky::reason` at +0x64, `SHVREASON_*`, mafia-re
+    /// game/ai/C_shvestky.h:39-45, 105) is written by the flag arms in
+    /// `CreateShvestkyTest` with no dedicated getter, so no RVA is claimed.
+    pub fn reason_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.reason();
+            }
+        }
+        0
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `run_over` count (`0` without a record). The native count
+    /// (`S_shvestky::run_over` at +0x68, mafia-re
+    /// game/ai/C_shvestky.h:106-108) is maintained by
+    /// `NextNaSrackySoudruh` 0x49d220 with no dedicated getter, so no RVA is
+    /// claimed.
+    pub fn run_over_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.run_over();
+            }
+        }
+        0
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `known_car` latch (`None` without a record, the native
+    /// null). The native field (`S_shvestky::known_car` at +0x54, mafia-re
+    /// game/ai/C_shvestky.h:96-100) is compared inline in
+    /// `CreateShvestkyTest` with no dedicated getter, so no RVA is claimed.
+    pub fn known_car_for_human(&self, human: PoliceHumanId) -> Option<PoliceActorId> {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.known_car();
+            }
+        }
+        None
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `known_on_foot` flag (`false` without a record). The native
+    /// flag (`S_shvestky::known_on_foot` at +0x58, mafia-re
+    /// game/ai/C_shvestky.h:100) shares the inline-only use of `known_car`,
+    /// so no RVA is claimed.
+    pub fn known_on_foot_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.known_on_foot();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `rammed_car` word (`0` without a record). The native word
+    /// (`S_shvestky::rammed_car` at +0x60, mafia-re
+    /// game/ai/C_shvestky.h:104) is read inline in `CreateShvestkyTest`
+    /// with no dedicated getter, so no RVA is claimed.
+    pub fn rammed_car_for_human(&self, human: PoliceHumanId) -> u32 {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.rammed_car();
+            }
+        }
+        0
+    }
+
     /// Record road-block arm at GAME VA 0x49d2e0 (RVA 0x9d2e0): Ghidra
     /// procedure with a 35-instruction body (REA ev_e8aed070) that does
     /// nothing while the manager is inactive, then scans the records back to
@@ -2125,6 +2327,14 @@ impl PolicePursuitRecord {
     /// function, so no RVA is claimed.
     pub fn wanted_time(&self) -> i32 {
         self.wanted_time
+    }
+
+    /// Working name (no separate native entry): reads the owned record's
+    /// `wanted_time_start` word. The native stores the fresh span here on the
+    /// wanted-clock refresh and reads it back for the HUD bar inline with no
+    /// dedicated function, so no RVA is claimed.
+    pub fn wanted_time_start(&self) -> i32 {
+        self.wanted_time_start
     }
 
     /// Working name (no separate native entry): reads the owned record's
@@ -4536,6 +4746,173 @@ mod tests {
         state.records.push(record);
         assert_eq!(state.support_level_for_human(7), 2);
         assert_eq!(state.support_level_for_human(8), 0);
+    }
+
+    #[test]
+    fn wanted_time_for_human_reads_latest_match_or_cleared() {
+        // Working name: inline-only wanted_time read; -1 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.wanted_time_for_human(7), -1);
+        let mut first = PolicePursuitRecord::new(7);
+        first.wanted_time = 20000;
+        let mut second = PolicePursuitRecord::new(7);
+        second.wanted_time = 40000;
+        state.records.push(first);
+        state.records.push(second);
+        assert_eq!(state.wanted_time_for_human(7), 40000);
+        assert_eq!(state.wanted_time_for_human(8), -1);
+    }
+
+    #[test]
+    fn wanted_time_start_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only wanted_time_start read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.wanted_time_start_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.wanted_time_start = 20000;
+        state.records.push(record);
+        assert_eq!(state.wanted_time_start_for_human(7), 20000);
+        assert_eq!(state.wanted_time_start_for_human(8), 0);
+    }
+
+    #[test]
+    fn signal_time_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only signal_time read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.signal_time_for_human(7), 0);
+        let mut first = PolicePursuitRecord::new(7);
+        first.signal_time = 4000;
+        let mut second = PolicePursuitRecord::new(7);
+        second.signal_time = 8000;
+        state.records.push(first);
+        state.records.push(second);
+        assert_eq!(state.signal_time_for_human(7), 8000);
+    }
+
+    #[test]
+    fn car_steal_time_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only car_steal_time read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.car_steal_time_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.record_car_steal();
+        state.records.push(record);
+        assert_eq!(state.car_steal_time_for_human(7), 5000);
+        assert_eq!(state.car_steal_time_for_human(8), 0);
+    }
+
+    #[test]
+    fn illegal_path_time_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only illegal_path_time read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.illegal_path_time_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.illegal_path_time = 1200;
+        state.records.push(record);
+        assert_eq!(state.illegal_path_time_for_human(7), 1200);
+    }
+
+    #[test]
+    fn collision_time_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only collision_time read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.collision_time_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.collision_time = 4000;
+        state.records.push(record);
+        assert_eq!(state.collision_time_for_human(7), 4000);
+    }
+
+    #[test]
+    fn boxing_time_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only boxing_time read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.boxing_time_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.record_boxing();
+        state.records.push(record);
+        assert_eq!(state.boxing_time_for_human(7), 5000);
+    }
+
+    #[test]
+    fn hits_time_for_human_reads_latest_match_or_cleared() {
+        // Working name: inline-only hits_time read; -1 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.hits_time_for_human(7), -1);
+        let mut record = PolicePursuitRecord::new(7);
+        record.hits_time = 5000;
+        state.records.push(record);
+        assert_eq!(state.hits_time_for_human(7), 5000);
+    }
+
+    #[test]
+    fn hits_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only hits read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.hits_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.hits = 3;
+        state.records.push(record);
+        assert_eq!(state.hits_for_human(7), 3);
+        assert_eq!(state.hits_for_human(8), 0);
+    }
+
+    #[test]
+    fn reason_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only reason read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.reason_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.reason = 8;
+        state.records.push(record);
+        assert_eq!(state.reason_for_human(7), 8);
+    }
+
+    #[test]
+    fn run_over_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only run_over read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.run_over_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.record_run_over();
+        record.record_run_over();
+        state.records.push(record);
+        assert_eq!(state.run_over_for_human(7), 2);
+    }
+
+    #[test]
+    fn known_car_for_human_reads_latest_match_or_none() {
+        // Working name: inline-only known_car read; None without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.known_car_for_human(7), None);
+        let mut record = PolicePursuitRecord::new(7);
+        record.known_car = Some(11);
+        state.records.push(record);
+        assert_eq!(state.known_car_for_human(7), Some(11));
+        assert_eq!(state.known_car_for_human(8), None);
+    }
+
+    #[test]
+    fn known_on_foot_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only known_on_foot read; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.known_on_foot_for_human(7));
+        let mut record = PolicePursuitRecord::new(7);
+        record.known_on_foot = true;
+        state.records.push(record);
+        assert!(state.known_on_foot_for_human(7));
+        assert!(!state.known_on_foot_for_human(8));
+    }
+
+    #[test]
+    fn rammed_car_for_human_reads_latest_match_or_zero() {
+        // Working name: inline-only rammed_car read; 0 without a record.
+        let mut state = PoliceGameInitState::default();
+        assert_eq!(state.rammed_car_for_human(7), 0);
+        let mut record = PolicePursuitRecord::new(7);
+        record.rammed_car = 13;
+        state.records.push(record);
+        assert_eq!(state.rammed_car_for_human(7), 13);
     }
 
     #[test]
