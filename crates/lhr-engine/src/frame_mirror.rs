@@ -205,6 +205,17 @@ pub const VISF_PROXY: u32 = 0x0001_0000;
 pub fn visual_proxy(visual_flags: u32) -> bool {
     visual_flags & VISF_PROXY != 0
 }
+/// VISF_UNKNOWN_80000 0x80000 (mafia-re ls3df/I3D/I3D.h:2705 at pin 113b5b6):
+/// cleared with VISF_WBOUND_VALID when the frame moves; nothing in LS3DF
+/// tests it.
+pub const VISF_UNKNOWN_80000: u32 = 0x0008_0000;
+/// Working name for the VISF_UNKNOWN_80000 bit test (mafia-re
+/// ls3df/I3D/I3D.h:2705). The reference records no LS3DF FUNCTION address for
+/// a standalone reader; the flag word is only cleared alongside
+/// VISF_WBOUND_VALID on frame moves. Reports the bit; no cache moves.
+pub fn visual_unknown_80000(visual_flags: u32) -> bool {
+    visual_flags & VISF_UNKNOWN_80000 != 0
+}
 /// VISF_LOD_CHANGED 0x2000000 (mafia-re ls3df/I3D/I3D.h:2707 at pin 113b5b6):
 /// GetObjectLOD changed a VISF_TEXTURE_LOD visual's level.
 pub const VISF_LOD_CHANGED: u32 = 0x0200_0000;
@@ -1956,6 +1967,17 @@ mod tests {
         assert!(!visual_lod_changed(0));
         assert!(!visual_lod_changed(VISF_TEXTURE_LOD));
         assert!(!visual_lod_changed(u32::MAX & !VISF_LOD_CHANGED));
+    }
+    #[test]
+    fn visual_unknown_80000_reports_only_bit_nineteen() {
+        // Working name for VISF_UNKNOWN_80000 (I3D.h:2705): no LS3DF FUNCTION
+        // entry for a standalone reader.
+        assert_eq!(VISF_UNKNOWN_80000, 0x0008_0000);
+        assert!(visual_unknown_80000(VISF_UNKNOWN_80000));
+        assert!(visual_unknown_80000(u32::MAX));
+        assert!(!visual_unknown_80000(0));
+        assert!(!visual_unknown_80000(VISF_PROXY));
+        assert!(!visual_unknown_80000(u32::MAX & !VISF_UNKNOWN_80000));
     }
 
     #[test]

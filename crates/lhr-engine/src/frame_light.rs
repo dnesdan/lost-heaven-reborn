@@ -159,6 +159,25 @@ pub const LIGHTMODE_LIGHTNESS: u32 = 0x40;
 pub fn light_lightness_mode(mode: u32) -> bool {
     mode & LIGHTMODE_LIGHTNESS != 0
 }
+/// I3DLIGHTMODE_DEFAULT 0xff6b (mafia-re ls3df/I3D/I3D.h:1901 at pin
+/// 113b5b6): a new light's mode, every bit but 0x4, 0x10 and 0x80.
+pub const LIGHTMODE_DEFAULT: u32 = 0xff6b;
+/// Working name for the `I3DLIGHTMODE_DEFAULT` word read (mafia-re
+/// ls3df/I3D/I3D.h:1901). The reference records no LS3DF FUNCTION address
+/// for it (it is a `#define` for the constructor store, not a function), so
+/// no RVA is claimed here. Reports the constructor default mode word; no
+/// cache moves.
+pub fn light_default_mode_value() -> u32 {
+    LIGHTMODE_DEFAULT
+}
+/// Working name for the `I3DLIGHTMODE_DEFAULT` word test (mafia-re
+/// ls3df/I3D/I3D.h:1901). Same inline-only status as
+/// `light_default_mode_value`: no standalone LS3DF FUNCTION entry exists, so
+/// no RVA is claimed here. Reports whether a stored mode word equals the
+/// constructor default; no cache moves.
+pub fn light_mode_is_default(mode: u32) -> bool {
+    mode == LIGHTMODE_DEFAULT
+}
 /// Working name for the `I3DLIGHT_NULL` type test (mafia-re ls3df/I3D/I3D.h:1879
 /// at pin 113b5b6). The reference records no LS3DF FUNCTION address for a
 /// standalone reader; the value is an enum word (0), tested in place by the
@@ -1013,6 +1032,19 @@ mod tests {
         assert!(!light_lightness_mode(LIGHTMODE_SHADOW));
         assert!(!light_lightness_mode(u32::MAX & !LIGHTMODE_LIGHTNESS));
         assert!(light_lightness_mode(0xff6b));
+    }
+    #[test]
+    fn light_default_mode_word_reports_constructor_default() {
+        // Working name for I3DLIGHTMODE_DEFAULT (I3D.h:1901): no LS3DF
+        // FUNCTION entry exists (constructor-store define, not a function).
+        assert_eq!(LIGHTMODE_DEFAULT, 0xff6b);
+        assert_eq!(light_default_mode_value(), 0xff6b);
+        assert!(light_mode_is_default(LIGHTMODE_DEFAULT));
+        assert!(light_mode_is_default(0xff6b));
+        assert!(!light_mode_is_default(0));
+        assert!(!light_mode_is_default(LIGHTMODE_LIGHTNESS));
+        assert!(!light_mode_is_default(u32::MAX));
+        assert!(!light_mode_is_default(LIGHTMODE_DEFAULT & !0x40));
     }
     #[test]
     fn light_diffuse_reader_reports_constructor_default_then_setter_store() {

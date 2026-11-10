@@ -51,6 +51,23 @@ pub fn occl_hides_no_portal(occl_flags: u32) -> bool {
 pub fn occl_face_is_facing(face_flags: u32) -> bool {
     face_flags & OCCLFF_FACING != 0
 }
+
+/// Working name for `OCCL_MAX_PLANES` (mafia-re ls3df/I3D/I3D.h:2354 at pin
+/// 113b5b6: `UpdateShadow` gives up past so many side or face planes; the
+/// side/face arrays have room for one face more). The reference records no
+/// LS3DF FUNCTION address for it (it is a `#define` for the
+/// `side_planes`/`face_planes` capacities, not a function), so no RVA is
+/// claimed here. Reports the native plane budget; no owner is consulted.
+pub const OCCL_MAX_PLANES: usize = 32;
+
+/// Working name for the `OCCL_MAX_PLANES` budget check (mafia-re
+/// ls3df/I3D/I3D.h:2352-2354 at pin 113b5b6). Same inline-only status as the
+/// `OCCL_MAX_PLANES` capacity word: no standalone LS3DF FUNCTION entry
+/// exists, so no RVA is claimed here. Reports whether a plane count fits the
+/// native side/face arrays; no cache moves.
+pub fn occluder_within_max_planes(count: usize) -> bool {
+    count <= OCCL_MAX_PLANES
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OccluderKey {
     frame: FrameKey,
@@ -2070,5 +2087,16 @@ mod tests {
         assert!(!occl_face_is_facing(OCCLF_ACTIVE));
         assert!(!occl_face_is_facing(OCCLF_PORTAL));
         assert!(!occl_face_is_facing(u32::MAX & !OCCLFF_FACING));
+    }
+    #[test]
+    fn occl_max_planes_budget_reports_native_capacity() {
+        // Working name for OCCL_MAX_PLANES (I3D.h:2354): no LS3DF FUNCTION
+        // entry for a standalone reader (array capacity define).
+        assert_eq!(OCCL_MAX_PLANES, 32);
+        assert!(occluder_within_max_planes(0));
+        assert!(occluder_within_max_planes(31));
+        assert!(occluder_within_max_planes(OCCL_MAX_PLANES));
+        assert!(!occluder_within_max_planes(OCCL_MAX_PLANES + 1));
+        assert!(!occluder_within_max_planes(usize::MAX));
     }
 }
