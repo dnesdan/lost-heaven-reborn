@@ -161,6 +161,73 @@ pub fn scene_callback_message_post_render_value() -> u32 {
 pub fn scene_retained_sector_mask() -> u32 {
     0x200 | 0x1000 | 0x2000 | 0x4000
 }
+/// Working name for the emitor tick-registration gate of `I3D_scene::AddFrame`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:262-270 at pin 113b5b6: a non-emitor
+/// frame returns right after the owned-list insert; an emitor proceeds to the
+/// tick-list scan and sets `FRMFLAGS_TICK`). The `AddFrame` body lives at
+/// frozen ledger RVA 0x49290 (`scene_add_frame_with_allocator`, not claimed
+/// here), which keeps owned-frame registration but has no emitor tick branch;
+/// only the kind gate is modeled, and the tick scan, insert and flag store
+/// stay caller-owned. Reports whether the added frame must join the tick
+/// list. No state moves.
+pub fn scene_add_frame_registers_tick(is_emitor: bool) -> bool {
+    is_emitor
+}
+/// Working name for the animation-slot range guard shared by the scene
+/// animation setters and getters (mafia-re ls3df/I3D/I3D.h:1226
+/// `I3D_MAX_ANIMS` 8 at pin 113b5b6, checked as `index >= I3D_MAX_ANIMS` in
+/// each of `SetAnimation`/`GetAnimationSet`/`StopAnimation`/`SetAnimBlend`/
+/// `GetAnimBlend`/`SetAnimTime`/`GetAnimTime`/`AnimIsOn`
+/// (ls3df/I3D/I3d_scene.cpp:857-963). The slot bodies
+/// live at already-occupied PC RVAs 0x4b1b0-0x4b370
+/// (`scene_animation_runtime`, not claimed here); only the shared bound is
+/// modeled, and the per-slot stores and words stay caller-owned. Reports
+/// whether the index names one of the eight interpolator-set slots. No state
+/// moves.
+pub fn scene_anim_slot_in_range(index: u32) -> bool {
+    index < 8
+}
+/// Working name for the blend clamp of `I3D_scene::SetAnimBlend` (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:904-908 at pin 113b5b6). Same occupied-body status
+/// as `scene_anim_slot_in_range` (PC RVA 0x4b210, `scene_animation_runtime`,
+/// not claimed here); the slot store and the `changed` flag stay
+/// caller-owned. Values below 0.0 become 0.0 and values above 1.0 become 1.0;
+/// NaN passes through unchanged because both native comparisons are false
+/// for it (no quieting is evidenced). Exact f32 comparison order; no state
+/// moves.
+pub fn scene_set_anim_blend_clamped(blend: f32) -> f32 {
+    if blend < 0.0 {
+        0.0
+    } else if blend > 1.0 {
+        1.0
+    } else {
+        blend
+    }
+}
+/// Working name for the flags store of `I3D_scene::SetCallback` (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:185-194 at pin 113b5b6: a null callback forces the
+/// flags word to zero, otherwise the passed flags are stored). The
+/// `SetCallback` body lives at already-occupied PC RVA 0x49120
+/// (`scene_set_callback`, not claimed here); only the stored word is modeled,
+/// and the old-callback read stays caller-owned. No state moves.
+pub fn scene_callback_flags_for_store(has_callback: bool, flags: u32) -> u32 {
+    if has_callback {
+        flags
+    } else {
+        0
+    }
+}
+/// Working name for the refcount release guard of `I3D_scene::DeleteFrame`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:283-284 at pin 113b5b6:
+/// `if (m_RefCount > 0) Release()` after the owned-list removal and the tick
+/// untrack). The `DeleteFrame` body lives at already-occupied PC RVA 0x49400
+/// (`scene_delete_frame_word`, not claimed here); only the signed-positive
+/// guard is modeled, and the removal, untrack and release calls stay
+/// caller-owned. The native member is a signed int (I3D.h:659); the host word
+/// is reinterpreted the same way before the comparison. No state moves.
+pub fn scene_delete_frame_releases(references: u32) -> bool {
+    (references as i32) > 0
+}
 
 #[derive(Debug)]
 pub struct SceneFrameOwner {
@@ -3781,5 +3848,57 @@ mod scene_frame_getter_working_name_tests {
             .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
             .unwrap();
         assert_eq!(arena.state(dummy).unwrap().kind, FrameKind::Dummy);
+    }
+    #[test]
+    fn add_frame_registers_tick_only_for_emitors() {
+        // Working name for the AddFrame emitor gate (I3d_scene.cpp:262-270):
+        // no LS3DF FUNCTION address exists for a standalone reader (ledger
+        // RVA 0x49290 is occupied by scene_add_frame_with_allocator, which
+        // has no tick branch, and is not claimed here).
+        assert!(scene_add_frame_registers_tick(true));
+        assert!(!scene_add_frame_registers_tick(false));
+    }
+    #[test]
+    fn anim_slot_guard_names_eight_slots() {
+        // Working names for the scene animation slot bound (I3D.h:1226,
+        // I3d_scene.cpp:860-958): no standalone LS3DF FUNCTION entry exists,
+        // so no RVA is claimed here (slot bodies 0x4b1b0-0x4b370 occupied).
+        assert!(scene_anim_slot_in_range(0));
+        assert!(scene_anim_slot_in_range(7));
+        assert!(!scene_anim_slot_in_range(8));
+        assert!(!scene_anim_slot_in_range(9));
+        assert!(!scene_anim_slot_in_range(u32::MAX));
+    }
+    #[test]
+    fn set_anim_blend_clamp_keeps_nan_unchanged() {
+        // Working name for the SetAnimBlend clamp (I3d_scene.cpp:904-908):
+        // no standalone LS3DF FUNCTION entry exists (PC RVA 0x4b210
+        // occupied, not claimed here). NaN passes through because both
+        // native comparisons are false for it.
+        assert_eq!(scene_set_anim_blend_clamped(-1.0), 0.0);
+        assert_eq!(scene_set_anim_blend_clamped(0.0), 0.0);
+        assert_eq!(scene_set_anim_blend_clamped(0.5), 0.5);
+        assert_eq!(scene_set_anim_blend_clamped(1.0), 1.0);
+        assert_eq!(scene_set_anim_blend_clamped(2.0), 1.0);
+        assert_eq!(
+            scene_set_anim_blend_clamped(f32::NAN).to_bits(),
+            f32::NAN.to_bits()
+        );
+    }
+    #[test]
+    fn callback_flags_store_and_delete_release_guard() {
+        // Working names for the SetCallback flags store (I3d_scene.cpp:187-190,
+        // PC RVA 0x49120 occupied) and the DeleteFrame release guard
+        // (I3d_scene.cpp:283-284, PC RVA 0x49400 occupied): no standalone
+        // LS3DF FUNCTION entries exist, so no RVA is claimed here.
+        assert_eq!(scene_callback_flags_for_store(true, 0x1234), 0x1234);
+        assert_eq!(scene_callback_flags_for_store(true, 0), 0);
+        assert_eq!(scene_callback_flags_for_store(false, 0x1234), 0);
+        assert_eq!(scene_callback_flags_for_store(false, 0), 0);
+        assert!(scene_delete_frame_releases(1));
+        assert!(scene_delete_frame_releases(u32::MAX & 0x7fff_ffff));
+        assert!(!scene_delete_frame_releases(0));
+        assert!(!scene_delete_frame_releases(0x8000_0000));
+        assert!(!scene_delete_frame_releases(u32::MAX));
     }
 }

@@ -606,6 +606,98 @@ fn subtree_mask_matches(pattern: &[u8], stored: &[u8], flags: u32) -> bool {
         true
     }
 }
+/// Working name for the self type gate of `I3D_frame::GetChildFrame` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:737-755 at pin 113b5b6: the `type_flags`
+/// switch on `m_Type`). The `GetChildFrame` body lives at already-occupied PC
+/// RVA 0x1c360 (confirm-only port `get_child_frame`, not claimed here); only
+/// this first gate is modeled, and the child recursion stays caller-owned.
+/// A full low word (`ENUMF_ALL`) accepts every kind without consulting the
+/// switch. Otherwise the frame's own kind bit must be set in the caller
+/// flags. The native switch has no `JOINT` arm, so a joint never self-matches
+/// even with `ENUMF_JOINT` set (it falls into `default: ok = 0`); that
+/// never-match rule is modeled here, not in the walker. Kinds without a
+/// `FrameKind` variant (user, volume, shadow, emitor) are unrepresented, the
+/// same disclosed coverage the walker already has. Exact word test; no state
+/// moves.
+pub fn get_child_frame_self_type_accepts(kind: FrameKind, flags: u32) -> bool {
+    if flags & 0xffff == 0xffff {
+        return true;
+    }
+    if matches!(kind, FrameKind::Joint) {
+        return false;
+    }
+    subtree_kind_mask(kind) & flags != 0
+}
+/// Working name for the self name gate of `I3D_frame::GetChildFrame` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:756-786 at pin 113b5b6). Same occupied-body
+/// status as `get_child_frame_self_type_accepts` (PC RVA 0x1c360): only this
+/// gate is modeled. Unlike the subtree walk, which compares the model-stripped
+/// original name, this gate compares the full stored name (`m_pName`). A null
+/// query accepts without reading the name; a null stored name rejects.
+/// Otherwise the exact, case-sensitive and wildcard arms run exactly as in
+/// `subtree_mask_matches` (the native spells the insensitive arm with
+/// `toupper`, ASCII-only here like the shared core -- disclosed). No state
+/// moves.
+pub fn get_child_frame_self_name_accepts(
+    stored: Option<&[u8]>,
+    query: Option<&[u8]>,
+    flags: u32,
+) -> bool {
+    let Some(pattern) = query else {
+        return true;
+    };
+    let Some(name) = stored else {
+        return false;
+    };
+    subtree_mask_matches(pattern, name, flags)
+}
+/// Sectors `I3D_scene::FindFrame` visits, in order (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:228-249 at pin 113b5b6: primary first, then the
+/// flag-gated backdrop, omni and near sectors, returning the first hit).
+/// The `FindFrame` body lives at frozen ledger RVA 0x49210 (not claimed here);
+/// the current `find_frame` above walks primary then backdrop only, so the
+/// omni/near arms stay unported (disclosed). Only the flag-gated visit order
+/// is modeled; traversal and the first-hit return stay caller-owned. Exact
+/// flag tests; no state moves.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FindFrameSector {
+    Primary,
+    Backdrop,
+    Omni,
+    Near,
+}
+/// Visit order for `find_frame_sector_visit_order`: primary always, then each
+/// further sector only when its `ENUMF_*` bit is set. Absent sectors are
+/// `None`, never reordered.
+pub fn find_frame_sector_visit_order(flags: u32) -> [Option<FindFrameSector>; 4] {
+    [
+        Some(FindFrameSector::Primary),
+        enum_scope_includes_backdrop(flags).then_some(FindFrameSector::Backdrop),
+        enum_scope_includes_omni(flags).then_some(FindFrameSector::Omni),
+        enum_scope_includes_near(flags).then_some(FindFrameSector::Near),
+    ]
+}
+/// Working name for the per-sector error short-circuit of
+/// `I3D_scene::EnumFrames` (mafia-re ls3df/I3D/I3d_scene.cpp:206-223 at pin
+/// 113b5b6: `if (ret < 0) return ret` after the primary, backdrop and omni
+/// sectors). The `EnumFrames` body lives at already-occupied PC RVA 0x49180
+/// (not claimed here); only the negative-word stop rule is modeled, and the
+/// sector enumeration stays caller-owned. Reports whether the sector walk
+/// stops with the carried result word instead of visiting the next sector.
+/// No state moves.
+pub fn scene_enum_frames_stops_on_error(result: i32) -> bool {
+    result < 0
+}
+/// Working name for the first-hit return of `I3D_scene::FindFrame` (mafia-re
+/// ls3df/I3D/I3d_scene.cpp:230-248 at pin 113b5b6: each sector's hit returns
+/// immediately instead of consulting the next sector). Same frozen-body
+/// status as `find_frame_sector_visit_order` (ledger RVA 0x49210, not claimed
+/// here); only the stop rule is modeled, and the per-sector `GetChildFrame`
+/// calls stay caller-owned. Reports whether the sector walk returns the hit.
+/// No state moves.
+pub fn find_frame_stops_at_first_hit(hit: bool) -> bool {
+    hit
+}
 
 /// Original I3D_frame::EnumSubtree, PC RVA 0x1c020 (already ledger-credited,
 /// frozen port `LS3DF bounded actor frame effects over owned ModelArena`: NO overlay
@@ -1419,5 +1511,81 @@ mod tests {
         assert!(!enum_matches_all_kinds(0xfffe));
         assert!(!enum_matches_all_kinds(0x1ffff & !0x8000));
         assert!(!enum_matches_all_kinds(u32::MAX & !0x4000));
+    }
+    #[test]
+    fn child_frame_self_type_gate_models_joint_quirk_and_all_bypass() {
+        // Working names for the GetChildFrame self type gate
+        // (I3d_frame.cpp:737-755): no LS3DF FUNCTION address exists for a
+        // standalone reader (PC RVA 0x1c360 is occupied, not claimed here).
+        assert!(get_child_frame_self_type_accepts(FrameKind::Model, 0xffff));
+        assert!(get_child_frame_self_type_accepts(FrameKind::Joint, 0xffff));
+        assert!(get_child_frame_self_type_accepts(FrameKind::Model, 0x80));
+        assert!(get_child_frame_self_type_accepts(FrameKind::Dummy, 0x20));
+        assert!(get_child_frame_self_type_accepts(FrameKind::Area, 0x1000));
+        assert!(!get_child_frame_self_type_accepts(FrameKind::Model, 0x1));
+        assert!(!get_child_frame_self_type_accepts(FrameKind::Dummy, 0));
+        // The native switch has no JOINT arm: a joint never self-matches,
+        // even with ENUMF_JOINT set (default: ok = 0).
+        assert!(!get_child_frame_self_type_accepts(FrameKind::Joint, 0x400));
+        assert!(!get_child_frame_self_type_accepts(FrameKind::Joint, 0x4ff));
+        // Occluder and scene frames have no arm either (mask bit zero).
+        assert!(!get_child_frame_self_type_accepts(FrameKind::Occluder, 0x800));
+        assert!(!get_child_frame_self_type_accepts(FrameKind::Scene, 0x800));
+    }
+    #[test]
+    fn child_frame_self_name_gate_models_null_and_mask_arms() {
+        // Working names for the GetChildFrame self name gate
+        // (I3d_frame.cpp:756-786): no LS3DF FUNCTION address exists for a
+        // standalone reader (PC RVA 0x1c360 is occupied, not claimed here).
+        assert!(get_child_frame_self_name_accepts(Some(b"a"), None, 0));
+        assert!(get_child_frame_self_name_accepts(None, None, 0x20000));
+        assert!(!get_child_frame_self_name_accepts(None, Some(b"a"), 0));
+        assert!(get_child_frame_self_name_accepts(Some(b"hit"), Some(b"hit"), 0x20000));
+        assert!(!get_child_frame_self_name_accepts(Some(b"hit"), Some(b"miss"), 0x20000));
+        assert!(get_child_frame_self_name_accepts(Some(b"AlPhA"), Some(b"alpha"), 0));
+        assert!(get_child_frame_self_name_accepts(Some(b"prefix_rest"), Some(b"prefix*"), 0x10000));
+        assert!(!get_child_frame_self_name_accepts(Some(b"other"), Some(b"prefix*"), 0x10000));
+    }
+    #[test]
+    fn find_frame_visit_order_is_primary_then_flag_gated_sectors() {
+        // Working names for the FindFrame sector order (I3d_scene.cpp:228-249):
+        // no LS3DF FUNCTION address exists for a standalone reader (ledger
+        // RVA 0x49210 is occupied, not claimed here).
+        use FindFrameSector::{Backdrop, Near, Omni, Primary};
+        assert_eq!(find_frame_sector_visit_order(0), [Some(Primary), None, None, None]);
+        assert_eq!(
+            find_frame_sector_visit_order(0x40000),
+            [Some(Primary), Some(Backdrop), None, None]
+        );
+        assert_eq!(
+            find_frame_sector_visit_order(0x80000),
+            [Some(Primary), None, Some(Omni), None]
+        );
+        assert_eq!(
+            find_frame_sector_visit_order(0x100000),
+            [Some(Primary), None, None, Some(Near)]
+        );
+        assert_eq!(
+            find_frame_sector_visit_order(0x1c0000),
+            [Some(Primary), Some(Backdrop), Some(Omni), Some(Near)]
+        );
+        assert_eq!(
+            find_frame_sector_visit_order(u32::MAX),
+            [Some(Primary), Some(Backdrop), Some(Omni), Some(Near)]
+        );
+    }
+    #[test]
+    fn sector_walk_stop_rules_match_native_branches() {
+        // Working names for the EnumFrames error short-circuit
+        // (I3d_scene.cpp:206-223, PC RVA 0x49180 occupied) and the FindFrame
+        // first-hit return (I3d_scene.cpp:230-248, ledger RVA 0x49210
+        // occupied): no standalone LS3DF FUNCTION entries exist, so no RVA is
+        // claimed here.
+        assert!(scene_enum_frames_stops_on_error(-1));
+        assert!(scene_enum_frames_stops_on_error(i32::MIN));
+        assert!(!scene_enum_frames_stops_on_error(0));
+        assert!(!scene_enum_frames_stops_on_error(1));
+        assert!(find_frame_stops_at_first_hit(true));
+        assert!(!find_frame_stops_at_first_hit(false));
     }
 }

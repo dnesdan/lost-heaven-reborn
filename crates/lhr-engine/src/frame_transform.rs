@@ -930,6 +930,82 @@ pub fn link_updates_at_once(flags: u32) -> bool {
 pub fn link_to_same_parent_noop(same_parent: bool) -> bool {
     same_parent
 }
+/// Working name for the old-chain flag clearing of `I3D_frame::LinkTo`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:508-528 at pin 113b5b6). The
+/// `LinkTo` body lives at frozen ledger RVA 0x1b9d0 (not claimed here); the
+/// ancestor walks stay caller-owned. Each old-chain ancestor above a sector
+/// drops the area and occluder flags, above an occluder the area and sector
+/// flags, and above an area the sector and occluder flags; above any other
+/// kind all three hierarchy flags drop. Reports the mask to clear from one
+/// ancestor's flags word. The children's re-gather below stays with the
+/// walker. No state moves.
+pub fn link_to_old_chain_clear_mask(kind: FrameKind) -> u32 {
+    const AREAS: u32 = 0x40000;
+    const SECTORS: u32 = 0x80000;
+    const OCCLUDERS: u32 = 0x100000;
+    match kind {
+        FrameKind::Sector => AREAS | OCCLUDERS,
+        FrameKind::Occluder => AREAS | SECTORS,
+        FrameKind::Area => SECTORS | OCCLUDERS,
+        _ => AREAS | SECTORS | OCCLUDERS,
+    }
+}
+/// Follow-up selected by `link_to_follow_up` after the `LinkTo` relink.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LinkToFollowUp {
+    /// `I3DLINK_UPDATE`: update the frame at once.
+    Update,
+    /// `I3DLINK_DISCARD_BOUND`: discard the hierarchy bound volumes.
+    DiscardBoundVolume,
+    /// Neither flag: the world-matrix validity update stands alone.
+    None,
+}
+/// Working name for the follow-up dispatch of `I3D_frame::LinkTo` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:498-501 at pin 113b5b6: `I3DLINK_UPDATE`
+/// updates at once, otherwise `I3DLINK_DISCARD_BOUND` discards the hierarchy
+/// bound volumes). Same frozen-body status as `link_to_old_chain_clear_mask`
+/// (ledger RVA 0x1b9d0); the `Update`/`DiscardHRBoundVol` calls stay
+/// caller-owned, and the single-flag gates live in `link_updates_at_once`
+/// and `link_discards_bounds`. Reports which follow-up the flag word selects;
+/// `UPDATE` wins when both bits are set, matching the native branch order.
+/// No state moves.
+pub fn link_to_follow_up(flags: u32) -> LinkToFollowUp {
+    if flags & I3DLINK_UPDATE != 0 {
+        LinkToFollowUp::Update
+    } else if flags & I3DLINK_DISCARD_BOUND != 0 {
+        LinkToFollowUp::DiscardBoundVolume
+    } else {
+        LinkToFollowUp::None
+    }
+}
+/// Structural case unlinked by `I3D_frame::RemoveChild` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:586-600 at pin 113b5b6).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RemoveChildCase {
+    /// A predecessor exists: bypass the child between predecessor and
+    /// successor.
+    Middle,
+    /// No predecessor but a successor exists: the successor becomes the head
+    /// child.
+    First,
+    /// Neither: the child list empties and the count zeroes.
+    Only,
+}
+/// Working name for the structural case of `I3D_frame::RemoveChild`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:586-600 at pin 113b5b6). The
+/// `RemoveChild` body lives at frozen ledger RVA 0x1bf20 (not claimed here);
+/// the pointer and count stores stay caller-owned, as does the
+/// parent-identity early-out. Reports which unlink shape the sibling links
+/// select. No state moves.
+pub fn frame_remove_child_case(has_prev: bool, has_next: bool) -> RemoveChildCase {
+    if has_prev {
+        RemoveChildCase::Middle
+    } else if has_next {
+        RemoveChildCase::First
+    } else {
+        RemoveChildCase::Only
+    }
+}
 /// Working name for the `UPDATE|CHANGED` gate of `UpdateChildren`
 /// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:887 at pin 113b5b6).
 /// The reference records no LS3DF FUNCTION address for a standalone reader;
@@ -7090,5 +7166,41 @@ mod tests {
             frame_type_in_valid_range(18),
             !frame_type_loader_refuses(18)
         );
+    }
+    #[test]
+    fn link_old_chain_clear_mask_drops_other_two_kinds() {
+        // Working name for the LinkTo old-chain clearing (I3d_frame.cpp:508-528):
+        // no LS3DF FUNCTION address exists for a standalone reader (ledger
+        // RVA 0x1b9d0 is occupied, not claimed here).
+        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Sector), 0x40000 | 0x100000);
+        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Occluder), 0x40000 | 0x80000);
+        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Area), 0x80000 | 0x100000);
+        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Model), 0x40000 | 0x80000 | 0x100000);
+        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Dummy), 0x40000 | 0x80000 | 0x100000);
+    }
+    #[test]
+    fn link_follow_up_prefers_update_over_discard() {
+        // Working name for the LinkTo follow-up dispatch (I3d_frame.cpp:498-501):
+        // no LS3DF FUNCTION address exists for a standalone reader (ledger
+        // RVA 0x1b9d0 is occupied, not claimed here).
+        assert_eq!(link_to_follow_up(0), LinkToFollowUp::None);
+        assert_eq!(link_to_follow_up(I3DLINK_UPDMATRIX), LinkToFollowUp::None);
+        assert_eq!(link_to_follow_up(I3DLINK_DISCARD_BOUND), LinkToFollowUp::DiscardBoundVolume);
+        assert_eq!(link_to_follow_up(I3DLINK_UPDATE), LinkToFollowUp::Update);
+        assert_eq!(
+            link_to_follow_up(I3DLINK_UPDATE | I3DLINK_DISCARD_BOUND),
+            LinkToFollowUp::Update
+        );
+        assert_eq!(link_to_follow_up(u32::MAX), LinkToFollowUp::Update);
+    }
+    #[test]
+    fn remove_child_case_covers_all_sibling_shapes() {
+        // Working name for the RemoveChild structural cases
+        // (I3d_frame.cpp:586-600): no LS3DF FUNCTION address exists for a
+        // standalone reader (ledger RVA 0x1bf20 is occupied, not claimed here).
+        assert_eq!(frame_remove_child_case(true, true), RemoveChildCase::Middle);
+        assert_eq!(frame_remove_child_case(true, false), RemoveChildCase::Middle);
+        assert_eq!(frame_remove_child_case(false, true), RemoveChildCase::First);
+        assert_eq!(frame_remove_child_case(false, false), RemoveChildCase::Only);
     }
 }
