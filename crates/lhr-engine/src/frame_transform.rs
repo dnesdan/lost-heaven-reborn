@@ -32,6 +32,10 @@ mod lensflare_parameters;
 pub(crate) use lensflare_parameters::LensflareParameter;
 pub use lensflare_parameters::{lensflare_admit_glow, lensflare_fade_step, LensflareFadePlan};
 pub use lensflare_parameters::{
+    lensflare_plain_set_fade, lensflare_plain_set_intensity, lensflare_plain_set_range,
+    lensflare_plain_set_size, lensflare_plain_set_test_interval,
+};
+pub use lensflare_parameters::{
     LensflareGlowError, LensflareParameterUnavailable, LensflareParameters, LensflareReleaseCursor,
     LENSFLARE_FIXED_EXTENT, LENSFLARE_FIXED_RADIUS,
 };
@@ -476,6 +480,84 @@ pub fn duplicate_orig_name_offset(
 /// offset documented; no owner or device is consulted.
 pub fn frame_data_word(user_data: u32) -> u32 {
     user_data
+}
+/// Working name for the inlined `I3D_frame::GetName` empty fallback
+/// (mafia-re ls3df/I3D/I3D.h:583-587 at pin 113b5b6). The reference records
+/// no LS3DF FUNCTION address for a standalone reader; only the Game.exe
+/// out-of-line copy at 0x47ad00 exists, unclaimed here. Mirrors
+/// `m_pName ? m_pName : ""` over raw bytes; no owner or device is consulted.
+pub fn frame_name_bytes_or_empty(name: Option<&[u8]>) -> &[u8] {
+    name.unwrap_or(b"")
+}
+/// Working name for the inlined `I3D_frame::GetOrigName` empty fallback
+/// (mafia-re ls3df/I3D/I3D.h:589-593 at pin 113b5b6). The reference records
+/// no LS3DF FUNCTION address and no Game.exe out-of-line copy for a
+/// standalone reader. Mirrors `m_pOrigName ? m_pOrigName : ""`; pure.
+/// The arena `frame_orig_name_or_empty` covers stored names; this pins the
+/// byte-level empty rule with no owner.
+pub fn frame_orig_name_bytes_or_empty(orig: Option<&[u8]>) -> &[u8] {
+    orig.unwrap_or(b"")
+}
+/// Working name for the inlined `I3D_frame::GetProperty` empty fallback
+/// (mafia-re ls3df/I3D/I3D.h:625-630 at pin 113b5b6, game-only `#else`
+/// branch). The reference records no LS3DF FUNCTION address for a standalone
+/// reader. Mirrors `m_pProperty ? m_pProperty : ""`; pure.
+/// The arena `frame_property_or_empty` covers stored properties; this pins
+/// the byte-level empty rule with no owner.
+pub fn frame_property_bytes_or_empty(property: Option<&[u8]>) -> &[u8] {
+    property.unwrap_or(b"")
+}
+/// Working name for the `FRAME_USER` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_USER` is 8, stored by the ctor in
+/// ls3df/I3D/frames/I3d_user.cpp:5-13). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader; the word is
+/// tested in place by `Duplicate`. Reports whether a stored type word
+/// denotes a user frame; no cache moves.
+pub fn frame_type_word_is_user(type_word: u32) -> bool {
+    type_word == 8
+}
+/// Working name for the `FRAME_VOLUME` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-74 at pin 113b5b6;
+/// `FRAME_VOLUME` is 11, stored by the ctor in
+/// ls3df/I3D/frames/I3d_volume.cpp:5-13). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a volume frame; no cache moves.
+pub fn frame_type_word_is_volume(type_word: u32) -> bool {
+    type_word == 11
+}
+/// Working name for the `FRAME_DUMMY` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-69 at pin 113b5b6;
+/// `FRAME_DUMMY` is 6). The reference records no LS3DF FUNCTION address
+/// for a standalone discriminant reader. Reports whether a stored type
+/// word denotes a dummy frame; no cache moves.
+pub fn frame_type_word_is_dummy(type_word: u32) -> bool {
+    type_word == 6
+}
+/// Working name for the `FRAME_JOINT` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-73 at pin 113b5b6;
+/// `FRAME_JOINT` is 10). The reference records no LS3DF FUNCTION address
+/// for a standalone discriminant reader. Reports whether a stored type
+/// word denotes a joint frame; no cache moves.
+pub fn frame_type_word_is_joint(type_word: u32) -> bool {
+    type_word == 10
+}
+/// Working name for the `FRAME_TARGET` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-70 at pin 113b5b6;
+/// `FRAME_TARGET` is 7). The reference records no LS3DF FUNCTION address
+/// for a standalone discriminant reader. This tests the stored type word,
+/// unlike `frame_is_target_frame` which tests the `FRMFLAGS_TARGET` list
+/// bit; no cache moves.
+pub fn frame_type_word_is_target(type_word: u32) -> bool {
+    type_word == 7
+}
+/// Working name for the `FRAME_MODEL` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_MODEL` is 9). The reference records no LS3DF FUNCTION address
+/// for a standalone discriminant reader. Reports whether a stored type
+/// word denotes a model frame; no cache moves.
+pub fn frame_type_word_is_model(type_word: u32) -> bool {
+    type_word == 9
 }
 /// Working name for the FRMFLAGS_FFTREE bit test (mafia-re ls3df/I3D/I3D.h:286).
 /// The reference records no LS3DF FUNCTION address for a standalone reader;
@@ -6624,5 +6706,42 @@ mod tests {
         assert!(!frame_get_child_index_in_range(0, 0));
         assert!(!frame_get_child_index_in_range(i32::MIN, 5));
         assert!(!frame_get_child_index_in_range(i32::MAX, u32::MAX));
+    }
+
+    #[test]
+    fn frame_name_byte_empties_match_null_pointer_fallback() {
+        // Working names for the GetName/GetOrigName/GetProperty `? : ""`
+        // fallbacks (mafia-re ls3df/I3D/I3D.h:583-593,625-630): no LS3DF
+        // FUNCTION addresses exist for standalone readers (only Game.exe
+        // 0x47ad00 for GetName, unclaimed). Pure byte rules, no owner.
+        assert_eq!(frame_name_bytes_or_empty(None), b"");
+        assert_eq!(frame_name_bytes_or_empty(Some(b"a")), b"a");
+        assert_eq!(frame_name_bytes_or_empty(Some(b"")), b"");
+        assert_eq!(frame_orig_name_bytes_or_empty(None), b"");
+        assert_eq!(frame_orig_name_bytes_or_empty(Some(b"m.f")), b"m.f");
+        assert_eq!(frame_property_bytes_or_empty(None), b"");
+        assert_eq!(frame_property_bytes_or_empty(Some(b"p")), b"p");
+        assert_eq!(frame_property_bytes_or_empty(Some(b"")), b"");
+    }
+
+    #[test]
+    fn frame_type_word_discriminants_match_frame_enum_values() {
+        // Working names for the FRAME_* discriminants behind GetType
+        // (mafia-re ls3df/I3D/I3D.h:61-74): no LS3DF FUNCTION addresses
+        // exist for standalone readers.
+        assert!(frame_type_word_is_user(8));
+        assert!(frame_type_word_is_volume(11));
+        assert!(frame_type_word_is_dummy(6));
+        assert!(frame_type_word_is_joint(10));
+        assert!(frame_type_word_is_target(7));
+        assert!(frame_type_word_is_model(9));
+        assert!(!frame_type_word_is_user(0));
+        assert!(!frame_type_word_is_user(11));
+        assert!(!frame_type_word_is_volume(8));
+        assert!(!frame_type_word_is_dummy(7));
+        assert!(!frame_type_word_is_joint(9));
+        assert!(!frame_type_word_is_target(0x4000));
+        assert!(!frame_type_word_is_model(u32::MAX));
+        assert!(!frame_type_word_is_user(u32::MAX));
     }
 }
