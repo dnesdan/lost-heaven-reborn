@@ -17419,6 +17419,141 @@
       "symbol": "lhr_engine::police_state::sledovacka_savegame_load",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e9be0",
+      "va": "0x5e9be0",
+      "name": "GM_Component::GM_Component",
+      "symbol": "lhr_engine::menu::MenuComponent::from_design_row",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e9cb0",
+      "va": "0x5e9cb0",
+      "name": "GM_Component::GM_Component",
+      "symbol": "lhr_engine::menu::MenuComponent::duplicated",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e9e50",
+      "va": "0x5e9e50",
+      "name": "GM_Component::InsertComponent",
+      "symbol": "lhr_engine::menu::MenuComponent::insert_child",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ea000",
+      "va": "0x5ea000",
+      "name": "GM_Component::InsertComponentAfter",
+      "symbol": "lhr_engine::menu::MenuComponent::insert_child_after",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ea1f0",
+      "va": "0x5ea1f0",
+      "name": "GM_Menu::GM_Menu",
+      "symbol": "lhr_engine::menu::MenuInstanceCount::acquire",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1ea270",
+      "va": "0x5ea270",
+      "name": "GM_Menu::~GM_Menu",
+      "symbol": "lhr_engine::menu::MenuInstanceCount::release",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f9d50",
+      "va": "0x5f9d50",
+      "name": "G_IndicatorsClass::ConsoleAddText",
+      "symbol": "lhr_engine::indicators::IndicatorsState::console_add_text",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1f9e10",
+      "va": "0x5f9e10",
+      "name": "G_IndicatorsClass::AddBloodSplash",
+      "symbol": "lhr_engine::indicators::IndicatorsState::add_blood_splash",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa030",
+      "va": "0x5fa030",
+      "name": "G_IndicatorsClass::ThiefIndicatorSetValue",
+      "symbol": "lhr_engine::indicators::IndicatorsState::thief_indicator_set_value",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa370",
+      "va": "0x5fa370",
+      "name": "G_IndicatorsClass::FadeInOut",
+      "symbol": "lhr_engine::indicators::IndicatorsState::fade_in_out",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa3e0",
+      "va": "0x5fa3e0",
+      "name": "G_IndicatorsClass::FadeInOutGetState",
+      "symbol": "lhr_engine::indicators::IndicatorsState::fade_in_out_get_state",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa510",
+      "va": "0x5fa510",
+      "name": "G_IndicatorsClass::RadarAddCar",
+      "symbol": "lhr_engine::indicators::IndicatorsState::radar_add_car",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1fa500",
+      "va": "0x5fa500",
+      "name": "G_IndicatorsClass::RadarSetPlayerCar",
+      "symbol": "lhr_engine::indicators::IndicatorsState::radar_set_player_car",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xcd590",
+      "va": "0x4cd590",
+      "name": "C_Vehicle::GetRotations",
+      "symbol": "lhr_engine::vehicle_engine_state::vehicle_get_rotations",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c790",
+      "va": "0x41c790",
+      "name": "C_car::GetUSindex",
+      "symbol": "lhr_engine::vehicle_engine_state::car_get_usindex_unsupported",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
     }
   ],
   "vm": {

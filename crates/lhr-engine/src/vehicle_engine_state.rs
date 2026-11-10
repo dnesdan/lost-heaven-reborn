@@ -331,6 +331,184 @@ pub fn vehicle_get_head_pos<B: VehicleInitBackend>(
     ])
 }
 
+/// RVA 0xcd590, VA 0x4cd590 (`C_Vehicle::GetRotations`, mafia-re fe7e746
+/// game/vehicles/C_Vehicle.cpp:170-177 FUNCTION: GAME 0x4cd590; contract
+/// game/vehicles/C_Vehicle.h:222-223): the engine's revolutions a minute,
+/// 0.0 while it is off. Reads the `engine_on` byte at vehicle+0xc2c and the
+/// `rotations` float at vehicle+0x548; when on, returns `rotations * 60.0`.
+/// A NaN `rotations` propagates through the product like the original multiply.
+pub fn vehicle_get_rotations<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<f32, B::Error> {
+    if backend.read_byte(vehicle + layout::ENGINE_STATE)? == 0 {
+        return Ok(0.0);
+    }
+    Ok(f32::from_bits(backend.read_word(vehicle + layout::ROTATIONS)?) * 60.0)
+}
+
+/// Working name `vehicle_sounds_enabled` (no standalone entry: header-inline
+/// `C_Vehicle::SoundsEnabled`, mafia-re fe7e746 game/vehicles/C_Vehicle.h:205-210,
+/// `return sounds_enabled` at vehicle+0x432): whether the vehicle's sounds are on.
+pub fn vehicle_sounds_enabled<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<bool, B::Error> {
+    Ok(backend.read_byte(vehicle + layout::SOUNDS_ENABLED)? != 0)
+}
+
+/// Working name `vehicle_get_max_rotations` (no standalone entry: header-inline
+/// `C_Vehicle::GetMaxRotations`, mafia-re fe7e746 game/vehicles/C_Vehicle.h:248-251,
+/// `return max_rotations * 60.0f` at vehicle+0x1f9c): the tachometer's full-scale
+/// revolutions a minute.
+pub fn vehicle_get_max_rotations<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<f32, B::Error> {
+    Ok(f32::from_bits(backend.read_word(vehicle + layout::MAX_ROTATIONS)?) * 60.0)
+}
+
+/// Working name `vehicle_get_odometer` (no standalone entry: header-inline
+/// `C_Vehicle::GetOdometer`, mafia-re fe7e746 game/vehicles/C_Vehicle.h:252-255,
+/// `return odometer` at vehicle+0x1fa4): the tachometer's distance counter.
+pub fn vehicle_get_odometer<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<f32, B::Error> {
+    Ok(f32::from_bits(backend.read_word(vehicle + layout::ODOMETER)?))
+}
+
+/// Working name `vehicle_get_tank_fuel` (no standalone entry: header-inline
+/// `C_Vehicle::GetTankFuel`, mafia-re fe7e746 game/vehicles/C_Vehicle.h:256-259,
+/// `return tank_fuel` at vehicle+0xc30): the fuel currently in the tank.
+pub fn vehicle_get_tank_fuel<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<f32, B::Error> {
+    Ok(f32::from_bits(backend.read_word(vehicle + layout::FUEL)?))
+}
+
+/// Working name `vehicle_get_tank_size` (no standalone entry: header-inline
+/// `C_Vehicle::GetTankSize`, mafia-re fe7e746 game/vehicles/C_Vehicle.h:284-289,
+/// `return tank_size` at vehicle+0x1fa0): `SetFuel`'s upper bound.
+pub fn vehicle_get_tank_size<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<f32, B::Error> {
+    Ok(f32::from_bits(backend.read_word(vehicle + layout::TANK_SIZE)?))
+}
+
+/// Working name `vehicle_is_unknown_2000000` (no standalone entry: header-inline
+/// `C_Vehicle::IsUnknown2000000`, mafia-re fe7e746 game/vehicles/C_Vehicle.h:269-273,
+/// `return (vehicle_flags >> 25) & 1` at vehicle+0x1a4): whether the
+/// VEHF_UNKNOWN_2000000 bridge bit is set.
+pub fn vehicle_is_unknown_2000000<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<bool, B::Error> {
+    Ok(((backend.read_word(vehicle + layout::VEHICLE_FLAGS)? >> 25) & 1) != 0)
+}
+
+/// Working name `vehicle_get_auto_gearing` (no standalone entry: header-inline
+/// `C_Vehicle::GetAutoGearing`, mafia-re fe7e746 game/vehicles/C_Vehicle.h:244-247,
+/// `return auto_gearing` at vehicle+0x4cc; only the setter has a standalone
+/// entry, GAME 0x4a9c00): whether automatic gearing is selected.
+pub fn vehicle_get_auto_gearing<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<bool, B::Error> {
+    Ok(backend.read_byte(vehicle + layout::AUTO_GEARING)? != 0)
+}
+
+/// Working name `vehicle_set_analog_inputs` (no standalone entry: header-inline
+/// `C_Vehicle::SetAnalogInputs`, mafia-re fe7e746 game/vehicles/C_Vehicle.h:232-240,
+/// four bool stores at vehicle+0x4a8-0x4ab): which of steering, throttle, brake
+/// and clutch take the secondary binding's value.
+pub fn vehicle_set_analog_inputs<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+    steer: bool,
+    power: bool,
+    brake: bool,
+    clutch: bool,
+) -> Result<(), B::Error> {
+    backend.write_byte(vehicle + layout::ANALOG_STEER, u8::from(steer))?;
+    backend.write_byte(vehicle + layout::ANALOG_POWER, u8::from(power))?;
+    backend.write_byte(vehicle + layout::ANALOG_BRAKE, u8::from(brake))?;
+    backend.write_byte(vehicle + layout::ANALOG_CLUTCH, u8::from(clutch))
+}
+
+/// Working name `vehicle_set_light_unknown_800` (no standalone entry: header-inline
+/// `C_Vehicle::SetLightUnknown800`, mafia-re fe7e746 game/vehicles/C_Vehicle.h:335-344,
+/// sets/clears VLIGHT_UNKNOWN_800 in `lights` at vehicle+0x11c with no wake-up
+/// edge): the 0x800 light bit.
+pub fn vehicle_set_light_unknown_800<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+    on: bool,
+) -> Result<(), B::Error> {
+    let lights = backend.read_word(vehicle + layout::LIGHTS)?;
+    backend.write_word(
+        vehicle + layout::LIGHTS,
+        if on { lights | 0x800 } else { lights & !0x800 },
+    )
+}
+
+/// Working name `vehicle_set_light_unknown_8000` (no standalone entry: header-inline
+/// `C_Vehicle::SetLightUnknown8000`, mafia-re fe7e746 game/vehicles/C_Vehicle.h:345-351,
+/// sets/clears VLIGHT_UNKNOWN_8000 in `lights` at vehicle+0x11c with no wake-up
+/// edge): the 0x8000 light bit.
+pub fn vehicle_set_light_unknown_8000<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+    on: bool,
+) -> Result<(), B::Error> {
+    let lights = backend.read_word(vehicle + layout::LIGHTS)?;
+    backend.write_word(
+        vehicle + layout::LIGHTS,
+        if on {
+            lights | 0x8000
+        } else {
+            lights & !0x8000
+        },
+    )
+}
+
+/// Working name `car_get_color` (no standalone entry: header-inline `C_car::GetColor`,
+/// mafia-re fe7e746 game/vehicles/C_car.h:175-176, `return color` at car+0x211c,
+/// i.e. vehicle+0x20ac past the C_Vehicle base at car+0x70): the model's variant
+/// passed to the car database.
+pub fn car_get_color<B: VehicleInitBackend>(
+    backend: &mut B,
+    vehicle: u32,
+) -> Result<u32, B::Error> {
+    backend.read_word(vehicle + layout::COLOR)
+}
+
+/// RVA 0x1c790, VA 0x41c790 (`C_car::GetUSindex`, mafia-re fe7e746
+/// game/vehicles/C_car.cpp:704-708 STUB: GAME 0x41c790; declaration
+/// game/vehicles/C_car.h:168-169): the seat of the car's using object, -1 for
+/// one of no seat. The using-object-to-seat mapping owner is missing here, so
+/// this is an explicit unsupported boundary; no `-1` default is invented.
+pub const CAR_GET_USINDEX_ENTRY: u32 = 0x41c790;
+
+/// Host failure for the `C_car::GetUSindex` boundary: the original seat mapping
+/// is unavailable, distinct from a found seat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CarUsindexStubError {
+    /// The original mapping owner is missing.
+    Unsupported {
+        /// Original entry VA, [`CAR_GET_USINDEX_ENTRY`].
+        entry: u32,
+    },
+}
+
+pub fn car_get_usindex_unsupported(_object: u32) -> Result<i32, CarUsindexStubError> {
+    Err(CarUsindexStubError::Unsupported {
+        entry: CAR_GET_USINDEX_ENTRY,
+    })
+}
+
 // PC storage mapping stays local to this view. Accessors deliberately read on
 // demand and use the existing address arithmetic and backend error semantics.
 mod layout {
@@ -357,6 +535,24 @@ mod layout {
     pub(super) const VEHICLE_FLAGS: u32 = 0x1a4;
     pub(super) const HEAD_POS: u32 = 0x2d4;
     pub(super) const TANK_SIZE: u32 = 0x1fa0;
+    // Small-latch slice (mafia-re fe7e746 game/vehicles/C_Vehicle.h):
+    // lights 0x11c (:497), sounds_enabled 0x432 (:534, shared with AUDIBLE
+    // above), analog inputs 0x4a8-0x4ab (:544-548), auto_gearing 0x4cc (:555),
+    // rotations 0x548 (:559-561), max_rotations 0x1f9c (:610),
+    // odometer 0x1fa4 (:612); car color at car+0x211c (mafia-re fe7e746
+    // game/vehicles/C_car.h:288) is vehicle+0x20ac past the C_Vehicle base at
+    // car+0x70.
+    pub(super) const LIGHTS: u32 = 0x11c;
+    pub(super) const SOUNDS_ENABLED: u32 = 0x432;
+    pub(super) const ANALOG_STEER: u32 = 0x4a8;
+    pub(super) const ANALOG_POWER: u32 = 0x4a9;
+    pub(super) const ANALOG_BRAKE: u32 = 0x4aa;
+    pub(super) const ANALOG_CLUTCH: u32 = 0x4ab;
+    pub(super) const AUTO_GEARING: u32 = 0x4cc;
+    pub(super) const ROTATIONS: u32 = 0x548;
+    pub(super) const MAX_ROTATIONS: u32 = 0x1f9c;
+    pub(super) const ODOMETER: u32 = 0x1fa4;
+    pub(super) const COLOR: u32 = 0x20ac;
 }
 
 #[cfg(test)]
@@ -618,5 +814,131 @@ mod latch_tests {
             backend.get_word(VEHICLE + layout::VEHICLE_FLAGS) & VEHF_LOCKED,
             0
         );
+    }
+
+    #[test]
+    fn rva_cd590_get_rotations_scales_or_zero() {
+        // GAME RVA 0xcd590 (VA 0x4cd590) C_Vehicle::GetRotations: engine on
+        // scales rotations by 60, engine off reads 0, NaN propagates.
+        let mut backend = LatchBackend::with_words(&[
+            (VEHICLE + layout::ENGINE_STATE, 1),
+            (VEHICLE + layout::ROTATIONS, 1.5f32.to_bits()),
+        ]);
+        assert_eq!(vehicle_get_rotations(&mut backend, VEHICLE), Ok(90.0));
+        backend.put_word(VEHICLE + layout::ENGINE_STATE, 0);
+        assert_eq!(vehicle_get_rotations(&mut backend, VEHICLE), Ok(0.0));
+        backend.put_word(VEHICLE + layout::ENGINE_STATE, 1);
+        backend.put_word(VEHICLE + layout::ROTATIONS, f32::NAN.to_bits());
+        assert!(vehicle_get_rotations(&mut backend, VEHICLE)
+            .unwrap()
+            .is_nan());
+    }
+
+    #[test]
+    fn rva_1c790_get_usindex_reports_unsupported() {
+        // C_car::GetUSindex GAME RVA 0x1c790 (VA 0x41c790): the seat mapping
+        // owner is missing, so the boundary reports unsupported.
+        assert_eq!(CAR_GET_USINDEX_ENTRY, 0x41c790);
+        assert_eq!(
+            car_get_usindex_unsupported(0x1000),
+            Err(CarUsindexStubError::Unsupported { entry: 0x41c790 })
+        );
+    }
+
+    #[test]
+    fn sounds_enabled_reads_flag() {
+        // Header-inline C_Vehicle::SoundsEnabled: nonzero byte reads true.
+        let mut backend = LatchBackend::with_words(&[(VEHICLE + layout::SOUNDS_ENABLED, 0)]);
+        assert_eq!(vehicle_sounds_enabled(&mut backend, VEHICLE), Ok(false));
+        backend.put_word(VEHICLE + layout::SOUNDS_ENABLED, 1);
+        assert_eq!(vehicle_sounds_enabled(&mut backend, VEHICLE), Ok(true));
+    }
+
+    #[test]
+    fn max_rotations_scales_by_sixty() {
+        // Header-inline C_Vehicle::GetMaxRotations: max_rotations * 60.
+        let mut backend =
+            LatchBackend::with_words(&[(VEHICLE + layout::MAX_ROTATIONS, 2.0f32.to_bits())]);
+        assert_eq!(vehicle_get_max_rotations(&mut backend, VEHICLE), Ok(120.0));
+    }
+
+    #[test]
+    fn odometer_reads_store() {
+        // Header-inline C_Vehicle::GetOdometer: stored float round-trips.
+        let mut backend =
+            LatchBackend::with_words(&[(VEHICLE + layout::ODOMETER, 1000.0f32.to_bits())]);
+        assert_eq!(vehicle_get_odometer(&mut backend, VEHICLE), Ok(1000.0));
+    }
+
+    #[test]
+    fn tank_fuel_and_size_read_stores() {
+        // Header-inline C_Vehicle::GetTankFuel/GetTankSize: stored floats.
+        let mut backend = LatchBackend::with_words(&[
+            (VEHICLE + layout::FUEL, 25.5f32.to_bits()),
+            (VEHICLE + layout::TANK_SIZE, 50.0f32.to_bits()),
+        ]);
+        assert_eq!(vehicle_get_tank_fuel(&mut backend, VEHICLE), Ok(25.5));
+        assert_eq!(vehicle_get_tank_size(&mut backend, VEHICLE), Ok(50.0));
+    }
+
+    #[test]
+    fn unknown_2000000_tests_bit_25() {
+        // Header-inline C_Vehicle::IsUnknown2000000: (flags >> 25) & 1.
+        let mut backend = LatchBackend::with_words(&[(VEHICLE + layout::VEHICLE_FLAGS, 0)]);
+        assert_eq!(vehicle_is_unknown_2000000(&mut backend, VEHICLE), Ok(false));
+        backend.put_word(VEHICLE + layout::VEHICLE_FLAGS, 1 << 25);
+        assert_eq!(vehicle_is_unknown_2000000(&mut backend, VEHICLE), Ok(true));
+        backend.put_word(VEHICLE + layout::VEHICLE_FLAGS, 1 << 26);
+        assert_eq!(vehicle_is_unknown_2000000(&mut backend, VEHICLE), Ok(false));
+        backend.put_word(VEHICLE + layout::VEHICLE_FLAGS, u32::MAX);
+        assert_eq!(vehicle_is_unknown_2000000(&mut backend, VEHICLE), Ok(true));
+    }
+
+    #[test]
+    fn auto_gearing_reads_flag() {
+        // Header-inline C_Vehicle::GetAutoGearing: nonzero byte reads true.
+        let mut backend = LatchBackend::with_words(&[(VEHICLE + layout::AUTO_GEARING, 0)]);
+        assert_eq!(vehicle_get_auto_gearing(&mut backend, VEHICLE), Ok(false));
+        backend.put_word(VEHICLE + layout::AUTO_GEARING, 1);
+        assert_eq!(vehicle_get_auto_gearing(&mut backend, VEHICLE), Ok(true));
+    }
+
+    #[test]
+    fn analog_inputs_store_four_bytes() {
+        // Header-inline C_Vehicle::SetAnalogInputs: four bool stores in order.
+        let mut backend = LatchBackend::with_words(&[(VEHICLE + layout::ANALOG_STEER, 0)]);
+        vehicle_set_analog_inputs(&mut backend, VEHICLE, true, false, true, false).unwrap();
+        assert_eq!(backend.get_word(VEHICLE + layout::ANALOG_STEER), 0x0001_0001);
+        vehicle_set_analog_inputs(&mut backend, VEHICLE, false, true, false, true).unwrap();
+        assert_eq!(backend.get_word(VEHICLE + layout::ANALOG_STEER), 0x0100_0100);
+    }
+
+    #[test]
+    fn light_unknown_800_sets_and_clears_bit() {
+        // Header-inline C_Vehicle::SetLightUnknown800: bit 0x800 only.
+        let mut backend =
+            LatchBackend::with_words(&[(VEHICLE + layout::LIGHTS, 0xFFFF_FFFF)]);
+        vehicle_set_light_unknown_800(&mut backend, VEHICLE, false).unwrap();
+        assert_eq!(backend.get_word(VEHICLE + layout::LIGHTS), !0x800);
+        vehicle_set_light_unknown_800(&mut backend, VEHICLE, true).unwrap();
+        assert_eq!(backend.get_word(VEHICLE + layout::LIGHTS), u32::MAX);
+    }
+
+    #[test]
+    fn light_unknown_8000_sets_and_clears_bit() {
+        // Header-inline C_Vehicle::SetLightUnknown8000: bit 0x8000 only.
+        let mut backend = LatchBackend::with_words(&[(VEHICLE + layout::LIGHTS, 0)]);
+        vehicle_set_light_unknown_8000(&mut backend, VEHICLE, true).unwrap();
+        assert_eq!(backend.get_word(VEHICLE + layout::LIGHTS), 0x8000);
+        vehicle_set_light_unknown_8000(&mut backend, VEHICLE, false).unwrap();
+        assert_eq!(backend.get_word(VEHICLE + layout::LIGHTS), 0);
+    }
+
+    #[test]
+    fn color_reads_car_variant_word() {
+        // Header-inline C_car::GetColor: car+0x211c word round-trips.
+        let mut backend =
+            LatchBackend::with_words(&[(VEHICLE + layout::COLOR, 0x1234_5678)]);
+        assert_eq!(car_get_color(&mut backend, VEHICLE), Ok(0x1234_5678));
     }
 }

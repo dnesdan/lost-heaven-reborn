@@ -989,9 +989,28 @@ impl IndicatorsState {
         self.map_enabled = enable;
     }
 
+    /// `ThiefIndicatorSetValue` (GAME RVA 0x1fa030, VA 0x5fa030; reference
+    /// mafia-re pin fe7e746 `game/ui/g_indicators.cpp:4130-4134`, cited
+    /// only): explicit-Unsupported STUB. The reference marks the body STUB;
+    /// the thief-minigame owner is missing, so the staged indicator keeps
+    /// its reset value and the call is rejected.
+    pub fn thief_indicator_set_value(&self, _value: f32) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("thief minigame owner"))
+    }
+
+    /// `AddBloodSplash` (GAME RVA 0x1f9e10, VA 0x5f9e10; reference mafia-re
+    /// pin fe7e746 `game/ui/g_indicators.cpp:4118-4122`, cited only):
+    /// explicit-Unsupported STUB. The reference marks the body STUB; the
+    /// blood-quad device owner is missing, so no quad stages and the call
+    /// is rejected.
+    pub fn add_blood_splash(&self, _x: f32, _y: f32, _size: f32) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("blood quad device owner"))
+    }
+
     /// `ConsoleClear` (GAME 0x5f9d40, `g_indicators.cpp:1114-1117`): only the
-    /// count clears; retained lines stay. `ConsoleAddText` (GAME 0x5f9d50)
-    /// stays deferred (text owner); `ConsoleAddTextByID` is an
+    /// count clears; retained lines stay. `ConsoleAddText` is an
+    /// explicit-Unsupported STUB (`console_add_text`);
+    /// `ConsoleAddTextByID` is an
     /// explicit-Unsupported STUB (`console_add_text_by_id`).
     pub fn console_clear(&mut self) {
         self.console_count = 0;
@@ -1007,6 +1026,15 @@ impl IndicatorsState {
         _id: u32,
         _color: u32,
     ) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("console text owner"))
+    }
+
+    /// `ConsoleAddText` (GAME RVA 0x1f9d50, VA 0x5f9d50; reference mafia-re
+    /// pin fe7e746 `game/ui/g_indicators.cpp:4136-4140`, cited only):
+    /// explicit-Unsupported STUB. The reference marks the body STUB; the
+    /// console text owner is missing, so no line stages and the call is
+    /// rejected.
+    pub fn console_add_text(&self, _text: &[u8], _color: u32) -> Result<(), IndicatorsStubError> {
         Err(IndicatorsStubError::Unsupported("console text owner"))
     }
 
@@ -1034,10 +1062,28 @@ impl IndicatorsState {
     }
 
     /// `FadeInOutIsDark` (GAME 0x5fa400, `g_indicators.cpp:1225-1228`).
-    /// The `FadeInOut` state machine (GAME 0x5fa370/0x5fa3e0) is stubbed
-    /// upstream and stays deferred.
+    /// The `FadeInOut` state machine (GAME 0x5fa370/0x5fa3e0) stays an
+    /// explicit-Unsupported STUB (`fade_in_out`/`fade_in_out_get_state`).
     pub fn fade_in_out_is_dark(&self) -> bool {
         self.is_shown(INDF_FADE)
+    }
+
+    /// `FadeInOut` (GAME RVA 0x1fa370, VA 0x5fa370; reference mafia-re
+    /// pin fe7e746 `game/ui/g_indicators.cpp:1219-1223`, cited only):
+    /// explicit-Unsupported STUB. The reference marks the body STUB; the
+    /// fade state machine owner is missing, so the on/time/color triple
+    /// stages nothing and the call is rejected.
+    pub fn fade_in_out(&self, _on: bool, _time: u32, _color: u32) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("fade state machine"))
+    }
+
+    /// `FadeInOutGetState` (GAME RVA 0x1fa3e0, VA 0x5fa3e0; reference
+    /// mafia-re pin fe7e746 `game/ui/g_indicators.cpp:1225-1230`, cited
+    /// only): explicit-Unsupported STUB. The reference STUB returns true,
+    /// but the fade state machine owner is missing, so no state is read
+    /// and the call is rejected instead of repeating the placeholder.
+    pub fn fade_in_out_get_state(&self) -> Result<bool, IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("fade state machine"))
     }
 
     /// `SetOverlayFade` (GAME 0x5fa410, `g_indicators.cpp:1231-1235`).
@@ -1079,13 +1125,31 @@ impl IndicatorsState {
 
     /// `RadarRemoveCar` (GAME 0x5fa720, `g_indicators.cpp:1267-1277`):
     /// removes the first matching row. `RadarAddCar` (GAME 0x5fa510) and
-    /// `RadarSetPlayerCar` (GAME 0x5fa500) are stubs and stay deferred.
+    /// `RadarSetPlayerCar` (GAME 0x5fa500) are explicit-Unsupported STUBs
+    /// (`radar_add_car`/`radar_set_player_car`).
     pub fn radar_remove_car(&mut self, car: u32) -> bool {
         if let Some(index) = self.radar_cars.iter().position(|row| row.car == car) {
             self.radar_cars.remove(index);
             return true;
         }
         false
+    }
+
+    /// `RadarAddCar` (GAME RVA 0x1fa510, VA 0x5fa510; reference mafia-re
+    /// pin fe7e746 `game/ui/g_indicators.cpp:1268-1272`, cited only):
+    /// explicit-Unsupported STUB. The reference marks the body STUB; the
+    /// `C_car` owner is missing, so no row stages and the call is rejected.
+    pub fn radar_add_car(&self, _car: u32, _color: u32) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("car owner"))
+    }
+
+    /// `RadarSetPlayerCar` (GAME RVA 0x1fa500, VA 0x5fa500; reference
+    /// mafia-re pin fe7e746 `game/ui/g_indicators.cpp:4124-4128`, cited
+    /// only): explicit-Unsupported STUB. The reference marks the body STUB;
+    /// the `C_car` owner is missing, so the player slot keeps its staged
+    /// value and the call is rejected.
+    pub fn radar_set_player_car(&self, _car: u32) -> Result<(), IndicatorsStubError> {
+        Err(IndicatorsStubError::Unsupported("car owner"))
     }
 
     /// Stages one radar road edge for the future web owner
@@ -2300,5 +2364,88 @@ mod tests {
             IndicatorsStubError::Unsupported("widescreen device owner")
         );
         assert_eq!(state.widescreen_ratio(), 0.25);
+    }
+
+    #[test]
+    fn rva_1fa370_fade_in_out_is_unsupported() {
+        // GAME VA 0x5fa370 (RVA 0x1fa370): reference STUB; neither the flag
+        // word nor any timer state moves.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.fade_in_out(true, 30, 0xff000000).unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("fade state machine")
+        );
+        assert!(!state.fade_in_out_is_dark());
+    }
+
+    #[test]
+    fn rva_1fa3e0_fade_in_out_get_state_is_unsupported() {
+        // GAME VA 0x5fa3e0 (RVA 0x1fa3e0): reference STUB; the placeholder
+        // true is not repeated, the call is rejected.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.fade_in_out_get_state().unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("fade state machine")
+        );
+    }
+
+    #[test]
+    fn rva_1f9d50_console_add_text_is_unsupported() {
+        // GAME VA 0x5f9d50 (RVA 0x1f9d50): reference STUB; the console count
+        // stays 0 and no line stages.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.console_add_text(b"hello", 0xffffff).unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("console text owner")
+        );
+        assert_eq!(state.console_count(), 0);
+    }
+
+    #[test]
+    fn rva_1fa510_radar_add_car_is_unsupported() {
+        // GAME VA 0x5fa510 (RVA 0x1fa510): reference STUB; no row stages.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.radar_add_car(7, 1).unwrap_err();
+        assert_eq!(error, IndicatorsStubError::Unsupported("car owner"));
+        assert_eq!(state.radar_car_count(), 0);
+    }
+
+    #[test]
+    fn rva_1fa500_radar_set_player_car_is_unsupported() {
+        // GAME VA 0x5fa500 (RVA 0x1fa500): reference STUB; the player slot
+        // keeps its staged value.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.radar_set_player_car(7).unwrap_err();
+        assert_eq!(error, IndicatorsStubError::Unsupported("car owner"));
+        assert_eq!(state.radar_player_car(), None);
+    }
+
+    #[test]
+    fn rva_1fa030_thief_indicator_set_value_is_unsupported() {
+        // GAME VA 0x5fa030 (RVA 0x1fa030): reference STUB; the staged
+        // indicator keeps its reset value.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.thief_indicator_set_value(0.9).unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("thief minigame owner")
+        );
+        assert_eq!(state.thief_indicator(), 0.5);
+    }
+
+    #[test]
+    fn rva_1f9e10_add_blood_splash_is_unsupported() {
+        // GAME VA 0x5f9e10 (RVA 0x1f9e10): reference STUB; no quad stages
+        // and the flag word is untouched.
+        let state = IndicatorsState::constructed(staged_clock());
+        let error = state.add_blood_splash(10.0, 20.0, 5.0).unwrap_err();
+        assert_eq!(
+            error,
+            IndicatorsStubError::Unsupported("blood quad device owner")
+        );
+        assert_eq!(state.show_flags(), 0);
     }
 }

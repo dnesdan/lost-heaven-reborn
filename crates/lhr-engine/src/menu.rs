@@ -460,13 +460,18 @@ pub enum TickKey {
 /// siblings game/ui/g_menu.h:283-284, game/ui/g_m_comps.h:19-33, cited only).
 /// Class-specific behavior (Draw/Key/Mouse virtuals, text/value storage,
 /// parent/child placement) needs the component-class owners and stays
-/// DEFERRED; only the id plus the activation-gating COMPF word are owned here.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// DEFERRED; owned here are the id, the activation-gating COMPF word, the
+/// text-id latch and the staged child-id list.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MenuComponent {
     pub id: u32,
     pub flags: u32,
     /// Text-database id latch (native GM_Component::text_id, g_m_comps.h:140).
     pub text_id: u32,
+    /// Staged child ids (native `GM_Component::children`, sibling
+    /// game/ui/g_m_comps.h:149, cited only; the native stores child pointers,
+    /// the host stages ids, never dereferenced).
+    pub children: Vec<u32>,
 }
 
 impl MenuComponent {
@@ -477,6 +482,59 @@ impl MenuComponent {
             id,
             flags: main_menu::DEFAULT_COMPONENT_FLAGS,
             text_id: 0,
+            children: Vec::new(),
+        }
+    }
+
+    /// `GM_Component::GM_Component(GM_DesignStruct *, GM_Component *)` pure
+    /// subset (GAME RVA 0x1e9be0, VA 0x5e9be0; reference mafia-re pin
+    /// fe7e746 `game/ui/g_menu.cpp:485-502`, cited only): id/flags/text-id
+    /// intake from the design row. The `menuScreenScale` geometry multiply,
+    /// the `textDatabase.GetText` pointer resolution and the automatic
+    /// `parent->InsertComponent(this)` need the scale/text/parent owners and
+    /// stay DEFERRED; the caller stages geometry elsewhere and wires the
+    /// child link with `insert_child`.
+    pub fn from_design_row(id: u32, flags: u32, text_id: u32) -> Self {
+        Self {
+            id,
+            flags,
+            text_id,
+            children: Vec::new(),
+        }
+    }
+
+    /// `GM_Component::GM_Component(GM_Component *)` copy pure subset (GAME
+    /// RVA 0x1e9cb0, VA 0x5e9cb0; reference mafia-re pin fe7e746
+    /// `game/ui/g_menu.cpp:504-521`, cited only): id + 1, flags with ACTIVE
+    /// cleared ("The copy isn't active"), the text id shared (the native
+    /// shares the text pointer). Geometry, the parent link and the
+    /// `InsertComponentAfter` wiring stay DEFERRED; the caller places the
+    /// result with `insert_child_after`.
+    pub fn duplicated(&self) -> Self {
+        Self {
+            id: self.id.wrapping_add(1),
+            flags: self.flags & !main_menu::COMPONENT_ACTIVE,
+            text_id: self.text_id,
+            children: Vec::new(),
+        }
+    }
+
+    /// `GM_Component::InsertComponent` (GAME RVA 0x1e9e50, VA 0x5e9e50;
+    /// reference mafia-re pin fe7e746 `game/ui/g_menu.cpp:560-564`, cited
+    /// only): appends the child id (`children.push_back`).
+    pub fn insert_child(&mut self, child_id: u32) {
+        self.children.push(child_id);
+    }
+
+    /// `GM_Component::InsertComponentAfter` (GAME RVA 0x1ea000, VA 0x5ea000;
+    /// reference mafia-re pin fe7e746 `game/ui/g_menu.cpp:566-577`, cited
+    /// only): inserts the child id after `after_id`, at the end where it is
+    /// absent (the native falls through to `children.insert(end, ...)`).
+    pub fn insert_child_after(&mut self, child_id: u32, after_id: u32) {
+        if let Some(position) = self.children.iter().position(|id| *id == after_id) {
+            self.children.insert(position + 1, child_id);
+        } else {
+            self.children.push(child_id);
         }
     }
 
@@ -563,6 +621,57 @@ impl std::fmt::Display for MenuStubError {
 }
 
 impl std::error::Error for MenuStubError {}
+
+/// `MENUF_DRAW_PARENT` (0x10000, sibling `game/ui/g_menu.h:15`, cited only):
+/// set on every menu by its constructor (GAME RVA 0x1ea1f0 below). The
+/// menu-flags word itself stays DEFERRED (no flags field is owned here).
+pub const MENU_DRAW_PARENT: u32 = 0x10000;
+
+/// `GM_Menu::menuCount` lifetime gate (the counter itself is GAME data at
+/// `g_menu.cpp:53`; only the two function bodies below are claimed here).
+/// The `LoadResources`/`UnloadResources` device work stays DEFERRED; this
+/// stages the count and reports which device half the caller must run.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MenuInstanceCount {
+    count: u32,
+}
+
+impl MenuInstanceCount {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// `GM_Menu::GM_Menu` count half (GAME RVA 0x1ea1f0, VA 0x5ea1f0;
+    /// reference mafia-re pin fe7e746 `game/ui/g_menu.cpp:589-597`, cited
+    /// only): `menuCount++`. Returns true where the device owner must run
+    /// `LoadResources` (the count was zero). The parent/root/active NULL
+    /// latches, `MENUF_DRAW_PARENT` and the closing/open fields are the
+    /// `MenuStack::new` defaults, documented there.
+    pub fn acquire(&mut self) -> bool {
+        let first = self.count == 0;
+        self.count = self.count.wrapping_add(1);
+        first
+    }
+
+    /// `GM_Menu::~GM_Menu` count half (GAME RVA 0x1ea270, VA 0x5ea270;
+    /// reference mafia-re pin fe7e746 `game/ui/g_menu.cpp:599-607`, cited
+    /// only): `--menuCount` with the `<= 0` clamp. Returns true where the
+    /// device owner must run `UnloadResources`. Unbalanced releases stay
+    /// clamped at zero (negative native states are unreachable here).
+    pub fn release(&mut self) -> bool {
+        if self.count <= 1 {
+            self.count = 0;
+            return true;
+        }
+        self.count -= 1;
+        false
+    }
+
+    /// Live read of the staged count.
+    pub fn count(&self) -> u32 {
+        self.count
+    }
+}
 
 /// Marker-only GM_Menu component stack (Game.exe GM_Menu 0x30, Create RVA
 /// 0x1ea2e0; siblings game/ui/g_menu.h:150-290, game/ui/g_menu.cpp:610-625,
@@ -2244,5 +2353,88 @@ mod tests {
         assert_eq!(error, MenuStubError::Unsupported("component classes"));
         let error = stack.set_range_dword(424242, 0, 10).unwrap_err();
         assert_eq!(error, MenuStubError::Unsupported("component classes"));
+    }
+
+    #[test]
+    fn rva_1e9e50_insert_child_appends_in_order() {
+        // GAME VA 0x5e9e50 (RVA 0x1e9e50): children.push_back.
+        let mut parent = MenuComponent::new(10);
+        parent.insert_child(20);
+        parent.insert_child(30);
+        assert_eq!(parent.children, vec![20, 30]);
+    }
+
+    #[test]
+    fn rva_1ea000_insert_child_after_falls_back_to_end() {
+        // GAME VA 0x5ea000 (RVA 0x1ea000): insert after `after_id`, at the
+        // end where it is absent.
+        let mut parent = MenuComponent::new(10);
+        parent.insert_child(20);
+        parent.insert_child(30);
+        parent.insert_child_after(25, 20);
+        assert_eq!(parent.children, vec![20, 25, 30]);
+        parent.insert_child_after(99, 424242);
+        assert_eq!(parent.children, vec![20, 25, 30, 99]);
+    }
+
+    #[test]
+    fn rva_1e9cb0_duplicated_bumps_id_and_clears_active() {
+        // GAME VA 0x5e9cb0 (RVA 0x1e9cb0): id + 1, ACTIVE cleared, text id
+        // shared, no children carried over.
+        let mut source = MenuComponent::from_design_row(
+            41,
+            main_menu::DEFAULT_COMPONENT_FLAGS,
+            7,
+        );
+        source.set_active();
+        source.insert_child(50);
+        let duplicate = source.duplicated();
+        assert_eq!(duplicate.id, 42);
+        assert_eq!(duplicate.flags & main_menu::COMPONENT_ACTIVE, 0);
+        assert_eq!(duplicate.get_text_id(), 7);
+        assert!(duplicate.children.is_empty());
+        assert_ne!(source.flags & main_menu::COMPONENT_ACTIVE, 0);
+    }
+
+    #[test]
+    fn rva_1e9be0_from_design_row_stages_id_flags_text_id() {
+        // GAME VA 0x5e9be0 (RVA 0x1e9be0): design id/flags/text-id intake;
+        // geometry scale, text-pointer resolution and parent wiring stay
+        // deferred.
+        let component = MenuComponent::from_design_row(
+            41,
+            main_menu::COMPONENT_VISIBLE | main_menu::COMPONENT_ENABLED,
+            7,
+        );
+        assert_eq!(component.id, 41);
+        assert_eq!(component.get_text_id(), 7);
+        assert!(!component.can_activate());
+        assert!(component.children.is_empty());
+    }
+
+    #[test]
+    fn rva_1ea1f0_acquire_reports_first_load_and_counts() {
+        // GAME VA 0x5ea1f0 (RVA 0x1ea1f0): first acquire requests
+        // LoadResources, later ones only count.
+        let mut count = MenuInstanceCount::new();
+        assert!(count.acquire());
+        assert_eq!(count.count(), 1);
+        assert!(!count.acquire());
+        assert_eq!(count.count(), 2);
+    }
+
+    #[test]
+    fn rva_1ea270_release_unloads_at_last_and_clamps() {
+        // GAME VA 0x5ea270 (RVA 0x1ea270): last release requests
+        // UnloadResources; unbalanced releases stay clamped at zero.
+        let mut count = MenuInstanceCount::new();
+        count.acquire();
+        count.acquire();
+        assert!(!count.release());
+        assert_eq!(count.count(), 1);
+        assert!(count.release());
+        assert_eq!(count.count(), 0);
+        assert!(count.release());
+        assert_eq!(count.count(), 0);
     }
 }

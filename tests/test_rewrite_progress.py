@@ -474,7 +474,12 @@ class RewriteProgressTests(unittest.TestCase):
         # GetBoundPoints2D; marker-only, tests green).
         # +6 police/sledovacka STUB contracts (Zlikviduj/Coruju/Vypicuj/
         # SaveGameGetSize/Save/Load; 8 working-name uncredited; marker-only).
-        self.assertEqual(game["ported"], 149 + 994)
+        # +13 indicators/menu leftovers (FadeInOut x2/Radar x2/Thief/Console/
+        # BloodSplash + GM_Component ctor x2/Insert x2/GM_Menu ctor/dtor;
+        # marker-only, tests green).
+        # +2 vehicle leftovers (GetRotations/GetUSindex; 11 working-name
+        # uncredited; marker-only, tests green).
+        self.assertEqual(game["ported"], 149 + 1009)
         self.assertEqual(game["verified"], 149 + 515)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
