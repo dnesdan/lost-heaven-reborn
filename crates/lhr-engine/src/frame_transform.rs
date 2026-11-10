@@ -559,6 +559,142 @@ pub fn frame_type_word_is_target(type_word: u32) -> bool {
 pub fn frame_type_word_is_model(type_word: u32) -> bool {
     type_word == 9
 }
+/// Working name for the `FRAME_NULL` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_NULL` is 0, stored by the base ctor in
+/// ls3df/I3D/frames/I3d_frame.cpp:28-63). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader; the word is
+/// tested in place by `Duplicate` and the enum switches. Reports whether
+/// a stored type word denotes a bare frame; no cache moves.
+pub fn frame_type_word_is_null(type_word: u32) -> bool {
+    type_word == 0
+}
+/// Working name for the `FRAME_VISUAL` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_VISUAL` is 1, stored by the ctor in
+/// ls3df/I3D/visuals/I3d_visual.cpp:8-19). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a visual frame; no cache moves.
+pub fn frame_type_word_is_visual(type_word: u32) -> bool {
+    type_word == 1
+}
+/// Working name for the `FRAME_LIGHT` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_LIGHT` is 2, stored by the ctor in
+/// ls3df/I3D/frames/I3d_light.cpp:17-51). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a light frame; no cache moves.
+pub fn frame_type_word_is_light(type_word: u32) -> bool {
+    type_word == 2
+}
+/// Working name for the `FRAME_CAMERA` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_CAMERA` is 3, stored by the ctor in
+/// ls3df/I3D/frames/I3d_camera.cpp:7-37). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a camera frame; no cache moves.
+pub fn frame_type_word_is_camera(type_word: u32) -> bool {
+    type_word == 3
+}
+/// Working name for the `FRAME_SOUND` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_SOUND` is 4, stored by the ctor in
+/// ls3df/I3D/frames/I3d_sound.cpp:32-71). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a sound frame; no cache moves.
+pub fn frame_type_word_is_sound(type_word: u32) -> bool {
+    type_word == 4
+}
+/// Working name for the `FRAME_SECTOR` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-72 at pin 113b5b6;
+/// `FRAME_SECTOR` is 5, stored by the ctor in
+/// ls3df/I3D/frames/I3d_sector.cpp:99-126). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a sector frame; no cache moves.
+pub fn frame_type_word_is_sector(type_word: u32) -> bool {
+    type_word == 5
+}
+/// Working name for the `FRAME_OCCLUDER` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-76 at pin 113b5b6;
+/// `FRAME_OCCLUDER` is 12, stored by the ctor in
+/// ls3df/I3D/frames/I3d_occluder.cpp:53-81). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes an occluder frame; no cache moves.
+pub fn frame_type_word_is_occluder(type_word: u32) -> bool {
+    type_word == 12
+}
+/// Working name for the `FRAME_SCENE` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-77 at pin 113b5b6;
+/// `FRAME_SCENE` is 13, stored by the ctor in
+/// ls3df/I3D/I3d_scene.cpp:90-148). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a scene frame; no cache moves.
+pub fn frame_type_word_is_scene(type_word: u32) -> bool {
+    type_word == 13
+}
+/// Working name for the `FRAME_AREA` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-78 at pin 113b5b6;
+/// `FRAME_AREA` is 14, stored by the ctor in
+/// ls3df/I3D/frames/I3d_area.cpp:17-35). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes an area frame; no cache moves.
+pub fn frame_type_word_is_area(type_word: u32) -> bool {
+    type_word == 14
+}
+/// Working name for the `FRAME_SHADOW` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-78 at pin 113b5b6;
+/// `FRAME_SHADOW` is 15, stored by the ctor in
+/// ls3df/I3D/visuals/I3d_shadow.cpp:40). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a shadow frame; no cache moves.
+pub fn frame_type_word_is_shadow(type_word: u32) -> bool {
+    type_word == 15
+}
+/// Working name for the `FRAME_LANDSCAPE` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-79 at pin 113b5b6;
+/// `FRAME_LANDSCAPE` is 16, PC only, stored by the ctor in
+/// ls3df/I3D/visuals/I3d_landscape.cpp:348). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes a landscape frame; no cache moves.
+pub fn frame_type_word_is_landscape(type_word: u32) -> bool {
+    type_word == 16
+}
+/// Working name for the `FRAME_EMITOR` type-word discriminant behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-80 at pin 113b5b6;
+/// `FRAME_EMITOR` is 17, stored by the ctor in
+/// ls3df/I3D/visuals/I3d_particle.cpp:331). The reference records no LS3DF
+/// FUNCTION address for a standalone discriminant reader. Reports whether
+/// a stored type word denotes an emitor frame; no cache moves.
+pub fn frame_type_word_is_emitor(type_word: u32) -> bool {
+    type_word == 17
+}
+/// Working name for the `FRAME_LAST` bound sentinel behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-81 at pin 113b5b6;
+/// `FRAME_LAST` is 18, the number of frame types, never a stored type: the
+/// 4ds loader refuses a type from here on). The reference records no LS3DF
+/// FUNCTION address for a standalone reader. Reports whether a word equals
+/// the exclusive upper bound; no cache moves.
+pub fn frame_type_word_is_last(type_word: u32) -> bool {
+    type_word == 18
+}
+/// Working name for the loader-admitted type range behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-81 at pin 113b5b6:
+/// `FRAME_LAST` is the count and the 4ds loader refuses a type from there
+/// on). The reference records no LS3DF FUNCTION address for a standalone
+/// range reader. Reports whether a stored type word names a loadable frame
+/// kind (`type < FRAME_LAST`); no cache moves.
+pub fn frame_type_in_valid_range(type_word: u32) -> bool {
+    type_word < 18
+}
+/// Working name for the loader-refused type range behind
+/// `I3D_frame::GetType` (mafia-re ls3df/I3D/I3D.h:61-81 at pin 113b5b6,
+/// same `FRAME_LAST` bound as `frame_type_in_valid_range`). The reference
+/// records no LS3DF FUNCTION address for a standalone range reader.
+/// Reports whether the 4ds loader must refuse the type word
+/// (`type >= FRAME_LAST`); no cache moves.
+pub fn frame_type_loader_refuses(type_word: u32) -> bool {
+    type_word >= 18
+}
 /// Working name for the FRMFLAGS_FFTREE bit test (mafia-re ls3df/I3D/I3D.h:286).
 /// The reference records no LS3DF FUNCTION address for a standalone reader;
 /// the bit gates `RemoveFromFFTree` in the destructor (mafia-re
@@ -6743,5 +6879,65 @@ mod tests {
         assert!(!frame_type_word_is_target(0x4000));
         assert!(!frame_type_word_is_model(u32::MAX));
         assert!(!frame_type_word_is_user(u32::MAX));
+    }
+
+    #[test]
+    fn frame_type_word_remaining_discriminants_match_frame_enum_values() {
+        // Working names for the remaining FRAME_* discriminants behind GetType
+        // (mafia-re ls3df/I3D/I3D.h:61-80): no LS3DF FUNCTION addresses
+        // exist for standalone readers; values are the enum order.
+        assert!(frame_type_word_is_null(0));
+        assert!(frame_type_word_is_visual(1));
+        assert!(frame_type_word_is_light(2));
+        assert!(frame_type_word_is_camera(3));
+        assert!(frame_type_word_is_sound(4));
+        assert!(frame_type_word_is_sector(5));
+        assert!(frame_type_word_is_occluder(12));
+        assert!(frame_type_word_is_scene(13));
+        assert!(frame_type_word_is_area(14));
+        assert!(frame_type_word_is_shadow(15));
+        assert!(frame_type_word_is_landscape(16));
+        assert!(frame_type_word_is_emitor(17));
+        assert!(!frame_type_word_is_null(1));
+        assert!(!frame_type_word_is_visual(0));
+        assert!(!frame_type_word_is_light(1));
+        assert!(!frame_type_word_is_camera(2));
+        assert!(!frame_type_word_is_sound(5));
+        assert!(!frame_type_word_is_sector(4));
+        assert!(!frame_type_word_is_occluder(13));
+        assert!(!frame_type_word_is_scene(14));
+        assert!(!frame_type_word_is_area(13));
+        assert!(!frame_type_word_is_shadow(14));
+        assert!(!frame_type_word_is_landscape(17));
+        assert!(!frame_type_word_is_emitor(16));
+        assert!(!frame_type_word_is_visual(u32::MAX));
+        assert!(!frame_type_word_is_scene(u32::MAX));
+    }
+
+    #[test]
+    fn frame_type_bound_helpers_match_last_sentinel() {
+        // Working names for the FRAME_LAST bound (mafia-re ls3df/I3D/I3D.h:81:
+        // 18 is the count; the 4ds loader refuses a type from here on): no
+        // LS3DF FUNCTION address exists for a standalone reader.
+        assert!(frame_type_word_is_last(18));
+        assert!(!frame_type_word_is_last(17));
+        assert!(!frame_type_word_is_last(0));
+        assert!(!frame_type_word_is_last(u32::MAX));
+        assert!(frame_type_in_valid_range(0));
+        assert!(frame_type_in_valid_range(17));
+        assert!(!frame_type_in_valid_range(18));
+        assert!(!frame_type_in_valid_range(u32::MAX));
+        assert!(frame_type_loader_refuses(18));
+        assert!(frame_type_loader_refuses(u32::MAX));
+        assert!(!frame_type_loader_refuses(0));
+        assert!(!frame_type_loader_refuses(17));
+        assert_eq!(
+            frame_type_in_valid_range(17),
+            !frame_type_loader_refuses(17)
+        );
+        assert_eq!(
+            frame_type_in_valid_range(18),
+            !frame_type_loader_refuses(18)
+        );
     }
 }
