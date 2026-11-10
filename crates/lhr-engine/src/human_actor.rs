@@ -931,6 +931,11 @@ pub const ANIM_FORMULE_VYSTUP_L: i32 = 0x13d;
 /// game/actors/C_actor.h:730: 0x10f, "AutoSmNas FL.i3d"). Base of the
 /// GetAnimIDForUseCar bit-built select; the animation owner stays DEFERRED.
 pub const ANIM_AUTO_SM_NAS_FL: i32 = 0x10f;
+/// Original car seat-climb animation base (mafia-re 113b5b6
+/// game/actors/C_actor.h:732: 0x130, "AutoPrelezLtoR.i3d"). ORed with the
+/// seat parity by C_human::Do_ClimbInCarLR; the animation owner stays
+/// DEFERRED.
+pub const ANIM_AUTO_PRELEZ_L_TO_R: i32 = 0x130;
 /// Original crouched death-from-behind animation base (mafia-re 113b5b6
 /// game/actors/C_actor.h:647: 0x8c, "smrt drep zada A.I3D"). Read by the
 /// GetAnimIDForDeath select; the animation owner stays DEFERRED.
@@ -6985,6 +6990,22 @@ pub const WEAPON_KIND_PISTOL: u32 = 1;
 /// game/g_material.h:173 WEAPON_KIND_SMG 3, the Thompson and the shotguns):
 /// upper bound admitted by the Do_Reload gate.
 pub const WEAPON_KIND_SMG: u32 = 3;
+/// Original thrown-weapon kind (mafia-re 113b5b6 game/g_material.h:174
+/// WEAPON_KIND_THROWN 4, the Molotov cocktail and the grenade): the
+/// Do_ThrowGrenade/Do_Shoot thrown path.
+pub const WEAPON_KIND_THROWN: u32 = 4;
+/// Original knuckleduster kind (mafia-re 113b5b6 game/g_material.h:175
+/// WEAPON_KIND_KNUCKLEDUSTER 5, boxes, as the fists): admitted by the
+/// Do_Shoot melee arm.
+pub const WEAPON_KIND_KNUCKLEDUSTER: u32 = 5;
+/// Original knife kind (mafia-re 113b5b6 game/g_material.h:176
+/// WEAPON_KIND_KNIFE 6, the knife and the bottle): admitted by the Do_Shoot
+/// melee arm.
+pub const WEAPON_KIND_KNIFE: u32 = 6;
+/// Original bat kind (mafia-re 113b5b6 game/g_material.h:177
+/// WEAPON_KIND_BAT 7, the bat, the bar, the crowbar, the board): admitted by
+/// the Do_Shoot melee arm.
+pub const WEAPON_KIND_BAT: u32 = 7;
 /// Original fire-action end marker (mafia-re 113b5b6 game/g_material.h:158
 /// FIRE_ACTION_END 3): the Do_Reload gate only runs at the end step.
 pub const FIRE_ACTION_END: i32 = 3;
@@ -7418,6 +7439,29 @@ pub fn throw_force_scale(clamped_dt_ms: u32, strength: f32) -> f32 {
     clamped_dt_ms as f32 * 0.015 * strength
 }
 
+/// Working-name kind test of the C_human::Do_Shoot press (no RVA claimed:
+/// inline case list at mafia-re 113b5b6 game/actors/C_human.cpp:7006-7009
+/// inside Do_Shoot 0x583590, with no standalone FUNCTION copy; only the
+/// [`shoot_entry_gate`] gate carries that address). True for the four melee
+/// kinds (fists, knuckleduster, knife, bat) whose press runs the strike
+/// program.
+pub fn shoot_is_melee_kind(weapon_kind: u32) -> bool {
+    matches!(
+        weapon_kind,
+        WEAPON_KIND_FISTS | WEAPON_KIND_KNUCKLEDUSTER | WEAPON_KIND_KNIFE | WEAPON_KIND_BAT
+    )
+}
+
+/// Working-name release verdict of C_human::Do_Shoot (no RVA claimed: inline
+/// switch at mafia-re 113b5b6 game/actors/C_human.cpp:7043-7159 inside
+/// Do_Shoot 0x583590, with no standalone FUNCTION copy; only the
+/// [`shoot_entry_gate`] gate carries that address). Every release arm clears
+/// the held-shot latch except the thrown arm, which runs its own swing
+/// program instead.
+pub fn shoot_release_clears_fire(weapon_kind: u32) -> bool {
+    weapon_kind != WEAPON_KIND_THROWN
+}
+
 /// Working-name model-change verdict of C_human::Do_Holster (no RVA claimed:
 /// inline compare at mafia-re 113b5b6 game/actors/C_human.cpp:7563-7565
 /// inside Do_Holster 0x585c60, with no standalone FUNCTION copy). Reports
@@ -7629,6 +7673,59 @@ pub fn jump_anim_select(
         };
     }
     JumpAnimSelect::NoJump
+}
+
+/// State words staged when C_human::Do_Jump takes a new jump animation
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:7712-7719).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JumpChangedWords {
+    /// A new jump never counts as thrown.
+    pub throw_swung: bool,
+    /// The idle timer restarts.
+    pub idle_time: i32,
+    /// The breath timer restarts.
+    pub breath_time: i32,
+    /// The reload-effects latch clears with the weapon reset.
+    pub reload_effects: bool,
+}
+
+/// Working-name change latch of C_human::Do_Jump (no RVA claimed: inline
+/// clears at mafia-re 113b5b6 game/actors/C_human.cpp:7712-7719 inside
+/// Do_Jump 0x586190, with no standalone FUNCTION copy; only the
+/// [`jump_entry_gate`] gate carries that address). The thief indicator
+/// clear, the DelExtendedAnim/ResetWeaponEffects/PersonAnim handoffs stay
+/// DEFERRED with their owners.
+pub fn jump_changed_words() -> JumpChangedWords {
+    JumpChangedWords {
+        throw_swung: false,
+        idle_time: -1,
+        breath_time: -1,
+        reload_effects: false,
+    }
+}
+
+/// Run-arm words staged by C_human::Do_Jump (mafia-re 113b5b6
+/// game/actors/C_human.cpp:7655-7662).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct JumpRunWords {
+    /// The left-side flag from the active animation time (`time < length/2`).
+    pub anim_left: bool,
+    /// The run takeoff upward velocity.
+    pub velocity_y: f32,
+}
+
+/// Working-name run-arm words of C_human::Do_Jump (no RVA claimed: inline
+/// writes at mafia-re 113b5b6 game/actors/C_human.cpp:7655-7662 inside
+/// Do_Jump 0x586190, with no standalone FUNCTION copy; only the
+/// [`jump_entry_gate`] gate carries that address). The staged times are the
+/// GetActiveAnimTime outputs; the Do_Climb fallback, the
+/// PersonAnim/SetWaitAnim program and the force-feedback effect stay
+/// DEFERRED with their owners.
+pub fn jump_run_words(time_ms: u32, length_ms: u32) -> JumpRunWords {
+    JumpRunWords {
+        anim_left: time_ms < length_ms / 2,
+        velocity_y: 6.0,
+    }
 }
 
 /// GAME 0x586400 (RVA 0x186400) C_human::Do_Climb entry gate (mafia-re 113b5b6
@@ -7872,6 +7969,16 @@ pub fn climb_anim_select(height: f32) -> ClimbAnimSelect {
     }
 }
 
+/// Working-name wall-height gate of C_human::Do_Climb (no RVA claimed: inline
+/// refuses at mafia-re 113b5b6 game/actors/C_human.cpp:7787-7790 inside
+/// Do_Climb 0x586400, with no standalone FUNCTION copy; only the
+/// [`climb_entry_gate`] gate carries that address). The wall must rise 0.3
+/// to 1.1 m above the feet; the probes and the climb program stay DEFERRED
+/// with the collision/animation owners.
+pub fn climb_wall_height_gate(height: f32) -> bool {
+    (0.3..=1.1).contains(&height)
+}
+
 /// State words cleared when C_human::Do_Climb takes a new climb animation
 /// (mafia-re 113b5b6 game/actors/C_human.cpp:7827-7843).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -7902,6 +8009,29 @@ pub fn climb_changed_reset(anim_id: i32, next_anim_id: i32) -> Option<ClimbChang
         last_velocity: [0.0; 3],
         velocity: [0.0; 3],
     })
+}
+
+/// Working-name seat-climb animation base of C_human::Do_ClimbInCarLR (no RVA
+/// claimed: inline OR at mafia-re 113b5b6 game/actors/C_human.cpp:6644
+/// inside Do_ClimbInCarLR 0x581eb0, with no standalone FUNCTION copy; only
+/// the [`climb_seat_target`] gate carries that address). The seat parity
+/// picks the climb-over direction off [`ANIM_AUTO_PRELEZ_L_TO_R`]; the seat
+/// animation program stays DEFERRED with the animation owner.
+pub fn climb_car_anim_base(seat: i32) -> i32 {
+    (seat & 1) | ANIM_AUTO_PRELEZ_L_TO_R
+}
+
+/// Working-name model-change gate of C_human::Do_ClimbInCarLR (no RVA
+/// claimed: inline gates at mafia-re 113b5b6 game/actors/C_human.cpp:6667
+/// and :6669 inside Do_ClimbInCarLR 0x581eb0, with no standalone FUNCTION
+/// copy; only the [`climb_seat_target`] gate carries that address). Rifles
+/// and SMGs always change the model after a climb-over; pistols only from
+/// the driver's seat. The ChangeWeaponModel call stays DEFERRED with the
+/// weapon owner.
+pub fn climb_car_weapon_model_gate(weapon_kind: u32, seat: i32) -> bool {
+    weapon_kind == WEAPON_KIND_RIFLE
+        || weapon_kind == WEAPON_KIND_SMG
+        || (seat == 0 && weapon_kind == WEAPON_KIND_PISTOL)
 }
 
 /// GAME 0x583590 (RVA 0x183590) C_human::Do_Shoot entry gate (mafia-re 113b5b6
@@ -8210,6 +8340,173 @@ pub fn dead_body_entry_gate(
         return false;
     }
     true
+}
+
+/// Original front-seat using action (mafia-re 113b5b6 game/tools.h:51
+/// USING_ACTION_GET_IN_FRONT 0x7d3): turned off while the player carries a
+/// box or a dead body.
+pub const USING_ACTION_GET_IN_FRONT: u32 = 0x7d3;
+/// Original back-seat using action (mafia-re 113b5b6 game/tools.h:52
+/// USING_ACTION_GET_IN_BACK 0x7d4): turned off while the player carries a
+/// box or a dead body.
+pub const USING_ACTION_GET_IN_BACK: u32 = 0x7d4;
+/// Original board-train using action (mafia-re 113b5b6 game/tools.h:53
+/// USING_ACTION_BOARD_TRAIN 0x7d7): turned off while the player carries a
+/// box or a dead body.
+pub const USING_ACTION_BOARD_TRAIN: u32 = 0x7d7;
+/// Original hijack-car using action (mafia-re 113b5b6 game/tools.h:54
+/// USING_ACTION_HIJACK_CAR 0x7d9): turned off while the player carries a
+/// box or a dead body.
+pub const USING_ACTION_HIJACK_CAR: u32 = 0x7d9;
+/// Original pick-up-box using action (mafia-re 113b5b6 game/tools.h:55
+/// USING_ACTION_PICK_UP_BOX 0x7da): turned off while the player carries a
+/// box or a dead body.
+pub const USING_ACTION_PICK_UP_BOX: u32 = 0x7da;
+/// Original search-dead-body using action (mafia-re 113b5b6 game/tools.h:56
+/// USING_ACTION_SEARCH_DEAD_BODY 0x7dc): turned off while the player carries
+/// a box or a dead body.
+pub const USING_ACTION_SEARCH_DEAD_BODY: u32 = 0x7dc;
+/// Original move-dead-body using action (mafia-re 113b5b6 game/tools.h:57
+/// USING_ACTION_MOVE_DEAD_BODY 0x7dd): turned off while the player carries a
+/// box or a dead body.
+pub const USING_ACTION_MOVE_DEAD_BODY: u32 = 0x7dd;
+/// Original get-in-as-driver using action (mafia-re 113b5b6 game/tools.h:58
+/// USING_ACTION_GET_IN_AS_DRIVER 0x7df): turned off while the player carries
+/// a box or a dead body.
+pub const USING_ACTION_GET_IN_AS_DRIVER: u32 = 0x7df;
+
+/// Carried-load invalid actions shared by C_human::Do_FuckingBox,
+/// C_human::Do_FuckingBoxCancel and C_human::Do_DeadBody (mafia-re 113b5b6
+/// game/tools.h:51-58; turned off while the player carries at
+/// game/actors/C_human.cpp:8510-8517, :8670-8677 and :8737-8744, back on at
+/// :8580-8587 and :8829-8836).
+/// Working name: the list is inlined at each site with no standalone
+/// FUNCTION copy.
+pub fn box_carry_invalid_actions() -> [u32; 8] {
+    [
+        USING_ACTION_GET_IN_FRONT,
+        USING_ACTION_GET_IN_BACK,
+        USING_ACTION_BOARD_TRAIN,
+        USING_ACTION_HIJACK_CAR,
+        USING_ACTION_PICK_UP_BOX,
+        USING_ACTION_SEARCH_DEAD_BODY,
+        USING_ACTION_MOVE_DEAD_BODY,
+        USING_ACTION_GET_IN_AS_DRIVER,
+    ]
+}
+
+/// Working-name pickup animation pairs of C_human::Do_FuckingBox (no RVA
+/// claimed: inline ChangeAnim pairs at mafia-re 113b5b6
+/// game/actors/C_human.cpp:8529-8563 inside Do_FuckingBox 0x589140, with no
+/// standalone FUNCTION copy; only the [`fucking_box_entry_gate`] gate
+/// carries that address). Each base animation is replaced with its
+/// box-carry ("Bedna") variant through the animation owner, which stays
+/// DEFERRED.
+pub fn box_pickup_anim_pairs() -> [(&'static str, &'static str); 14] {
+    [
+        ("breath01a.i3d", "BednaStativ.i3d"),
+        ("breath01b.i3d", "BednaStativ.i3d"),
+        ("breath01c.i3d", "BednaStativ.i3d"),
+        ("breath01d.i3d", "BednaStativ.i3d"),
+        ("walk1.i3d", "BednaWalk.i3d"),
+        ("back1.i3d", "BednaBack.i3d"),
+        ("left1.i3d", "BednaLeft.i3d"),
+        ("right1.i3d", "BednaRight.i3d"),
+        ("strafL1.i3d", "BednaStrafL.i3d"),
+        ("strafR1.i3d", "BednaStrafR.i3d"),
+        ("walkL1.i3d", "BednaWalkL.i3d"),
+        ("walkR1.i3d", "BednaWalkR.i3d"),
+        ("backL1.i3d", "BednaBackL.i3d"),
+        ("backR1.i3d", "BednaBackR.i3d"),
+    ]
+}
+
+/// Latch words staged when the carried box is put down (mafia-re 113b5b6
+/// game/actors/C_human.cpp:8503-8517, same tail in the
+/// C_human::Do_FuckingBoxCancel found arm at :8662-8677 and the
+/// C_human::Do_DeadBody drop arm at :8729-8744).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BoxPutDownLatchReset {
+    /// The carrier animation id clears.
+    pub anim_id: i32,
+    /// Both weapon models switch back on.
+    pub weapon_models_on: bool,
+}
+
+/// Working-name put-down words of the box carry (no RVA claimed: inline
+/// writes shared by C_human::Do_FuckingBox 0x589140,
+/// C_human::Do_FuckingBoxCancel 0x589680 and C_human::Do_DeadBody 0x589c20,
+/// with no standalone FUNCTION copy; only the entry gates carry those
+/// addresses). The ChangeAnim programs, the frame/sector/shadow program and
+/// the using-object bookkeeping stay DEFERRED with their owners.
+pub fn box_put_down_latch_reset() -> BoxPutDownLatchReset {
+    BoxPutDownLatchReset {
+        anim_id: 0,
+        weapon_models_on: true,
+    }
+}
+
+/// Destination program of the C_human::Do_FuckingBoxCancel found arm
+/// (mafia-re 113b5b6 game/actors/C_human.cpp:8634-8643).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoxCancelDestination {
+    /// The box lies farther from its start than from the enemy destination:
+    /// the destination advances.
+    AdvanceNextDest,
+    /// Otherwise the placement info is restored and the box re-added.
+    RestoreAndRecompile,
+}
+
+/// Working-name destination select of C_human::Do_FuckingBoxCancel (no RVA
+/// claimed: inline compare at mafia-re 113b5b6
+/// game/actors/C_human.cpp:8634-8643 inside Do_FuckingBoxCancel 0x589680,
+/// with no standalone FUNCTION copy; only the
+/// [`fucking_box_cancel_entry_gate`] gate carries that address). `farther`
+/// stages whether the squared box-to-start distance beats the squared
+/// box-to-destination distance; the placement/scene owners stay DEFERRED.
+pub fn box_cancel_destination_pick(farther: bool) -> BoxCancelDestination {
+    if farther {
+        BoxCancelDestination::AdvanceNextDest
+    } else {
+        BoxCancelDestination::RestoreAndRecompile
+    }
+}
+
+/// Working-name pickup animation pairs of C_human::Do_DeadBody (no RVA
+/// claimed: inline ChangeAnim pairs at mafia-re 113b5b6
+/// game/actors/C_human.cpp:8764-8798 inside Do_DeadBody 0x589c20, with no
+/// standalone FUNCTION copy; only the [`dead_body_entry_gate`] gate carries
+/// that address). Each base animation is replaced with its body-carry
+/// ("NoseniMrtvolyTom") variant through the animation owner, which stays
+/// DEFERRED.
+pub fn dead_body_pickup_anim_pairs() -> [(&'static str, &'static str); 14] {
+    [
+        ("breath01a.i3d", "NoseniMrtvolyTomStat.I3D"),
+        ("breath01b.i3d", "NoseniMrtvolyTomStat.I3D"),
+        ("breath01c.i3d", "NoseniMrtvolyTomStat.I3D"),
+        ("breath01d.i3d", "NoseniMrtvolyTomStat.I3D"),
+        ("walk1.i3d", "NoseniMrtvolyTomWalk.I3D"),
+        ("back1.i3d", "NoseniMrtvolyTomBack.I3D"),
+        ("left1.i3d", "NoseniMrtvolyTomLeft.I3D"),
+        ("right1.i3d", "NoseniMrtvolyTomRight.I3D"),
+        ("strafL1.i3d", "NoseniMrtvolyTomStrafL.I3D"),
+        ("strafR1.i3d", "NoseniMrtvolyTomStrafR.I3D"),
+        ("walkL1.i3d", "NoseniMrtvolyTomWalkL.I3D"),
+        ("walkR1.i3d", "NoseniMrtvolyTomWalkR.I3D"),
+        ("backL1.i3d", "NoseniMrtvolyTomBackL.I3D"),
+        ("backR1.i3d", "NoseniMrtvolyTomBackR.I3D"),
+    ]
+}
+
+/// Working-name pickup-sound gate of C_human::Do_DeadBody (no RVA claimed:
+/// inline gate at mafia-re 113b5b6 game/actors/C_human.cpp:8807 inside
+/// Do_DeadBody 0x589c20, with no standalone FUNCTION copy; only the
+/// [`dead_body_entry_gate`] gate carries that address). The pickup sound
+/// plays at high game sounds within 20 m (squared distance below 400);
+/// `game_sounds` is the staged options word. The sound/scene owners stay
+/// DEFERRED.
+pub fn dead_body_pickup_sound_gate(game_sounds: i32, dist2: f32) -> bool {
+    game_sounds >= OPTION_HIGH && dist2 < 400.0
 }
 
 #[cfg(test)]
@@ -9019,6 +9316,158 @@ mod working_name_small_leaves_tests {
         // C_human.cpp:10078-10081, folded into 0x4aabe0, whose RVA 0xaabe0 the
         // frozen ledger already retains).
         HumanState::universal_use_empty();
+    }
+
+    #[test]
+    fn box_pickup_anim_pairs_map_bases_to_bedna() {
+        // Working names: no RVA claimed (inline pairs, C_human.cpp:8529-8563).
+        let pairs = box_pickup_anim_pairs();
+        assert_eq!(pairs.len(), 14);
+        assert_eq!(pairs[0], ("breath01a.i3d", "BednaStativ.i3d"));
+        assert_eq!(pairs[4], ("walk1.i3d", "BednaWalk.i3d"));
+        assert_eq!(pairs[13], ("backR1.i3d", "BednaBackR.i3d"));
+    }
+
+    #[test]
+    fn box_carry_invalid_actions_lists_eight_ids() {
+        // Working names: no RVA claimed (tools.h:51-58).
+        let actions = box_carry_invalid_actions();
+        assert_eq!(actions.len(), 8);
+        assert_eq!(actions[0], 0x7d3);
+        assert_eq!(actions[4], 0x7da);
+        assert_eq!(actions[7], 0x7df);
+    }
+
+    #[test]
+    fn box_put_down_latch_clears_anim_and_shows_models() {
+        // Working names: no RVA claimed (inline words, C_human.cpp:8503-8517).
+        let words = box_put_down_latch_reset();
+        assert_eq!(
+            words,
+            BoxPutDownLatchReset {
+                anim_id: 0,
+                weapon_models_on: true,
+            }
+        );
+    }
+
+    #[test]
+    fn box_cancel_destination_pick_splits_on_farther() {
+        // Working name: no RVA claimed (inline compare, C_human.cpp:8634-8643).
+        assert_eq!(
+            box_cancel_destination_pick(true),
+            BoxCancelDestination::AdvanceNextDest
+        );
+        assert_eq!(
+            box_cancel_destination_pick(false),
+            BoxCancelDestination::RestoreAndRecompile
+        );
+    }
+
+    #[test]
+    fn dead_body_pickup_anim_pairs_map_bases_to_tom() {
+        // Working names: no RVA claimed (inline pairs, C_human.cpp:8764-8798).
+        let pairs = dead_body_pickup_anim_pairs();
+        assert_eq!(pairs.len(), 14);
+        assert_eq!(pairs[0], ("breath01a.i3d", "NoseniMrtvolyTomStat.I3D"));
+        assert_eq!(pairs[4], ("walk1.i3d", "NoseniMrtvolyTomWalk.I3D"));
+        assert_eq!(pairs[13], ("backR1.i3d", "NoseniMrtvolyTomBackR.I3D"));
+    }
+
+    #[test]
+    fn dead_body_pickup_sound_gate_needs_high_sounds_nearby() {
+        use crate::mission_options::OPTION_MEDIUM;
+        // Working name: no RVA claimed (inline gate, C_human.cpp:8807).
+        assert!(dead_body_pickup_sound_gate(OPTION_HIGH, 399.0));
+        assert!(!dead_body_pickup_sound_gate(OPTION_HIGH, 400.0));
+        assert!(!dead_body_pickup_sound_gate(OPTION_MEDIUM, 0.0));
+    }
+
+    #[test]
+    fn jump_changed_words_clear_throw_idle_breath_and_effects() {
+        // Working name: no RVA claimed (inline clears, C_human.cpp:7712-7719).
+        assert_eq!(
+            jump_changed_words(),
+            JumpChangedWords {
+                throw_swung: false,
+                idle_time: -1,
+                breath_time: -1,
+                reload_effects: false,
+            }
+        );
+    }
+
+    #[test]
+    fn jump_run_words_flag_left_and_stage_takeoff() {
+        // Working name: no RVA claimed (inline writes, C_human.cpp:7655-7662).
+        assert_eq!(
+            jump_run_words(100, 300),
+            JumpRunWords {
+                anim_left: true,
+                velocity_y: 6.0,
+            }
+        );
+        assert_eq!(
+            jump_run_words(150, 300),
+            JumpRunWords {
+                anim_left: false,
+                velocity_y: 6.0,
+            }
+        );
+    }
+
+    #[test]
+    fn climb_wall_height_gate_splits_at_point_three_and_one_one() {
+        // Working name: no RVA claimed (inline refuses, C_human.cpp:7787-7790).
+        assert!(climb_wall_height_gate(0.3));
+        assert!(climb_wall_height_gate(1.1));
+        assert!(!climb_wall_height_gate(0.29));
+        assert!(!climb_wall_height_gate(1.11));
+    }
+
+    #[test]
+    fn climb_car_anim_base_ors_seat_parity_with_prelez() {
+        // Working names: no RVA claimed (inline OR, C_human.cpp:6644:
+        // `seat & 1 | ANIM_AUTO_PRELEZ_L_TO_R`, & binds tighter than |).
+        assert_eq!(climb_car_anim_base(0), 0x130);
+        assert_eq!(climb_car_anim_base(1), 0x131);
+        assert_eq!(climb_car_anim_base(2), 0x130);
+        assert_eq!(climb_car_anim_base(3), 0x131);
+    }
+
+    #[test]
+    fn climb_car_weapon_model_gate_matches_kind_and_seat() {
+        // Working names: no RVA claimed (inline gates, C_human.cpp:6667-6669).
+        assert!(climb_car_weapon_model_gate(WEAPON_KIND_RIFLE, 3));
+        assert!(climb_car_weapon_model_gate(WEAPON_KIND_SMG, 2));
+        assert!(climb_car_weapon_model_gate(WEAPON_KIND_PISTOL, 0));
+        assert!(!climb_car_weapon_model_gate(WEAPON_KIND_PISTOL, 1));
+        assert!(!climb_car_weapon_model_gate(WEAPON_KIND_FISTS, 0));
+    }
+
+    #[test]
+    fn shoot_is_melee_kind_admits_four_strike_kinds() {
+        // Working names: no RVA claimed (inline cases, C_human.cpp:7006-7009).
+        assert!(shoot_is_melee_kind(WEAPON_KIND_FISTS));
+        assert!(shoot_is_melee_kind(WEAPON_KIND_KNUCKLEDUSTER));
+        assert!(shoot_is_melee_kind(WEAPON_KIND_KNIFE));
+        assert!(shoot_is_melee_kind(WEAPON_KIND_BAT));
+        assert!(!shoot_is_melee_kind(WEAPON_KIND_PISTOL));
+        assert!(!shoot_is_melee_kind(WEAPON_KIND_RIFLE));
+        assert!(!shoot_is_melee_kind(WEAPON_KIND_SMG));
+        assert!(!shoot_is_melee_kind(WEAPON_KIND_THROWN));
+    }
+
+    #[test]
+    fn shoot_release_clears_fire_except_for_thrown() {
+        // Working names: no RVA claimed (inline switch, C_human.cpp:7043-7159).
+        assert!(shoot_release_clears_fire(WEAPON_KIND_PISTOL));
+        assert!(shoot_release_clears_fire(WEAPON_KIND_RIFLE));
+        assert!(shoot_release_clears_fire(WEAPON_KIND_SMG));
+        assert!(shoot_release_clears_fire(WEAPON_KIND_FISTS));
+        assert!(shoot_release_clears_fire(WEAPON_KIND_KNIFE));
+        assert!(shoot_release_clears_fire(WEAPON_KIND_BAT));
+        assert!(!shoot_release_clears_fire(WEAPON_KIND_THROWN));
     }
 }
 
