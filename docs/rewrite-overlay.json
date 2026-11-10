@@ -16141,6 +16141,114 @@
       "symbol": "lhr_engine::vehicle_small_accessors::car_get_record_pos_unsupported",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (scene/device/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16e3b0",
+      "va": "0x56e3b0",
+      "name": "ai_loc::Update",
+      "symbol": "lhr_engine::human_actor::HumanState::ai_loc_update_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16efd0",
+      "va": "0x56efd0",
+      "name": "C_human::C_human",
+      "symbol": "lhr_engine::human_actor::HumanState::ctor_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f350",
+      "va": "0x56f350",
+      "name": "C_human::Init",
+      "symbol": "lhr_engine::human_actor::HumanState::init_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16f4e0",
+      "va": "0x56f4e0",
+      "name": "C_human::LoadData",
+      "symbol": "lhr_engine::human_actor::HumanState::load_data_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16fa20",
+      "va": "0x56fa20",
+      "name": "C_human::SaveGameSave",
+      "symbol": "lhr_engine::human_actor::HumanState::save_game_save_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x16fd30",
+      "va": "0x56fd30",
+      "name": "C_human::SaveGameLoad",
+      "symbol": "lhr_engine::human_actor::HumanState::save_game_load_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x170740",
+      "va": "0x570740",
+      "name": "C_human::AI",
+      "symbol": "lhr_engine::human_actor::HumanState::ai_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x172b80",
+      "va": "0x572b80",
+      "name": "C_human::Update",
+      "symbol": "lhr_engine::human_actor::HumanState::update_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x173e50",
+      "va": "0x573e50",
+      "name": "C_human::PersonAnim",
+      "symbol": "lhr_engine::human_actor::HumanState::person_anim_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1762a0",
+      "va": "0x5762a0",
+      "name": "C_human::Hit",
+      "symbol": "lhr_engine::human_actor::HumanState::hit_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x178290",
+      "va": "0x578290",
+      "name": "C_human::HitInCar",
+      "symbol": "lhr_engine::human_actor::HumanState::hit_in_car_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1784a0",
+      "va": "0x5784a0",
+      "name": "C_human::Collision",
+      "symbol": "lhr_engine::human_actor::HumanState::collision_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (actor/record/collision owners deferred). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

@@ -4327,6 +4327,114 @@ impl HumanState {
             entry: GET_RECORD_ROT_ENTRY,
         })
     }
+    /// GAME 0x56e3b0 (RVA 0x16e3b0, VA 0x56e3b0) ai_loc::Update EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:1079): the
+    /// body steps the AI location. The AI owner does not exist here, so no
+    /// state is touched and no owner is filed; the stub exists only to pin
+    /// the address while that owner stays DEFERRED.
+    pub fn ai_loc_update_unsupported(&mut self) {}
+    /// GAME 0x56efd0 (RVA 0x16efd0, VA 0x56efd0) C_human::C_human EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:1250): the
+    /// constructor body. Construction stays with the actor owner; the stub
+    /// exists only to pin the address while that owner stays DEFERRED.
+    pub fn ctor_unsupported(&mut self) {}
+    /// GAME 0x56f350 (RVA 0x16f350, VA 0x56f350) C_human::Init EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:1284): the
+    /// body inits the human on a frame. The frame owner does not exist here,
+    /// so no verdict is produced and no owner is filed; the stub exists only
+    /// to pin the address while that owner stays DEFERRED. The native `bool`
+    /// answer is preserved in the return type.
+    pub fn init_unsupported(&mut self) -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: INIT_ENTRY,
+        })
+    }
+    /// GAME 0x56f4e0 (RVA 0x16f4e0, VA 0x56f4e0) C_human::LoadData EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:1377): the
+    /// body loads the human from a chunk. The chunk owner does not exist
+    /// here, so no verdict is produced and no owner is filed; the stub
+    /// exists only to pin the address while that owner stays DEFERRED. The
+    /// native `bool` answer is preserved in the return type.
+    pub fn load_data_unsupported(&mut self) -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: LOAD_DATA_ENTRY,
+        })
+    }
+    /// GAME 0x56fa20 (RVA 0x16fa20, VA 0x56fa20) C_human::SaveGameSave
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:1428): the body saves the human into a buffer.
+    /// The buffer owner does not exist here, so no verdict is produced and no
+    /// owner is filed; the stub exists only to pin the address while that
+    /// owner stays DEFERRED. The native `bool` answer is preserved in the
+    /// return type.
+    pub fn save_game_save_unsupported(&mut self) -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: SAVE_GAME_SAVE_ENTRY,
+        })
+    }
+    /// GAME 0x56fd30 (RVA 0x16fd30, VA 0x56fd30) C_human::SaveGameLoad
+    /// EXPLICIT UNSUPPORTED STUB (mafia-re 113b5b6
+    /// game/actors/C_human.cpp:1494): the body loads the human from a buffer.
+    /// The buffer owner does not exist here, so no verdict is produced and no
+    /// owner is filed; the stub exists only to pin the address while that
+    /// owner stays DEFERRED. The native `bool` answer is preserved in the
+    /// return type.
+    pub fn save_game_load_unsupported(&mut self) -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: SAVE_GAME_LOAD_ENTRY,
+        })
+    }
+    /// GAME 0x570740 (RVA 0x170740, VA 0x570740) C_human::AI EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:1730): the
+    /// body ticks the human AI. The AI owner does not exist here, so no state
+    /// is touched and no owner is filed; the stub exists only to pin the
+    /// address while that owner stays DEFERRED.
+    pub fn ai_unsupported(&mut self, _time_ms: u32) {}
+    /// GAME 0x572b80 (RVA 0x172b80, VA 0x572b80) C_human::Update EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:2338): the
+    /// body ticks the human simulation. The simulation owners do not exist
+    /// here, so no state is touched and no owner is filed; the stub exists
+    /// only to pin the address while those owners stay DEFERRED.
+    pub fn update_unsupported(&mut self, _time_ms: u32) {}
+    /// GAME 0x573e50 (RVA 0x173e50, VA 0x573e50) C_human::PersonAnim EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:2743): the
+    /// body picks a person animation. The animation owner does not exist here,
+    /// so no state is touched and no owner is filed; the stub exists only to
+    /// pin the address while that owner stays DEFERRED.
+    pub fn person_anim_unsupported(&mut self, _f: f32, _b1: bool, _b2: bool) {}
+    /// GAME 0x5762a0 (RVA 0x1762a0, VA 0x5762a0) C_human::Hit EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:3729): the
+    /// body applies a hit to the human. The collision/actor owners do not
+    /// exist here, so no verdict is produced and no owner is filed; the stub
+    /// exists only to pin the address while those owners stay DEFERRED. The
+    /// native `bool` answer is preserved in the return type.
+    pub fn hit_unsupported(&mut self) -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: HIT_ENTRY,
+        })
+    }
+    /// GAME 0x578290 (RVA 0x178290, VA 0x578290) C_human::HitInCar EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:4358): the
+    /// body applies a hit to the human in a car. The collision/actor owners
+    /// do not exist here, so no verdict is produced and no owner is filed;
+    /// the stub exists only to pin the address while those owners stay
+    /// DEFERRED. The native `bool` answer is preserved in the return type.
+    pub fn hit_in_car_unsupported(&mut self) -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: HIT_IN_CAR_ENTRY,
+        })
+    }
+    /// GAME 0x5784a0 (RVA 0x1784a0, VA 0x5784a0) C_human::Collision EXPLICIT
+    /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:4413): the
+    /// body runs human collision. The collision/actor owners do not exist
+    /// here, so no verdict is produced and no owner is filed; the stub exists
+    /// only to pin the address while those owners stay DEFERRED. The native
+    /// `bool` answer is preserved in the return type.
+    pub fn collision_unsupported(&mut self) -> Result<bool, HumanSmallProbeError> {
+        Err(HumanSmallProbeError::Unsupported {
+            entry: COLLISION_ENTRY,
+        })
+    }
 }
 
 /// Small-probe boundary for the value-returning C_human leaves pinned above.
@@ -4353,6 +4461,30 @@ pub const PLACE_AT_TIME_ENTRY: u32 = 0x56bec0;
 pub const GET_RECORD_POS_ENTRY: u32 = 0x56c7c0;
 /// `C_human::GetRecordRot` entry, GAME VA 0x56cc70.
 pub const GET_RECORD_ROT_ENTRY: u32 = 0x56cc70;
+/// ai_loc::Update entry, GAME VA 0x56e3b0.
+pub const AI_LOC_UPDATE_ENTRY: u32 = 0x56e3b0;
+/// `C_human::C_human` entry, GAME VA 0x56efd0.
+pub const CTOR_ENTRY: u32 = 0x56efd0;
+/// `C_human::Init` entry, GAME VA 0x56f350.
+pub const INIT_ENTRY: u32 = 0x56f350;
+/// `C_human::LoadData` entry, GAME VA 0x56f4e0.
+pub const LOAD_DATA_ENTRY: u32 = 0x56f4e0;
+/// `C_human::SaveGameSave` entry, GAME VA 0x56fa20.
+pub const SAVE_GAME_SAVE_ENTRY: u32 = 0x56fa20;
+/// `C_human::SaveGameLoad` entry, GAME VA 0x56fd30.
+pub const SAVE_GAME_LOAD_ENTRY: u32 = 0x56fd30;
+/// `C_human::AI` entry, GAME VA 0x570740.
+pub const AI_ENTRY: u32 = 0x570740;
+/// `C_human::Update` entry, GAME VA 0x572b80.
+pub const UPDATE_ENTRY: u32 = 0x572b80;
+/// `C_human::PersonAnim` entry, GAME VA 0x573e50.
+pub const PERSON_ANIM_ENTRY: u32 = 0x573e50;
+/// `C_human::Hit` entry, GAME VA 0x5762a0.
+pub const HIT_ENTRY: u32 = 0x5762a0;
+/// `C_human::HitInCar` entry, GAME VA 0x578290.
+pub const HIT_IN_CAR_ENTRY: u32 = 0x578290;
+/// `C_human::Collision` entry, GAME VA 0x5784a0.
+pub const COLLISION_ENTRY: u32 = 0x5784a0;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HumanDataError {
@@ -6642,6 +6774,130 @@ mod human_state_flags_tests {
         assert_eq!(
             HumanState::get_record_rot_unsupported(100),
             Err(HumanSmallProbeError::Unsupported { entry: 0x56cc70 })
+        );
+    }
+    #[test]
+    // GAME 0x56e3b0 (RVA 0x16e3b0) ai_loc::Update (mafia-re 113b5b6
+    // game/actors/C_human.cpp:1079): explicit unsupported stub, AI owner;
+    // invoking it touches no staged words.
+    fn rva_16e3b0_ai_loc_update_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        human.ai_loc_update_unsupported();
+    }
+    #[test]
+    // GAME 0x56efd0 (RVA 0x16efd0) C_human::C_human (mafia-re 113b5b6
+    // game/actors/C_human.cpp:1250): explicit unsupported stub; construction
+    // stays with the actor owner.
+    fn rva_16efd0_ctor_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        human.ctor_unsupported();
+    }
+    #[test]
+    // GAME 0x56f350 (RVA 0x16f350) C_human::Init (mafia-re 113b5b6
+    // game/actors/C_human.cpp:1284): explicit unsupported stub, frame owner;
+    // the native bool verdict is preserved as Err.
+    fn rva_16f350_init_reports_unsupported() {
+        assert_eq!(INIT_ENTRY, 0x56f350);
+        let mut human = HumanState::construct(seed());
+        assert_eq!(
+            human.init_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x56f350 })
+        );
+    }
+    #[test]
+    // GAME 0x56f4e0 (RVA 0x16f4e0) C_human::LoadData (mafia-re 113b5b6
+    // game/actors/C_human.cpp:1377): explicit unsupported stub, chunk owner;
+    // the native bool verdict is preserved as Err.
+    fn rva_16f4e0_load_data_reports_unsupported() {
+        assert_eq!(LOAD_DATA_ENTRY, 0x56f4e0);
+        let mut human = HumanState::construct(seed());
+        assert_eq!(
+            human.load_data_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x56f4e0 })
+        );
+    }
+    #[test]
+    // GAME 0x56fa20 (RVA 0x16fa20) C_human::SaveGameSave (mafia-re 113b5b6
+    // game/actors/C_human.cpp:1428): explicit unsupported stub, buffer owner;
+    // the native bool verdict is preserved as Err.
+    fn rva_16fa20_save_game_save_reports_unsupported() {
+        assert_eq!(SAVE_GAME_SAVE_ENTRY, 0x56fa20);
+        let mut human = HumanState::construct(seed());
+        assert_eq!(
+            human.save_game_save_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x56fa20 })
+        );
+    }
+    #[test]
+    // GAME 0x56fd30 (RVA 0x16fd30) C_human::SaveGameLoad (mafia-re 113b5b6
+    // game/actors/C_human.cpp:1494): explicit unsupported stub, buffer owner;
+    // the native bool verdict is preserved as Err.
+    fn rva_16fd30_save_game_load_reports_unsupported() {
+        assert_eq!(SAVE_GAME_LOAD_ENTRY, 0x56fd30);
+        let mut human = HumanState::construct(seed());
+        assert_eq!(
+            human.save_game_load_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x56fd30 })
+        );
+    }
+    #[test]
+    // GAME 0x570740 (RVA 0x170740) C_human::AI (mafia-re 113b5b6
+    // game/actors/C_human.cpp:1730): explicit unsupported stub, AI owner;
+    // invoking it touches no staged words.
+    fn rva_170740_ai_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        human.ai_unsupported(16);
+    }
+    #[test]
+    // GAME 0x572b80 (RVA 0x172b80) C_human::Update (mafia-re 113b5b6
+    // game/actors/C_human.cpp:2338): explicit unsupported stub, simulation
+    // owners; invoking it touches no staged words.
+    fn rva_172b80_update_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        human.update_unsupported(16);
+    }
+    #[test]
+    // GAME 0x573e50 (RVA 0x173e50) C_human::PersonAnim (mafia-re 113b5b6
+    // game/actors/C_human.cpp:2743): explicit unsupported stub, animation
+    // owner; invoking it touches no staged words.
+    fn rva_173e50_person_anim_stub_runs_without_state() {
+        let mut human = HumanState::construct(seed());
+        human.person_anim_unsupported(0.5, true, false);
+    }
+    #[test]
+    // GAME 0x5762a0 (RVA 0x1762a0) C_human::Hit (mafia-re 113b5b6
+    // game/actors/C_human.cpp:3729): explicit unsupported stub, collision/
+    // actor owners; the native bool verdict is preserved as Err.
+    fn rva_1762a0_hit_reports_unsupported() {
+        assert_eq!(HIT_ENTRY, 0x5762a0);
+        let mut human = HumanState::construct(seed());
+        assert_eq!(
+            human.hit_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x5762a0 })
+        );
+    }
+    #[test]
+    // GAME 0x578290 (RVA 0x178290) C_human::HitInCar (mafia-re 113b5b6
+    // game/actors/C_human.cpp:4358): explicit unsupported stub, collision/
+    // actor owners; the native bool verdict is preserved as Err.
+    fn rva_178290_hit_in_car_reports_unsupported() {
+        assert_eq!(HIT_IN_CAR_ENTRY, 0x578290);
+        let mut human = HumanState::construct(seed());
+        assert_eq!(
+            human.hit_in_car_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x578290 })
+        );
+    }
+    #[test]
+    // GAME 0x5784a0 (RVA 0x1784a0) C_human::Collision (mafia-re 113b5b6
+    // game/actors/C_human.cpp:4413): explicit unsupported stub, collision/
+    // actor owners; the native bool verdict is preserved as Err.
+    fn rva_1784a0_collision_reports_unsupported() {
+        assert_eq!(COLLISION_ENTRY, 0x5784a0);
+        let mut human = HumanState::construct(seed());
+        assert_eq!(
+            human.collision_unsupported(),
+            Err(HumanSmallProbeError::Unsupported { entry: 0x5784a0 })
         );
     }
     #[test]
