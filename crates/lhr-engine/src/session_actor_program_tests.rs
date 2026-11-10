@@ -458,3 +458,24 @@ fn session_actor_unwind_retains_game_prefix_program_and_precision_owner() {
         finish(&mut session);
     }
 }
+
+#[test]
+fn entity_and_detector_passes_consume_the_same_session_random_stream() {
+    let source = b"commandblock 1\ndim_flt 1\nrnd 0,100\ncommandblock 0";
+    let fixture = fixture(Some(source), Some(source));
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    session.seed_owned_game_random(1).unwrap();
+    let mut diagnostic = Diagnostic::default();
+    for kind in [ActorProgramKind::Entity, ActorProgramKind::Detector] {
+        initialize(&mut session, kind, &mut diagnostic).unwrap();
+    }
+    let mut budget = DispatchBudget::new(64).unwrap();
+    for (kind, expected) in [(ActorProgramKind::Entity, 41.0), (ActorProgramKind::Detector, 67.0)] {
+        tick(&mut session, kind, &mut budget, &mut diagnostic).unwrap();
+        assert_eq!(program(&session, kind).runtime().unwrap().fields
+            .floats.as_ref().unwrap()[0], expected);
+    }
+    assert_eq!(session.game_state().random_source().next_raw(), Some(6334));
+    finish(&mut session);
+}
