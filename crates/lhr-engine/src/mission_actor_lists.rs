@@ -406,6 +406,46 @@ pub fn has_transparent_object(entries: &[TransparentEntry], object: u32) -> bool
     false
 }
 
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:156` at pin 113b5b6, `active_actors` at
+/// +0xbc): reads the staged stay-in-game actor count. The native size is read
+/// inline at each loop bound with no dedicated getter, so no RVA is claimed.
+pub fn active_actor_count<P>(active_actors: &[P]) -> usize {
+    active_actors.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline membership
+/// test, mafia-re `game/mission/Mission.h:156` at pin 113b5b6,
+/// `active_actors` at +0xbc, `StoreActiveActor`/`RemoveActiveActor` guards):
+/// reports whether the actor stays staged in the game. The native guards scan
+/// back to front, so this follows the same direction with no RVA claimed.
+pub fn has_active_actor(active_actors: &[ActorId], actor: ActorId) -> bool {
+    for index in (0..active_actors.len()).rev() {
+        if active_actors[index] == actor {
+            return true;
+        }
+    }
+    false
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:155` at pin 113b5b6,
+/// `frame_actor_buffer` at +0xac, `S_frame_actor_buffer` 0x10 bytes): reads
+/// the staged kept-between-missions entry count. The native size is read
+/// inline at each loop bound with no dedicated getter, so no RVA is claimed.
+pub fn frame_actor_buffer_count<P>(entries: &[P]) -> usize {
+    entries.len()
+}
+
+/// Working name (no outline Game.exe entry is claimed; inline size read,
+/// mafia-re `game/mission/Mission.h:157` at pin 113b5b6,
+/// `actor_sound_buffer` at +0xcc, `S_actor_sound_buffer` 0xc bytes): reads the
+/// staged kept actor-sound count. The native size is read inline at each loop
+/// bound with no dedicated getter, so no RVA is claimed.
+pub fn actor_sound_buffer_count<P>(entries: &[P]) -> usize {
+    entries.len()
+}
+
 /// Opaque effects-manager handle. Native `C_effects*` identity is the
 /// caller's concern; `None` is the native NULL.
 pub type EffectsHandle = u32;
@@ -1677,5 +1717,43 @@ mod tests {
         assert_eq!(presence.mission_name(), Some("mise01"));
         presence.stage_mission_name(None);
         assert!(!presence.has_mission_name());
+    }
+
+    #[test]
+    fn active_actor_count_working_name_reports_length() {
+        // Inline active_actors size (Mission.h:156, +0xbc).
+        let active = vec![4u32, 5, 6];
+        assert_eq!(active_actor_count(&active), 3);
+        let empty: Vec<ActorId> = Vec::new();
+        assert_eq!(active_actor_count(&empty), 0);
+    }
+
+    #[test]
+    fn has_active_actor_working_name_matches_stay_in_game_list() {
+        // Stay-in-game list (Mission.h:156, Store/RemoveActiveActor guards).
+        let active = vec![7u32, 8];
+        assert!(has_active_actor(&active, 7));
+        assert!(has_active_actor(&active, 8));
+        assert!(!has_active_actor(&active, 9));
+        let empty: Vec<ActorId> = Vec::new();
+        assert!(!has_active_actor(&empty, 7));
+    }
+
+    #[test]
+    fn frame_actor_buffer_count_working_name_reports_length() {
+        // Inline frame_actor_buffer size (Mission.h:155, +0xac).
+        let entries = vec![1u32, 2, 3, 4];
+        assert_eq!(frame_actor_buffer_count(&entries), 4);
+        let empty: Vec<u32> = Vec::new();
+        assert_eq!(frame_actor_buffer_count(&empty), 0);
+    }
+
+    #[test]
+    fn actor_sound_buffer_count_working_name_reports_length() {
+        // Inline actor_sound_buffer size (Mission.h:157, +0xcc).
+        let entries = vec![11u32, 12];
+        assert_eq!(actor_sound_buffer_count(&entries), 2);
+        let empty: Vec<u32> = Vec::new();
+        assert_eq!(actor_sound_buffer_count(&empty), 0);
     }
 }

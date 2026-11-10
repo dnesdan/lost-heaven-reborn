@@ -1482,6 +1482,142 @@ impl PoliceGameInitState {
         0
     }
 
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `SHVF_WEAPON` bit (`false` without a record). The native bit
+    /// (`S_shvestky::flags` at +0x8, mafia-re game/ai/C_shvestky.h:16) is
+    /// maintained inline in `Tick`/`CreateShvestkyTest` with no dedicated
+    /// getter, so no RVA is claimed.
+    pub fn has_weapon_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_weapon();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `SHVF_SPEEDING` bit (`false` without a record). The native
+    /// bit (mafia-re game/ai/C_shvestky.h:18, car faster than `speed_limit`)
+    /// is maintained inline with no dedicated getter, so no RVA is claimed.
+    pub fn is_speeding_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.is_speeding();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `SHVF_CRASH` bits (`false` without a record). The native bits
+    /// (mafia-re game/ai/C_shvestky.h:19-20) are maintained inline in `Tick`
+    /// with no dedicated getter, so no RVA is claimed.
+    pub fn has_crash_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_crash();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `SHVF_RED_LIGHT` bit (`false` without a record). The native
+    /// bit (mafia-re game/ai/C_shvestky.h:23, `TestOverRed`'s) is maintained
+    /// inline in `Tick` with no dedicated getter, so no RVA is claimed.
+    pub fn has_red_light_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_red_light();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `SHVF_CAR_STEAL` bit (`false` without a record). The native
+    /// bit (mafia-re game/ai/C_shvestky.h:24-25, paired with
+    /// `record_car_steal`) is maintained inline with no dedicated getter, so
+    /// no RVA is claimed.
+    pub fn has_car_steal_flag_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_car_steal();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `SHVF_SIGNAL_MARK` bit (`false` without a record). The native
+    /// bit (mafia-re game/ai/C_shvestky.h:25, a destroyed traffic sign) is
+    /// maintained inline with no dedicated getter, so no RVA is claimed.
+    pub fn has_signal_mark_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_signal_mark();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `SHVF_HIT_POLICEMAN` bit (`false` without a record). The
+    /// native bit (mafia-re game/ai/C_shvestky.h:26-27,
+    /// `DalJsemPochuzkariDoDrzky`'s, `SHVSTATE_KILL`) is maintained inline
+    /// with no dedicated getter, so no RVA is claimed.
+    pub fn has_hit_policeman_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_hit_policeman();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `SHVF_FORCE_ARREST` bit (`false` without a record). The
+    /// native bit (mafia-re game/ai/C_shvestky.h:28, paired with
+    /// `record_force_arrest`) is maintained inline with no dedicated getter,
+    /// so no RVA is claimed.
+    pub fn has_force_arrest_flag_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_force_arrest();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `SHVF_RAM_POLICE_CAR` bit (`false` without a record). The
+    /// native bit (mafia-re game/ai/C_shvestky.h:29-30,
+    /// `StrcilJsemHoPoldumDoVyfuku`'s) is maintained inline with no dedicated
+    /// getter, so no RVA is claimed.
+    pub fn has_ram_police_car_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_ram_police_car();
+            }
+        }
+        false
+    }
+
+    /// Working name (no outline entry is claimed): reads the matched
+    /// record's `SHVF_ILLEGAL_PATH` bit (`false` without a record). The
+    /// native bit (mafia-re game/ai/C_shvestky.h:21, `CarIllegalPath`'s) is
+    /// maintained inline in `Tick` with no dedicated getter, so no RVA is
+    /// claimed.
+    pub fn has_illegal_path_for_human(&self, human: PoliceHumanId) -> bool {
+        for record in self.records.iter().rev() {
+            if record.human == human {
+                return record.has_illegal_path();
+            }
+        }
+        false
+    }
+
     /// Record road-block arm at GAME VA 0x49d2e0 (RVA 0x9d2e0): Ghidra
     /// procedure with a 35-instruction body (REA ev_e8aed070) that does
     /// nothing while the manager is inactive, then scans the records back to
@@ -5100,6 +5236,132 @@ mod tests {
         state.records.push(first);
         state.records.push(second);
         assert!(state.block_way_for_human(7));
+    }
+
+    #[test]
+    fn has_weapon_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only SHVF_WEAPON read; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_weapon_for_human(7));
+        let mut flagged = PolicePursuitRecord::new(7);
+        flagged.flags |= SHVF_WEAPON;
+        state.records.push(flagged);
+        assert!(state.has_weapon_for_human(7));
+        assert!(!state.has_weapon_for_human(8));
+        let mut cleared = PolicePursuitRecord::new(7);
+        cleared.flags &= !SHVF_WEAPON;
+        state.records.push(cleared);
+        assert!(!state.has_weapon_for_human(7));
+    }
+
+    #[test]
+    fn is_speeding_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only SHVF_SPEEDING read; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.is_speeding_for_human(7));
+        let mut flagged = PolicePursuitRecord::new(7);
+        flagged.flags |= SHVF_SPEEDING;
+        state.records.push(flagged);
+        assert!(state.is_speeding_for_human(7));
+        assert!(!state.is_speeding_for_human(8));
+    }
+
+    #[test]
+    fn has_crash_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only SHVF_CRASH read; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_crash_for_human(7));
+        let mut flagged = PolicePursuitRecord::new(7);
+        flagged.flags |= SHVF_CRASH;
+        state.records.push(flagged);
+        assert!(state.has_crash_for_human(7));
+        assert!(!state.has_crash_for_human(8));
+    }
+
+    #[test]
+    fn has_red_light_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only SHVF_RED_LIGHT read; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_red_light_for_human(7));
+        let mut flagged = PolicePursuitRecord::new(7);
+        flagged.flags |= SHVF_RED_LIGHT;
+        state.records.push(flagged);
+        assert!(state.has_red_light_for_human(7));
+        assert!(!state.has_red_light_for_human(8));
+    }
+
+    #[test]
+    fn has_car_steal_flag_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only SHVF_CAR_STEAL read; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_car_steal_flag_for_human(7));
+        let mut flagged = PolicePursuitRecord::new(7);
+        flagged.record_car_steal();
+        state.records.push(flagged);
+        assert!(state.has_car_steal_flag_for_human(7));
+        assert_eq!(state.car_steal_time_for_human(7), 5000);
+        assert!(!state.has_car_steal_flag_for_human(8));
+    }
+
+    #[test]
+    fn has_signal_mark_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only SHVF_SIGNAL_MARK read; false without a record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_signal_mark_for_human(7));
+        let mut flagged = PolicePursuitRecord::new(7);
+        flagged.flags |= SHVF_SIGNAL_MARK;
+        state.records.push(flagged);
+        assert!(state.has_signal_mark_for_human(7));
+        assert!(!state.has_signal_mark_for_human(8));
+    }
+
+    #[test]
+    fn has_hit_policeman_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only SHVF_HIT_POLICEMAN read; false without record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_hit_policeman_for_human(7));
+        let mut flagged = PolicePursuitRecord::new(7);
+        flagged.flags |= SHVF_HIT_POLICEMAN;
+        state.records.push(flagged);
+        assert!(state.has_hit_policeman_for_human(7));
+        assert!(!state.has_hit_policeman_for_human(8));
+    }
+
+    #[test]
+    fn has_force_arrest_flag_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only SHVF_FORCE_ARREST read; false without record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_force_arrest_flag_for_human(7));
+        let mut flagged = PolicePursuitRecord::new(7);
+        flagged.record_force_arrest();
+        state.records.push(flagged);
+        assert!(state.has_force_arrest_flag_for_human(7));
+        assert!(state.is_pending_arrest_for_human(7));
+        assert!(!state.has_force_arrest_flag_for_human(8));
+    }
+
+    #[test]
+    fn has_ram_police_car_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only SHVF_RAM_POLICE_CAR read; false without record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_ram_police_car_for_human(7));
+        let mut flagged = PolicePursuitRecord::new(7);
+        flagged.flags |= SHVF_RAM_POLICE_CAR;
+        state.records.push(flagged);
+        assert!(state.has_ram_police_car_for_human(7));
+        assert!(!state.has_ram_police_car_for_human(8));
+    }
+
+    #[test]
+    fn has_illegal_path_for_human_reads_latest_match_or_false() {
+        // Working name: inline-only SHVF_ILLEGAL_PATH read; false without record.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_illegal_path_for_human(7));
+        let mut flagged = PolicePursuitRecord::new(7);
+        flagged.flags |= SHVF_ILLEGAL_PATH;
+        state.records.push(flagged);
+        assert!(state.has_illegal_path_for_human(7));
+        assert!(!state.has_illegal_path_for_human(8));
     }
 
     #[test]
