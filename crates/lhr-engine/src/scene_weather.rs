@@ -110,9 +110,9 @@ pub enum WsParam {
     Color2 = 4,
     Density = 5,
     Size = 6,
-    RangeX = 7,
-    RangeY = 8,
-    Speed = 9,
+    Speed = 7,
+    RangeX = 8,
+    RangeY = 9,
     Count = 10,
     WindX = 11,
     WindY = 12,
@@ -131,9 +131,9 @@ impl WsParam {
             4 => Some(Self::Color2),
             5 => Some(Self::Density),
             6 => Some(Self::Size),
-            7 => Some(Self::RangeX),
-            8 => Some(Self::RangeY),
-            9 => Some(Self::Speed),
+            7 => Some(Self::Speed),
+            8 => Some(Self::RangeX),
+            9 => Some(Self::RangeY),
             10 => Some(Self::Count),
             11 => Some(Self::WindX),
             12 => Some(Self::WindY),
@@ -239,6 +239,10 @@ pub fn set_weather_system_param(
             WeatherParamEffect::ReshapeParticles
         }
         7 => {
+            scene[W_SPEED] = mul(f32::from_bits(value), 0.5).to_bits();
+            WeatherParamEffect::ReshapeParticles
+        }
+        8 => {
             scene[W_RANGE_X] = value;
             let (x, y) = (
                 f64::from(f32::from_bits(value)),
@@ -247,7 +251,7 @@ pub fn set_weather_system_param(
             scene[W_RANGE] = ((x * x + y * y).sqrt() as f32).to_bits();
             WeatherParamEffect::None
         }
-        8 => {
+        9 => {
             scene[W_RANGE_Y] = value;
             let (x, y) = (
                 f64::from(f32::from_bits(scene[W_RANGE_X])),
@@ -255,10 +259,6 @@ pub fn set_weather_system_param(
             );
             scene[W_RANGE] = ((x * x + y * y).sqrt() as f32).to_bits();
             WeatherParamEffect::None
-        }
-        9 => {
-            scene[W_SPEED] = mul(f32::from_bits(value), 0.5).to_bits();
-            WeatherParamEffect::ReshapeParticles
         }
         10 => {
             scene[W_COUNT] = value;
@@ -317,9 +317,9 @@ pub fn get_weather_system_param(scene: &[u32; SCENE_WORDS], param: u32) -> u32 {
         4 => scene[W_COLOR_2],
         5 => mul(f32::from_bits(scene[W_DENSITY]), 1000.0).to_bits(),
         6 => scene[W_SIZE],
-        7 => scene[W_RANGE_X],
-        8 => scene[W_RANGE_Y],
-        9 => mul(f32::from_bits(scene[W_SPEED]), 2.0).to_bits(),
+        7 => mul(f32::from_bits(scene[W_SPEED]), 2.0).to_bits(),
+        8 => scene[W_RANGE_X],
+        9 => scene[W_RANGE_Y],
         10 => scene[W_COUNT],
         11 => scene[W_WIND],
         12 => scene[W_WIND + 1],
@@ -429,6 +429,147 @@ pub fn weather_reset_wind(scene: &[u32; SCENE_WORDS]) -> [f32; 3] {
         f32::from_bits(scene[W_WIND_RESET + 1]),
         f32::from_bits(scene[W_WIND_RESET + 2]),
     ]
+}
+
+/// Working name for the `WS_PARAM_COLOR` read arm of `GetWeatherSystemParam`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:1279-1280). The reference records no
+/// LS3DF FUNCTION address for a standalone reader; the arm lives inside the
+/// occupied `GetWeatherSystemParam` dispatcher (PC RVA 0x4c4d0, already
+/// ported, not claimed here). Reports the stored ARGB word
+/// (mafia-re ls3df/I3D/I3D.h:1339 `WS_PARAM_COLOR`, I3D.h:1601 `ws_color`
+/// at +0x320); no state moves.
+pub fn weather_color(scene: &[u32; SCENE_WORDS]) -> u32 {
+    scene[W_COLOR]
+}
+
+/// Working name for the `WS_PARAM_COLOR_2` read arm of
+/// `GetWeatherSystemParam` (mafia-re ls3df/I3D/I3d_scene.cpp:1281-1282).
+/// Same inline-only status as `weather_color`: the arm is part of the
+/// occupied dispatcher (PC RVA 0x4c4d0), not claimed here. Reports the
+/// stored second ARGB word (I3D.h:1340 `WS_PARAM_COLOR_2`, I3D.h:1602
+/// `ws_color_2` at +0x324); no state moves.
+pub fn weather_color_2(scene: &[u32; SCENE_WORDS]) -> u32 {
+    scene[W_COLOR_2]
+}
+
+/// Working name for the `WS_PARAM_DENSITY` read arm of
+/// `GetWeatherSystemParam` (mafia-re ls3df/I3D/I3d_scene.cpp:1283-1284:
+/// `I3DFloatAsInt(ws_density * 1000.0f)`). Same inline-only status as
+/// `weather_color`. Scales through the PC24/RN `mul` pipeline exactly like
+/// the dispatcher arm (I3D.h:1341 `WS_PARAM_DENSITY`, I3D.h:1591
+/// `ws_density` at +0x2ac); no state moves.
+pub fn weather_density_per_mille(scene: &[u32; SCENE_WORDS]) -> u32 {
+    use crate::native_precision::mul;
+    mul(f32::from_bits(scene[W_DENSITY]), 1000.0).to_bits()
+}
+
+/// Working name for the `WS_PARAM_SIZE` read arm of `GetWeatherSystemParam`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:1285-1286). Same inline-only status as
+/// `weather_color`. Reports the stored size bits verbatim (I3D.h:1342
+/// `WS_PARAM_SIZE`, I3D.h:1592 `ws_size` at +0x2b0); no state moves.
+pub fn weather_size_bits(scene: &[u32; SCENE_WORDS]) -> u32 {
+    scene[W_SIZE]
+}
+
+/// Working name for the `WS_PARAM_RANGE_X` read arm of
+/// `GetWeatherSystemParam` (mafia-re ls3df/I3D/I3d_scene.cpp:1287-1288).
+/// Same inline-only status as `weather_color`. Reports the stored range-x
+/// bits verbatim (I3D.h:1344 `WS_PARAM_RANGE_X`, I3D.h:1594 `ws_range_x`
+/// at +0x2b8); no state moves.
+pub fn weather_range_x_bits(scene: &[u32; SCENE_WORDS]) -> u32 {
+    scene[W_RANGE_X]
+}
+
+/// Working name for the `WS_PARAM_RANGE_Y` read arm of
+/// `GetWeatherSystemParam` (mafia-re ls3df/I3D/I3d_scene.cpp:1289-1290).
+/// Same inline-only status as `weather_color`. Reports the stored range-y
+/// bits verbatim (I3D.h:1345 `WS_PARAM_RANGE_Y`, I3D.h:1595 `ws_range_y`
+/// at +0x2bc); no state moves.
+pub fn weather_range_y_bits(scene: &[u32; SCENE_WORDS]) -> u32 {
+    scene[W_RANGE_Y]
+}
+
+/// Working name for the `WS_PARAM_SPEED` read arm of `GetWeatherSystemParam`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:1291-1292:
+/// `I3DFloatAsInt(ws_speed * 2.0f)`). Same inline-only status as
+/// `weather_color`. Doubles through the PC24/RN `mul` pipeline exactly like
+/// the dispatcher arm (I3D.h:1343 `WS_PARAM_SPEED`, I3D.h:1593 `ws_speed`
+/// at +0x2b4); no state moves.
+pub fn weather_speed_doubled(scene: &[u32; SCENE_WORDS]) -> u32 {
+    use crate::native_precision::mul;
+    mul(f32::from_bits(scene[W_SPEED]), 2.0).to_bits()
+}
+
+/// Working name for the `WS_PARAM_COUNT` read arm of `GetWeatherSystemParam`
+/// (mafia-re ls3df/I3D/I3d_scene.cpp:1293-1294). Same inline-only status as
+/// `weather_color`. Reports the stored particle count verbatim (I3D.h:1346
+/// `WS_PARAM_COUNT`, I3D.h:1596 `ws_count` at +0x2c0); no state moves.
+pub fn weather_count(scene: &[u32; SCENE_WORDS]) -> u32 {
+    scene[W_COUNT]
+}
+
+/// Working name for the `WS_PARAM_WIND_X` read arm of
+/// `GetWeatherSystemParam` (mafia-re ls3df/I3D/I3d_scene.cpp:1295-1296:
+/// `I3DFloatAsInt(ws_wind.x)`, a bit copy of the stored float). Same
+/// inline-only status as `weather_color`. Reports the stored wind-x bits
+/// verbatim (I3D.h:1347 `WS_PARAM_WIND_X`, I3D.h:1598 `ws_wind` at +0x2c8);
+/// no state moves.
+pub fn weather_wind_x_bits(scene: &[u32; SCENE_WORDS]) -> u32 {
+    scene[W_WIND]
+}
+
+/// Working name for the `WS_PARAM_WIND_Y` read arm of
+/// `GetWeatherSystemParam` (mafia-re ls3df/I3D/I3d_scene.cpp:1297-1298).
+/// Same inline-only status as `weather_wind_x_bits`. Reports the stored
+/// wind-y bits verbatim (I3D.h:1348 `WS_PARAM_WIND_Y`, `ws_wind` at +0x2cc);
+/// no state moves.
+pub fn weather_wind_y_bits(scene: &[u32; SCENE_WORDS]) -> u32 {
+    scene[W_WIND + 1]
+}
+
+/// Working name for the `WS_PARAM_WIND_Z` read arm of
+/// `GetWeatherSystemParam` (mafia-re ls3df/I3D/I3d_scene.cpp:1299-1300).
+/// Same inline-only status as `weather_wind_x_bits`. Reports the stored
+/// wind-z bits verbatim (I3D.h:1349 `WS_PARAM_WIND_Z`, `ws_wind` at +0x2d0);
+/// no state moves.
+pub fn weather_wind_z_bits(scene: &[u32; SCENE_WORDS]) -> u32 {
+    scene[W_WIND + 2]
+}
+
+/// Working name for the derived `ws_range` word read at +0x328 (mafia-re
+/// ls3df/I3D/I3D.h:1603, of `ws_range_x` and `ws_range_y`). No
+/// `GetWeatherSystemParam` arm returns it and no LS3DF FUNCTION address
+/// exists for a standalone reader; the word is maintained by the occupied
+/// `SetWeatherSystemParam` range arms (PC RVA 0x4bce0, I3d_scene.cpp:1147-1154)
+/// and `WeatherSystemReset` (PC RVA 0x4b3b0), neither claimed here. Reports
+/// the stored fused range; no state moves.
+pub fn weather_range(scene: &[u32; SCENE_WORDS]) -> f32 {
+    f32::from_bits(scene[W_RANGE])
+}
+
+/// Working name for the live `ws_wind` vector read at +0x2c8 (mafia-re
+/// ls3df/I3D/I3D.h:1598). Same inline-only status as `weather_reset_wind`
+/// (which reads the reset snapshot at +0x2d4 instead): the words are written
+/// by the occupied `SetWeatherSystemParam` wind arms (PC RVA 0x4bce0,
+/// I3d_scene.cpp:1169-1177) and consumed by the occupied
+/// `m_UpdateWeatherSystem` direction blend (PC RVA 0x4c660), neither claimed
+/// here. Reports the stored words bit-exactly; no state moves.
+pub fn weather_live_wind(scene: &[u32; SCENE_WORDS]) -> [f32; 3] {
+    [
+        f32::from_bits(scene[W_WIND]),
+        f32::from_bits(scene[W_WIND + 1]),
+        f32::from_bits(scene[W_WIND + 2]),
+    ]
+}
+
+/// Working name for the whole `ws_flags` word read at +0x298 (mafia-re
+/// ls3df/I3D/I3D.h:1589, `WSF_*`). The reference exposes no whole-word
+/// getter: callers test bits in place (for example the occupied
+/// `m_UpdateWeatherSystem`, PC RVA 0x4c660, not claimed here). Reports the
+/// live word; single-bit views stay with the existing `weather_is_*`
+/// readers. No state moves.
+pub fn weather_flags(scene: &[u32; SCENE_WORDS]) -> u32 {
+    scene[W_FLAGS]
 }
 
 /// WE_STRUCT corner reshaping shared by SetParam(update=2) and Update alloc,
@@ -699,6 +840,135 @@ mod tests {
         );
     }
     #[test]
+    fn weather_color_arms_report_the_stored_argb_words() {
+        // Working names for the WS_PARAM_COLOR/COLOR_2 read arms
+        // (I3d_scene.cpp:1279-1282): no LS3DF FUNCTION address exists for
+        // standalone readers.
+        let mut scene = [0u32; SCENE_WORDS];
+        let mut max = 0u32;
+        assert_eq!(weather_color(&scene), 0);
+        assert_eq!(weather_color_2(&scene), 0);
+        set_weather_system_param(&mut scene, 3, 0x8060_6060, &mut max);
+        set_weather_system_param(&mut scene, 4, 0x0060_6060, &mut max);
+        assert_eq!(weather_color(&scene), 0x8060_6060);
+        assert_eq!(weather_color_2(&scene), 0x0060_6060);
+        assert_eq!(weather_color(&scene), get_weather_system_param(&scene, 3));
+        assert_eq!(
+            weather_color_2(&scene),
+            get_weather_system_param(&scene, 4)
+        );
+    }
+    #[test]
+    fn weather_scalar_arms_scale_through_the_pc24_pipeline() {
+        // Working names for the WS_PARAM_DENSITY/SIZE/RANGE_X/RANGE_Y/SPEED
+        // read arms (I3d_scene.cpp:1283-1292): no LS3DF FUNCTION address
+        // exists for standalone readers.
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let mut scene = [0u32; SCENE_WORDS];
+            let mut max = 0u32;
+            set_weather_system_param(&mut scene, 5, 2000f32.to_bits(), &mut max);
+            assert_eq!(scene[W_DENSITY], 2f32.to_bits());
+            assert_eq!(
+                weather_density_per_mille(&scene),
+                get_weather_system_param(&scene, 5)
+            );
+            assert_eq!(weather_density_per_mille(&scene), 2000f32.to_bits());
+            set_weather_system_param(&mut scene, 6, 1.5f32.to_bits(), &mut max);
+            assert_eq!(weather_size_bits(&scene), 1.5f32.to_bits());
+            assert_eq!(
+                weather_size_bits(&scene),
+                get_weather_system_param(&scene, 6)
+            );
+            set_weather_system_param(&mut scene, 8, 25f32.to_bits(), &mut max);
+            set_weather_system_param(&mut scene, 9, 12f32.to_bits(), &mut max);
+            assert_eq!(weather_range_x_bits(&scene), 25f32.to_bits());
+            assert_eq!(weather_range_y_bits(&scene), 12f32.to_bits());
+            assert_eq!(
+                weather_range_x_bits(&scene),
+                get_weather_system_param(&scene, 8)
+            );
+            assert_eq!(
+                weather_range_y_bits(&scene),
+                get_weather_system_param(&scene, 9)
+            );
+            assert_eq!(weather_range(&scene), 769f32.sqrt());
+            set_weather_system_param(&mut scene, 7, 4f32.to_bits(), &mut max);
+            assert_eq!(scene[W_SPEED], 2f32.to_bits());
+            assert_eq!(
+                weather_speed_doubled(&scene),
+                get_weather_system_param(&scene, 7)
+            );
+            assert_eq!(weather_speed_doubled(&scene), 4f32.to_bits());
+        });
+    }
+    #[test]
+    fn weather_count_and_wind_arms_report_stored_words() {
+        // Working names for the WS_PARAM_COUNT/WIND_X/WIND_Y/WIND_Z read arms
+        // (I3d_scene.cpp:1293-1300): no LS3DF FUNCTION address exists for
+        // standalone readers.
+        let mut scene = [0u32; SCENE_WORDS];
+        let mut max = 0u32;
+        assert_eq!(weather_count(&scene), 0);
+        assert_eq!(weather_live_wind(&scene), [0., 0., 0.]);
+        set_weather_system_param(&mut scene, 10, 1000, &mut max);
+        set_weather_system_param(&mut scene, 11, 1f32.to_bits(), &mut max);
+        set_weather_system_param(&mut scene, 12, 2f32.to_bits(), &mut max);
+        set_weather_system_param(&mut scene, 13, 3f32.to_bits(), &mut max);
+        assert_eq!(weather_count(&scene), 1000);
+        assert_eq!(max, 1000);
+        assert_eq!(weather_wind_x_bits(&scene), 1f32.to_bits());
+        assert_eq!(weather_wind_y_bits(&scene), 2f32.to_bits());
+        assert_eq!(weather_wind_z_bits(&scene), 3f32.to_bits());
+        assert_eq!(weather_live_wind(&scene), [1., 2., 3.]);
+        assert_eq!(weather_count(&scene), get_weather_system_param(&scene, 10));
+        assert_eq!(
+            weather_wind_x_bits(&scene),
+            get_weather_system_param(&scene, 11)
+        );
+        assert_eq!(
+            weather_wind_y_bits(&scene),
+            get_weather_system_param(&scene, 12)
+        );
+        assert_eq!(
+            weather_wind_z_bits(&scene),
+            get_weather_system_param(&scene, 13)
+        );
+    }
+    #[test]
+    fn weather_flags_and_live_words_track_set_and_reset() {
+        // Working names for the whole ws_flags word (I3D.h:1589), the live
+        // ws_wind triple (I3D.h:1598) and the fused ws_range word (I3D.h:1603):
+        // words of the occupied Set/Reset bodies, no standalone LS3DF
+        // FUNCTION entries.
+        let mut state = crate::native_precision::Pc24PrecisionState::default();
+        let mut scene = [0u32; SCENE_WORDS];
+        scene[W_FLAGS] = WSF_ON | WSF_SNOW | 0x1234_0000;
+        assert_eq!(weather_flags(&scene), WSF_ON | WSF_SNOW | 0x1234_0000);
+        assert!(weather_is_on(weather_flags(&scene)));
+        assert!(weather_is_snow(weather_flags(&scene)));
+        assert_eq!(weather_mode(weather_flags(&scene)), 0);
+        state.run(|| weather_system_reset(&mut scene)).unwrap();
+        assert_eq!(weather_flags(&scene), 0x47);
+        assert!(weather_is_on(weather_flags(&scene)));
+        assert!(weather_tests_primary_sector(weather_flags(&scene)));
+        assert!(weather_tests_dummy_boxes(weather_flags(&scene)));
+        assert!(weather_is_snow(weather_flags(&scene)));
+        assert_eq!(weather_range(&scene), 769f32.sqrt());
+        assert_eq!(weather_live_wind(&scene), weather_reset_wind(&scene));
+        assert_eq!(
+            weather_live_wind(&scene).map(f32::to_bits),
+            [scene[W_WIND], scene[W_WIND + 1], scene[W_WIND + 2]]
+        );
+        assert_eq!(
+            weather_flags(&scene) & WSF_ON,
+            get_weather_system_param(&scene, 0)
+        );
+        assert_eq!(
+            weather_wind_x_bits(&scene),
+            get_weather_system_param(&scene, 11)
+        );
+    }
+    #[test]
     fn weather_mode_reports_mode_1_then_mode_2_then_none() {
         assert_eq!(weather_mode(0), 0);
         assert_eq!(weather_mode(WSF_ON), 0);
@@ -753,19 +1023,19 @@ mod weather_system_tests {
             );
             assert_eq!(get_weather_system_param(&scene, 6), 0x3fc0_0000);
             assert_eq!(
-                set_weather_system_param(&mut scene, 7, 25f32.to_bits(), &mut max),
+                set_weather_system_param(&mut scene, 8, 25f32.to_bits(), &mut max),
                 WeatherParamEffect::None
             );
             assert_eq!(
-                set_weather_system_param(&mut scene, 8, 12f32.to_bits(), &mut max),
+                set_weather_system_param(&mut scene, 9, 12f32.to_bits(), &mut max),
                 WeatherParamEffect::None
             );
             assert_eq!(scene[W_RANGE], (769f64.sqrt() as f32).to_bits());
             assert_eq!(
-                set_weather_system_param(&mut scene, 9, 1f32.to_bits(), &mut max),
+                set_weather_system_param(&mut scene, 7, 1f32.to_bits(), &mut max),
                 WeatherParamEffect::ReshapeParticles
             );
-            assert_eq!(get_weather_system_param(&scene, 9), 1f32.to_bits());
+            assert_eq!(get_weather_system_param(&scene, 7), 1f32.to_bits());
             scene[W_ELEMENTS_USED] = 500;
             assert_eq!(
                 set_weather_system_param(&mut scene, 10, 1000, &mut max),
