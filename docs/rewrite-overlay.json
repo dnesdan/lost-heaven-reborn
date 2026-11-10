@@ -17365,6 +17365,60 @@
       "symbol": "lhr_engine::traffic_generator::don_ocas_get_bound_points_2d",
       "tier": "contract",
       "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9ede0",
+      "va": "0x49ede0",
+      "name": "C_shvestky::ZlikvidujVsechnyNasraneVyhozeneCuraky",
+      "symbol": "lhr_engine::police_state::discard_angry_drivers",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x9d260",
+      "va": "0x49d260",
+      "name": "C_shvestky::CorujuPoldumMasinu",
+      "symbol": "lhr_engine::police_state::report_police_car_theft",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa8790",
+      "va": "0x4a8790",
+      "name": "C_sledovacka::VypicujMiToyotu",
+      "symbol": "lhr_engine::police_state::sledovacka_remove_gone_car",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa8940",
+      "va": "0x4a8940",
+      "name": "C_sledovacka::SaveGameGetSize",
+      "symbol": "lhr_engine::police_state::sledovacka_savegame_get_size",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa8a50",
+      "va": "0x4a8a50",
+      "name": "C_sledovacka::SaveGameSave",
+      "symbol": "lhr_engine::police_state::sledovacka_savegame_save",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: GAME confirmed at fe7e746."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0xa8fa0",
+      "va": "0x4a8fa0",
+      "name": "C_sledovacka::SaveGameLoad",
+      "symbol": "lhr_engine::police_state::sledovacka_savegame_load",
+      "tier": "contract",
+      "evidence": "Marker-only contract; tests green on this tree. STUB: GAME confirmed at fe7e746."
     }
   ],
   "vm": {

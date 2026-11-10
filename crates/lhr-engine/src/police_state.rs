@@ -884,6 +884,35 @@ impl PoliceGameInitState {
         true
     }
 
+    /// Working name (no separate native entry): admits the car to the
+    /// police `temp_cars` tracking unless already listed (mirrors the
+    /// `admit_do_rici` duplicate-guard shape). The car's game/radar
+    /// lifecycle (`GameDone` 0x499dc0, the `Tick` 0x49a300 trim past five)
+    /// stays with its owners; only the opaque identity is tracked here. No
+    /// dedicated native list-admit outline exists, so no RVA is claimed.
+    /// Returns whether the car was appended.
+    pub fn admit_temp_car(&mut self, car: PoliceActorId) -> bool {
+        if self.temp_cars.contains(&car) {
+            return false;
+        }
+        self.temp_cars.push(car);
+        true
+    }
+
+    /// Working name (no separate native entry): evicts the car from the
+    /// police `temp_cars` tracking with order-preserving removal, searched
+    /// in stored order like `free_my_temp_actor`'s temp path. The car
+    /// itself stays in the game; removal from the game runs through the
+    /// game/radar owners. No dedicated native list-evict outline exists, so
+    /// no RVA is claimed. Returns whether the car was tracked.
+    pub fn evict_temp_car(&mut self, car: PoliceActorId) -> bool {
+        let Some(index) = self.temp_cars.iter().position(|&tracked| tracked == car) else {
+            return false;
+        };
+        self.temp_cars.remove(index);
+        true
+    }
+
     /// Original `C_shvestky::FreeMyTempActor` 0x49e7e0 ownership test
     /// (mafia-re game/ai/C_shvestky.cpp:831-836 is a log-only stub; freed-set
     /// per mafia-re game/ai/C_shvestky.h:117-134 and 229-231, PS2's
@@ -2322,6 +2351,10 @@ pub const FREE_ROAD_BLOCK_IRIS_ENTRY: u32 = 0x49e5a0;
 /// Player-pursuit predicate at GAME VA 0x4a01c0 (RVA 0xa01c0): reads the
 /// mission player through the game owner.
 pub const PLAYER_PURSUIT_ACTIVE_ENTRY: u32 = 0x4a01c0;
+/// `C_shvestky::ZlikvidujVsechnyNasraneVyhozeneCuraky` 0x49ede0.
+pub const DISCARD_ANGRY_DRIVERS_ENTRY: u32 = 0x49ede0;
+/// `C_shvestky::CorujuPoldumMasinu` 0x49d260.
+pub const POLICE_CAR_THEFT_ENTRY: u32 = 0x49d260;
 
 pub fn send_police_backup(
     _human: PoliceHumanId,
@@ -2342,6 +2375,35 @@ pub fn send_police_to_human(
 ) -> Result<(), PoliceDispatchError> {
     Err(PoliceDispatchError::Unsupported {
         entry: SEND_POLICE_TO_HUMAN_ENTRY,
+    })
+}
+
+/// Original `C_shvestky::ZlikvidujVsechnyNasraneVyhozeneCuraky` 0x49ede0
+/// (GAME VA 0x49ede0, RVA 0x9ede0; mafia-re game/ai/C_shvestky.cpp:962-966
+/// at pin fe7e746; `STUB: GAME` code in Game.exe, not a data offset and not
+/// another binary): the original only logs. It gets rid of all the angry
+/// drivers thrown out of their cars, which needs the actor owners to
+/// enumerate and evict them; those owners stay outside this contract, so
+/// the boundary is explicit.
+pub fn discard_angry_drivers() -> Result<(), PoliceDispatchError> {
+    Err(PoliceDispatchError::Unsupported {
+        entry: DISCARD_ANGRY_DRIVERS_ENTRY,
+    })
+}
+
+/// Original `C_shvestky::CorujuPoldumMasinu` 0x49d260 (GAME VA 0x49d260,
+/// RVA 0x9d260; mafia-re game/ai/C_shvestky.cpp:1005-1009 at pin fe7e746;
+/// `STUB: GAME` code in Game.exe, not a data offset and not another
+/// binary): the original only logs. The human at a police car (roughly "he
+/// steals the police their car"), told via `C_human::Use_Actor`; the
+/// human/car owners stay outside this contract, so the boundary is
+/// explicit.
+pub fn report_police_car_theft(
+    _human: PoliceHumanId,
+    _car: PoliceActorId,
+) -> Result<(), PoliceDispatchError> {
+    Err(PoliceDispatchError::Unsupported {
+        entry: POLICE_CAR_THEFT_ENTRY,
     })
 }
 
@@ -2479,6 +2541,14 @@ pub const SLEDOVACKA_CTOR_ENTRY: u32 = 0x4a0320;
 pub const SLEDOVACKA_INIT_ENTRY: u32 = 0x4a0360;
 /// `C_sledovacka::Done` 0x4a0660 (driver/element teardown).
 pub const SLEDOVACKA_DONE_ENTRY: u32 = 0x4a0660;
+/// `C_sledovacka::VypicujMiToyotu` 0x4a8790 (a car gone from the chases).
+pub const SLEDOVACKA_REMOVE_GONE_CAR_ENTRY: u32 = 0x4a8790;
+/// `C_sledovacka::SaveGameGetSize` 0x4a8940.
+pub const SLEDOVACKA_SAVE_SIZE_ENTRY: u32 = 0x4a8940;
+/// `C_sledovacka::SaveGameSave` 0x4a8a50.
+pub const SLEDOVACKA_SAVE_SAVE_ENTRY: u32 = 0x4a8a50;
+/// `C_sledovacka::SaveGameLoad` 0x4a8fa0.
+pub const SLEDOVACKA_SAVE_LOAD_ENTRY: u32 = 0x4a8fa0;
 
 /// Original `C_sledovacka::ActionStatus` (mafia-re
 /// game/ai/C_sledovacka.cpp:1193-1199 at pin 113b5b6; `STUB: GAME` VA
@@ -2582,6 +2652,49 @@ pub fn sledovacka_set_action_status(
     })
 }
 
+/// Original `C_sledovacka::VypicujMiToyotu` 0x4a8790 (GAME VA 0x4a8790,
+/// RVA 0xa8790; mafia-re game/ai/C_sledovacka.cpp:1207-1211 at pin fe7e746;
+/// `STUB: GAME` code in Game.exe, not a data offset and not another
+/// binary): the original only logs. A car gone, taken from the chases;
+/// the chase-list/driver owners stay outside this contract, so the
+/// boundary is explicit. The tracked-list shape is covered without an RVA
+/// claim by [`SledovackaState::evict_chase_car`].
+pub fn sledovacka_remove_gone_car(_car: PoliceActorId) -> Result<(), SledovackaError> {
+    Err(SledovackaError::Unsupported {
+        entry: SLEDOVACKA_REMOVE_GONE_CAR_ENTRY,
+    })
+}
+
+/// Original `C_sledovacka::SaveGameGetSize` 0x4a8940 (GAME VA 0x4a8940,
+/// RVA 0xa8940; mafia-re game/ai/C_sledovacka.cpp:1213-1218 at pin fe7e746;
+/// `STUB: GAME` code in Game.exe, not a data offset and not another
+/// binary): the original only logs and returns zero. Marker-only contract:
+/// the chase persistence a real save would cover stays deferred with the
+/// chase owners.
+pub fn sledovacka_savegame_get_size() -> u32 {
+    0
+}
+
+/// Original `C_sledovacka::SaveGameSave` 0x4a8a50 (GAME VA 0x4a8a50,
+/// RVA 0xa8a50; mafia-re game/ai/C_sledovacka.cpp:1220-1225 at pin fe7e746;
+/// `STUB: GAME` code in Game.exe, not a data offset and not another
+/// binary): the original only logs and returns true without advancing the
+/// buffer. Marker-only contract: the chase persistence stays deferred with
+/// the chase owners, so no save-buffer owner is resolved here.
+pub fn sledovacka_savegame_save() -> bool {
+    true
+}
+
+/// Original `C_sledovacka::SaveGameLoad` 0x4a8fa0 (GAME VA 0x4a8fa0,
+/// RVA 0xa8fa0; mafia-re game/ai/C_sledovacka.cpp:1227-1232 at pin fe7e746;
+/// `STUB: GAME` code in Game.exe, not a data offset and not another
+/// binary): the original only logs and returns true without reading the
+/// buffer. Marker-only contract: the chase persistence stays deferred with
+/// the chase owners, so no save-buffer owner is resolved here.
+pub fn sledovacka_savegame_load() -> bool {
+    true
+}
+
 /// Owned subset of `C_sledovacka` chase-manager state written by the
 /// constructor 0x4a0320 and `Done` 0x4a0660. The full `S_BRIDGE` (actor plus
 /// road node) and `S_ELEMENT` (car, driver, target, path) owners stay outside
@@ -2663,6 +2776,72 @@ impl SledovackaState {
         };
         self.chase_cars.swap_remove(index);
         true
+    }
+
+    /// Working name (no separate native entry): admits the bridge actor to
+    /// the tracked bridge list unless already listed (mirrors the
+    /// `admit_chase_car` duplicate-guard shape). `Init` 0x4a0360 owns the
+    /// collection from the mission actors/roads and stays deferred behind
+    /// `sledovacka_init_bridges`; only the opaque actor identity is tracked
+    /// here. No dedicated native list-admit outline exists, so no RVA is
+    /// claimed. Returns whether the actor was appended.
+    pub fn admit_chase_bridge(&mut self, actor: PoliceActorId) -> bool {
+        if self.bridges.contains(&actor) {
+            return false;
+        }
+        self.bridges.push(actor);
+        true
+    }
+
+    /// Working name (no separate native entry): evicts the bridge actor
+    /// from the tracked bridge list with swap-with-back plus pop, searched
+    /// back to front like the other registry removals here. No dedicated
+    /// native list-evict outline exists, so no RVA is claimed. Returns
+    /// whether the actor was listed.
+    pub fn evict_chase_bridge(&mut self, actor: PoliceActorId) -> bool {
+        let Some(index) = self
+            .bridges
+            .iter()
+            .rposition(|&listed| listed == actor)
+        else {
+            return false;
+        };
+        self.bridges.swap_remove(index);
+        true
+    }
+
+    /// Working name (no separate native entry): reports whether the actor
+    /// is listed in `bridges`, scanning back to front like the native
+    /// registry removals (mafia-re game/ai/C_sledovacka.h:57,
+    /// `S_BRIDGE` list). No dedicated native getter exists, so no RVA is
+    /// claimed.
+    pub fn has_chase_bridge(&self, actor: PoliceActorId) -> bool {
+        self.bridges.iter().rev().any(|&listed| listed == actor)
+    }
+
+    /// Working name (no separate native entry): reports whether any bridge
+    /// actor is listed in `bridges`. The native list size is consumed inline
+    /// with no dedicated nonempty getter, so no RVA is claimed.
+    pub fn has_any_chase_bridge(&self) -> bool {
+        !self.bridges.is_empty()
+    }
+
+    /// Working name (no separate native entry): reads the bridge actor at
+    /// the given list position in stored order (`None` past the end). The
+    /// native `bridges` vector (mafia-re game/ai/C_sledovacka.h:57) is
+    /// traversed inline with no dedicated indexed getter, so no RVA is
+    /// claimed.
+    pub fn chase_bridge_at(&self, index: usize) -> Option<PoliceActorId> {
+        self.bridges.get(index).copied()
+    }
+
+    /// Working name (no separate native entry): stages the road-net
+    /// presence bit `Init` 0x4a0360 derives from the mission roads (the
+    /// constructor 0x4a0320 clears it). The roads owner stays deferred
+    /// behind `sledovacka_init_bridges`; this keeps the owned flag store.
+    /// No dedicated native setter exists, so no RVA is claimed.
+    pub fn set_road_net(&mut self, present: bool) {
+        self.road_net_set = present;
     }
 
     /// Original `C_sledovacka::Done` 0x4a0660 (GAME VA 0x4a0660,
@@ -7204,5 +7383,116 @@ mod tests {
         assert!(state.has_known_car_for_human(7));
         assert_eq!(state.known_car_for_human(7), Some(13));
         assert!(!state.has_known_car_for_human(9));
+    }
+
+    #[test]
+    fn rva_9ede0_discard_angry_drivers_reports_unsupported() {
+        // C_shvestky::ZlikvidujVsechnyNasraneVyhozeneCuraky GAME RVA 0x9ede0
+        // (VA 0x49ede0): actor owners deferred.
+        assert_eq!(DISCARD_ANGRY_DRIVERS_ENTRY, 0x49ede0);
+        assert_eq!(
+            discard_angry_drivers(),
+            Err(PoliceDispatchError::Unsupported { entry: 0x49ede0 })
+        );
+    }
+
+    #[test]
+    fn rva_9d260_report_police_car_theft_reports_unsupported() {
+        // C_shvestky::CorujuPoldumMasinu GAME RVA 0x9d260 (VA 0x49d260):
+        // human/car owners deferred.
+        assert_eq!(POLICE_CAR_THEFT_ENTRY, 0x49d260);
+        assert_eq!(
+            report_police_car_theft(7, 11),
+            Err(PoliceDispatchError::Unsupported { entry: 0x49d260 })
+        );
+    }
+
+    #[test]
+    fn rva_a8790_remove_gone_chase_car_reports_unsupported() {
+        // C_sledovacka::VypicujMiToyotu GAME RVA 0xa8790 (VA 0x4a8790):
+        // chase-list/driver owners deferred.
+        assert_eq!(SLEDOVACKA_REMOVE_GONE_CAR_ENTRY, 0x4a8790);
+        assert_eq!(
+            sledovacka_remove_gone_car(5),
+            Err(SledovackaError::Unsupported { entry: 0x4a8790 })
+        );
+    }
+
+    #[test]
+    fn rva_a8940_savegame_get_size_reports_zero() {
+        // C_sledovacka::SaveGameGetSize GAME RVA 0xa8940 (VA 0x4a8940):
+        // stub answer, no persistence.
+        assert_eq!(SLEDOVACKA_SAVE_SIZE_ENTRY, 0x4a8940);
+        assert_eq!(sledovacka_savegame_get_size(), 0);
+    }
+
+    #[test]
+    fn rva_a8a50_savegame_save_reports_success_without_buffer() {
+        // C_sledovacka::SaveGameSave GAME RVA 0xa8a50 (VA 0x4a8a50): stub
+        // answer, the buffer untouched.
+        assert_eq!(SLEDOVACKA_SAVE_SAVE_ENTRY, 0x4a8a50);
+        assert!(sledovacka_savegame_save());
+    }
+
+    #[test]
+    fn rva_a8fa0_savegame_load_reports_success_without_buffer() {
+        // C_sledovacka::SaveGameLoad GAME RVA 0xa8fa0 (VA 0x4a8fa0): stub
+        // answer, the buffer untouched.
+        assert_eq!(SLEDOVACKA_SAVE_LOAD_ENTRY, 0x4a8fa0);
+        assert!(sledovacka_savegame_load());
+    }
+
+    #[test]
+    fn chase_bridge_working_name_admits_once_and_evicts() {
+        // Working name: bridge list admit/evict; Init owns the collection.
+        let mut chases = SledovackaState::new();
+        assert!(!chases.has_any_chase_bridge());
+        assert!(chases.admit_chase_bridge(7));
+        assert!(!chases.admit_chase_bridge(7));
+        assert!(chases.admit_chase_bridge(9));
+        assert_eq!(chases.bridge_count(), 2);
+        assert!(chases.has_chase_bridge(7));
+        assert!(!chases.has_chase_bridge(8));
+        assert!(chases.has_any_chase_bridge());
+        assert_eq!(chases.chase_bridge_at(0), Some(7));
+        assert_eq!(chases.chase_bridge_at(2), None);
+        assert!(chases.evict_chase_bridge(7));
+        assert!(!chases.evict_chase_bridge(7));
+        assert_eq!(chases.chase_bridge_at(0), Some(9));
+        assert_eq!(chases.bridge_count(), 1);
+    }
+
+    #[test]
+    fn road_net_working_name_stages_presence_flag() {
+        // Working name: road-net presence bit; Init derives it from roads.
+        let mut chases = SledovackaState::new();
+        assert!(!chases.road_net_set());
+        chases.set_road_net(true);
+        assert!(chases.road_net_set());
+        chases.set_road_net(false);
+        assert!(!chases.road_net_set());
+        chases.set_road_net(true);
+        chases.apply_done();
+        assert!(!chases.road_net_set());
+        assert!(!chases.has_any_chase_bridge());
+    }
+
+    #[test]
+    fn temp_car_working_name_admits_once_and_evicts_in_order() {
+        // Working name: temp_cars admit/evict; GameDone/Tick own lifecycle.
+        let mut state = PoliceGameInitState::default();
+        assert!(!state.has_any_temp_car());
+        assert!(state.admit_temp_car(4));
+        assert!(!state.admit_temp_car(4));
+        assert!(state.admit_temp_car(6));
+        assert!(state.admit_temp_car(8));
+        assert_eq!(state.temp_car_count(), 3);
+        assert!(state.is_temp_car_tracked(6));
+        assert!(!state.is_temp_car_tracked(7));
+        assert!(state.evict_temp_car(6));
+        assert!(!state.evict_temp_car(6));
+        assert_eq!(state.temp_cars(), &[4u32, 8]);
+        assert_eq!(state.temp_car_at(0), Some(4));
+        assert_eq!(state.temp_car_at(2), None);
     }
 }

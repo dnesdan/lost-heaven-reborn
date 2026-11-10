@@ -472,7 +472,9 @@ class RewriteProgressTests(unittest.TestCase):
         # +13 ai/don_ocas contracts (ai_logs Clear/EntityAi getters x6/
         # DelUsingObject/AddFreeActor/GetBaseJob/GetCarFactor + Hit/
         # GetBoundPoints2D; marker-only, tests green).
-        self.assertEqual(game["ported"], 149 + 988)
+        # +6 police/sledovacka STUB contracts (Zlikviduj/Coruju/Vypicuj/
+        # SaveGameGetSize/Save/Load; 8 working-name uncredited; marker-only).
+        self.assertEqual(game["ported"], 149 + 994)
         self.assertEqual(game["verified"], 149 + 515)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
