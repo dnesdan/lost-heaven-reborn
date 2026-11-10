@@ -13,6 +13,7 @@ use crate::cutscene_records::{
 };
 use crate::cutscene_source::{CutsceneSource, CutsceneSourceHeader, CutsceneSourceReadError};
 use crate::frame_lookup::{FrameLookupBackend, FrameLookupError};
+use crate::mission_actor_lists::{set_cutscene_play, set_cutscene_record, ACTF_CUTSCENE};
 use crate::script_scheduler::ActorReferenceId;
 
 /// Safe host allocation domain, not a native recording limit.
@@ -48,6 +49,12 @@ pub enum CutscenePrefixReadSite {
     ResourceId,     // Game59bb16
     ResourceName,   // Game59bb26
 }
+
+/// Cutscene states (`C_recorder.h:6-9` at pin `fe7e746`).
+pub const CUTSCENE_STATE_0: i32 = 0;
+pub const CUTSCENE_STATE_1: i32 = 1;
+pub const CUTSCENE_STATE_2: i32 = 2;
+pub const CUTSCENE_STOPPED: i32 = 4;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CutscenePrefixError {
@@ -157,6 +164,14 @@ pub struct CutsceneOwner {
     previous_state: i32,
     time: u32,
     playback_time: u32,
+    /// Staged mirror of the `cutscene_play_ticks` global
+    /// (`C_recorder.cpp:27,315` at pin `fe7e746`): only its clearing by
+    /// `Close` (`:551`) is evidenced; nonzero staging is host control and the
+    /// native decrement point stays unrecovered.
+    play_ticks: u32,
+    /// `unknown_128` member (+0x128, `C_recorder.h:294`): cleared by
+    /// `SetState(CUTSCENE_STATE_0)` and `Tick`, set by `Close`.
+    unknown_128: bool,
     speed: f32,
     resource_count: Option<i32>,
     resource_growth: Option<i32>,
@@ -193,6 +208,8 @@ impl CutsceneOwner {
             previous_state: 0,
             time: 0,
             playback_time: 0,
+            play_ticks: 0,
+            unknown_128: false,
             speed: 1.,
             resource_count: Some(0),
             resource_growth: Some(0x100),
@@ -1184,6 +1201,68 @@ mod tests {
         show.set_show_start(-7);
         assert_eq!(show.staged_ticks(), -7);
     }
+
+    #[test]
+    fn rva_19e2d0_is_playing_matches_native_predicate() {
+        // C_recorder::IsPlaying GAME RVA 0x19e2d0 (VA 0x59e2d0): ticks win,
+        // state 0 is idle, otherwise anything but STOPPED plays.
+        let mut rec = owner();
+        assert_eq!(rec.recorder_get_state(), CUTSCENE_STOPPED);
+        assert!(!rec.recorder_is_playing());
+        rec.stage_play_ticks(3);
+        assert!(rec.recorder_is_playing());
+        rec.stage_play_ticks(0);
+        rec.recorder_set_state(CUTSCENE_STATE_0, &mut [], &mut []);
+        assert!(!rec.recorder_is_playing());
+        rec.recorder_set_state(CUTSCENE_STATE_1, &mut [], &mut []);
+        assert!(rec.recorder_is_playing());
+        rec.recorder_set_state(CUTSCENE_STATE_2, &mut [], &mut []);
+        assert!(rec.recorder_is_playing());
+        rec.recorder_set_state(CUTSCENE_STOPPED, &mut [], &mut []);
+        assert!(!rec.recorder_is_playing());
+    }
+
+    #[test]
+    fn rva_1989a0_set_state_words_and_actor_arms() {
+        // C_recorder::SetState GAME RVA 0x1989a0 (VA 0x5989a0): prev/state
+        // words, unchanged early return, per-list arms, state-0 clears the
+        // unknown_128 word.
+        use crate::mission_actor_lists::ACTF_CUTSCENE;
+        let mut rec = owner();
+        let mut actors = [0i32; 2];
+        let mut actors_2 = [0i32; 1];
+        rec.recorder_set_state(CUTSCENE_STATE_1, &mut actors, &mut actors_2);
+        assert_eq!(rec.recorder_get_state(), CUTSCENE_STATE_1);
+        assert_eq!(rec.previous_state(), CUTSCENE_STOPPED);
+        for flags in actors.iter().chain(actors_2.iter()) {
+            assert_eq!(
+                *flags & (ACTF_CUTSCENE | crate::mission_actor_lists::ACTF_CUTSCENE_PLAY),
+                ACTF_CUTSCENE | crate::mission_actor_lists::ACTF_CUTSCENE_PLAY
+            );
+            assert_eq!(*flags & crate::mission_actor_lists::ACTF_CUTSCENE_RECORD, 0);
+        }
+        // Unchanged state: early return, words untouched.
+        let mut same = actors;
+        let mut same_2 = actors_2;
+        rec.recorder_set_state(CUTSCENE_STATE_1, &mut same, &mut same_2);
+        assert_eq!((same, same_2), (actors, actors_2));
+        rec.recorder_set_state(CUTSCENE_STATE_2, &mut actors, &mut actors_2);
+        assert_eq!(actors_2[0] & ACTF_CUTSCENE, 0);
+        assert_eq!(
+            actors_2[0] & crate::mission_actor_lists::ACTF_CUTSCENE_RECORD,
+            crate::mission_actor_lists::ACTF_CUTSCENE_RECORD
+        );
+        rec.recorder_set_state(CUTSCENE_STATE_0, &mut actors, &mut actors_2);
+        for flags in actors.iter().chain(actors_2.iter()) {
+            assert_eq!(
+                *flags
+                    & (ACTF_CUTSCENE
+                        | crate::mission_actor_lists::ACTF_CUTSCENE_PLAY
+                        | crate::mission_actor_lists::ACTF_CUTSCENE_RECORD),
+                0
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1423,5 +1502,83 @@ impl CutsceneOwner {
     /// `playback_time`.
     pub fn recorder_get_scaled_time(&self) -> i32 {
         self.playback_time as i32
+    }
+
+    /// Staged `cutscene_play_ticks` read. Only the `Close` zeroing is native;
+    /// nonzero values are staged by the host cutscene driver.
+    pub fn play_ticks(&self) -> u32 {
+        self.play_ticks
+    }
+
+    /// Host stager for the `cutscene_play_ticks` word. No native setter
+    /// exists; the native decrement point stays unrecovered.
+    pub fn stage_play_ticks(&mut self, ticks: u32) {
+        self.play_ticks = ticks;
+    }
+
+    /// `C_recorder::IsPlaying`, GAME RVA 0x19e2d0, VA 0x59e2d0 (mafia-re
+    /// `game/mission/C_recorder.cpp:732-739` at pin `fe7e746`): true while
+    /// `cutscene_play_ticks` counts down, false in `CUTSCENE_STATE_0`,
+    /// otherwise true unless `CUTSCENE_STOPPED`.
+    pub fn recorder_is_playing(&self) -> bool {
+        if self.play_ticks != 0 {
+            return true;
+        }
+        if self.state == CUTSCENE_STATE_0 {
+            return false;
+        }
+        self.state != CUTSCENE_STOPPED
+    }
+
+    /// `C_recorder::SetState`, GAME RVA 0x1989a0, VA 0x5989a0 (mafia-re
+    /// `game/mission/C_recorder.cpp:73-125` at pin `fe7e746`): stages
+    /// `prev_state`/`state`, returns early when unchanged, and applies the
+    /// per-list actor arms through the evidenced `SetCutsceneRecord` (GAME
+    /// 0x5c27b0) / `SetCutscenePlay` (GAME 0x5c27d0) leaves over the
+    /// caller-owned `actors` (`+0x4`) and `actors_2` (`+0x14`) flag words.
+    /// `CUTSCENE_STATE_0` additionally clears `unknown_128`.
+    pub fn recorder_set_state(&mut self, new_state: i32, actors: &mut [i32], actors_2: &mut [i32]) {
+        self.previous_state = self.state;
+        self.state = new_state;
+        if self.previous_state == self.state {
+            return;
+        }
+        match self.state {
+            CUTSCENE_STATE_0 => {
+                for flags in actors_2.iter_mut() {
+                    *flags &= !ACTF_CUTSCENE;
+                    set_cutscene_record(flags, false);
+                    set_cutscene_play(flags, false);
+                }
+                for flags in actors.iter_mut() {
+                    *flags &= !ACTF_CUTSCENE;
+                    set_cutscene_play(flags, false);
+                }
+                self.unknown_128 = false;
+            }
+            CUTSCENE_STATE_1 => {
+                for flags in actors_2.iter_mut() {
+                    *flags |= ACTF_CUTSCENE;
+                    set_cutscene_record(flags, false);
+                    set_cutscene_play(flags, true);
+                }
+                for flags in actors.iter_mut() {
+                    *flags |= ACTF_CUTSCENE;
+                    set_cutscene_play(flags, true);
+                }
+            }
+            CUTSCENE_STATE_2 => {
+                for flags in actors_2.iter_mut() {
+                    *flags &= !ACTF_CUTSCENE;
+                    set_cutscene_play(flags, false);
+                    set_cutscene_record(flags, true);
+                }
+                for flags in actors.iter_mut() {
+                    *flags |= ACTF_CUTSCENE;
+                    set_cutscene_play(flags, true);
+                }
+            }
+            _ => {}
+        }
     }
 }

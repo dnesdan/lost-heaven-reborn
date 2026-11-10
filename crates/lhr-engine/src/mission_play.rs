@@ -377,6 +377,151 @@ impl Mise01Progress {
     }
 }
 
+/// Axis-aligned bounding box as `[min, max]`.
+pub type MeshAabb = [[f32; 3]; 2];
+
+/// Bounding box of one vertex soup. `None` for empty or nonfinite input;
+/// such meshes never collide.
+pub fn mesh_aabb(verts: &[[f32; 3]]) -> Option<MeshAabb> {
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    let mut count = 0u32;
+    for v in verts {
+        if !(v[0].is_finite() && v[1].is_finite() && v[2].is_finite()) {
+            continue;
+        }
+        for a in 0..3 {
+            min[a] = min[a].min(v[a]);
+            max[a] = max[a].max(v[a]);
+        }
+        count += 1;
+    }
+    if count == 0 {
+        return None;
+    }
+    Some([min, max])
+}
+
+/// Vertical-down ray against one triangle (Moller-Trumbore with the ray
+/// direction fixed to `(0,-1,0)`). Returns the hit height when the `(x, z)`
+/// point lands inside the triangle at or below `top_y`.
+pub fn ray_down_tri(tri: &[[f32; 3]; 3], x: f32, z: f32, top_y: f32) -> Option<f32> {
+    let [a, b, c] = *tri;
+    for v in [a, b, c] {
+        if !(v[0].is_finite() && v[1].is_finite() && v[2].is_finite()) {
+            return None;
+        }
+    }
+    let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    // dir x e2 for dir=(0,-1,0): (-e2[2], 0, e2[0]).
+    let p = [-e2[2], 0.0, e2[0]];
+    let det = e1[0] * p[0] + e1[1] * p[1] + e1[2] * p[2];
+    if det.abs() < 1e-8 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let t = [x - a[0], top_y - a[1], z - a[2]];
+    let u = (t[0] * p[0] + t[1] * p[1] + t[2] * p[2]) * inv;
+    if !(0.0 <= u && u <= 1.0) {
+        return None;
+    }
+    // q = t x e1; v = dir . q * inv = -q[1] * inv for dir=(0,-1,0).
+    let q = [
+        t[1] * e1[2] - t[2] * e1[1],
+        t[2] * e1[0] - t[0] * e1[2],
+        t[0] * e1[1] - t[1] * e1[0],
+    ];
+    let v = -q[1] * inv;
+    if !(0.0 <= v && u + v <= 1.0) {
+        return None;
+    }
+    let dist = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) * inv;
+    if !(dist >= 0.0) {
+        return None;
+    }
+    Some(top_y - dist)
+}
+
+/// Ground height under `(x, z)`: the highest triangle hit at or below
+/// `top_y` and no deeper than `max_drop`. Meshes are prefiltered by `boxes`;
+/// triangle data is pulled per overlapping mesh through `tris_of` so the
+/// space itself only retains bounding boxes.
+pub fn ground_height_below(
+    boxes: &[Option<MeshAabb>],
+    tris_of: &dyn Fn(usize) -> Option<Vec<[[f32; 3]; 3]>>,
+    x: f32,
+    z: f32,
+    top_y: f32,
+    max_drop: f32,
+) -> Option<f32> {
+    if !(x.is_finite() && z.is_finite() && top_y.is_finite() && max_drop >= 0.0) {
+        return None;
+    }
+    let mut best: Option<f32> = None;
+    for (index, bb) in boxes.iter().enumerate() {
+        let Some([[min_x, min_y, min_z], [max_x, max_y, max_z]]) = bb else {
+            continue;
+        };
+        if x < *min_x || x > *max_x || z < *min_z || z > *max_z {
+            continue;
+        }
+        if *min_y > top_y || *max_y < top_y - max_drop {
+            continue;
+        }
+        let Some(tris) = tris_of(index) else {
+            continue;
+        };
+        for tri in &tris {
+            if let Some(hit) = ray_down_tri(tri, x, z, top_y) {
+                if hit >= top_y - max_drop && best.is_none_or(|b| hit > b) {
+                    best = Some(hit);
+                }
+            }
+        }
+    }
+    best
+}
+
+/// Precomputed per-mesh bounding boxes of one static scene. Only boxes are
+/// retained; triangles stay with the scene and are pulled per overlap.
+#[derive(Clone, Debug, Default)]
+pub struct MeshGroundSpace {
+    boxes: Vec<Option<MeshAabb>>,
+}
+
+impl MeshGroundSpace {
+    /// Snapshot the bounding boxes of `count` meshes through `aabb_of`.
+    /// Meshes beyond `count` (e.g. later-merged car draws) are ignored.
+    pub fn build(count: usize, aabb_of: &dyn Fn(usize) -> Option<MeshAabb>) -> Self {
+        Self {
+            boxes: (0..count).map(aabb_of).collect(),
+        }
+    }
+
+    /// Mesh count covered by this space.
+    pub fn len(&self) -> usize {
+        self.boxes.len()
+    }
+
+    /// True when no mesh was admitted.
+    pub fn is_empty(&self) -> bool {
+        self.boxes.is_empty()
+    }
+
+    /// Highest real-geometry ground under `(x, z)`, or `None` over the void.
+    pub fn ground_below(
+        &self,
+        tris_of: &dyn Fn(usize) -> Option<Vec<[[f32; 3]; 3]>>,
+        x: f32,
+        z: f32,
+        top_y: f32,
+        max_drop: f32,
+    ) -> Option<f32> {
+        ground_height_below(&self.boxes, tris_of, x, z, top_y, max_drop)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -525,5 +670,85 @@ mod tests {
         assert_eq!((held.forward, held.strafe), (1.0, -1.0));
         assert!(held.is_active());
         assert!(!input(0.0, 0.0, false).is_active());
+    }
+
+    #[test]
+    fn mesh_aabb_skips_empty_and_nonfinite() {
+        assert_eq!(mesh_aabb(&[]), None);
+        assert_eq!(mesh_aabb(&[[f32::NAN; 3]]), None);
+        assert_eq!(
+            mesh_aabb(&[[1.0, 2.0, 3.0], [-1.0, 0.5, 4.0]]),
+            Some([[-1.0, 0.5, 3.0], [1.0, 2.0, 4.0]])
+        );
+    }
+
+    #[test]
+    fn ray_down_hits_floor_and_misses_hole() {
+        // Two triangles forming the unit square at y=0, x/z in [0,1].
+        let floor = [
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            [[1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+        ];
+        assert_eq!(ray_down_tri(&floor[0], 0.25, 0.25, 2.0), Some(0.0));
+        assert_eq!(ray_down_tri(&floor[1], 0.75, 0.75, 2.0), Some(0.0));
+        assert_eq!(ray_down_tri(&floor[0], 0.75, 0.75, 2.0), None);
+        assert_eq!(ray_down_tri(&floor[1], 0.25, 0.25, 2.0), None);
+        // Outside the square: no hit.
+        assert_eq!(ray_down_tri(&floor[0], 2.0, 0.25, 2.0), None);
+        // Below the floor: the ray only looks down.
+        assert_eq!(ray_down_tri(&floor[0], 0.25, 0.25, -1.0), None);
+        // Degenerate triangle: no hit.
+        let flat = [[[0.0, 0.0, 0.0]; 3]];
+        assert_eq!(ray_down_tri(&flat[0], 0.0, 0.0, 1.0), None);
+    }
+
+    #[test]
+    fn ground_probe_prefilters_boxes_and_depth() {
+        let boxes = vec![
+            Some([[0.0, 0.0, 0.0], [1.0, 0.0, 1.0]]),
+            Some([[5.0, 0.0, 5.0], [6.0, 0.0, 6.0]]),
+            None,
+        ];
+        let tris = |index: usize| {
+            if index == 0 {
+                Some(vec![[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]])
+            } else {
+                None
+            }
+        };
+        assert_eq!(
+            ground_height_below(&boxes, &tris, 0.5, 0.5, 2.0, 4.0),
+            Some(0.0)
+        );
+        // Wrong cell: no hit even though a box exists there without triangles.
+        assert_eq!(ground_height_below(&boxes, &tris, 5.5, 5.5, 2.0, 4.0), None);
+        // Too deep below the top: rejected by max_drop.
+        assert_eq!(
+            ground_height_below(&boxes, &tris, 0.5, 0.5, 10.0, 4.0),
+            None
+        );
+    }
+
+    #[test]
+    fn ground_space_build_covers_mesh_prefix() {
+        let tri = [[[0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 1.0]]];
+        let space = MeshGroundSpace::build(2, &|i| {
+            if i == 0 {
+                mesh_aabb(&tri[0])
+            } else {
+                None
+            }
+        });
+        assert_eq!(space.len(), 2);
+        assert!(!space.is_empty());
+        assert!(MeshGroundSpace::default().is_empty());
+        let tris = |i: usize| {
+            if i == 0 {
+                Some(tri.to_vec())
+            } else {
+                None
+            }
+        };
+        assert_eq!(space.ground_below(&tris, 0.25, 0.25, 3.0, 5.0), Some(1.0));
     }
 }

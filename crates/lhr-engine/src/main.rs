@@ -674,49 +674,126 @@ fn load(
     })
 }
 /// Headless end-to-end exercise of the MISE01 playable slice against the
-/// user's original data: intro cutscene lock, on-foot walk to the staged
-/// taxi stand, board the real `models/taxi00.4ds` driving world and drive
-/// 150 m to `Complete`. Prints every stage transition; fails loudly on the
-/// first stage that does not advance. No window or GPU is required.
-fn mission_play_probe(root: &std::path::Path) -> Result<(), String> {
+/// user's original data: intro cutscene lock over the real recorder state
+/// machine, on-foot walk to the staged taxi stand on REAL scene geometry,
+/// board the real `models/taxi00.4ds` driving world and drive 150 m to
+/// `Complete`. Prints every stage transition; fails loudly on the first
+/// stage that does not advance. No window or GPU is required.
+fn mission_play_probe(options: &Options) -> Result<(), String> {
     use lhr_engine::mission_play::{
-        CutscenePlayback, Mise01Progress, Mise01Stage, OnFootPlayer, WalkInput, TAXI_DESTINATION_M,
+        mesh_aabb, CutscenePlayback, MeshGroundSpace, Mise01Progress, Mise01Stage, OnFootPlayer,
+        WalkInput, TAXI_DESTINATION_M,
     };
-    // 1. Intro cutscene lock with the real `cutscene_show_start` global.
+    let root = options.root.as_deref().ok_or("Probe needs --root")?;
+    // 1. Cutscene lock over the real recorder predicate and state machine.
     let mut progress = Mise01Progress::fresh();
     let mut show = lhr_engine::cutscene_owner::CutsceneShowStart::default();
+    let mut recorder = lhr_engine::cutscene_owner::CutsceneOwner::constructed(
+        lhr_engine::cutscene_owner::CutsceneConstructorSeed {
+            outer_allocator_byte: 0,
+            manager_address_high_byte: 0,
+        },
+    );
     let mut cutscene = CutscenePlayback::idle();
     assert_eq!(progress.stage(), Mise01Stage::WatchIntro);
     if !cutscene.start(8000) {
         return Err("Cutscene refused to start".into());
     }
+    recorder.recorder_set_state(
+        lhr_engine::cutscene_owner::CUTSCENE_STATE_1,
+        &mut [],
+        &mut [],
+    );
+    recorder.stage_play_ticks(8000);
     show.set_show_start(1);
+    if !recorder.recorder_is_playing() {
+        return Err("Real IsPlaying predicate did not lock".into());
+    }
     let mut cut_ticks = 0u32;
-    while !cutscene.advance(16) {
+    while recorder.recorder_is_playing() {
+        recorder.stage_play_ticks(recorder.play_ticks().saturating_sub(16));
+        let timer_done = cutscene.advance(16);
         cut_ticks += 1;
         if cut_ticks > 1000 {
             return Err("Cutscene did not finish within 1000 ticks".into());
+        }
+        if timer_done {
+            recorder.stage_play_ticks(0);
+            recorder.recorder_set_state(
+                lhr_engine::cutscene_owner::CUTSCENE_STOPPED,
+                &mut [],
+                &mut [],
+            );
         }
     }
     show.set_show_start(0);
     progress.cutscene_done();
     println!(
-        "probe cutscene: locked 8000 ms, finished after {} ticks, show_start={}; stage={:?}",
-        cut_ticks + 1,
+        "probe cutscene: real IsPlaying lock for {cut_ticks} ticks, state={} prev={} ticks={} show={}; stage={:?}",
+        recorder.recorder_get_state(),
+        recorder.previous_state(),
+        recorder.play_ticks(),
         show.staged_ticks(),
         progress.stage()
     );
     if progress.stage() != Mise01Stage::ReachTaxiStand || show.staged_ticks() != 0 {
         return Err("Cutscene did not hand over to ReachTaxiStand".into());
     }
-    // 2. On-foot walk 25 m east to the staged taxi stand.
-    let mut player = OnFootPlayer::spawn([0.0, 0.0, 0.0], 0.0);
-    if !progress.stage_taxi_stand([25.0, 0.0, 0.0], 3.0) {
+    // 2. Load the real MISE01 scene and walk 25 m east on its geometry.
+    let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
+    let mut patches = lhr_engine::program_patch::ProgramPatchStartup::default();
+    patches
+        .initialize(&installation)
+        .map_err(|e| format!("Startup program patches: {e:?}"))?;
+    let mut candidate = options.clone();
+    candidate.mission = Some("mise01".into());
+    let loaded = load(&candidate, INITIAL_CAR_VIEWPORT, 0, &patches)?;
+    println!(
+        "probe scene: {} static meshes loaded for MISE01",
+        loaded.scene.meshes.len()
+    );
+    let ground = MeshGroundSpace::build(loaded.scene.meshes.len(), &|index| {
+        loaded.scene.meshes.get(index).and_then(|mesh| {
+            let verts: Vec<[f32; 3]> = mesh.vertices.iter().map(|v| v.position).collect();
+            mesh_aabb(&verts)
+        })
+    });
+    let tris_of = |index: usize| {
+        loaded.scene.meshes.get(index).and_then(|mesh| {
+            let mut tris = Vec::new();
+            for face in mesh.indices.chunks_exact(3) {
+                let mut tri = [[0.0; 3]; 3];
+                for (slot, corner) in tri.iter_mut().zip(face.iter()) {
+                    *slot = mesh.vertices.get(*corner as usize)?.position;
+                }
+                tris.push(tri);
+            }
+            if tris.is_empty() {
+                None
+            } else {
+                Some(tris)
+            }
+        })
+    };
+    let focus = loaded.camera.target;
+    let spawn_ground = ground
+        .ground_below(&tris_of, focus.x, focus.z, focus.y + 2.0, 10.0)
+        .unwrap_or(focus.y);
+    let mut player = OnFootPlayer::spawn([focus.x, spawn_ground, focus.z], 0.0);
+    if !progress.stage_taxi_stand([focus.x + 25.0, spawn_ground, focus.z], 3.0) {
         return Err("Taxi stand refused to stage".into());
     }
     let cam_yaw = std::f32::consts::FRAC_PI_2;
     let mut walk_ticks = 0u32;
+    let mut min_ground = f32::INFINITY;
+    let mut max_ground = f32::NEG_INFINITY;
     while progress.stage() == Mise01Stage::ReachTaxiStand {
+        let pos = player.pos();
+        let ground_now = ground.ground_below(&tris_of, pos[0], pos[2], pos[1] + 0.6, 4.0);
+        if let Some(h) = ground_now {
+            min_ground = min_ground.min(h);
+            max_ground = max_ground.max(h);
+        }
         player.step(
             16,
             WalkInput {
@@ -725,7 +802,7 @@ fn mission_play_probe(root: &std::path::Path) -> Result<(), String> {
                 run: false,
             },
             cam_yaw,
-            Some(0.0),
+            ground_now,
             |_, _| None,
         );
         progress.player_moved(player.pos());
@@ -738,19 +815,14 @@ fn mission_play_probe(root: &std::path::Path) -> Result<(), String> {
         }
     }
     println!(
-        "probe walk: reached the stand after {} ticks at pos [{:.2}, {:.2}, {:.2}]; stage={:?}",
-        walk_ticks,
+        "probe walk: reached the stand after {walk_ticks} ticks at pos [{:.2}, {:.2}, {:.2}], real ground range [{min_ground:.2}, {max_ground:.2}]; stage={:?}",
         player.pos()[0],
         player.pos()[1],
         player.pos()[2],
         progress.stage()
     );
     // 3. Board the real taxi driving world and drive to Complete.
-    let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
-    let mut patches = lhr_engine::program_patch::ProgramPatchStartup::default();
-    patches
-        .initialize(&installation)
-        .map_err(|e| format!("Startup program patches: {e:?}"))?;
+    // Reuses the installation and patches from the scene load above.
     let lease = patches
         .lease()
         .map_err(|e| format!("Startup patch owner: {e:?}"))?;
@@ -1017,9 +1089,10 @@ struct App {
     driving_clock: driving_view::FixedClock,
     driving_controls: driving_view::Controls,
     walk_player: Option<lhr_engine::mission_play::OnFootPlayer>,
-    walk_ground_y: f32,
+    walk_ground: lhr_engine::mission_play::MeshGroundSpace,
     cutscene: lhr_engine::mission_play::CutscenePlayback,
     cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart,
+    recorder: lhr_engine::cutscene_owner::CutsceneOwner,
     mise01: lhr_engine::mission_play::Mise01Progress,
     driving_taxi: bool,
     taxi_odometer_m: f32,
@@ -1253,8 +1326,15 @@ impl App {
             self.spawn_mission_walk();
         } else {
             self.walk_player = None;
+            self.walk_ground = lhr_engine::mission_play::MeshGroundSpace::default();
             self.cutscene = lhr_engine::mission_play::CutscenePlayback::idle();
             self.cutscene_show = lhr_engine::cutscene_owner::CutsceneShowStart::default();
+            self.recorder = lhr_engine::cutscene_owner::CutsceneOwner::constructed(
+                lhr_engine::cutscene_owner::CutsceneConstructorSeed {
+                    outer_allocator_byte: 0,
+                    manager_address_high_byte: 0,
+                },
+            );
             self.mise01 = lhr_engine::mission_play::Mise01Progress::fresh();
             self.driving_taxi = false;
             self.taxi_odometer_m = 0.0;
@@ -1298,19 +1378,61 @@ impl App {
     /// open with the mission scripts. The drivable taxi is the real
     /// `models/taxi00.4ds` driving world for `mise01`; if it fails to open,
     /// walking and the cutscene stand-in still work and boarding reports it.
+    /// Ground heights come from the loaded static scene geometry through
+    /// `MeshGroundSpace`; wall sweeps stay deferred.
     fn spawn_mission_walk(&mut self) {
         let focus = self.camera.target;
         let mut forward = [focus.x - self.camera.eye.x, focus.z - self.camera.eye.z];
         let length = forward[0].hypot(forward[1]).max(1e-3);
         forward[0] /= length;
         forward[1] /= length;
-        self.walk_ground_y = focus.y;
+        // Snapshot the static scene geometry once; later-merged car draws sit
+        // past the covered prefix and are ignored by the probe.
+        self.walk_ground =
+            lhr_engine::mission_play::MeshGroundSpace::build(self.scene.meshes.len(), &|index| {
+                self.scene.meshes.get(index).and_then(|mesh| {
+                    let verts: Vec<[f32; 3]> = mesh.vertices.iter().map(|v| v.position).collect();
+                    lhr_engine::mission_play::mesh_aabb(&verts)
+                })
+            });
+        let ground_at = |x: f32, z: f32, top_y: f32| {
+            self.walk_ground.ground_below(
+                &|index| {
+                    self.scene.meshes.get(index).and_then(|mesh| {
+                        let mut tris = Vec::new();
+                        for face in mesh.indices.chunks_exact(3) {
+                            let mut tri = [[0.0; 3]; 3];
+                            for (slot, corner) in tri.iter_mut().zip(face.iter()) {
+                                *slot = mesh.vertices.get(*corner as usize)?.position;
+                            }
+                            tris.push(tri);
+                        }
+                        if tris.is_empty() {
+                            None
+                        } else {
+                            Some(tris)
+                        }
+                    })
+                },
+                x,
+                z,
+                top_y,
+                10.0,
+            )
+        };
+        let spawn_y = ground_at(focus.x, focus.z, focus.y + 2.0).unwrap_or(focus.y);
         self.walk_player = Some(lhr_engine::mission_play::OnFootPlayer::spawn(
-            [focus.x, focus.y, focus.z],
+            [focus.x, spawn_y, focus.z],
             forward[0].atan2(forward[1]),
         ));
         self.cutscene = lhr_engine::mission_play::CutscenePlayback::idle();
         self.cutscene_show = lhr_engine::cutscene_owner::CutsceneShowStart::default();
+        self.recorder = lhr_engine::cutscene_owner::CutsceneOwner::constructed(
+            lhr_engine::cutscene_owner::CutsceneConstructorSeed {
+                outer_allocator_byte: 0,
+                manager_address_high_byte: 0,
+            },
+        );
         self.mise01 = lhr_engine::mission_play::Mise01Progress::fresh();
         self.driving_taxi = false;
         self.taxi_odometer_m = 0.0;
@@ -1383,16 +1505,31 @@ impl App {
             }
             return;
         }
-        if self.cutscene.is_playing() {
+        if self.recorder.recorder_is_playing() {
+            // Host clock driver: the native play-ticks decrement point stays
+            // unrecovered, so the staged word counts down here while the real
+            // IsPlaying predicate holds the lock.
+            let left = self.recorder.play_ticks().saturating_sub(elapsed_ms);
+            self.recorder.stage_play_ticks(left);
             let finished = self.cutscene.advance(elapsed_ms);
             // Slow cinematic pan while the cutscene holds the player.
             let offset = self.camera.eye - self.camera.target;
             let rotated = Quat::from_rotation_y(0.002) * offset;
             self.camera.eye = self.camera.target + rotated;
-            if finished {
+            if finished || left == 0 {
+                self.recorder.stage_play_ticks(0);
+                self.recorder.recorder_set_state(
+                    lhr_engine::cutscene_owner::CUTSCENE_STOPPED,
+                    &mut [],
+                    &mut [],
+                );
                 self.cutscene_show.set_show_start(0);
                 self.mise01.cutscene_done();
-                println!("Cutscene finished; {}", self.mise01.hud_line());
+                println!(
+                    "Cutscene finished (state {}); {}",
+                    self.recorder.recorder_get_state(),
+                    self.mise01.hud_line()
+                );
                 self.show_objective();
             }
             return;
@@ -1407,6 +1544,33 @@ impl App {
             let offset = self.camera.eye - self.camera.target;
             let cam_yaw = (-offset.x).atan2(-offset.z);
             let before = self.mise01.stage();
+            // Real-geometry ground under the feet; the void means a fall and
+            // wall sweeps stay deferred (free flight).
+            let ground_here = |x: f32, z: f32, top_y: f32| {
+                self.walk_ground.ground_below(
+                    &|index| {
+                        self.scene.meshes.get(index).and_then(|mesh| {
+                            let mut tris = Vec::new();
+                            for face in mesh.indices.chunks_exact(3) {
+                                let mut tri = [[0.0; 3]; 3];
+                                for (slot, corner) in tri.iter_mut().zip(face.iter()) {
+                                    *slot = mesh.vertices.get(*corner as usize)?.position;
+                                }
+                                tris.push(tri);
+                            }
+                            if tris.is_empty() {
+                                None
+                            } else {
+                                Some(tris)
+                            }
+                        })
+                    },
+                    x,
+                    z,
+                    top_y,
+                    4.0,
+                )
+            };
             if let Some(player) = &mut self.walk_player {
                 player.step(
                     elapsed_ms,
@@ -1416,7 +1580,7 @@ impl App {
                         run,
                     },
                     cam_yaw,
-                    Some(self.walk_ground_y),
+                    ground_here(player.pos()[0], player.pos()[2], player.pos()[1] + 0.6),
                     |_, _| None,
                 );
                 let pos = player.pos();
@@ -1818,18 +1982,32 @@ impl ApplicationHandler for App {
                         } else if self.walk_mode() && !event.repeat {
                             match code {
                                 KeyCode::KeyC => {
-                                    if self.cutscene.is_playing() {
-                                        self.cutscene.stop();
+                                    if self.recorder.recorder_is_playing() {
+                                        self.recorder.stage_play_ticks(0);
+                                        self.recorder.recorder_set_state(
+                                            lhr_engine::cutscene_owner::CUTSCENE_STATE_0,
+                                            &mut [],
+                                            &mut [],
+                                        );
                                         self.cutscene_show.set_show_start(0);
+                                        self.cutscene =
+                                            lhr_engine::mission_play::CutscenePlayback::idle();
                                         println!("Cutscene stopped");
                                     } else if self.mise01.stage()
                                         == lhr_engine::mission_play::Mise01Stage::WatchIntro
                                     {
                                         self.cutscene.start(8000);
-                                        // Real recorder binding: stage the native
-                                        // `cutscene_show_start` global while the
-                                        // host stand-in plays; the recorded-actor
-                                        // Tick stays DEFERRED.
+                                        // Real recorder binding: the native state
+                                        // machine and show-start global stage the
+                                        // playback; the recorded-actor Tick and the
+                                        // play-ticks decrement point stay deferred,
+                                        // so the host counts the staged word down.
+                                        self.recorder.recorder_set_state(
+                                            lhr_engine::cutscene_owner::CUTSCENE_STATE_1,
+                                            &mut [],
+                                            &mut [],
+                                        );
+                                        self.recorder.stage_play_ticks(8000);
                                         self.cutscene_show.set_show_start(1);
                                         println!("Intro cutscene playing (8 s host stand-in)");
                                     } else {
@@ -1837,10 +2015,15 @@ impl ApplicationHandler for App {
                                     }
                                 }
                                 KeyCode::Enter | KeyCode::NumpadEnter => {
-                                    if self.cutscene.is_playing() {
-                                        self.cutscene.stop();
-                                        self.cutscene_show.set_show_start(0);
-                                    }
+                                    self.recorder.stage_play_ticks(0);
+                                    self.recorder.recorder_set_state(
+                                        lhr_engine::cutscene_owner::CUTSCENE_STATE_0,
+                                        &mut [],
+                                        &mut [],
+                                    );
+                                    self.cutscene_show.set_show_start(0);
+                                    self.cutscene =
+                                        lhr_engine::mission_play::CutscenePlayback::idle();
                                     self.mise01.cutscene_done();
                                     println!("Intro skipped; {}", self.mise01.hud_line());
                                     self.show_objective();
@@ -2642,7 +2825,7 @@ fn run() -> Result<(), String> {
         );
     }
     if options.mission_play_probe {
-        return mission_play_probe(options.root.as_deref().unwrap());
+        return mission_play_probe(&options);
     }
     // These optional startup files are read once, before any Scene/source owner.
     // Keep their actual table across App transitions and inspection reloads.
@@ -3051,9 +3234,15 @@ fn run() -> Result<(), String> {
         driving_clock: driving_view::FixedClock::default(),
         driving_controls: driving_view::Controls::default(),
         walk_player: None,
-        walk_ground_y: 0.0,
+        walk_ground: lhr_engine::mission_play::MeshGroundSpace::default(),
         cutscene: lhr_engine::mission_play::CutscenePlayback::idle(),
         cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart::default(),
+        recorder: lhr_engine::cutscene_owner::CutsceneOwner::constructed(
+            lhr_engine::cutscene_owner::CutsceneConstructorSeed {
+                outer_allocator_byte: 0,
+                manager_address_high_byte: 0,
+            },
+        ),
         mise01: lhr_engine::mission_play::Mise01Progress::fresh(),
         driving_taxi: false,
         taxi_odometer_m: 0.0,

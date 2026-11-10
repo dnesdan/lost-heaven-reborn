@@ -651,9 +651,15 @@ mod tests {
             driving_clock: driving_view::FixedClock::default(),
             driving_controls: driving_view::Controls::default(),
             walk_player: None,
-            walk_ground_y: 0.0,
+            walk_ground: lhr_engine::mission_play::MeshGroundSpace::default(),
             cutscene: lhr_engine::mission_play::CutscenePlayback::idle(),
             cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart::default(),
+            recorder: lhr_engine::cutscene_owner::CutsceneOwner::constructed(
+                lhr_engine::cutscene_owner::CutsceneConstructorSeed {
+                    outer_allocator_byte: 0,
+                    manager_address_high_byte: 0,
+                },
+            ),
             mise01: lhr_engine::mission_play::Mise01Progress::fresh(),
             driving_taxi: false,
             taxi_odometer_m: 0.0,

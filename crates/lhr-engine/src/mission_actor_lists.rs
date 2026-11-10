@@ -259,11 +259,7 @@ pub fn del_not_me_actors(
 /// `C_mission::IsOwnActor`).
 /// Each list is searched from its last actor: a member that is also listed
 /// in `not_me_actors` is not owned.
-pub fn is_own_actor(
-    actors: &[ActorId],
-    not_me_actors: &[ActorId],
-    actor: ActorId,
-) -> bool {
+pub fn is_own_actor(actors: &[ActorId], not_me_actors: &[ActorId], actor: ActorId) -> bool {
     for index in (0..actors.len()).rev() {
         if actors[index] == actor {
             for other in (0..not_me_actors.len()).rev() {
@@ -560,11 +556,12 @@ impl MissionActorNumberState {
 }
 
 /// Cutscene flag bits of `C_actor::act_flags` (mafia-re pin 113b5b6,
-/// `game/actors/C_actor.h:81-84`).
+/// `game/actors/C_actor.h:81-90`).
 pub const ACTF_CUTSCENE_PLAYED: i32 = 0x1;
 pub const ACTF_CUTSCENE_RECORDED: i32 = 0x2;
 pub const ACTF_CUTSCENE_PLAY: i32 = 0x4;
 pub const ACTF_CUTSCENE_RECORD: i32 = 0x8;
+pub const ACTF_CUTSCENE: i32 = 0x10;
 
 /// FUNCTION: GAME RVA 0x1c27b0, VA 0x5c27b0 (mafia-re pin 113b5b6,
 /// `game/mission/C_cutscene_records.cpp:122-133`,
@@ -707,10 +704,7 @@ pub struct TransparentEffect {
 /// while the survivors keep their relative scan order for this step.
 /// A zero `fade_time` finishes immediately, so the division below never
 /// divides by zero.
-pub fn tick_transparent(
-    entries: &mut Vec<TransparentEntry>,
-    time: u32,
-) -> Vec<TransparentEffect> {
+pub fn tick_transparent(entries: &mut Vec<TransparentEntry>, time: u32) -> Vec<TransparentEffect> {
     let mut effects = Vec::new();
     let mut index = 0;
     while index < entries.len() {
@@ -1359,7 +1353,9 @@ mod tests {
         // One stayed active, one arrived from the inactive list; the
         // NONE-bound actor left both lists without a push.
         assert_eq!(active.len(), 2);
-        assert!(active.iter().all(|actor| actor.state == ActStateClass::Active));
+        assert!(active
+            .iter()
+            .all(|actor| actor.state == ActStateClass::Active));
         assert_eq!(inactive.len(), 1);
         assert_eq!(inactive[0].state, ActStateClass::Inactive);
         assert_eq!(inactive[0].changes, 1);
@@ -1737,10 +1733,7 @@ mod tests {
         assert_eq!(count_game_anim_models(&models), 2);
         let empty: Vec<AnimModel> = Vec::new();
         assert_eq!(count_game_anim_models(&empty), 0);
-        assert_eq!(
-            count_game_anim_models(&models[0..1]),
-            0
-        );
+        assert_eq!(count_game_anim_models(&models[0..1]), 0);
     }
 
     #[test]
