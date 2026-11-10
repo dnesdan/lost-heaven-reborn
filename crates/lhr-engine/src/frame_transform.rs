@@ -801,6 +801,110 @@ pub fn frame_visual_in_world_space(visual_flags: u32) -> bool {
 pub fn frame_flags_after_update_children_parent(flags: u32) -> u32 {
     (flags & !(0x100 | 0x40)) | 0x2000
 }
+/// Working name for the flag word written by the keep-world half of
+/// `I3D_frame::LinkTo` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:491-492
+/// at pin 113b5b6). The reference records the body at PC RVA 0x1b9d0,
+/// already occupied, so no RVA is claimed here. Clears
+/// `HR_BOUND_W_VALID|WMAT_VALID|MAT_VALID|ROT_VALID` and sets
+/// `UPDATE|QUAT_VALID`; the matrix rebuild stays caller-owned. The second
+/// store (SetDir3 then `UPDATE|MAT_VALID`) matches
+/// `frame_flags_after_set_world_dir` exactly and is not repeated here.
+pub fn frame_flags_after_link_keep_world_first(flags: u32) -> u32 {
+    (flags & !(0x100 | 0x20 | 0x10 | 0x04)) | (0x4000_0000 | 0x08)
+}
+/// Working name for the old-chain hierarchy-bit clearing of
+/// `I3D_frame::LinkTo` (mafia-re ls3df/I3D/frames/I3d_frame.cpp:505-528
+/// at pin 113b5b6). Same occupied-body status as
+/// `frame_hr_hierarchy_bits`: the upward walk stays caller-owned, only
+/// the kept `HR_SECTORS|HR_OCCLUDERS|HR_AREAS` projection is modeled. A
+/// sector ancestor keeps its sector bit (areas and occluders cleared), an
+/// occluder keeps its occluder bit, an area keeps its area bit; any other
+/// frame keeps none of the three.
+pub fn link_old_parent_kept_hr_bits(is_sector: bool, is_occluder: bool, is_area: bool) -> u32 {
+    if is_sector {
+        0x8_0000
+    } else if is_occluder {
+        0x10_0000
+    } else if is_area {
+        0x4_0000
+    } else {
+        0
+    }
+}
+/// Working name for the `Update` world-bound clear gate (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:907-915 at pin 113b5b6). Same
+/// occupied-body status as `frame_flags_after_update`: the visual-cache
+/// store stays caller-owned, only the gate is modeled. A visual frame
+/// with pending motion (`UPDATE|CHANGED`) whose visual is not in world
+/// space drops `VISF_WBOUND_VALID` (mafia-re ls3df/I3D/I3D.h:2704);
+/// non-visuals never consult a `vis_flags` word.
+pub fn frame_update_clears_visual_bound(
+    is_visual: bool,
+    vis_in_world_space: bool,
+    flags: u32,
+) -> bool {
+    is_visual && frame_needs_update(flags) && !vis_in_world_space
+}
+/// Working name for the `UpdateChildren` world-bound clear gate (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:887-897 at pin 113b5b6). Same
+/// occupied-body status as `frame_flags_after_update_children_parent`
+/// (`UpdateChildren` is PC RVA 0x1c9a0): the `m_UpdateCount` bump and
+/// the visual-cache store stay caller-owned. A moved parent clears the
+/// same `VISF_WBOUND_VALID` bit on a local-space visual child.
+pub fn frame_update_children_clears_visual_bound(
+    is_visual: bool,
+    vis_in_world_space: bool,
+    parent_flags: u32,
+) -> bool {
+    frame_needs_update(parent_flags) && is_visual && !vis_in_world_space
+}
+/// Working name for the `I3D_frame::GetRot` remake gate (mafia-re
+/// ls3df/I3D/I3D.h:5002-5009 at pin 113b5b6). The reference records no
+/// LS3DF FUNCTION address for it: the body is header-inline, and the only
+/// out-of-line copy is Game.exe 0x47a810, which is not claimed here.
+/// Reports whether the rotation must be remade from the local matrix
+/// (`QUAT_VALID` clear); the `Make` call stays caller-owned.
+pub fn frame_rot_needs_make(flags: u32) -> bool {
+    flags & 0x08 == 0
+}
+/// Working name for the `I3D_frame::GetDir` rebuild branch (mafia-re
+/// ls3df/I3D/I3D.h:558-572 at pin 113b5b6). Same inline-only status as
+/// `frame_rot_needs_make`: no LS3DF FUNCTION entry exists, and the only
+/// out-of-line copy is Game.exe 0x47a890, which is not claimed here.
+/// Reports whether the matrix must be rebuilt from the normalized
+/// rotation first (`MAT_VALID` clear, returning the rebuilt row
+/// verbatim); otherwise the caller normalizes a copy of the stored row.
+/// Both normalizations stay caller-owned.
+pub fn frame_dir_rebuilds_matrix(flags: u32) -> bool {
+    flags & 0x10 == 0
+}
+/// Working name for the sector arm of `I3D_frame::UpdateHRBoundVol`
+/// (mafia-re ls3df/I3D/frames/I3d_frame.cpp:954-957 at pin 113b5b6).
+/// Same occupied-body status as `frame_flags_after_set_bound_volume`
+/// (`UpdateHRBoundVol` is PC RVA 0x1cc50): the hierarchy walk stays
+/// caller-owned. A sector only sets `HR_BOUND_VALID` and returns; the
+/// bound-volume copy stays with the caller.
+pub fn frame_flags_after_update_hr_bound_vol_sector(flags: u32) -> u32 {
+    flags | 0x40
+}
+/// Working name for the `UpdateHRBoundVolW` local-refresh gate (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:1010-1011 at pin 113b5b6). Same
+/// occupied-body status as `frm_hr_bound_w_valid`
+/// (`UpdateHRBoundVolW` is PC RVA 0x1cf90): the `UpdateHRBoundVol` call
+/// and the world-space copy stay caller-owned. Reports whether the local
+/// hierarchy bound must be refreshed first (`HR_BOUND_VALID` clear).
+pub fn frame_hr_bound_w_needs_local_refresh(flags: u32) -> bool {
+    flags & 0x40 == 0
+}
+/// Working name for the sector early-out of
+/// `I3D_frame::DiscardHRBoundVol` (mafia-re
+/// ls3df/I3D/frames/I3d_frame.cpp:932-934 at pin 113b5b6). Same
+/// occupied-body status as `discard_hr_bound_vol`: the ancestor walk
+/// stays caller-owned. Sectors keep both hierarchy bound-volume
+/// validity bits; every other frame clears them upward.
+pub fn frame_discard_bound_skips_sector(is_sector: bool) -> bool {
+    is_sector
+}
 impl I3dFrameGraph {
     pub fn insert(&mut self, state: I3dFrameState) -> Result<FrameKey, FrameError> {
         let id = u32::try_from(self.nodes.len())
@@ -2054,6 +2158,52 @@ impl I3dFrameGraph {
     }
     pub fn links(&self, key: FrameKey) -> Result<FrameLinks, FrameError> {
         Ok(self.node(key)?.links)
+    }
+    /// Working name for the inlined `I3D_frame::GetPos` local-row read
+    /// (mafia-re ls3df/I3D/I3D.h:460-465 at pin 113b5b6: `return
+    /// m_LocalMatrix(3)`). The reference records no LS3DF FUNCTION address
+    /// for a standalone reader; the only out-of-line copy is Game.exe
+    /// 0x47a720, which is not claimed here. Reports the stored local
+    /// position row; no cache is refreshed.
+    pub fn frame_local_pos_of(&self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        Ok(self.state(key)?.local.elements[12..15].try_into().unwrap())
+    }
+    /// Working name for the inlined `I3D_frame::GetWorldPos` read
+    /// (mafia-re ls3df/I3D/I3D.h:552-556 at pin 113b5b6: `return
+    /// GetMatrix()(3)`). Same inline-only status as `frame_local_pos_of`:
+    /// no LS3DF FUNCTION entry exists, and the only out-of-line copy is
+    /// Game.exe 0x47a730, which is not claimed here. Refreshes the world
+    /// matrix through the native `WMAT_VALID` gate, then reports its
+    /// position row.
+    pub fn frame_world_pos_of(&mut self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        Ok(self.world_matrix(key)?.elements[12..15].try_into().unwrap())
+    }
+    /// Working name for the inlined `I3D_frame::GetScale` member read
+    /// (mafia-re ls3df/I3D/I3D.h:477-481 at pin 113b5b6). Same
+    /// inline-only status: no LS3DF FUNCTION entry exists, and the only
+    /// out-of-line copy is Game.exe 0x47aec0, which is not claimed here.
+    /// Reports the stored scale; no matrix is remade.
+    pub fn frame_scale_of(&self, key: FrameKey) -> Result<[f32; 3], FrameError> {
+        Ok(self.state(key)?.scale)
+    }
+    /// Working name for the inlined `I3D_frame::GetParent` member read
+    /// (mafia-re ls3df/I3D/I3D.h:5043-5046 at pin 113b5b6). Same
+    /// inline-only status: no LS3DF FUNCTION entry exists, and the only
+    /// out-of-line copy is Game.exe 0x47ad10, which is not claimed here.
+    /// Reports the stored parent link; unknown frames stay an explicit
+    /// error, never a null parent.
+    pub fn frame_parent_of(&self, key: FrameKey) -> Result<Option<FrameKey>, FrameError> {
+        Ok(self.links(key)?.parent)
+    }
+    /// Working name for the inlined `I3D_frame::NumChildren` member read
+    /// (mafia-re ls3df/I3D/I3D.h:619-623 at pin 113b5b6). Same
+    /// inline-only status: no LS3DF FUNCTION entry exists, and the only
+    /// out-of-line copy is Game.exe 0x47ad20, which is not claimed here.
+    /// Reports the stored child count (native `int` width; the graph
+    /// stores the same value in `u32`, so no truncation is observable
+    /// through this reader).
+    pub fn frame_num_children_of(&self, key: FrameKey) -> Result<u32, FrameError> {
+        Ok(self.links(key)?.child_count)
     }
     pub fn storage_bytes(&self) -> Result<usize, FrameError> {
         let binding_bytes = self
@@ -5549,6 +5699,106 @@ mod tests {
         assert_eq!(
             frame_flags_after_set_local_matrix(0x20 | 0x08 | 0x7777),
             (0x7777 & !(0x20 | 0x08)) | 0x4000_0000 | 0x10 | 0x04
+        );
+    }
+    #[test]
+    fn link_keep_world_first_and_old_chain_projection() {
+        // Working names for the LinkTo keep-world first store
+        // (mafia-re ls3df/I3D/frames/I3d_frame.cpp:491-492) and the
+        // old-chain hierarchy clearing (505-528): the body lives at the
+        // occupied PC RVA 0x1b9d0, so no RVA is claimed here.
+        assert_eq!(frame_flags_after_link_keep_world_first(0), 0x4000_0008);
+        assert_eq!(frame_flags_after_link_keep_world_first(0x134 | 0x51), 0x4000_0049);
+        assert_eq!(
+            frame_flags_after_link_keep_world_first(0xffff_ffff),
+            (0xffff_ffff & !0x134) | 0x4000_0000 | 0x08
+        );
+        assert_eq!(link_old_parent_kept_hr_bits(true, false, false), 0x8_0000);
+        assert_eq!(link_old_parent_kept_hr_bits(false, true, false), 0x10_0000);
+        assert_eq!(link_old_parent_kept_hr_bits(false, false, true), 0x4_0000);
+        assert_eq!(link_old_parent_kept_hr_bits(false, false, false), 0);
+        // Mixed inputs are outside the native domain (one frame has one
+        // type); the chain reports sector first, host-defined.
+        assert_eq!(link_old_parent_kept_hr_bits(true, true, true), 0x8_0000);
+        assert_eq!(link_old_parent_kept_hr_bits(false, true, true), 0x10_0000);
+    }
+    #[test]
+    fn update_gates_clear_only_local_space_visual_bound() {
+        // Working names for the Update (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:907-915) and UpdateChildren
+        // (893-897) VISF_WBOUND_VALID gates: occupied bodies 0x1ca60 and
+        // 0x1c9a0, so no RVA is claimed here.
+        assert!(frame_update_clears_visual_bound(true, false, 0x4000_0000));
+        assert!(frame_update_clears_visual_bound(true, false, 0x2000));
+        assert!(!frame_update_clears_visual_bound(true, true, 0x4000_0000));
+        assert!(!frame_update_clears_visual_bound(false, false, 0x4000_0000));
+        assert!(!frame_update_clears_visual_bound(true, false, 0));
+        assert!(!frame_update_clears_visual_bound(true, false, 0x1));
+        assert!(frame_update_children_clears_visual_bound(true, false, 0x4000_0000));
+        assert!(frame_update_children_clears_visual_bound(true, false, 0x2000));
+        assert!(!frame_update_children_clears_visual_bound(true, true, 0x4000_0000));
+        assert!(!frame_update_children_clears_visual_bound(false, false, 0x4000_0000));
+        assert!(!frame_update_children_clears_visual_bound(true, false, 0));
+    }
+    #[test]
+    fn rot_and_dir_refresh_gates_follow_valid_bits() {
+        // Working names for the inlined GetRot (mafia-re ls3df/I3D/I3D.h:5002-5009)
+        // and GetDir (558-572) refresh branches: no LS3DF FUNCTION entries
+        // exist (only Game.exe 0x47a810/0x47a890), so no RVA is claimed here.
+        assert!(frame_rot_needs_make(0));
+        assert!(!frame_rot_needs_make(0x08));
+        assert!(frame_rot_needs_make(0xffff_ffff & !0x08));
+        assert!(frame_dir_rebuilds_matrix(0));
+        assert!(!frame_dir_rebuilds_matrix(0x10));
+        assert!(frame_dir_rebuilds_matrix(0xffff_ffff & !0x10));
+    }
+    #[test]
+    fn hr_bound_sector_and_refresh_gates() {
+        // Working names for the UpdateHRBoundVol sector arm (mafia-re
+        // ls3df/I3D/frames/I3d_frame.cpp:954-957), the UpdateHRBoundVolW
+        // gate (1010-1011) and the DiscardHRBoundVol sector early-out
+        // (932-934): occupied bodies 0x1cc50/0x1cf90/0x1cc00, unclaimed.
+        assert_eq!(frame_flags_after_update_hr_bound_vol_sector(0), 0x40);
+        assert_eq!(frame_flags_after_update_hr_bound_vol_sector(0x1100), 0x1140);
+        assert_eq!(frame_flags_after_update_hr_bound_vol_sector(0xffff_ffff), 0xffff_ffff);
+        assert!(frame_hr_bound_w_needs_local_refresh(0));
+        assert!(!frame_hr_bound_w_needs_local_refresh(0x40));
+        assert!(frame_hr_bound_w_needs_local_refresh(0xffff_ffff & !0x40));
+        assert!(frame_discard_bound_skips_sector(true));
+        assert!(!frame_discard_bound_skips_sector(false));
+    }
+    #[test]
+    fn frame_live_position_scale_parent_and_child_count_readers() {
+        // Working names for the inlined GetPos (mafia-re ls3df/I3D/I3D.h:460-465),
+        // GetWorldPos (552-556), GetScale (477-481), GetParent (5043-5046)
+        // and NumChildren (619-623) member reads: no LS3DF FUNCTION entries
+        // exist (only Game.exe 0x47a720/0x47a730/0x47aec0/0x47ad10/0x47ad20),
+        // so no RVA is claimed here.
+        let mut graph = I3dFrameGraph::default();
+        let parent = graph.insert(I3dFrameState::model()).unwrap();
+        let child = graph.insert(I3dFrameState::model()).unwrap();
+        graph.node_mut(parent).unwrap().state.local.elements[12..15]
+            .copy_from_slice(&[1., 2., 3.]);
+        graph.node_mut(parent).unwrap().state.scale = [2., 3., 4.];
+        assert_eq!(graph.frame_local_pos_of(parent).unwrap(), [1., 2., 3.]);
+        assert_eq!(graph.frame_world_pos_of(parent).unwrap(), [0., 0., 0.]);
+        assert_eq!(graph.frame_scale_of(parent).unwrap(), [2., 3., 4.]);
+        assert_eq!(graph.frame_parent_of(child).unwrap(), None);
+        assert_eq!(graph.frame_num_children_of(parent).unwrap(), 0);
+        graph.add_child(parent, child).unwrap();
+        assert_eq!(graph.frame_parent_of(child).unwrap(), Some(parent));
+        assert_eq!(graph.frame_num_children_of(parent).unwrap(), 1);
+        // The world reader follows the refreshed world cache, not the local row.
+        graph.node_mut(child).unwrap().state.world.elements[12..15]
+            .copy_from_slice(&[7., 8., 9.]);
+        assert_eq!(graph.frame_world_pos_of(child).unwrap(), [7., 8., 9.]);
+        assert_eq!(
+            graph.frame_local_pos_of(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
+        );
+        assert_eq!(
+            graph.frame_num_children_of(FrameKey(u32::MAX)),
+            Err(FrameError::UnknownFrame(FrameKey(u32::MAX)))
         );
     }
     #[test]
