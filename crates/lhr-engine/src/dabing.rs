@@ -44,7 +44,9 @@
 //!   (mafia-re `game/ui/g_dabing.cpp:3`).
 #![forbid(unsafe_code)]
 
-use crate::runtime_audio::{PlaybackQuery, RuntimeAudio, SoundId};
+use crate::runtime_audio::{PlaybackQuery, RuntimeAudio};
+
+pub use crate::runtime_audio::SoundId;
 
 /// Number of speaking channels (mafia-re `game/ui/g_dabing.h:16`).
 pub const NUM_DABING_CHANELS: usize = 16;
@@ -223,7 +225,9 @@ impl DabingChannel {
 
     /// Frame count header (first dword counts frames including the header).
     fn frame_count(&self) -> Option<u32> {
-        self.data_words.as_ref().and_then(|words| words.first().copied())
+        self.data_words
+            .as_ref()
+            .and_then(|words| words.first().copied())
     }
 
     /// Raw frame bytes for 0-based frame `index` (past the header).
@@ -307,11 +311,7 @@ impl DabingOwner {
     /// Called by `C_recorder::Close` (Game 0x59c6a0,
     /// mafia-re `game/mission/C_recorder.cpp:585`); the recorder-side wiring
     /// itself is deferred, this is the callee contract.
-    pub fn dabing_reset(
-        &mut self,
-        faces: &mut impl DabingFaceSink,
-        audio: &impl DabingAudioProbe,
-    ) {
+    pub fn dabing_reset(&mut self, faces: &mut impl DabingFaceSink, audio: &impl DabingAudioProbe) {
         for channel in &mut self.channels {
             if let Some(face) = channel.face {
                 dabing_reset_face_weights(faces, face);
@@ -417,11 +417,7 @@ impl DabingOwner {
 
     /// Host attaches the decoded `.dat` block (count header + frames).
     /// File I/O stays deferred; the host/test supplies decoded words.
-    pub fn attach_data(
-        &mut self,
-        channel: usize,
-        data_words: Vec<u32>,
-    ) -> Result<(), DabingError> {
+    pub fn attach_data(&mut self, channel: usize, data_words: Vec<u32>) -> Result<(), DabingError> {
         let slot = self
             .channels
             .get_mut(channel)
@@ -431,11 +427,7 @@ impl DabingOwner {
     }
 
     /// Host attaches an already-owned voice for the channel.
-    pub fn attach_sound(
-        &mut self,
-        channel: usize,
-        sound: SoundId,
-    ) -> Result<(), DabingError> {
+    pub fn attach_sound(&mut self, channel: usize, sound: SoundId) -> Result<(), DabingError> {
         let slot = self
             .channels
             .get_mut(channel)
@@ -445,11 +437,7 @@ impl DabingOwner {
     }
 
     /// Host binds the speaker face (derived from `C_human` in the original).
-    pub fn attach_face(
-        &mut self,
-        channel: usize,
-        face: DabingFaceId,
-    ) -> Result<(), DabingError> {
+    pub fn attach_face(&mut self, channel: usize, face: DabingFaceId) -> Result<(), DabingError> {
         let slot = self
             .channels
             .get_mut(channel)
@@ -606,9 +594,7 @@ impl DabingOwner {
             let play_time = audio.dabing_duration_ms(&sound);
             // Speech ends when the sound stopped or went back to its start
             // near its end (mafia-re `game/ui/g_dabing.cpp:133-143`).
-            if channel.time_ms > current
-                && channel.time_ms.wrapping_add(300) > play_time
-            {
+            if channel.time_ms > current && channel.time_ms.wrapping_add(300) > play_time {
                 channel.fade_ms = DABING_FADE_TIME_MS;
                 channel.state = DABING_STATE_FADING;
             } else {
@@ -883,9 +869,7 @@ mod tests {
     fn set_human_marker_records_opaque_speaker_only() {
         let mut owner = DabingOwner::new();
         owner.speak_marker(1, 3, false, 2).unwrap();
-        owner
-            .set_human_marker(1, DabingSpeakerId(0xbeef))
-            .unwrap();
+        owner.set_human_marker(1, DabingSpeakerId(0xbeef)).unwrap();
         assert_eq!(
             owner.channel(1).unwrap().speaker,
             Some(DabingSpeakerId(0xbeef))
@@ -982,10 +966,7 @@ mod tests {
         owner.speak_marker(0, 5, false, 1).unwrap();
         owner.attach_face(0, DabingFaceId(9)).unwrap();
         owner.dabing_tick(&SilentAudio, &mut faces, 10);
-        assert_eq!(
-            owner.channel(0).unwrap().state,
-            DABING_STATE_FADING
-        );
+        assert_eq!(owner.channel(0).unwrap().state, DABING_STATE_FADING);
     }
 
     #[test]

@@ -653,6 +653,9 @@ mod tests {
             walk_player: None,
             walk_ground: lhr_engine::mission_play::MeshGroundSpace::default(),
             roads: None,
+            dabing: lhr_engine::dabing::DabingOwner::new(),
+            dabing_audio: lhr_engine::mission_play::SilentDabingAudio,
+            dabing_faces: lhr_engine::mission_play::FaceWeightLog::default(),
             cutscene: lhr_engine::mission_play::CutscenePlayback::idle(),
             cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart::default(),
             recorder: lhr_engine::cutscene_owner::CutsceneOwner::constructed(

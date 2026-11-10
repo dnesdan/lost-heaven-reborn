@@ -736,16 +736,36 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     );
     recorder.stage_play_ticks(8000);
     show.set_show_start(1);
+    // Dubbing runs the real DabingTick on a staged subtitle channel,
+    // like vfunc_49 does; the silent audio probe stages no voice.
+    let mut dub = lhr_engine::dabing::DabingOwner::new();
+    dub.dabing_init();
+    dub.begin_subtitle_only(0, 48)
+        .map_err(|e| format!("Subtitle channel unavailable: {e:?}"))?;
+    let dub_audio = lhr_engine::mission_play::SilentDabingAudio;
+    let mut dub_faces = lhr_engine::mission_play::FaceWeightLog::default();
+    let start_fade = dub
+        .channel(0)
+        .map_err(|e| format!("Subtitle channel unreadable: {e:?}"))?
+        .fade_ms;
     if !recorder.recorder_is_playing() {
         return Err("Real IsPlaying predicate did not lock".into());
     }
     let mut cut_ticks = 0u32;
+    let mut mid_fade = start_fade;
     while recorder.recorder_is_playing() {
         recorder.stage_play_ticks(recorder.play_ticks().saturating_sub(16));
         let timer_done = cutscene.advance(16);
+        dub.dabing_tick(&dub_audio, &mut dub_faces, 16);
         cut_ticks += 1;
         if cut_ticks > 1000 {
             return Err("Cutscene did not finish within 1000 ticks".into());
+        }
+        if cut_ticks == 75 {
+            mid_fade = dub
+                .channel(0)
+                .map_err(|e| format!("Subtitle channel unreadable: {e:?}"))?
+                .fade_ms;
         }
         if timer_done {
             recorder.stage_play_ticks(0);
@@ -756,14 +776,20 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             );
         }
     }
+    let end_fade = dub
+        .channel(0)
+        .map_err(|e| format!("Subtitle channel unreadable: {e:?}"))?
+        .fade_ms;
+    dub.recorder_close_reset(&mut dub_faces, &dub_audio);
     show.set_show_start(0);
     progress.cutscene_done();
     println!(
-        "probe cutscene: real IsPlaying lock for {cut_ticks} ticks, state={} prev={} ticks={} show={}; stage={:?}",
+        "probe cutscene: real IsPlaying lock for {cut_ticks} ticks, state={} prev={} ticks={} show={}; dub fade {start_fade}->{mid_fade}->{end_fade} face_writes={}; stage={:?}",
         recorder.recorder_get_state(),
         recorder.previous_state(),
         recorder.play_ticks(),
         show.staged_ticks(),
+        dub_faces.writes().len(),
         progress.stage()
     );
     if progress.stage() != Mise01Stage::ReachTaxiStand || show.staged_ticks() != 0 {
@@ -1347,6 +1373,9 @@ struct App {
     walk_player: Option<lhr_engine::mission_play::OnFootPlayer>,
     walk_ground: lhr_engine::mission_play::MeshGroundSpace,
     roads: Option<lhr_engine::road_network::RoadNetwork>,
+    dabing: lhr_engine::dabing::DabingOwner,
+    dabing_audio: lhr_engine::mission_play::SilentDabingAudio,
+    dabing_faces: lhr_engine::mission_play::FaceWeightLog,
     cutscene: lhr_engine::mission_play::CutscenePlayback,
     cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart,
     recorder: lhr_engine::cutscene_owner::CutsceneOwner,
@@ -1586,6 +1615,8 @@ impl App {
             self.walk_player = None;
             self.walk_ground = lhr_engine::mission_play::MeshGroundSpace::default();
             self.roads = None;
+            self.dabing = lhr_engine::dabing::DabingOwner::new();
+            self.dabing_faces = lhr_engine::mission_play::FaceWeightLog::default();
             self.cutscene = lhr_engine::mission_play::CutscenePlayback::idle();
             self.cutscene_show = lhr_engine::cutscene_owner::CutsceneShowStart::default();
             self.recorder = lhr_engine::cutscene_owner::CutsceneOwner::constructed(
@@ -1631,6 +1662,13 @@ impl App {
         if let Some(window) = &self.window {
             window.set_title(self.mise01.hud_line());
         }
+    }
+    /// Mirror of the `C_recorder::Close` dubbing hook (GAME 0x59c6a0,
+    /// `game/mission/C_recorder.cpp:585`): reset faces, data and sounds
+    /// through the real `DabingReset` callee.
+    fn recorder_close_dabing(&mut self) {
+        let (faces, audio) = (&mut self.dabing_faces, &self.dabing_audio);
+        self.dabing.recorder_close_reset(faces, audio);
     }
     /// Spawn the on-foot player at the real MISE01 actor position after the
     /// scene loads (player/taxi from scene2 metadata; the camera-focus 25 m
@@ -1718,6 +1756,8 @@ impl App {
         self.camera.eye += to_player;
         self.cutscene = lhr_engine::mission_play::CutscenePlayback::idle();
         self.cutscene_show = lhr_engine::cutscene_owner::CutsceneShowStart::default();
+        self.dabing.dabing_init();
+        self.dabing_faces = lhr_engine::mission_play::FaceWeightLog::default();
         self.recorder = lhr_engine::cutscene_owner::CutsceneOwner::constructed(
             lhr_engine::cutscene_owner::CutsceneConstructorSeed {
                 outer_allocator_byte: 0,
@@ -1853,10 +1893,13 @@ impl App {
         if self.recorder.recorder_is_playing() {
             // Host clock driver: the native play-ticks decrement point stays
             // unrecovered, so the staged word counts down here while the real
-            // IsPlaying predicate holds the lock.
+            // IsPlaying predicate holds the lock. Dubbing runs the real
+            // DabingTick each frame like vfunc_49 does.
             let left = self.recorder.play_ticks().saturating_sub(elapsed_ms);
             self.recorder.stage_play_ticks(left);
             let finished = self.cutscene.advance(elapsed_ms);
+            let (faces, audio) = (&mut self.dabing_faces, &self.dabing_audio);
+            self.dabing.dabing_tick(audio, faces, elapsed_ms);
             // Slow cinematic pan while the cutscene holds the player.
             let offset = self.camera.eye - self.camera.target;
             let rotated = Quat::from_rotation_y(0.002) * offset;
@@ -1868,6 +1911,7 @@ impl App {
                     &mut [],
                     &mut [],
                 );
+                self.recorder_close_dabing();
                 self.cutscene_show.set_show_start(0);
                 self.mise01.cutscene_done();
                 println!(
@@ -2330,6 +2374,7 @@ impl ApplicationHandler for App {
                                             &mut [],
                                             &mut [],
                                         );
+                                        self.recorder_close_dabing();
                                         self.cutscene_show.set_show_start(0);
                                         self.cutscene =
                                             lhr_engine::mission_play::CutscenePlayback::idle();
@@ -2343,6 +2388,9 @@ impl ApplicationHandler for App {
                                         // playback; the recorded-actor Tick and the
                                         // play-ticks decrement point stay deferred,
                                         // so the host counts the staged word down.
+                                        // Dubbing runs the real DabingTick on a
+                                        // staged subtitle channel; vfunc_49 calls
+                                        // DabingTick(time) the same way.
                                         self.recorder.recorder_set_state(
                                             lhr_engine::cutscene_owner::CUTSCENE_STATE_1,
                                             &mut [],
@@ -2350,6 +2398,10 @@ impl ApplicationHandler for App {
                                         );
                                         self.recorder.stage_play_ticks(8000);
                                         self.cutscene_show.set_show_start(1);
+                                        self.dabing.dabing_init();
+                                        if self.dabing.begin_subtitle_only(0, 48).is_err() {
+                                            println!("Cutscene subtitle channel unavailable");
+                                        }
                                         println!("Intro cutscene playing (8 s host stand-in)");
                                     } else {
                                         println!("No cutscene staged at this objective");
@@ -2362,6 +2414,7 @@ impl ApplicationHandler for App {
                                         &mut [],
                                         &mut [],
                                     );
+                                    self.recorder_close_dabing();
                                     self.cutscene_show.set_show_start(0);
                                     self.cutscene =
                                         lhr_engine::mission_play::CutscenePlayback::idle();
@@ -3577,6 +3630,9 @@ fn run() -> Result<(), String> {
         walk_player: None,
         walk_ground: lhr_engine::mission_play::MeshGroundSpace::default(),
         roads: None,
+        dabing: lhr_engine::dabing::DabingOwner::new(),
+        dabing_audio: lhr_engine::mission_play::SilentDabingAudio,
+        dabing_faces: lhr_engine::mission_play::FaceWeightLog::default(),
         cutscene: lhr_engine::mission_play::CutscenePlayback::idle(),
         cutscene_show: lhr_engine::cutscene_owner::CutsceneShowStart::default(),
         recorder: lhr_engine::cutscene_owner::CutsceneOwner::constructed(

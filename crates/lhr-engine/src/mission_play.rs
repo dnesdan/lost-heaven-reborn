@@ -780,6 +780,52 @@ impl MeshGroundSpace {
     }
 }
 
+/// Silent host audio probe for cutscene dubbing ticks: no voice is staged,
+/// so nothing logically plays and every position/duration reads zero.
+/// Real `DabingTick` still advances channel clocks, subtitle fades and
+/// morphs; device mixing stays deferred.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SilentDabingAudio;
+
+impl crate::dabing::DabingAudioProbe for SilentDabingAudio {
+    fn dabing_logical_playing(&self, _sound: &crate::dabing::SoundId) -> bool {
+        false
+    }
+    fn dabing_position_ms(&self, _sound: &crate::dabing::SoundId) -> u32 {
+        0
+    }
+    fn dabing_duration_ms(&self, _sound: &crate::dabing::SoundId) -> u32 {
+        0
+    }
+    fn dabing_release(&self, _sound: &crate::dabing::SoundId) {}
+}
+
+/// Recording host face sink for cutscene dubbing ticks: every weight write
+/// lands here in call order for evidence; no model is posed.
+#[derive(Clone, Debug, Default)]
+pub struct FaceWeightLog {
+    writes: Vec<(crate::dabing::DabingFaceId, u32, u32, f32)>,
+}
+
+impl FaceWeightLog {
+    /// Recorded `(face, region, level, weight)` writes in call order.
+    pub fn writes(&self) -> &[(crate::dabing::DabingFaceId, u32, u32, f32)] {
+        &self.writes
+    }
+}
+
+impl crate::dabing::DabingFaceSink for FaceWeightLog {
+    fn set_face_weight(
+        &mut self,
+        face: crate::dabing::DabingFaceId,
+        region: u32,
+        level: u32,
+        weight: f32,
+    ) {
+        self.writes.push((face, region, level, weight));
+    }
+}
+
 /// Real player/taxi spawn positions from mission scene2 actor metadata
 /// (`TommyTAXIDRIVER` kind 2, `taxi` kind 4 with their object world
 /// positions). No coordinates are invented; both must be present.
@@ -1258,5 +1304,32 @@ mod tests {
             }
         };
         assert_eq!(space.ground_below(&tris, 0.25, 0.25, 3.0, 5.0), Some(1.0));
+    }
+
+    #[test]
+    fn host_dabing_backends_stay_inert_and_record() {
+        use crate::dabing::{
+            DabingFaceId, DabingFaceSink, DabingOwner, DABING_STATE_FREE, DABING_STATE_SUBTITLE,
+        };
+        let audio = SilentDabingAudio;
+        let mut faces = FaceWeightLog::default();
+        assert!(faces.writes().is_empty());
+        faces.set_face_weight(DabingFaceId(7), 1, 2, 0.5);
+        assert_eq!(faces.writes().len(), 1);
+        let (face, region, level, weight) = faces.writes()[0];
+        assert_eq!((face, region, level), (DabingFaceId(7), 1, 2));
+        assert!((weight - 0.5).abs() < 1e-6);
+        // A staged subtitle-only channel fades out through the real tick.
+        let mut dub = DabingOwner::new();
+        dub.dabing_init();
+        dub.begin_subtitle_only(0, 48).unwrap();
+        let start_fade = dub.channel(0).unwrap().fade_ms;
+        assert!(start_fade > 0);
+        assert_eq!(dub.channel(0).unwrap().state, DABING_STATE_SUBTITLE);
+        dub.dabing_tick(&audio, &mut faces, start_fade / 2);
+        let mid_fade = dub.channel(0).unwrap().fade_ms;
+        assert!(mid_fade < start_fade && mid_fade > 0);
+        dub.dabing_tick(&audio, &mut faces, mid_fade);
+        assert_eq!(dub.channel(0).unwrap().state, DABING_STATE_FREE);
     }
 }
