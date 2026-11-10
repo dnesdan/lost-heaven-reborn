@@ -15637,6 +15637,24 @@
       "symbol": "lhr_engine::human_actor::HumanState::dump_records_unsupported",
       "tier": "contract",
       "evidence": "STUB: explicit Unsupported (scene/device owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0xe780",
+      "va": "0x1000e780",
+      "name": "testVisual (static)",
+      "symbol": "lhr_engine::collision_scene::test_visual_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (C_VBuffer lock + mesh LOD owners deferred). Marker-only contract; tests green on this tree."
+    },
+    {
+      "binary": "LS3DF.dll",
+      "rva": "0x12520",
+      "va": "0x10012520",
+      "name": "sphTestVisual (static)",
+      "symbol": "lhr_engine::collision_scene::sphere_test_visual_unsupported",
+      "tier": "contract",
+      "evidence": "STUB: explicit Unsupported (C_VBuffer lock + mesh LOD owners deferred). Marker-only contract; tests green on this tree."
     }
   ],
   "vm": {

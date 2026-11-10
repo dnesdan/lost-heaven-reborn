@@ -2,6 +2,9 @@
 //! I3D_scene ray/sphere-vs-visual tests (PC LS3DF.dll e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
 //! RVAs 0xe370-0x153b0: 8 contract, plus the TestColGeo setup/distance words
 //! (RVA 0xdec0) and the TestColSphere sweep-box/exclusion words (RVA 0x11d60).
+//! The static testVisual/sphTestVisual halves (RVAs 0xe780/0x12520) stay
+//! explicit-Unsupported stubs: no live vertex-buffer lock owner exists on
+//! this host, and the credited walkers take caller-side backends instead.
 //!
 //! Names (testSubtree, sphTestSubtree, TestColGeo1, …) are PS2/mafia-re
 //! (I3D/i3d_collision.cpp) working names, NEVER original symbols. Only
@@ -43,6 +46,10 @@ pub enum SceneColError {
     BadLevel,
     Nonfinite,
     TexelOutOfRange,
+    /// Explicit-Unsupported carrier for the testVisual/sphTestVisual halves:
+    /// no live vertex-buffer lock owner exists on this host. The static
+    /// message names the missing owner contract.
+    Unsupported(&'static str),
 }
 
 /// Typed live view of one frame node; the walker borrows the arena.
@@ -221,6 +228,153 @@ pub fn default_texel_callback(
             TEXEL_PARTIAL
         })
     }
+}
+
+/// Working name for the COLF_BOX bit test (mafia-re ls3df/I3D/I3D.h:1424 at
+/// pin 113b5b6: a visual's box is the hit, not its faces). The reference
+/// records no LS3DF FUNCTION entry for a standalone reader; the word is
+/// tested in place by testVisual (ls3df/I3D/i3d_collision.cpp:296). Pure
+/// word test; no state moves.
+pub fn colf_box_hit(flags: u32) -> bool {
+    flags & COLF_BOX != 0
+}
+
+/// Working name for the COLF_ACCEPT_ANY bit test (mafia-re ls3df/I3D/I3D.h:1425
+/// at pin 113b5b6: a hit counts though a nearer one was found). The reference
+/// records no LS3DF FUNCTION entry for a standalone reader; the word is
+/// tested in place by testVisual (ls3df/I3D/i3d_collision.cpp:293) and the
+/// inline AcceptHit helper (i3d_collision.cpp:199-201). Pure word test; no state moves.
+pub fn colf_accept_any(flags: u32) -> bool {
+    flags & COLF_ACCEPT_ANY != 0
+}
+
+/// Working name for the COLF_COLORKEY bit test (mafia-re ls3df/I3D/I3D.h:1427
+/// at pin 113b5b6: the faces' texels are tested). The reference records no
+/// LS3DF FUNCTION entry for a standalone reader; the word selects the
+/// DefaultTexelCallback arm inside the TestCol* setups
+/// (ls3df/I3D/i3d_collision.cpp:846-852). Pure word test; no state moves.
+pub fn colf_tests_texels(flags: u32) -> bool {
+    flags & COLF_COLORKEY != 0
+}
+
+/// Working name for the COLF_INFINITE bit test (mafia-re ls3df/I3D/I3D.h:1428
+/// at pin 113b5b6: the ray runs past from + dir). The reference records no
+/// LS3DF FUNCTION entry for a standalone reader; the word gates the
+/// lineSize2/best2 range cuts in place (ls3df/I3D/i3d_collision.cpp:291,359).
+/// Pure word test; no state moves.
+pub fn colf_ray_infinite(flags: u32) -> bool {
+    flags & COLF_INFINITE != 0
+}
+
+/// Working name for the COLF_TWO_SIDED bit test (mafia-re ls3df/I3D/I3D.h:1429
+/// at pin 113b5b6: every face is two-sided). The reference records no LS3DF
+/// FUNCTION entry for a standalone reader; the word gates the backface skip
+/// in the face loops (ls3df/I3D/i3d_collision.cpp:419). Pure word test; no
+/// state moves.
+pub fn colf_two_sided_faces(flags: u32) -> bool {
+    flags & COLF_TWO_SIDED != 0
+}
+
+/// Working name for the COLF_FIRST_HIT bit test (mafia-re ls3df/I3D/I3D.h:1430
+/// at pin 113b5b6: the first hit ends the test). The reference records no
+/// LS3DF FUNCTION entry for a standalone reader; the word stops the face
+/// loops in place (ls3df/I3D/i3d_collision.cpp:206,366). Pure word test; no
+/// state moves.
+pub fn colf_first_hit_stops(flags: u32) -> bool {
+    flags & COLF_FIRST_HIT != 0
+}
+
+/// Working name for the COLF_FRAME_LOD bit test (mafia-re ls3df/I3D/I3D.h:1431
+/// at pin 113b5b6: the given frame is tested at the given level of detail).
+/// The reference records no LS3DF FUNCTION entry for a standalone reader;
+/// the word selects the single-frame wiring arm of the TestColGeo setup
+/// (ls3df/I3D/i3d_collision.cpp:860-865). Pure word test; no state moves.
+pub fn colf_frame_lod_pinned(flags: u32) -> bool {
+    flags & COLF_FRAME_LOD != 0
+}
+
+/// Working name for the COLF_SKIP_OPTIONAL bit test (mafia-re
+/// ls3df/I3D/I3D.h:1432 at pin 113b5b6: VISF_COL_OPTIONAL visuals are
+/// skipped). The reference records no LS3DF FUNCTION entry for a standalone
+/// reader; the word gates the optional-visual skip in testSubtree
+/// (ls3df/I3D/i3d_collision.cpp:776). Pure word test; no state moves.
+pub fn colf_skip_optional(flags: u32) -> bool {
+    flags & COLF_SKIP_OPTIONAL != 0
+}
+
+/// Working name for the COLF_HIDDEN bit test (mafia-re ls3df/I3D/I3D.h:1433
+/// at pin 113b5b6: switched-off frames are tested too). The reference
+/// records no LS3DF FUNCTION entry for a standalone reader; the word gates
+/// the FRMFLAGS_ON skip in testSubtree/sphTestSubtree
+/// (ls3df/I3D/i3d_collision.cpp:764). Pure word test; no state moves.
+pub fn colf_hidden_tested(flags: u32) -> bool {
+    flags & COLF_HIDDEN != 0
+}
+
+/// Working name for the COLF_EXCLUDE_SUBTREE bit test (mafia-re
+/// ls3df/I3D/I3D.h:1434 at pin 113b5b6). The reference records no LS3DF
+/// FUNCTION entry for a standalone reader; the word selects the
+/// excluded-subtree wiring arm of the TestColGeo setup
+/// (ls3df/I3D/i3d_collision.cpp:855-859). Pure word test; no state moves.
+pub fn colf_exclude_subtree(flags: u32) -> bool {
+    flags & COLF_EXCLUDE_SUBTREE != 0
+}
+
+/// Working name for the COLF_OMNI_SECTOR bit test (mafia-re ls3df/I3D/I3D.h:1435
+/// at pin 113b5b6: the omni sector is tested too). The reference records no
+/// LS3DF FUNCTION entry for a standalone reader; the word gates the omni
+/// sweep of the TestColGeo setup (ls3df/I3D/i3d_collision.cpp:879). Pure
+/// word test; no state moves.
+pub fn colf_omni_sector(flags: u32) -> bool {
+    flags & COLF_OMNI_SECTOR != 0
+}
+
+/// Working name for the COLF_NEAR_SECTOR bit test (mafia-re ls3df/I3D/I3D.h:1436
+/// at pin 113b5b6: and the near sector). The reference records no LS3DF
+/// FUNCTION entry for a standalone reader; the word gates the near sweep of
+/// the TestColGeo setup (ls3df/I3D/i3d_collision.cpp:876). Pure word test;
+/// no state moves.
+pub fn colf_near_sector(flags: u32) -> bool {
+    flags & COLF_NEAR_SECTOR != 0
+}
+
+/// Working name for the COLF_FIRST_FACE bit test (mafia-re ls3df/I3D/I3D.h:1437
+/// at pin 113b5b6: a visual's first face hit is its hit). The reference
+/// records no LS3DF FUNCTION entry for a standalone reader; the word
+/// short-circuits the per-visual best-face search in the face loops
+/// (ls3df/I3D/i3d_collision.cpp:376). Pure word test; no state moves.
+pub fn colf_first_face_hit(flags: u32) -> bool {
+    flags & COLF_FIRST_FACE != 0
+}
+
+/// LS3DF RVA 0xe780, VA 0x1000e780. PDB-evidenced static `testVisual`
+/// (mafia-re pin 113b5b6 `ls3df/I3D/I3D.h:1673-1675`; body at
+/// `ls3df/I3D/i3d_collision.cpp:232ff`; LS3DF11 RVA 0xe320). Explicit
+/// Unsupported STUB: the body walks mesh LOD face groups through live
+/// vertex-buffer locks (I3d_collision.cpp:10 notes testVisual inlines
+/// `C_VBuffer::Lock`) plus material/texel backends, none of which exists on
+/// this host. The credited `test_subtree` walker takes a caller-side
+/// backend for the face test instead; this symbol only pins the address
+/// and the missing-owner reason. Tier: explicit unsupported boundary, no
+/// function credit claimed.
+pub fn test_visual_unsupported() -> Result<(), SceneColError> {
+    Err(SceneColError::Unsupported(
+        "testVisual needs a live C_VBuffer lock owner",
+    ))
+}
+
+/// LS3DF RVA 0x12520, VA 0x10012520. PDB-evidenced static `sphTestVisual`
+/// (mafia-re pin 113b5b6 `ls3df/I3D/I3D.h:1681-1683`; body at
+/// `ls3df/I3D/i3d_collision.cpp:1062ff`; LS3DF11 RVA 0x12040). Explicit
+/// Unsupported STUB, same missing owners as `test_visual_unsupported`
+/// (vertex-buffer locks, mesh face groups, texel backends). The credited
+/// `sph_test_subtree` walker takes a caller-side backend instead; this
+/// symbol only pins the address and the missing-owner reason. Tier:
+/// explicit unsupported boundary, no function credit claimed.
+pub fn sphere_test_visual_unsupported() -> Result<(), SceneColError> {
+    Err(SceneColError::Unsupported(
+        "sphTestVisual needs a live C_VBuffer lock owner",
+    ))
 }
 
 /// C1 testSubtree (:761-798, 1031B/294insn/44BB). Order: pWSubTree → ON/
@@ -1103,5 +1257,72 @@ mod collision_scene_tests {
             (None, Some(3))
         );
         assert_eq!(wire_sphere_exclusion(0, Some(3)), (None, Some(3)));
+    }
+    #[test]
+    fn colf_readers_cover_all_thirteen_bits() {
+        // Each reader reports exactly its own bit and nothing else.
+        let cases: [(u32, fn(u32) -> bool); 13] = [
+            (COLF_BOX, colf_box_hit),
+            (COLF_ACCEPT_ANY, colf_accept_any),
+            (COLF_COLORKEY, colf_tests_texels),
+            (COLF_INFINITE, colf_ray_infinite),
+            (COLF_TWO_SIDED, colf_two_sided_faces),
+            (COLF_FIRST_HIT, colf_first_hit_stops),
+            (COLF_FRAME_LOD, colf_frame_lod_pinned),
+            (COLF_SKIP_OPTIONAL, colf_skip_optional),
+            (COLF_HIDDEN, colf_hidden_tested),
+            (COLF_EXCLUDE_SUBTREE, colf_exclude_subtree),
+            (COLF_OMNI_SECTOR, colf_omni_sector),
+            (COLF_NEAR_SECTOR, colf_near_sector),
+            (COLF_FIRST_FACE, colf_first_face_hit),
+        ];
+        assert_eq!(cases.len(), 13);
+        for (bit, read) in cases {
+            assert!(read(bit), "bit {bit:#x} must read back");
+            assert!(!read(0), "bit {bit:#x} must be clear on zero");
+            assert!(read(u32::MAX), "bit {bit:#x} must survive a full word");
+            // Every other single bit must not leak into this reader.
+            for other in [
+                COLF_BOX,
+                COLF_ACCEPT_ANY,
+                COLF_COLORKEY,
+                COLF_INFINITE,
+                COLF_TWO_SIDED,
+                COLF_FIRST_HIT,
+                COLF_FRAME_LOD,
+                COLF_SKIP_OPTIONAL,
+                COLF_HIDDEN,
+                COLF_EXCLUDE_SUBTREE,
+                COLF_OMNI_SECTOR,
+                COLF_NEAR_SECTOR,
+                COLF_FIRST_FACE,
+            ] {
+                if other != bit {
+                    assert!(!read(other), "bit {other:#x} leaks into {bit:#x}");
+                }
+            }
+        }
+    }
+    #[test]
+    fn test_visual_0xe780_is_explicitly_unsupported() {
+        // Verified RVA 0xe780 / VA 0x1000e780 (PDB testVisual): no live
+        // vertex-buffer lock owner on this host.
+        assert_eq!(
+            test_visual_unsupported(),
+            Err(SceneColError::Unsupported(
+                "testVisual needs a live C_VBuffer lock owner"
+            ))
+        );
+    }
+    #[test]
+    fn sphere_test_visual_0x12520_is_explicitly_unsupported() {
+        // Verified RVA 0x12520 / VA 0x10012520 (PDB sphTestVisual): same
+        // missing owners as the ray half.
+        assert_eq!(
+            sphere_test_visual_unsupported(),
+            Err(SceneColError::Unsupported(
+                "sphTestVisual needs a live C_VBuffer lock owner"
+            ))
+        );
     }
 }
