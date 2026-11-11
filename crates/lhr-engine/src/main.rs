@@ -1429,6 +1429,12 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // motor 14-33, wheels exactly 0, moved 0.0 m). Three ticks keep the
     // motor up in the torque band for the push.
     let mut lift = 0u32;
+    // Sag-triggered re-lift clock: the escape-start lift snaps 0x5dc to
+    // max, but sustained pushing against drag lets the native recompute
+    // arm drag it back down (probe_seeds4 at [-1429,-557]: 0x5dc
+    // 1.0->0.36, flags 0x20->0x24, 0.3-0.6 m per 70 ticks). Re-coasting
+    // re-snaps it. Cooldown keeps the taxi mostly pushing.
+    let mut last_sag_lift = 0u32;
     // Push-phase sampler: after the lift, dump the clutch words a few
     // ticks into the escape push while the speed is still ~0. The lift
     // snap is proven live, yet the taxi never moves; these samples tell
@@ -1565,6 +1571,37 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         let align = err.cos().clamp(0.2, 1.0);
         let target_speed = (gap * 0.5 * align).clamp(3.0, 14.0);
         let speed = last.speed.abs();
+        // Sag-triggered re-lift: while an escape push grinds at ~0 speed,
+        // sample the live clutch progress every 30 ticks; below half
+        // (0x5dc < 0x3f000000) the recompute arm has re-trapped it under
+        // load, so coast 3 ticks to re-snap to max. At most one re-lift
+        // per 150 ticks, and never during the reverse K-turn (unstick
+        // owns the pedals there) or an active lift coast.
+        if escaping
+            && unstick == 0
+            && lift == 0
+            && speed < 1.5
+            && drive_ticks.wrapping_sub(last_sag_lift) >= 150
+            && drive_ticks % 30 == 0
+        {
+            if let Ok(words) = taxi.driving_vehicle_words() {
+                let mut progress_bits = 0x3f80_0000u32;
+                for (offset, value) in words {
+                    if offset == 0x5dc {
+                        progress_bits = value.unwrap_or(0x3f80_0000);
+                    }
+                }
+                if progress_bits < 0x3f00_0000 {
+                    lift = 3;
+                    last_sag_lift = drive_ticks;
+                    wheel_slip = false;
+                    println!(
+                        "probe drive: clutch sag lift at [{:.1}, {:.1}, {:.1}] 0x5dc={progress_bits:#x}",
+                        last.position[0], last.position[1], last.position[2]
+                    );
+                }
+            }
+        }
         let (throttle, brake, handbrake, reverse) = if unstick > 0 {
             // K-turn in three phases, mirroring the proven reverse
             // calibration (150 full-brake straight ticks move 6.5 m):
@@ -2271,6 +2308,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         unstick = 0;
                         uturn = None;
                         lift = 0;
+                        last_sag_lift = drive_ticks;
                         println!(
                             "probe drive: rejoin {rejoins}/2 from [{:.1}, {:.1}, {:.1}]: {} waypoints, {:.0} m by graph",
                             last.position[0], last.position[1], last.position[2],
