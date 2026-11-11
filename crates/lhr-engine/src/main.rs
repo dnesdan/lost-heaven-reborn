@@ -1336,6 +1336,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     let mut push_marks: Vec<u32> = Vec::new();
     let mut lift_end_pos = [0.0f32; 3];
     let mut lift_end_tick = 0u32;
+    // Approach heading: last nonzero rolling direction, refreshed while
+    // moving. Velocity steering needs motion to compute a correction, so
+    // a boxed taxi would otherwise push straight ahead (steer identically
+    // zero) instead of arcing toward the escape target. The escape
+    // trigger latches full lock toward the target side from this
+    // heading; velocity steering takes over as soon as the taxi rolls.
+    let mut approach = [0.0f32, 1.0];
+    let mut escape_lock = 1.0f32;
     while progress.stage() == Mise01Stage::DrivingToDestination {
         // Geometry-directed escape overrides the staged waypoint until it
         // expires or the taxi arrives within 3 m of the virtual target.
@@ -1368,6 +1376,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         // while still boxed, so this stays with the proven behavior.
         let vel = [last.position[0] - prev[0], last.position[2] - prev[2]];
         let speed_hint = vel[0].hypot(vel[1]);
+        if speed_hint > 0.5 {
+            approach = vel;
+        }
         let mut steer = 0.0f32;
         let mut aligned = true;
         // Heading error to the waypoint, reused by steering and by the
@@ -1417,6 +1428,25 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             unstick = 0;
             steer = uturn.unwrap_or(0.0);
         }
+        // Static escape steering: the velocity block above leaves steer
+        // identically zero while standing still, so an escape push would
+        // run straight ahead into whatever the nose faces. Hold the
+        // latched full lock toward the escape target's side instead —
+        // unless the approach heading already points at the target, in
+        // which case pushing straight is correct and a full lock would
+        // only grind the taxi into the slot walls. Velocity steering
+        // resumes as soon as the taxi rolls.
+        if escaping && speed_hint <= 1e-4 && unstick == 0 {
+            let to_esc = [target[0] - last.position[0], target[2] - last.position[2]];
+            let approach_len = approach[0].hypot(approach[1]);
+            let esc_len = to_esc[0].hypot(to_esc[1]);
+            let aligned = approach_len > 1e-4
+                && esc_len > 1e-4
+                && approach[0] * to_esc[0] + approach[1] * to_esc[1] > 0.7 * approach_len * esc_len;
+            if !aligned {
+                steer = escape_lock;
+            }
+        }
         // Adaptive speed: near stops and sharp corners take it slow so the
         // pursuit follows streets instead of ramming through them. The
         // 37 m/s blast that triggered a part-detach abort came from
@@ -1450,8 +1480,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 (0.6, 0.0, false, false)
             }
         } else if lift > 0 {
-            // Clutch lift coast: both pedals released, keep the computed
-            // steer (zero while standing still). The unstick reverse above
+            // Clutch lift coast: both pedals released. Steering is left
+            // alone, so the escape lock (latched above) already pre-turns
+            // the wheels during the coast. The unstick reverse above
             // keeps priority: it already coasts on the brake-as-throttle
             // mapping, so the lift only ever shapes forward driving.
             lift -= 1;
@@ -1507,6 +1538,17 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 lift_end_tick = drive_ticks;
             }
             (0.0, 0.0, false, false)
+        } else if escaping && last.speed.abs() < 1.5 {
+            // Brake-torqued escape push: full throttle plus the handbrake
+            // (foot brake would zero the power channels in SetBrake, the
+            // handbrake runs on its own force channel with a gradual ramp).
+            // With an open differential and one dangling drive wheel, all
+            // torque escapes through the free wheel while the taxi sits
+            // still (slip flags set, 0x59c = 0). Loading the spinning
+            // wheel with the handbrake forces torque back to the gripping
+            // wheel — left-foot braking, as choreography. Only while
+            // escaping near-standstill; rolling pursuit keeps clean pedals.
+            (1.0 - 0.5 * steer.abs(), 0.0, true, false)
         } else if speed > target_speed + 2.0 {
             (0.0, 0.8, false, false)
         } else if speed > target_speed {
@@ -1578,6 +1620,31 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         println!("{line}");
                     }
                     Err(error) => println!("probe push sample stopped: {error}"),
+                }
+                // Wheel positions and force gating during the push: which
+                // wheels are driven (0x120 bit 0x2), in contact (0x200),
+                // slipping (0x80), and where their centers sit.
+                match taxi.driving_wheel_diagnostics() {
+                    Ok(rows) => {
+                        for (i, row) in rows.iter().enumerate() {
+                            let pos = [
+                                f32::from_bits(row[6]),
+                                f32::from_bits(row[7]),
+                                f32::from_bits(row[8]),
+                            ];
+                            let flags = row[4];
+                            println!(
+                                "probe push wheel {i}: pos=[{:.1},{:.1},{:.1}] flags={flags:#x} driven={} contact={} slip={}",
+                                pos[0],
+                                pos[1],
+                                pos[2],
+                                flags & 0x2 != 0,
+                                flags & 0x200 != 0,
+                                flags & 0x80 != 0,
+                            );
+                        }
+                    }
+                    Err(error) => println!("probe push wheels stopped: {error}"),
                 }
             }
         }
@@ -1875,18 +1942,56 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         last.position[1],
                         last.position[2] + rad.cos() * 40.0,
                     ];
-                    escape = Some((esc_target, drive_ticks + 100));
-                    // Lift first: snap the disengaged clutch back to max
-                    // before the escape pursuit pushes. Three ticks: the
-                    // snap lands on the first coast tick (second from an
-                    // even motion flag), while longer coasts drag the
-                    // motor below the torque knee through the engaged
-                    // clutch and the push re-traps instantly.
-                    lift = 3;
-                    println!(
+                    if boxed_windows == 3 {
+                        // Forced rocking: two escapes with steer locked did
+                        // not move the taxi (beached body, dangling drive
+                        // wheels spinning freely while the taxi rests on a
+                        // prop). Run one K-turn cycle instead of a third
+                        // identical push: reverse out, rotate with full
+                        // lock, pull out forward. Escape stays clear so
+                        // the K-turn owns the recovery; the next window
+                        // re-sweeps from the new pose.
+                        unstick = 250;
+                        escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
+                        escape = None;
+                        lift = 0;
+                        println!(
+                            "probe drive: boxed {boxed_windows}x, escape stalled twice, K-turn rocking from [{:.1}, {:.1}, {:.1}] wp {}/{} gap={gap:.1}",
+                            last.position[0],
+                            last.position[1],
+                            last.position[2],
+                            waypoint + 1,
+                            waypoints.len()
+                        );
+                    } else {
+                        escape = Some((esc_target, drive_ticks + 100));
+                        // Lift first: snap the disengaged clutch back to max
+                        // before the escape pursuit pushes. Three ticks: the
+                        // snap lands on the first coast tick (second from an
+                        // even motion flag), while longer coasts drag the
+                        // motor below the torque knee through the engaged
+                        // clutch and the push re-traps instantly.
+                        lift = 3;
+                        // Static steering latch: velocity steering is
+                        // identically zero while standing still, so latch full
+                        // lock toward the escape target's side from the
+                        // approach heading. Positive steer turns right, so a
+                        // target left of the approach (cross > 0) takes
+                        // negative lock. Without this the push runs straight
+                        // ahead (steer 0) into whatever the nose faces.
+                        {
+                            let to_esc = [
+                                esc_target[0] - last.position[0],
+                                esc_target[2] - last.position[2],
+                            ];
+                            let cross = approach[0] * to_esc[1] - approach[1] * to_esc[0];
+                            escape_lock = if cross >= 0.0 { -1.0 } else { 1.0 };
+                        }
+                        println!(
                         "probe drive: boxed {boxed_windows}x, escaping toward [{:.1}, {:.1}, {:.1}] free {best_travel:.1} m at {pick_deg:.0}° slot=[{:.1},{:.1}]",
                         esc_target[0], esc_target[1], esc_target[2], side[0], side[1]
                     );
+                    } // end escape (vs forced K-turn above)
                 } else {
                     unstick = 250;
                     escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };

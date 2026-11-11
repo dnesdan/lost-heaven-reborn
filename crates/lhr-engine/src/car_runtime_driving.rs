@@ -30,9 +30,28 @@ pub struct CarDrivingState {
 /// requested direction differs from the engaged one (`-1` backing,
 /// `1` forward), else `None` so automatic forward gears are never
 /// forced. The returned gear runs the evidenced `C_vehicle::SetGear`
-/// owner; refusal there stays loud at the call site.
+/// owner; a gate denial there is a native no-op retried on later ticks.
 fn reverse_gear_target(engaged_reverse: bool, request_reverse: bool) -> Option<i32> {
     (engaged_reverse != request_reverse).then(|| if request_reverse { -1 } else { 1 })
+}
+
+/// Applies one direction-transition gear request to live controls.
+/// Returns whether the engaged direction changed. A native gate denial
+/// (`Ok(false)`, e.g. over-rev protection leaving reverse with a
+/// spinning motor) performs no stores, so the caller keeps the old
+/// direction and retries on later ticks instead of killing the session.
+fn apply_direction_gear<T>(
+    controls: &mut crate::vehicle_controls::VehicleControlState<T>,
+    engaged_reverse: bool,
+    request_reverse: bool,
+) -> Result<bool, crate::vehicle_controls::VehicleControlUnavailable>
+where
+    T: AsRef<[u8]> + AsMut<[u8]>,
+{
+    let Some(gear) = reverse_gear_target(engaged_reverse, request_reverse) else {
+        return Ok(false);
+    };
+    controls.set_gear(gear)
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -335,11 +354,23 @@ impl CarRuntime {
                     }
                 };
             // Gear changes only on direction transitions so the automatic
-            // forward gears are never forced; a refused transition stops
-            // loudly instead of driving against the wrong gear.
-            if let Some(gear) = reverse_gear_target(session.in_reverse_gear, input.reverse) {
-                let name = if input.reverse { "reverse" } else { "forward" };
-                accept(name, controls.set_gear(gear))?;
+            // forward gears are never forced. A refused transition is a
+            // native no-op (SetGear performs no stores when its gate
+            // denies, e.g. over-rev protection leaving reverse with a
+            // spinning motor): stay in the current gear and re-request on
+            // later ticks instead of killing the session. Throttle/brake
+            // below keep following the actual current gear through their
+            // own reads, so the taxi is never driven against the wrong
+            // gear. Other rejected inputs stay loud (see the steering
+            // pin in car_runtime_lifecycle_tests).
+            if apply_direction_gear(&mut controls, session.in_reverse_gear, input.reverse).map_err(
+                |e| {
+                    format!(
+                        "Driving {}: {e:?}",
+                        if input.reverse { "reverse" } else { "forward" }
+                    )
+                },
+            )? {
                 session.in_reverse_gear = input.reverse;
             }
             accept("throttle", controls.set_power(input.throttle, true))?;
@@ -558,8 +589,10 @@ impl CarRuntime {
         Ok(out)
     }
     /// Wheel state rows for probe diagnostics: word pairs at the same
-    /// offsets the contact counter reads, per wheel.
-    pub fn driving_wheel_diagnostics(&mut self) -> Result<Vec<[u32; 6]>, String> {
+    /// offsets the contact counter reads, per wheel, plus the wheel
+    /// center position (+0x10/+0x14/+0x18 raw bits) so a dangling wheel
+    /// can be told apart from a touching one.
+    pub fn driving_wheel_diagnostics(&mut self) -> Result<Vec<[u32; 9]>, String> {
         let car = self.car.as_ref().ok_or("Driving has no car owner")?;
         let bytes = car.as_bytes();
         let word = |a: usize| u32::from_le_bytes(bytes[a..a + 4].try_into().unwrap());
@@ -571,8 +604,11 @@ impl CarRuntime {
         for i in 0..count {
             let wheel = VehicleInitBackend::read_word(&mut self.memory, word(0xc38) + i * 4)
                 .map_err(|e| format!("Driving wheel: {e:?}"))?;
-            let mut row = [0; 6];
-            for (out, offset) in row.iter_mut().zip([0xa8, 0xac, 0xb0, 0xb4, 0x120, 0x124]) {
+            let mut row = [0; 9];
+            for (out, offset) in row
+                .iter_mut()
+                .zip([0xa8, 0xac, 0xb0, 0xb4, 0x120, 0x124, 0x10, 0x14, 0x18])
+            {
                 *out = VehicleInitBackend::read_word(&mut self.memory, wheel + offset)
                     .map_err(|e| format!("Driving wheel parameters: {e:?}"))?;
             }
@@ -729,7 +765,16 @@ mod audio_listener_tests {
 
 #[cfg(test)]
 mod gear_transition_tests {
-    use super::reverse_gear_target;
+    use super::{apply_direction_gear, reverse_gear_target};
+    use crate::vehicle_controls::VehicleControlState;
+
+    fn seeded(pairs: &[(usize, u32)]) -> VehicleControlState {
+        let mut bytes = vec![0xa5; 0x2000];
+        for (offset, value) in pairs {
+            bytes[*offset..*offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        VehicleControlState::from_bytes(bytes)
+    }
 
     #[test]
     fn gear_changes_only_on_direction_transitions() {
@@ -741,5 +786,74 @@ mod gear_transition_tests {
         // requests 1 again.
         assert_eq!(reverse_gear_target(false, true), Some(-1));
         assert_eq!(reverse_gear_target(true, false), Some(1));
+    }
+
+    #[test]
+    fn steady_direction_leaves_storage_untouched() {
+        for (engaged, requested) in [(false, false), (true, true)] {
+            let mut controls = seeded(&[(0xb8, 9)]);
+            let before = controls.as_bytes().to_vec();
+            assert_eq!(
+                apply_direction_gear(&mut controls, engaged, requested),
+                Ok(false)
+            );
+            assert_eq!(controls.as_bytes(), before);
+        }
+    }
+
+    #[test]
+    fn accepted_reverse_request_records_pending_gear() {
+        let mut controls = seeded(&[
+            (0x568, 5),
+            (0x560, 2),
+            (0xb8, 0),
+            (0xc68, 0),
+            (0x5e8, 0xa5a5_a521),
+        ]);
+        assert_eq!(apply_direction_gear(&mut controls, false, true), Ok(true));
+        assert_eq!(
+            u32::from_le_bytes(controls.as_bytes()[0x560..0x564].try_into().unwrap()),
+            0xffff_ffff
+        );
+        // Request applied exactly once: no other owner state may move.
+        let mut expected = seeded(&[
+            (0x568, 5),
+            (0x560, 2),
+            (0xb8, 0),
+            (0xc68, 0),
+            (0x5e8, 0xa5a5_a521),
+        ])
+        .into_bytes();
+        expected[0x560..0x564].copy_from_slice(&0xffff_ffffu32.to_le_bytes());
+        expected[0x494..0x498].copy_from_slice(&0u32.to_le_bytes());
+        expected[0x5e8..0x5ec].copy_from_slice(&0xa5a5_a522u32.to_le_bytes());
+        assert_eq!(controls.into_bytes(), expected);
+    }
+
+    #[test]
+    fn refused_forward_request_keeps_engaged_direction() {
+        // Over-rev gate: ratio(1)/ratio(-1) * motor exceeds the maximum,
+        // so the native SetGear performs no stores and the taxi stays in
+        // reverse until a later tick re-requests.
+        let mut controls = seeded(&[
+            (0x568, 5),
+            (0x560, 0xffff_ffff),
+            (0x55c, 0xffff_ffff),
+            (0xb8, 0),
+            (0xc68, 0),
+            (0x574, 4.0f32.to_bits()),
+            (0x56c, 0.5f32.to_bits()),
+            (0x548, 100.0f32.to_bits()),
+            (0x1f9c, 600.0f32.to_bits()),
+        ]);
+        let before = controls.as_bytes().to_vec();
+        assert_eq!(apply_direction_gear(&mut controls, true, false), Ok(false));
+        assert_eq!(controls.as_bytes(), before);
+    }
+
+    #[test]
+    fn gear_storage_shortage_stays_loud() {
+        let mut controls = VehicleControlState::from_bytes(vec![0xa5; 0x100]);
+        assert!(apply_direction_gear(&mut controls, false, true).is_err());
     }
 }
