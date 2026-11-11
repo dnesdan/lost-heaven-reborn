@@ -1,12 +1,12 @@
 //! Source actor dispatch and Game temporary-actor list phases.
 use super::*;
 
-/// One staged crash-AI effect intent: the flag-mask dispatch in
-/// `crash_actor_ai` or the 'H'-property crash parser resolved an effect
-/// routine with no owner yet (0x5abe10, 0x5aae10, 0x562170, 0x565720,
-/// 0x565060 from the flag table; 0x5b9b90 from the 'H' property arm of
-/// `crash_actor_initialize` — Game.exe 0x5b9b90 owns 295 insns over 29
-/// blocks per REA dossier ev_c290764fcb5c0ff0f01ddabfebc91a687884741d97b3379fe6e53d54ef5c4870,
+/// One staged crash-AI effect intent: an effect routine with no owner
+/// yet — the five flag-mask dispatch entries of `crash_actor_ai`
+/// (0x5abe10, 0x5aae10, 0x562170, 0x565720, 0x565060) or the
+/// 'H'-property arm of `crash_actor_initialize` (0x5b9b90; Game.exe
+/// owns 295 insns over 29 blocks per REA dossier
+/// ev_c290764fcb5c0ff0f01ddabfebc91a687884741d97b3379fe6e53d54ef5c4870,
 /// head ev_397a9a53c05fc59b0992efd0900358bf173a4359c8b2a8af1dbcef936f2ad1fe:
 /// frame-array walk with effect spawns, same visual-effect class).
 /// Recorded MissionHelpLog-style for the future effect owner; the taxi

@@ -82,19 +82,17 @@ where
                     .map_err(failure),
                 0x431be0 => match crate::crash_actor::crash_actor_ai(self, actor, arguments[0]) {
                     Ok(()) => Ok(0),
-                    // Unowned crash-effect routines (model-gated visual/sound
-                    // dispatches per the flag-mask table and the 'H'
-                    // property arm of crash_actor_initialize; REA dossiers
-                    // ev_456a2a52 and ev_c290764fcb5c0ff0f01ddabfebc91a687884741d97b3379fe6e53d54ef5c4870):
-                    // stage the intent MissionHelpLog-style and keep the
-                    // StaticResponse outcome instead of aborting the tick.
-                    // Observed live as Dependency aborts killing the drive
-                    // (0x562170 at [-1427.4,-219.7], 0x5b9b90 at
-                    // [-1423.4,-6.6,-187.1]).
+                    // Unowned crash-effect routines from the AI flag-mask
+                    // dispatch (model-gated visual/sound dispatches; REA
+                    // dossier ev_456a2a52): stage the intent
+                    // MissionHelpLog-style and keep the StaticResponse
+                    // outcome instead of aborting the tick. Observed live
+                    // as Dependency(5644656) killing the drive at
+                    // [-1427.4,-219.7].
                     Err(CrashActorError::Dependency(entry))
                         if matches!(
                             entry,
-                            0x5abe10 | 0x5aae10 | 0x562170 | 0x565720 | 0x565060 | 0x5b9b90
+                            0x5abe10 | 0x5aae10 | 0x562170 | 0x565720 | 0x565060
                         ) =>
                     {
                         self.state
@@ -134,6 +132,19 @@ where
                     crate::dynamic_collision_manager::dyn_erase(self, 0x647f48, arguments[0])
                         .map(|_| 0)
                         .map_err(failure)
+                }
+                // Unowned 'H'-property crash effect (Game.exe 0x5b9b90;
+                // REA dossier ev_c290764fcb5c0ff0f01ddabfebc91a687884741d97b3379fe6e53d54ef5c4870):
+                // stage the intent like the flag-table effects and keep
+                // the StaticResponse outcome. Reached via direct
+                // effect calls (not through the 0x431be0 AI arm), so it
+                // needs its own staging site; observed live aborting
+                // the drive (entry 0x5b9b90, actor 0x1065aa4).
+                0x5b9b90 => {
+                    self.state
+                        .crash_ai_intents
+                        .push(crate::crash_actor::CrashAiIntent { actor, entry });
+                    Ok(0)
                 }
                 _ => Err(format!(
                     "Crash actor dependency {entry:#x} actor{actor:#x} arguments{arguments:?}"
