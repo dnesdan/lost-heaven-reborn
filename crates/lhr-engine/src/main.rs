@@ -1659,7 +1659,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 if progress_bits < 0x3f73_3333 {
                     lift = 3;
                     last_sag_lift = drive_ticks;
-                    wheel_slip = false;
+                    // No wheel_slip reset here (unlike a fresh escape):
+                    // the slip latch is what holds the brake-torque
+                    // handbrake through the grind, and probe_p20 shows
+                    // brake-torqued pushes moving 1-2.5 m at 2-4 m/s with
+                    // the clutch pinned at 1.0 while unbraked pushes sit
+                    // at 0.0-0.3 m. Clearing it on every re-lift flickers
+                    // the brake off exactly when torque transfer works.
                     println!(
                         "probe drive: clutch sag lift at [{:.1}, {:.1}, {:.1}] 0x5dc={progress_bits:#x}",
                         last.position[0], last.position[1], last.position[2]
