@@ -625,6 +625,119 @@ fn each_dependency_failure_retains_exactly_the_completed_prefix() {
 }
 
 #[test]
+fn wedged_clutch_copy_path_self_sustains_under_full_throttle() {
+    // Probe wedge at [-1314,-227] (C:\Temp\probe_clutch.log, Game.exe
+    // SHA-256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27):
+    // gear 1/1, full power channel, no brake, engine on, motor ~43.4 rad/s
+    // against static wheels, clutch progress 0x5dc ~0.06 with flags 0x2c
+    // (LimitedByTarget, no Engaging bit), target 0x5cc equal to the
+    // progress. One full 16 ms tick with re-applied full throttle leaves
+    // the clutch disengaged: the ported tick.clutch() takes the 0x5cc>=0
+    // copy path, so the low progress self-sustains. This pins ported
+    // behavior only; it claims nothing about the native body (no overlay
+    // entry, no REA evidence ID).
+    let mut b = Backend::new(0);
+    // Fuel/engine prerequisites (callback_fixture pattern) so the tick
+    // reaches the clutch phase with the throttle intact.
+    b.float(0xc30, 10.0);
+    b.float(0x498, 1.0);
+    b.float(0x434, 1.0);
+    b.bytes[0x432] = 1;
+    b.put(0xc68, 0x20);
+    b.bytes[0xc2c] = 1;
+    // Probe-seeded wedge snapshot (first boxed window: 0x55c=0x1,
+    // 0x560=0x1, 0x3a4=1.0, 0x3a8=0, 0x5b8=0, 0x3cc=0, 0x59c=0x3c9539e4,
+    // 0x548=0x422daf12, 0x5e0=1.0, 0x5dc=0x3d73287b, 0x5e8=0x2c,
+    // 0x540=1.0, 0x544=0, 0x494=0, 0x5e4=1.0, 0x5cc=0x3d73287b,
+    // 0x5c8=0x422d5556, 0x5c4=0x5c0=0x5ec=0x41555556, 0x1a4=0x1).
+    // Probe 0x59c ~0.018 reads as standstill; every speed threshold on
+    // the path (0.5/0.7/1.0) sits far above it.
+    b.put(0x55c, 1);
+    b.put(0x560, 1);
+    b.float(0x3a4, 1.0);
+    b.float(0x3a8, 0.0);
+    b.float(0x540, 1.0);
+    b.put(0x24, 0x3dde_b334);
+    b.put(0x548, 0x422d_af12);
+    b.put(0x5ec, 0x4155_5556);
+    b.put(0x5c8, 0x422d_5556);
+    b.put(0x5c4, 0x4155_5556);
+    b.put(0x5c0, 0x4155_5556);
+    b.put(0x5dc, 0x3d73_287b);
+    b.put(0x5cc, 0x3d73_287b);
+    b.float(0x5e4, 1.0);
+    b.float(0x5e0, 1.0);
+    b.put(0x5d4, 0x4055_5555);
+    b.put(0x5d8, 0x40a0_0000);
+    b.put(0x5e8, 0x2c);
+    b.put(0x1a4, 1);
+    b.put(0x59c, 0x3c95_39e4);
+    // Host fixtures for inputs the wedge census does not capture (redline
+    // threshold, transmission ratio); documented here, never presented
+    // as taxi values.
+    b.float(0x1f9c, 600.0);
+    b.float(0x488, 200.0);
+    b.float(0x5d0, 4.0);
+    assert_eq!(run(&mut b, 16).0, Ok(()));
+    // No re-engage: the copy path preserves the disengaged progress and
+    // the LimitedByTarget flags, and the gear/throttle survive the tick.
+    assert_eq!(b.word(0x5dc), 0x3d73_287b);
+    assert_eq!(b.word(0x5cc), 0x3d73_287b);
+    assert_eq!(b.word(0x5e8), 0x2c);
+    assert_eq!(b.word(0x55c), 1);
+    assert_eq!(b.word(0x3a4), 1.0_f32.to_bits());
+}
+
+#[test]
+fn wedged_clutch_negative_target_takes_recompute_path() {
+    // Contrast state from the same wedge (third boxed window:
+    // 0x5dc=0x3da2691f with 0x5cc=-1.0, motor 0x41e5781e): the ported
+    // tick.clutch() takes the recompute arm instead of the copy arm. The
+    // absolute value below depends on the mocked force total (2.0) and
+    // the fixture transmission ratio (4.0); the pinned fact is the arm
+    // taken, not a native outcome (no overlay entry, no REA evidence ID).
+    let mut b = Backend::new(0);
+    b.float(0xc30, 10.0);
+    b.float(0x498, 1.0);
+    b.float(0x434, 1.0);
+    b.bytes[0x432] = 1;
+    b.put(0xc68, 0x20);
+    b.bytes[0xc2c] = 1;
+    b.put(0x55c, 1);
+    b.put(0x560, 1);
+    b.float(0x3a4, 1.0);
+    b.float(0x3a8, 0.0);
+    b.float(0x540, 1.0);
+    b.put(0x24, 0x3dde_b334);
+    b.put(0x548, 0x41e5_781e);
+    b.put(0x5ec, 0x4155_5556);
+    b.put(0x5c8, 0x422d_5556);
+    b.put(0x5c4, 0x4155_5556);
+    b.put(0x5c0, 0x4155_5556);
+    b.put(0x5dc, 0x3da2_691f);
+    b.put(0x5cc, 0xbf80_0000);
+    b.float(0x5e4, 1.0);
+    b.float(0x5e0, 1.0);
+    b.put(0x5d4, 0x4055_5555);
+    b.put(0x5d8, 0x40a0_0000);
+    b.put(0x5e8, 0x2c);
+    b.put(0x1a4, 1);
+    b.put(0x59c, 0x3cd9_9cb9);
+    b.float(0x1f9c, 600.0);
+    b.float(0x488, 200.0);
+    b.float(0x5d0, 4.0);
+    assert_eq!(run(&mut b, 16).0, Ok(()));
+    // Recompute arm: total/(2*denominator) with the mocked total, so the
+    // progress rises instead of self-sustaining, while the negative
+    // target is left in place (this arm publishes 0x5dc only). Flags keep
+    // LimitedByTarget.
+    assert_eq!(b.word(0x5dc), 0.25_f32.to_bits());
+    assert_eq!(b.word(0x5cc), 0xbf80_0000);
+    assert_eq!(b.word(0x5e8), 0x2c);
+    assert_eq!(b.word(0x55c), 1);
+}
+
+#[test]
 fn a_failed_callback_retains_its_own_mutations_and_stops_later_phases() {
     let mut completed = callback_fixture();
     completed.capture_prefixes = true;
