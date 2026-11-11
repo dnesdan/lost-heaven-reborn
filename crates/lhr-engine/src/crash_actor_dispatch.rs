@@ -2,14 +2,20 @@
 use super::*;
 
 /// One staged crash-AI effect intent: the flag-mask dispatch in
-/// `crash_actor_ai` resolved an effect routine with no owner yet
-/// (0x5abe10, 0x5aae10, 0x562170, 0x565720, 0x565060 — model-gated
-/// visual/sound dispatches; Game.exe 0x562170 owns 422 insns over 35
-/// blocks per REA dossier ev_456a2a52, head ev_57efb393). Recorded
-/// MissionHelpLog-style for the future effect owner; the taxi keeps
-/// the already-applied StaticResponse outcome. Observed live:
+/// `crash_actor_ai` or the 'H'-property crash parser resolved an effect
+/// routine with no owner yet (0x5abe10, 0x5aae10, 0x562170, 0x565720,
+/// 0x565060 from the flag table; 0x5b9b90 from the 'H' property arm of
+/// `crash_actor_initialize` — Game.exe 0x5b9b90 owns 295 insns over 29
+/// blocks per REA dossier ev_c290764fcb5c0ff0f01ddabfebc91a687884741d97b3379fe6e53d54ef5c4870,
+/// head ev_397a9a53c05fc59b0992efd0900358bf173a4359c8b2a8af1dbcef936f2ad1fe:
+/// frame-array walk with effect spawns, same visual-effect class).
+/// Recorded MissionHelpLog-style for the future effect owner; the taxi
+/// keeps the already-applied StaticResponse outcome. Observed live:
 /// flags&2 with entry 0x562170 aborting the drive at [-1427.4,-219.7]
-/// (probe C:\Temp\probe_uturn.log, Dependency(5644656)).
+/// (probe C:\Temp\probe_uturn.log, Dependency(5644656)), and entry
+/// 0x5b9b90 aborting it at [-1423.4,-6.6,-187.1] (probe
+/// C:\Temp\probe_cap100.log, Dependency(5644656) sibling with actor
+/// 0x1065aa4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CrashAiIntent {
     /// Crash actor address as carried by the native call.

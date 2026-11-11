@@ -83,15 +83,18 @@ where
                 0x431be0 => match crate::crash_actor::crash_actor_ai(self, actor, arguments[0]) {
                     Ok(()) => Ok(0),
                     // Unowned crash-effect routines (model-gated visual/sound
-                    // dispatches per the flag-mask table; REA dossier
-                    // ev_456a2a52): stage the intent MissionHelpLog-style
-                    // and keep the StaticResponse outcome instead of
-                    // aborting the tick. Observed live as Dependency(5644656)
-                    // killing the drive at [-1427.4,-219.7].
+                    // dispatches per the flag-mask table and the 'H'
+                    // property arm of crash_actor_initialize; REA dossiers
+                    // ev_456a2a52 and ev_c290764fcb5c0ff0f01ddabfebc91a687884741d97b3379fe6e53d54ef5c4870):
+                    // stage the intent MissionHelpLog-style and keep the
+                    // StaticResponse outcome instead of aborting the tick.
+                    // Observed live as Dependency aborts killing the drive
+                    // (0x562170 at [-1427.4,-219.7], 0x5b9b90 at
+                    // [-1423.4,-6.6,-187.1]).
                     Err(CrashActorError::Dependency(entry))
                         if matches!(
                             entry,
-                            0x5abe10 | 0x5aae10 | 0x562170 | 0x565720 | 0x565060
+                            0x5abe10 | 0x5aae10 | 0x562170 | 0x565720 | 0x565060 | 0x5b9b90
                         ) =>
                     {
                         self.state
