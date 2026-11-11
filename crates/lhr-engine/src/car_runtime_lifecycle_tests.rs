@@ -97,6 +97,7 @@ impl Fixture {
             services_started: false,
             actor_cleanup: OperationState::NotStarted,
             failed: false,
+            in_reverse_gear: false,
         });
         Self {
             runtime,

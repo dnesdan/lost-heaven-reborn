@@ -12,6 +12,13 @@ pub struct CarDrivingInput {
     pub brake: f32,
     pub steer: f32,
     pub handbrake: bool,
+    /// Back-up request. The gear change itself runs the evidenced
+    /// `C_vehicle::SetGear` owner (`-1` backing, `1` forward, only on
+    /// transitions so automatic forward gears are never forced); pedal
+    /// routing in reverse gear is the native Coupled behavior
+    /// (`set_power` feeds the brake ramp, `set_brake` becomes motive
+    /// force), so callers brake to back up and keep throttle at zero.
+    pub reverse: bool,
 }
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CarDrivingState {
@@ -19,6 +26,15 @@ pub struct CarDrivingState {
     pub speed: f32,
     pub contacts: u32,
 }
+/// Reverse-gear transition for one driving tick: `Some(gear)` when the
+/// requested direction differs from the engaged one (`-1` backing,
+/// `1` forward), else `None` so automatic forward gears are never
+/// forced. The returned gear runs the evidenced `C_vehicle::SetGear`
+/// owner; refusal there stays loud at the call site.
+fn reverse_gear_target(engaged_reverse: bool, request_reverse: bool) -> Option<i32> {
+    (engaged_reverse != request_reverse).then(|| if request_reverse { -1 } else { 1 })
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CarDrivingControlFeedback {
     pub throttle: f32,
@@ -48,6 +64,10 @@ pub(super) struct DrivingSession {
     pub services_started: bool,
     pub actor_cleanup: OperationState,
     pub failed: bool,
+    /// Reverse gear engaged by the last driving tick. Tracked so gear
+    /// changes fire only on direction transitions; automatic forward
+    /// gears are never forced back to first.
+    pub in_reverse_gear: bool,
 }
 impl CarRuntime {
     pub(super) fn cleanup_driving_actors_inner(&mut self) -> Result<(), String> {
@@ -113,6 +133,7 @@ impl CarRuntime {
             services_started: false,
             actor_cleanup: OperationState::NotStarted,
             failed: false,
+            in_reverse_gear: false,
         });
         Ok(())
     }
@@ -313,6 +334,14 @@ impl CarRuntime {
                         Err(format!("Driving {name} input rejected"))
                     }
                 };
+            // Gear changes only on direction transitions so the automatic
+            // forward gears are never forced; a refused transition stops
+            // loudly instead of driving against the wrong gear.
+            if let Some(gear) = reverse_gear_target(session.in_reverse_gear, input.reverse) {
+                let name = if input.reverse { "reverse" } else { "forward" };
+                accept(name, controls.set_gear(gear))?;
+                session.in_reverse_gear = input.reverse;
+            }
             accept("throttle", controls.set_power(input.throttle, true))?;
             accept("brake", controls.set_brake(input.brake))?;
             accept("steering", controls.set_steer(input.steer))?;
@@ -655,5 +684,22 @@ mod audio_listener_tests {
         )
         .unwrap();
         assert_eq!(hint, Some(primary));
+    }
+}
+
+#[cfg(test)]
+mod gear_transition_tests {
+    use super::reverse_gear_target;
+
+    #[test]
+    fn gear_changes_only_on_direction_transitions() {
+        // Steady states never touch the gearbox, so automatic forward
+        // gears are never forced back to first.
+        assert_eq!(reverse_gear_target(false, false), None);
+        assert_eq!(reverse_gear_target(true, true), None);
+        // Backing out of a box requests -1; returning to the trip
+        // requests 1 again.
+        assert_eq!(reverse_gear_target(false, true), Some(-1));
+        assert_eq!(reverse_gear_target(true, false), Some(1));
     }
 }

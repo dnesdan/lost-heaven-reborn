@@ -1056,21 +1056,19 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     brake: 0.0,
                     steer: 0.0,
                     handbrake: false,
+                    reverse: false,
                 },
             )
             .map_err(|e| e.to_string())?
             .position;
     }
-    // Konec route evidence (computed, not driven): the road node nearest
-    // detector_konec and the Dijkstra path to it from the taxi spawn.
-    // Driving the full 3.2 km stays blocked: the lot mouth holds a lamp
-    // whose DoDamage switch has no backend (`damage_lamp_switch` refuses
-    // loudly), the alley pinch near [240,144] boxes the taxi with no
-    // valid reverse input (Coupled routing rejects negative throttle and
-    // the driving API exposes no gear selection), and blind waypoints
-    // cannot promise zero prop contact. The driven leg below stays the
-    // proven corridor trip; the full konec drive is future work once the
-    // lamp-damage owner lands.
+    // Konec-anchored waypoint drive: the Dijkstra path from the taxi
+    // spawn to the road node nearest detector_konec (real MISE01
+    // end-of-drive position, name-attested). Reverse gear exists for
+    // backing out of the alley pinch near [240,144]; lamp contacts
+    // stage instead of aborting since the 0xd6580 dispatch. Blind
+    // waypoints still cannot promise zero prop contact, so the probe
+    // fails loudly with its boxed position if the taxi wedges.
     let node_count = network.nodes.len();
     let node_pos = |i: usize| network.nodes.get(i).map(|node| node.position());
     let neighbors = |node: usize, out: &mut Vec<(usize, f32)>| {
@@ -1095,83 +1093,164 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         }
     }
     let dest_node = dest_node.ok_or("No road node near detector_konec")?;
-    match lhr_engine::mission_play::road_graph_path(
+    let (konec_path, konec_graph_m) = lhr_engine::mission_play::road_graph_path(
         &node_pos, &neighbors, node_count, spawn, dest_node,
-    ) {
-        Some((path, graph_m)) => println!(
-            "probe konec route (evidence only): node {dest_node}, {:.0} m by graph, {} waypoints; full drive blocked (alley pinch + no reverse input; lamp DoDamage dispatch 0xd6580 staged since)",
-            graph_m,
-            path.len()
-        ),
-        None => println!("probe konec route (evidence only): no path from spawn to detector_konec"),
-    }
-    // Corridor drive from the taxi spawn: the nearest road node (by graph
-    // distance from spawn) at least 150 m away near the point 200 m
-    // straight ahead along the measured seeding direction. The two
-    // seeding ticks roll the car along its own spawn facing, so this
-    // corridor inherits the designed exit axis instead of an assumed
-    // compass direction; the old probe drove this line end to end.
-    // The konec route above is evidence, not the driven target.
-    let mut corridor_heading = [straight[0] - spawn[0], straight[2] - spawn[2]];
-    let corridor_len = corridor_heading[0].hypot(corridor_heading[1]).max(1e-3);
-    corridor_heading[0] /= corridor_len;
-    corridor_heading[1] /= corridor_len;
-    let corridor = [
-        spawn[0] + corridor_heading[0] * 200.0,
-        spawn[1],
-        spawn[2] + corridor_heading[1] * 200.0,
-    ];
-    let (_, dist) =
-        lhr_engine::mission_play::road_graph_distances(&node_pos, &neighbors, node_count, spawn);
-    let mut best: Option<(usize, [f32; 3], f32)> = None;
-    let mut best_corr = f32::INFINITY;
-    for (i, &d) in dist.iter().enumerate() {
-        if d < lhr_engine::mission_play::TAXI_DESTINATION_M {
-            continue;
-        }
-        let Some(p) = node_pos(i) else {
-            continue;
-        };
-        let corr = (p[0] - corridor[0]).hypot(p[2] - corridor[2]);
-        if corr < best_corr {
-            best_corr = corr;
-            best = Some((i, p, d));
-        }
-    }
-    let (corr_node, dest_pos, graph_m) = best.ok_or("No road destination on the MISE01 graph")?;
+    )
+    .ok_or("No road path from spawn to detector_konec")?;
     println!(
-        "probe destination: corridor road node {corr_node} at [{:.1}, {:.1}, {:.1}], {:.0} m by graph",
-        dest_pos[0], dest_pos[1], dest_pos[2], graph_m
+        "probe konec route: node {dest_node} at [{:.1}, {:.1}, {:.1}], {:.0} m by graph, {} waypoints",
+        konec[0], konec[1], konec[2], konec_graph_m, konec_path.len()
     );
-    // Direct pursuit of the destination node: the old green probe drove
-    // the alley line south straight to arrival, so no offset choreography
-    // is needed. The destination radius (12 m) plus the staged script
-    // objectives authorize arrival.
-    let waypoints = vec![dest_pos];
+    // Driven leg: the konec-anchored waypoint list. The staged
+    // destination is detector_konec itself (the real mission end); the
+    // final waypoint is its nearest road node ~1 m away, well inside the
+    // 12 m acceptance radius.
+    let mut waypoints = Vec::with_capacity(konec_path.len());
+    for index in &konec_path {
+        let Some(p) = node_pos(*index) else {
+            return Err(format!("Konec path node {index} lost its position"));
+        };
+        waypoints.push(p);
+    }
+    let waypoints = waypoints;
+    // Diagnostic geometry: spawn pose, seeding direction and the first
+    // waypoints, so a start-line box can be attributed (temporary).
+    println!(
+        "probe drive geometry: spawn [{:.1}, {:.1}, {:.1}] straight [{:.1}, {:.1}, {:.1}]",
+        spawn[0], spawn[1], spawn[2], straight[0], straight[1], straight[2]
+    );
+    for (n, wp) in waypoints.iter().enumerate().take(4) {
+        println!(
+            "probe drive: waypoint {}/{} at [{:.1}, {:.1}, {:.1}]",
+            n + 1,
+            waypoints.len(),
+            wp[0],
+            wp[1],
+            wp[2]
+        );
+    }
+    if let Some(last_wp) = waypoints.last() {
+        println!(
+            "probe drive: final waypoint {}/{} at [{:.1}, {:.1}, {:.1}]",
+            waypoints.len(),
+            waypoints.len(),
+            last_wp[0],
+            last_wp[1],
+            last_wp[2]
+        );
+    }
+    // The taxi-centered sweep above runs on walk-scene triangles, not the
+    // driving-world collision the car actually hits, so an all-free
+    // result does not clear car props (lamp posts, fences). It stays as
+    // a record of that coverage gap.
+    for k in 0..8 {
+        let heading = k as f32 * std::f32::consts::FRAC_PI_4;
+        let (rest, blocked) = ground.sweep_walls(
+            &tris_of,
+            spawn,
+            [heading.sin() * 30.0, 0.0, heading.cos() * 30.0],
+        );
+        let travelled = (rest[0] - spawn[0]).hypot(rest[2] - spawn[2]);
+        println!(
+            "probe lot walls: heading {:>3}° travelled {travelled:5.1} m blocked={blocked}",
+            (k as f32 * 45.0) as u32,
+        );
+    }
+    // Reverse calibration already measured: 150 full-brake reverse ticks
+    // move the taxi 6.5 m backward (speed ramping 1.3/3.6/6.2), so the
+    // reverse gear path is proven and the K-turn unstick can trust it.
+    // The calibration drive itself is reverted: it parked the taxi 6.5 m
+    // north, closer to the z≈196 wedge, and pursuit starts clean from
+    // the seeded pose instead.
     progress.boarded_taxi();
     if progress.stage() != Mise01Stage::DrivingToDestination {
         return Err("Boarding did not hand over to DrivingToDestination".into());
     }
-    if !progress.stage_destination(dest_pos, 12.0) {
-        return Err("Destination refused to stage".into());
+    if !progress.stage_destination(konec, 12.0) {
+        return Err("Konec destination refused to stage".into());
     }
     // Pursuit drive: steer toward the node along the rolling direction,
     // easing off in turns. Two straight ticks already ran, so seed from
-    // there. Forward-only: the Coupled power routing rejects negative
-    // throttle (`set_power` returns false outside 0..1), and the driving
-    // API exposes no gear selection, so the unstick maneuver eases off
-    // and creeps instead of backing out.
+    // there. Reverse uses the evidenced `set_gear(-1)` plus the native
+    // Coupled brake-as-throttle mapping (negative throttle stays
+    // rejected), so a boxed taxi backs out instead of pushing forever.
     let mut odometer = 0.0f32;
     let mut drive_ticks = 0u32;
     let mut stall_ticks = 0u32;
     let mut unstick = 0u32;
     let mut boxed_windows = 0u32;
     let mut min_gap = f32::INFINITY;
-    let mut prev = straight;
+    // Lot exit south: the taxi spawns facing south with the konec route
+    // north behind it, and the parking spot wedges any standing 180°
+    // turn (contacts=4 at once, ~1 m per 120 ticks). The south corridor
+    // is proven open car territory (157 m green drive), so exit 40 m
+    // south first; the U-turn onto the northbound route happens in the
+    // open, where full-lock circling has room instead of a wall.
+    let mut exit_pos = straight;
+    let mut exit_ticks = 0u32;
+    while spawn[2] - exit_pos[2] < 40.0 && exit_ticks < 625 {
+        exit_pos = taxi
+            .driving_step(
+                16,
+                lhr_engine::car_runtime::CarDrivingInput {
+                    throttle: 1.0,
+                    brake: 0.0,
+                    steer: 0.0,
+                    handbrake: false,
+                    reverse: false,
+                },
+            )
+            .map_err(|e| e.to_string())?
+            .position;
+        exit_ticks += 1;
+    }
+    println!(
+        "probe lot exit: [{:.1}, {:.1}, {:.1}] after {exit_ticks} ticks",
+        exit_pos[0], exit_pos[1], exit_pos[2]
+    );
+    if spawn[2] - exit_pos[2] < 10.0 {
+        return Err("Lot exit south made no progress; the spawn faces blocking geometry".into());
+    }
+    // Rejoin from the exit: the street graph may join south of the pocket
+    // without doubling back through the north corner that boxed the taxi
+    // at z≈196. Dijkstra from the exit pose decides; if the only link
+    // runs back through the corner, the driven list will say so.
+    let (drive_path, drive_graph_m) = lhr_engine::mission_play::road_graph_path(
+        &node_pos, &neighbors, node_count, exit_pos, dest_node,
+    )
+    .ok_or("No road path from lot exit to detector_konec")?;
+    let mut waypoints = Vec::with_capacity(drive_path.len());
+    for index in &drive_path {
+        let Some(p) = node_pos(*index) else {
+            return Err(format!("Drive path node {index} lost its position"));
+        };
+        waypoints.push(p);
+    }
+    println!(
+        "probe drive path: {} waypoints from lot exit, {:.0} m by graph",
+        waypoints.len(),
+        drive_graph_m
+    );
+    for (n, wp) in waypoints.iter().enumerate().take(6) {
+        println!(
+            "probe drive: leg {}/{} at [{:.1}, {:.1}, {:.1}]",
+            n + 1,
+            waypoints.len(),
+            wp[0],
+            wp[1],
+            wp[2]
+        );
+    }
+    let mut prev = exit_pos;
     let mut last = lhr_engine::car_runtime::CarDrivingState::default();
-    last.position = straight;
+    last.position = exit_pos;
     let mut waypoint = 0usize;
-    let mut stuck_pos = straight;
+    let mut stuck_pos = exit_pos;
+    // Latched U-turn: when the target sits behind a moving taxi, the
+    // per-tick err≈±π sign chatters and the taxi S-curves away instead of
+    // circling. Latch full lock toward the target side until motion
+    // aligns with it, then resume pursuit.
+    let mut uturn: Option<f32> = None;
     while progress.stage() == Mise01Stage::DrivingToDestination {
         let target = waypoints[waypoint];
         let to_wp = [target[0] - last.position[0], target[2] - last.position[2]];
@@ -1184,26 +1263,77 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         let vel = [last.position[0] - prev[0], last.position[2] - prev[2]];
         let speed_hint = vel[0].hypot(vel[1]);
         let mut steer = 0.0f32;
+        let mut aligned = true;
         if speed_hint > 1e-4 {
             let cross = vel[0] * to_wp[1] - vel[1] * to_wp[0];
             let dot = vel[0] * to_wp[0] + vel[1] * to_wp[1];
-            let err = cross.atan2(dot);
-            // Negative gain: `err > 0` puts the target to the LEFT of
-            // motion, but positive steer turns RIGHT (D key is +1), so
-            // the correction must be negated. The unnegated form steered
-            // away from the target and boxed the taxi in the west wall.
-            steer = (-2.0 * err).clamp(-1.0, 1.0);
+            aligned = dot > 0.5 * speed_hint * gap;
+            if uturn.is_none()
+                && !aligned
+                && dot < -0.3 * speed_hint * gap
+                && last.speed.abs() > 2.0
+            {
+                // Target behind: latch full lock toward its side. Cross>0
+                // puts the target LEFT of motion, which needs negative
+                // steer (positive steer turns right).
+                uturn = Some(if cross >= 0.0 { -1.0 } else { 1.0 });
+                println!(
+                    "probe drive: U-turn latched at [{:.1}, {:.1}, {:.1}] speed={:.1}",
+                    last.position[0], last.position[1], last.position[2], last.speed
+                );
+            }
+            if let Some(latch) = uturn {
+                if aligned {
+                    uturn = None;
+                } else {
+                    steer = latch;
+                }
+            }
+            if uturn.is_none() && steer == 0.0 {
+                let err = cross.atan2(dot);
+                // Negative gain: `err > 0` puts the target to the LEFT of
+                // motion, but positive steer turns RIGHT (D key is +1), so
+                // the correction must be negated. The unnegated form steered
+                // away from the target and boxed the taxi in the west wall.
+                steer = (-2.0 * err).clamp(-1.0, 1.0);
+            }
         }
-        let (throttle, brake, handbrake) = if unstick > 0 {
-            // Ease off and creep straight ahead: dampen any locked steer
-            // instead of swinging into adjacent geometry. All inputs
-            // stay inside the native accepted ranges (never negative
-            // throttle: Coupled routing rejects it).
+        // A latched U-turn overrides the K-turn: rotation in the open is
+        // progress, never a wedge. If the taxi stops mid-turn, drop the
+        // latch so the K-turn unstick can work free instead.
+        if speed_hint <= 1e-4 {
+            uturn = None;
+        }
+        if uturn.is_some() {
+            unstick = 0;
+            steer = uturn.unwrap_or(0.0);
+        }
+        // Adaptive speed: near stops and sharp corners take it slow so the
+        // pursuit follows streets instead of ramming through them. The
+        // 37 m/s blast that triggered a part-detach abort came from
+        // flat-out throttle in an alley; cap by gap with a low ceiling.
+        let target_speed = (gap * 0.5).clamp(3.0, 14.0);
+        let speed = last.speed.abs();
+        let (throttle, brake, handbrake, reverse) = if unstick > 0 {
+            // K-turn: back out with FULL lock, alternating direction per
+            // trigger, so a boxed taxi rotates instead of shuttling
+            // straight back and forth. Dampened steer never turns here:
+            // with no motion the velocity steer above is identically
+            // zero, and 0.5 * 0 keeps pointing at the blocking wall.
+            // Reverse uses native gear -1 with the brake as motive power.
             unstick -= 1;
-            steer *= 0.5;
-            (0.3, 0.0, false)
+            if boxed_windows % 2 == 0 {
+                steer = 1.0;
+            } else {
+                steer = -1.0;
+            }
+            (0.0, 0.5, false, true)
+        } else if speed > target_speed + 2.0 {
+            (0.0, 0.8, false, false)
+        } else if speed > target_speed {
+            (0.2, 0.0, false, false)
         } else {
-            (1.0 - 0.5 * steer.abs(), 0.0, false)
+            (1.0 - 0.5 * steer.abs(), 0.0, false, false)
         };
         prev = last.position;
         last = taxi
@@ -1214,13 +1344,19 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     brake,
                     steer,
                     handbrake,
+                    reverse,
                 },
             )
             .map_err(|e| e.to_string())?;
         odometer += last.speed.abs() * 0.016;
         progress.taxi_moved(last.position);
         progress.drive_distance(odometer);
-        if gap <= 15.0 && waypoint + 1 < waypoints.len() {
+        // Tight cornering: intermediate waypoints flip at 6 m, not 15 m.
+        // The 15 m radius flipped to the westbound leg 9 m short of the
+        // [241.8, 200.7] corner and drove the taxi into the wall segment
+        // south of the street gap (wedge at z≈196). The taxi must reach
+        // the corner gap before turning west.
+        if gap <= 6.0 && waypoint + 1 < waypoints.len() {
             waypoint += 1;
             println!(
                 "probe drive: waypoint {}/{} at [{:.1}, {:.1}, {:.1}]",
@@ -1234,11 +1370,12 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         drive_ticks += 1;
         if drive_ticks % 300 == 0 {
             println!(
-                "probe drive trace tick={drive_ticks} pos=[{:.1},{:.1},{:.1}] speed={:.1} gap={gap:.1}",
+                "probe drive trace tick={drive_ticks} pos=[{:.1},{:.1},{:.1}] speed={:.1} contacts={} gap={gap:.1}",
                 last.position[0],
                 last.position[1],
                 last.position[2],
-                last.speed
+                last.speed,
+                last.contacts
             );
         }
         if last.speed.abs() < 0.5 && unstick == 0 {
@@ -1247,18 +1384,26 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             stall_ticks = 0;
         }
         // No real progress while driving means pushing into something the
-        // speedometer cannot see: creep through a tight forward turn even
-        // when the wheels spin. Never reverse: negative throttle is
-        // outside the native accepted range. Five consecutive boxed
-        // windows fail fast instead of burning the whole tick budget.
+        // speedometer cannot see: back out in reverse gear (brake doubles
+        // as reverse throttle natively) even when the wheels spin.
+        // Negative throttle stays out: Coupled routing rejects it. Gated
+        // on low speed so an open-space U-turn circle (fast but
+        // positionally tight) is never mistaken for a wedge. Five
+        // consecutive boxed windows fail fast instead of burning the
+        // whole tick budget.
         if drive_ticks % 120 == 119 {
             let moved = (last.position[0] - stuck_pos[0]).hypot(last.position[2] - stuck_pos[2]);
-            if moved < 2.5 && unstick == 0 {
+            if moved < 2.5 && last.speed.abs() < 1.5 && unstick == 0 {
                 stall_ticks = 0;
                 unstick = 80;
                 boxed_windows += 1;
                 println!(
-                    "probe drive: no progress in 120 ticks (moved {moved:.1} m, boxed {boxed_windows}x), forward unstick turn"
+                    "probe drive: no progress in 120 ticks (moved {moved:.1} m, boxed {boxed_windows}x), reversing out from [{:.1}, {:.1}, {:.1}] wp {}/{} gap={gap:.1}",
+                    last.position[0],
+                    last.position[1],
+                    last.position[2],
+                    waypoint + 1,
+                    waypoints.len()
                 );
                 if boxed_windows >= 5 {
                     return Err(format!(
@@ -1276,14 +1421,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             stall_ticks = 0;
             unstick = 80;
             println!(
-                "probe drive: stalled at waypoint {}/{} gap {gap:.1} m, forward unstick turn",
+                "probe drive: stalled at waypoint {}/{} gap {gap:.1} m, reversing out",
                 waypoint + 1,
                 waypoints.len()
             );
         }
         if drive_ticks > 30000 {
             return Err(format!(
-                "Taxi never reached the corridor node (waypoint {}/{} closest gap {min_gap:.1} m, odometer {odometer:.1} m)",
+                "Taxi never reached detector_konec (waypoint {}/{} closest gap {min_gap:.1} m, odometer {odometer:.1} m)",
                 waypoint + 1,
                 waypoints.len()
             ));
@@ -2166,6 +2311,9 @@ impl App {
                     brake: controls.brake,
                     steer: controls.steer,
                     handbrake: controls.handbrake,
+                    // Interactive driving stays forward-only; reverse gear
+                    // is a probe choreography input for now.
+                    reverse: false,
                 },
             )?);
             last_controls = Some(controls);
