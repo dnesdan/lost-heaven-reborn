@@ -550,6 +550,29 @@ impl CarRuntime {
                 .contact_queries
         ))
     }
+    /// Staged-intent queue depths for probe diagnostics: (lamp breaks,
+    /// part detaches, crash-AI intents, impact occupants) plus the
+    /// latest crash-AI intent (actor, entry) if any. A grind that keeps
+    /// staging crash intents is stuck on knockable props whose
+    /// knock-away has no owner yet — not on static geometry.
+    pub fn driving_staged_intents(
+        &self,
+    ) -> Result<(usize, usize, usize, usize, Option<(u32, u32)>), String> {
+        let sim = &self
+            .driving
+            .as_ref()
+            .ok_or("Driving has no world owner")?
+            .simulation;
+        Ok((
+            sim.lamp_breaks.len(),
+            sim.part_detaches.len(),
+            sim.crash_ai_intents.len(),
+            sim.impact_occupants.len(),
+            sim.crash_ai_intents
+                .last()
+                .map(|intent| (intent.actor, intent.entry)),
+        ))
+    }
     /// Read-only view of the driving collision world for probe diagnostics
     /// and geometry-directed escape. Borrows the actual owner; the probe
     /// sweeps the same KLZ data the body simulation hits.

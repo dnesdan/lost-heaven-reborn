@@ -2209,6 +2209,16 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         }
                         Err(error) => println!("probe wedge contacts stopped: {error}"),
                     }
+                    // Staged intents: a grind that keeps staging crash-AI
+                    // intents is stuck on knockable props (popel bins),
+                    // not on static geometry — the knock-away has no
+                    // owner yet so the props never clear.
+                    match taxi.driving_staged_intents() {
+                        Ok((lamps, parts, crash, occupants, last_crash)) => {
+                            println!("probe wedge staged: lamps={lamps} parts={parts} crash={crash} occupants={occupants} last_crash={last_crash:?}");
+                        }
+                        Err(error) => println!("probe wedge staged stopped: {error}"),
+                    }
                     // Drivetrain words: tell a dead engine or refused
                     // gearbox apart from real geometry. A car that cannot
                     // move on flat open ground with full throttle is a
