@@ -1104,7 +1104,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // Learned trap ledger: boxed poses that defeated escape steering,
     // K-turn rocking and the clutch lift (open-diff burnout with no
     // native traction control to brake the free wheel). Seeded with
-    // ten evidenced furniture pockets: [-1314,-227] (clutch
+    // twelve evidenced furniture pockets: [-1314,-227] (clutch
     // stall-shudder wedge), [-628,164] (beached/dangling driven wheels),
     // [-147,-163] (escape + K-turn + lift all defeated), [-1265.7,-426.9]
     // (all wheels in contact on flat ground, 0.0 m/s — hung on a low
@@ -1114,7 +1114,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // [-1276.4,-7.5,84.7] (beached, 3 wheels dangling),
     // [-1257.6,-7.9,71.5] (probe_rejoin: rejoin fires after the
     // box-reset fix, K-turn runs 5.4->9.9->11.9 m to wp 2/54, then
-    // beaches 25 m on). Edges whose segment
+    // beaches 25 m on), [-1287.0,-6.7,-706.1] / [-1298.0,-6.5,-718.8]
+    // (probe_p10: same furniture field as seeds 5-6, rotation churn).
+    // Edges whose segment
     // passes within 45 m of a trap get a large additive penalty, so
     // Dijkstra prefers drivable streets; a pocket on the only link
     // still routes through it (finite penalty), which the probe then
@@ -1130,12 +1132,16 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         [-1431.6, -6.9, -248.9],
         [-1276.4, -7.5, 84.7],
         [-1257.6, -7.9, 71.5],
+        [-1287.0, -6.7, -706.1],
+        [-1298.0, -6.5, -718.8],
     ]);
     // Seeds are never evicted; learned pockets rotate in the slots above
     // the seed count so the ledger stays bounded while surviving new
-    // pockets past the cap.
+    // pockets past the cap. The remove index is guarded: at cap with no
+    // learned entries there is nothing to evict, so the ledger grows by
+    // one and logs it instead of panicking.
     let seed_trap_count = traps.borrow().len();
-    const TRAP_LEDGER_CAP: usize = 12;
+    const TRAP_LEDGER_CAP: usize = 16;
     let penalized = |node: usize, out: &mut Vec<(usize, f32)>| {
         neighbors(node, out);
         let traps = traps.borrow();
@@ -2328,11 +2334,18 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         // surviving new pockets.
                         let mut traps = traps.borrow_mut();
                         if traps.len() >= TRAP_LEDGER_CAP {
-                            traps.remove(seed_trap_count);
-                            println!(
-                                "probe drive: trap ledger rotated, still {} pockets",
-                                traps.len() + 1
-                            );
+                            if traps.len() > seed_trap_count {
+                                traps.remove(seed_trap_count);
+                                println!(
+                                    "probe drive: trap ledger rotated, still {} pockets",
+                                    traps.len() + 1
+                                );
+                            } else {
+                                println!(
+                                    "probe drive: trap ledger full of seeds, growing to {} pockets",
+                                    traps.len() + 1
+                                );
+                            }
                         }
                         traps.push(last.position);
                         println!(
