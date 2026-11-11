@@ -2034,6 +2034,47 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     }
                 }
                 options.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                // Trap-aware escape: the waypoint graph avoids pockets,
+                // but a 40 m escape target down a "free" heading can land
+                // back inside one — the taxi ground itself into [-1276,84]
+                // from escapes at wp 140/189. Prefer headings whose escape
+                // target stays clear of the ledger; only when every free
+                // heading ends near a trap (taxi boxed inside a penalty
+                // disc) fall back to the nearest-target order.
+                {
+                    let traps = traps.borrow();
+                    let clearance = |deg: f32| -> f32 {
+                        let rad = deg.to_radians();
+                        let tx = last.position[0] + rad.sin() * 40.0;
+                        let tz = last.position[2] + rad.cos() * 40.0;
+                        traps
+                            .iter()
+                            .map(|t| (tx - t[0]).hypot(tz - t[2]))
+                            .fold(f32::INFINITY, f32::min)
+                    };
+                    let clear: Vec<(f32, f32, f32)> = options
+                        .iter()
+                        .copied()
+                        .filter(|opt| clearance(opt.1) >= 25.0)
+                        .collect();
+                    if clear.is_empty() {
+                        println!(
+                            "probe drive: escape inside penalty disc, keeping all {} headings",
+                            options.len()
+                        );
+                    } else if clear.len() < options.len() {
+                        println!(
+                            "probe drive: trap-aware escape keeps {}/{} headings",
+                            clear.len(),
+                            options.len()
+                        );
+                        options = clear;
+                        options.sort_by(|a, b| {
+                            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                        });
+                    }
+                    drop(traps);
+                }
                 // boxed_windows is still the pre-increment count here, so
                 // the first box takes options[0] (closest to the target)
                 // and later boxes rotate through the rest.
