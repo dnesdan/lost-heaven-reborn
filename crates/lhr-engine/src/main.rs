@@ -1612,6 +1612,26 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         // load, so coast 3 ticks to re-snap to max. At most one re-lift
         // per 150 ticks, and never during the reverse K-turn (unstick
         // owns the pedals there) or an active lift coast.
+        // Trajectory log: every 10th escape-push tick records the clutch
+        // words, so the snap→decay curve is measurable per grind pocket
+        // (hold duration decides the re-lift cadence).
+        if escaping && unstick == 0 && lift == 0 && speed < 1.5 && drive_ticks % 10 == 0 {
+            if let Ok(words) = taxi.driving_vehicle_words() {
+                let mut line = format!(
+                    "probe sag trace tick={drive_ticks} pos=[{:.1},{:.1},{:.1}] speed={:.1}:",
+                    last.position[0], last.position[1], last.position[2], last.speed
+                );
+                for (offset, value) in words {
+                    if matches!(offset, 0x548 | 0x5dc | 0x5e8 | 0x59c | 0x5cc | 0x540) {
+                        match value {
+                            Some(word) => line.push_str(&format!(" {offset:#x}={word:#x}")),
+                            None => line.push_str(&format!(" {offset:#x}=?")),
+                        }
+                    }
+                }
+                println!("{line}");
+            }
+        }
         if escaping
             && unstick == 0
             && lift == 0
