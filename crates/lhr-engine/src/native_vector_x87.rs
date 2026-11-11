@@ -13,7 +13,14 @@ use crate::native_transform::MakeUnavailable;
 use std::arch::asm;
 
 fn number(x: f32) -> Result<f32, MakeUnavailable> {
-    if x == 0. || x.is_normal() {
+    // x87 executes through denormal operands and results: DE/UE status is
+    // informational while the delivered result is what native consumes.
+    // Native S_vector::AngleTo (LS3DF.dll SHA e211c850..., VA 0x1002e7a0,
+    // 121-insn complete walk ev_8404ecb99d0b041...) loads its vectors
+    // straight into FMUL/FADD with only magnitude branches and never
+    // pre-validates finiteness classes, so subnormals must flow. NaN/inf
+    // stay rejected: they are outside the verified domain.
+    if x.is_finite() {
         Ok(x)
     } else {
         Err(MakeUnavailable::InputOutsideVerifiedDomain)
@@ -140,9 +147,13 @@ impl Context {
     }
     fn finish(&self) -> Result<(), MakeUnavailable> {
         self.record_precision();
-        // Invalid, denormal, zero-divide and exponent-range exceptions concern
-        // the isolated calculation only, never a caller's restored status.
-        if self.status & 0x1f != 0 {
+        // Invalid, zero-divide and exponent-range exceptions concern the
+        // isolated calculation only, never a caller's restored status.
+        // Denormal-operand (DE) and underflow (UE) are NOT aborts: x87 still
+        // delivers the result native consumes, and the AngleTo walk above
+        // shows no status check at all (FNSTSW only feeds FCOMP branches).
+        // Precision (PE) is recorded separately via record_precision.
+        if self.status & 0x0d != 0 {
             Err(MakeUnavailable::InputOutsideVerifiedDomain)
         } else {
             Ok(())
@@ -487,7 +498,15 @@ pub(crate) fn try_acos_sin_cos_products(
     number(sine_factor)?;
     number(cosine_factor)?;
     if argument.abs() > 1. {
-        return Err(MakeUnavailable::InputOutsideVerifiedDomain);
+        // Native acos clamp (Game.exe 0x611350 tail into 0x61136d, JA
+        // branch): finite out-of-range args load the 80-bit -Inf stored at
+        // [0x63a4f0] (ev_e75c58520b419e09b31bdfb5ad8c383d88aa9ba16e018e87f4afa019e0c86f54)
+        // as the angle instead of aborting. FSIN/FCOS of it are
+        // x87-invalid, so both products are the indefinite QNaN
+        // (0xFFC00000), stored to the wheel record and continued with.
+        // Reproduce the consumed result; NaN/inf inputs stay rejected
+        // above (native NaN handling there is unverified).
+        return Ok([f32::from_bits(0xFFC00000), f32::from_bits(0xFFC00000)]);
     }
     let mut out = [0_f32; 2];
     expression!(
@@ -960,6 +979,61 @@ mod tests {
             );
         }
         assert_eq!(pattern, after);
+    }
+
+    #[test]
+    fn subnormal_components_flow_through_angle_sine_like_native_x87() {
+        // Live probe abort (C:\Temp\probe_diverge.log, wp 25/158):
+        // WheelForces Library(InputOutsideVerifiedDomain) out of
+        // try_vector_angle_sine with finite inputs. Native
+        // S_vector::AngleTo (LS3DF.dll SHA
+        // e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+        // VA 0x1002e7a0, 121-insn complete walk ev_8404ecb99d0b041...)
+        // loads both vectors straight into x87 FMUL/FADD with only
+        // magnitude branches (1e-8 norm cutoff, near-1.0 length, +/-1 dot
+        // clamp) and never aborts on FP status: FNSTSW only feeds FCOMP
+        // condition-code branches. x87 computes through denormal
+        // operands/results (DE/UE are informational; the delivered result
+        // is what native consumes), so the host must not reject them.
+        let sub = f32::from_bits(0x0000_0001);
+        let neg_sub = f32::from_bits(0x8000_0001);
+        let flushed = try_vector_angle_sine([1., 0., 0.], [-1., 0., 0.]).unwrap();
+        let live = try_vector_angle_sine([1., sub, 0.], [-1., neg_sub, 0.]).unwrap();
+        assert!(live.is_finite());
+        assert!((live - flushed).abs() < 1e-6);
+        // Non-finite inputs stay outside the verified domain.
+        assert!(try_vector_angle_sine([f32::NAN, 0., 0.], [1., 0., 0.]).is_err());
+        assert!(try_vector_angle_sine([f32::INFINITY, 0., 0.], [1., 0., 0.]).is_err());
+    }
+
+    #[test]
+    fn acos_out_of_range_finite_args_yield_qnan_products_like_native() {
+        // Live probe abort (C:\Temp\probe_diverge.log, wp 25/158):
+        // WheelForces Library(InputOutsideVerifiedDomain) from the
+        // lateral/max_lat ratio marginally above 1. Native acos
+        // (Game.exe 0x611350 tail into 0x61136d, JA branch: 6-insn
+        // ev_e28b91fcd4de1044fcffbc08eb44bbe4b1ae05557850de820e03e50bf82c7dc2d,
+        // bodies ev_84ac26390b4d241292a8fc8befd3692b27545eebcaa8fd7151ee0f33ecdae011
+        // and ev_4fad026db1862503c4daa14b6a5b5aac07bded399743eeb5362704435ee4880d)
+        // loads 80-bit -Inf from [0x63a4f0] (ev_e75c58520b419e09b31bdfb5ad8c383d88aa9ba16e018e87f4afa019e0c86f54)
+        // as the angle; FSIN/FCOS of it are x87-invalid, so both wheel
+        // products are the indefinite QNaN, stored and continued with.
+        // Native acos clamp (Game.exe 0x611350/0x61136d, JA path): finite
+        // out-of-range args yield indefinite-QNaN products, not an abort.
+        assert_eq!(
+            try_acos_sin_cos_products(1.5, 2., 3.)
+                .unwrap()
+                .map(f32::to_bits),
+            [0xFFC00000, 0xFFC00000]
+        );
+        assert_eq!(
+            try_acos_sin_cos_products(-1.0000001, 2., 3.)
+                .unwrap()
+                .map(f32::to_bits),
+            [0xFFC00000, 0xFFC00000]
+        );
+        assert!(try_acos_sin_cos_products(f32::NAN, 0., 0.).is_err());
+        assert!(try_acos_sin_cos_products(f32::INFINITY, 0., 0.).is_err());
     }
 
     #[test]
