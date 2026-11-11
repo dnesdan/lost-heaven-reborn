@@ -531,18 +531,19 @@ impl CarRuntime {
     /// pairs for the current/requested gear, engine enable byte, power
     /// channels, brake input/ramp, motor rotation, clutch target,
     /// progress, flags and rate/max words, wheel-rotation thresholds,
-    /// stall threshold and motion flags. Lets a boxed probe tell a dead
-    /// engine, refused gearbox or disengaged clutch apart from real
-    /// geometry. Missing offsets report None instead of failing the
-    /// whole readout.
+    /// stall threshold, force-path constants (transmission, gear ratios,
+    /// wheel-speed normalization, reverse routing, redline) and motion
+    /// flags. Lets a boxed probe tell a dead engine, refused gearbox,
+    /// disengaged clutch or starved force path apart from real geometry.
+    /// Missing offsets report None instead of failing the whole readout.
     pub fn driving_vehicle_words(&self) -> Result<Vec<(u32, Option<u32>)>, String> {
         let car = self.car.as_ref().ok_or("Driving has no car owner")?;
         let bytes = car.as_bytes();
-        let mut out = Vec::with_capacity(24);
+        let mut out = Vec::with_capacity(32);
         for offset in [
             0x55cu32, 0x560, 0x3a4, 0x3a8, 0x5b8, 0x3cc, 0x59c, 0x624, 0x548, 0x5e0, 0x5dc, 0x5e8,
             0x540, 0x544, 0x494, 0x5e4, 0x5d4, 0x5d8, 0x5cc, 0x5c8, 0x5c4, 0x5c0, 0x5ec, 0x1a4,
-            0x24, 0x44,
+            0x24, 0x44, 0x5d0, 0x570, 0x574, 0x5ac, 0x4cc, 0x488,
         ] {
             let start = offset as usize;
             let value = start

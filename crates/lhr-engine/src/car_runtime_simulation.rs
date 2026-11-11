@@ -48,6 +48,11 @@ pub(crate) struct SimulationState {
     /// frame virtuals no owner serves yet. Recorded MissionHelpLog-style,
     /// never replayed; the taxi keeps the StaticResponse outcome.
     pub lamp_breaks: Vec<crate::vehicle_damage::LampBreakRequest>,
+    /// Staged part-detach intents (DoDamage mesh arm with depleted part
+    /// health) whose detach virtual no owner serves yet. Recorded
+    /// MissionHelpLog-style, never replayed; the taxi keeps the
+    /// StaticResponse outcome.
+    pub part_detaches: Vec<crate::vehicle_damage::PartDetachRequest>,
     /// Staged occupant-impact intents (car_impact_callback amplitude gate
     /// over a non-empty +0xd14 list) whose per-occupant Hit no owner
     /// serves yet. Recorded MissionHelpLog-style, never replayed; the
@@ -815,7 +820,22 @@ where
         velocity: [f32; 3],
         extra: u32,
     ) -> Result<(), String> {
-        Err(format!("DoDamage part detach {v:#x}, function{function:#x}, context{context:#x}, part{index}, velocity{velocity:?}, extra{extra:#x}"))
+        // The detach virtual has no owner yet, so the intent stages into
+        // the session queue for the future component owner instead of
+        // aborting the tick — the same MissionHelpLog-style treatment as
+        // the lamp-breakage dispatch above. The taxi keeps the
+        // already-applied StaticResponse outcome.
+        self.state
+            .part_detaches
+            .push(crate::vehicle_damage::PartDetachRequest {
+                vehicle: v,
+                function,
+                context,
+                index,
+                velocity_bits: velocity.map(f32::to_bits),
+                extra,
+            });
+        Ok(())
     }
     fn damage_lamp_switch(&mut self, v: u32, index: u32, side: u32) -> Result<(), String> {
         // Original C_Vehicle breakage dispatch (GAME 0x4d6580): the exact

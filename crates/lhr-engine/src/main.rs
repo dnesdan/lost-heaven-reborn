@@ -1247,11 +1247,32 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     )
     .ok_or("No road path from lot exit to detector_konec")?;
     let mut waypoints = Vec::with_capacity(drive_path.len());
-    for index in &drive_path {
-        let Some(p) = node_pos(*index) else {
-            return Err(format!("Drive path node {index} lost its position"));
-        };
-        waypoints.push(p);
+    // Subdivide long straight legs so pursuit tracks the road instead of
+    // cutting across blocks: the 107 m straight cut past wp18 left the
+    // road and hung the taxi on street furniture, whose stall-drag
+    // trapped the clutch in the native recompute arm (push samples:
+    // 0x5dc 1.0->0.17-0.47 within 15 ticks, wheels exactly 0, moved
+    // 0.0 m). Midpoints are collinear on straight roads (harmless) and
+    // pull pursuit back onto curved roads between distant nodes.
+    {
+        let mut from = exit_pos;
+        for index in &drive_path {
+            let Some(p) = node_pos(*index) else {
+                return Err(format!("Drive path node {index} lost its position"));
+            };
+            let leg = (p[0] - from[0]).hypot(p[2] - from[2]);
+            let cuts = (leg / 25.0).floor() as usize;
+            for c in 1..=cuts {
+                let t = c as f32 / (cuts + 1) as f32;
+                waypoints.push([
+                    from[0] + (p[0] - from[0]) * t,
+                    from[1] + (p[1] - from[1]) * t,
+                    from[2] + (p[2] - from[2]) * t,
+                ]);
+            }
+            waypoints.push(p);
+            from = p;
+        }
     }
     println!(
         "probe drive path: {} waypoints from lot exit, {:.0} m by graph",
@@ -1298,7 +1319,23 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // requests Engaging (pinned by
     // wedged_clutch_throttle_lift_snaps_progress_to_max_and_requests_engage),
     // so the escape pursuit that follows pushes with a live clutch.
+    // Keep the lift SHORT (3 ticks): the snap lands on the first coast
+    // tick, while every further coast tick drags the motor down toward
+    // the static wheels through the freshly engaged clutch. A 10-tick
+    // lift decayed the motor 43->~20, below the torque knee, so the
+    // first push tick recomputed the clutch straight back down (push
+    // samples: 0x5dc 1.0->0.17-0.47 within 15 ticks, 0x5e8 0x20->0x24,
+    // motor 14-33, wheels exactly 0, moved 0.0 m). Three ticks keep the
+    // motor up in the torque band for the push.
     let mut lift = 0u32;
+    // Push-phase sampler: after the lift, dump the clutch words a few
+    // ticks into the escape push while the speed is still ~0. The lift
+    // snap is proven live, yet the taxi never moves; these samples tell
+    // whether the clutch holds 1.0 through the push (geometric lock) or
+    // disengages instantly (re-trap under load).
+    let mut push_marks: Vec<u32> = Vec::new();
+    let mut lift_end_pos = [0.0f32; 3];
+    let mut lift_end_tick = 0u32;
     while progress.stage() == Mise01Stage::DrivingToDestination {
         // Geometry-directed escape overrides the staged waypoint until it
         // expires or the taxi arrives within 3 m of the virtual target.
@@ -1436,6 +1473,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                 offset,
                                 0x55c
                                     | 0x3a4
+                                    | 0x3a8
+                                    | 0x5b8
+                                    | 0x3cc
                                     | 0x548
                                     | 0x5e0
                                     | 0x5dc
@@ -1443,6 +1483,12 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                     | 0x540
                                     | 0x59c
                                     | 0x1a4
+                                    | 0x5d0
+                                    | 0x570
+                                    | 0x574
+                                    | 0x5ac
+                                    | 0x4cc
+                                    | 0x488
                             ) {
                                 match value {
                                     Some(word) => line.push_str(&format!(" {offset:#x}={word:#x}")),
@@ -1454,6 +1500,11 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     }
                     Err(error) => println!("probe lift clutch stopped: {error}"),
                 }
+                // Sample the push: clutch/gear/motor at +15/+40/+70 ticks
+                // into the escape pursuit, plus motion since the lift.
+                push_marks = vec![drive_ticks + 15, drive_ticks + 40, drive_ticks + 70];
+                lift_end_pos = last.position;
+                lift_end_tick = drive_ticks;
             }
             (0.0, 0.0, false, false)
         } else if speed > target_speed + 2.0 {
@@ -1479,6 +1530,57 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         odometer += last.speed.abs() * 0.016;
         progress.taxi_moved(last.position);
         progress.drive_distance(odometer);
+        // Push-phase sample: clutch words plus motion since the lift end,
+        // taken while the escape pursuit pushes at ~0 speed.
+        if escaping {
+            if let Some(at) = push_marks.iter().position(|&m| m == drive_ticks) {
+                push_marks.remove(at);
+                let pushed =
+                    (last.position[0] - lift_end_pos[0]).hypot(last.position[2] - lift_end_pos[2]);
+                match taxi.driving_vehicle_words() {
+                    Ok(words) => {
+                        let mut line = format!(
+                            "probe push +{} ticks: moved {pushed:.1} m speed={:.1} pos=[{:.1},{:.1},{:.1}]:",
+                            drive_ticks.wrapping_sub(lift_end_tick),
+                            last.speed,
+                            last.position[0],
+                            last.position[1],
+                            last.position[2]
+                        );
+                        for (offset, value) in words {
+                            if matches!(
+                                offset,
+                                0x55c
+                                    | 0x3a4
+                                    | 0x3a8
+                                    | 0x5b8
+                                    | 0x3cc
+                                    | 0x548
+                                    | 0x5e0
+                                    | 0x5dc
+                                    | 0x5e8
+                                    | 0x540
+                                    | 0x59c
+                                    | 0x1a4
+                                    | 0x5d0
+                                    | 0x570
+                                    | 0x574
+                                    | 0x5ac
+                                    | 0x4cc
+                                    | 0x488
+                            ) {
+                                match value {
+                                    Some(word) => line.push_str(&format!(" {offset:#x}={word:#x}")),
+                                    None => line.push_str(&format!(" {offset:#x}=?")),
+                                }
+                            }
+                        }
+                        println!("{line}");
+                    }
+                    Err(error) => println!("probe push sample stopped: {error}"),
+                }
+            }
+        }
         // Tight cornering: intermediate waypoints flip at 6 m, not 15 m.
         // The 15 m radius flipped to the westbound leg 9 m short of the
         // [241.8, 200.7] corner and drove the taxi into the wall segment
@@ -1592,6 +1694,37 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             }
                             options.push((turn, k as f32 * 45.0, travelled));
                         }
+                    }
+                }
+                // Low sweep at axle height (+0.1 m): the +0.4 m rays fly
+                // over curbs, rails and rubble that still beach the floor
+                // pan. A heading free at +0.4 m but blocked at +0.1 m names
+                // the low prop. The escape choice keeps the +0.4 m rule so
+                // this run stays comparable; the low map only attributes.
+                if let Some(world) = taxi.driving_collision() {
+                    for k in 0..8 {
+                        let heading = k as f32 * std::f32::consts::FRAC_PI_4;
+                        let request = lhr_engine::collision_query::CollisionLineRequest {
+                            origin: [last.position[0], last.position[1] + 0.1, last.position[2]],
+                            delta: [heading.sin() * 30.0, 0.0, heading.cos() * 30.0],
+                            selector: -1,
+                            reject_mask: 0,
+                        };
+                        let mut outputs = lhr_engine::collision_query::CollisionLineOutputs {
+                            point: None,
+                            normal: None,
+                        };
+                        let mut trav =
+                            lhr_engine::collision_query::CollisionTraversalState::default();
+                        let travelled = match world.test_line_v(&request, &mut outputs, &mut trav) {
+                            Ok(Some(hit)) => hit.fraction * 30.0,
+                            Ok(None) => 30.0,
+                            Err(_) => 0.0,
+                        };
+                        println!(
+                            "probe wedge low walls: heading {:>3}° travelled {travelled:5.1} m",
+                            (k as f32 * 45.0) as u32
+                        );
                     }
                 }
                 options.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -1744,9 +1877,12 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     ];
                     escape = Some((esc_target, drive_ticks + 100));
                     // Lift first: snap the disengaged clutch back to max
-                    // before the escape pursuit pushes (10 ticks is ample;
-                    // the snap itself lands on the first coast tick).
-                    lift = 10;
+                    // before the escape pursuit pushes. Three ticks: the
+                    // snap lands on the first coast tick (second from an
+                    // even motion flag), while longer coasts drag the
+                    // motor below the torque knee through the engaged
+                    // clutch and the push re-traps instantly.
+                    lift = 3;
                     println!(
                         "probe drive: boxed {boxed_windows}x, escaping toward [{:.1}, {:.1}, {:.1}] free {best_travel:.1} m at {pick_deg:.0}° slot=[{:.1},{:.1}]",
                         esc_target[0], esc_target[1], esc_target[2], side[0], side[1]
@@ -1775,11 +1911,30 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         )
                         .ok_or("Rejoin path from boxed pose to detector_konec lost")?;
                         waypoints.clear();
-                        for index in &new_path {
-                            let Some(p) = node_pos(*index) else {
-                                return Err(format!("Rejoin path node {index} lost its position"));
-                            };
-                            waypoints.push(p);
+                        // Same leg subdivision as the initial drive path:
+                        // rejoined routes inherit the same long straight
+                        // cuts, so cut them the same way.
+                        {
+                            let mut from = last.position;
+                            for index in &new_path {
+                                let Some(p) = node_pos(*index) else {
+                                    return Err(format!(
+                                        "Rejoin path node {index} lost its position"
+                                    ));
+                                };
+                                let leg = (p[0] - from[0]).hypot(p[2] - from[2]);
+                                let cuts = (leg / 25.0).floor() as usize;
+                                for c in 1..=cuts {
+                                    let t = c as f32 / (cuts + 1) as f32;
+                                    waypoints.push([
+                                        from[0] + (p[0] - from[0]) * t,
+                                        from[1] + (p[1] - from[1]) * t,
+                                        from[2] + (p[2] - from[2]) * t,
+                                    ]);
+                                }
+                                waypoints.push(p);
+                                from = p;
+                            }
                         }
                         waypoint = 0;
                         boxed_windows = 0;

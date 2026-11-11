@@ -503,6 +503,7 @@ mod tests {
         calls: Vec<(u32, u32, Vec<u32>)>,
         notifications: Vec<(bool, [f32; 3])>,
         detached: Vec<[f32; 3]>,
+        detached_full: Vec<(u32, u32, u32, u32, [f32; 3], u32)>,
     }
     impl Owner {
         fn new() -> Self {
@@ -571,6 +572,7 @@ mod tests {
                 calls: Vec::new(),
                 notifications: Vec::new(),
                 detached: Vec::new(),
+                detached_full: Vec::new(),
             }
         }
     }
@@ -636,14 +638,16 @@ mod tests {
         }
         fn damage_detach_part(
             &mut self,
-            _: u32,
-            _: u32,
-            _: u32,
-            _: u32,
+            v: u32,
+            function: u32,
+            context: u32,
+            index: u32,
             velocity: [f32; 3],
-            _: u32,
+            extra: u32,
         ) -> Result<(), Self::Error> {
             self.detached.push(velocity);
+            self.detached_full
+                .push((v, function, context, index, velocity, extra));
             Ok(())
         }
         fn damage_lamp_switch(&mut self, _: u32, _: u32, _: u32) -> Result<(), Self::Error> {
@@ -788,6 +792,10 @@ mod tests {
         ] {
             put(&mut b, a, x).unwrap();
         }
+        // Detach receiver identity the sim stages verbatim: function at
+        // vehicle+0x2f8, context at vehicle+0xc74.
+        b.write_word(0x12f8, 0x426ec0).unwrap();
+        b.write_word(0x1c74, 0x10000).unwrap();
         let mut call = VehicleDamageCall {
             point: DamageVector::Value([10., 0., 0.]),
             direction: DamageVector::Value([5., -5., 5.]),
@@ -805,5 +813,10 @@ mod tests {
         assert_eq!(float(&mut b, 0x4020).unwrap(), 0.);
         // omega=[0,2,0], r=[10,0,0]; linear - omega cross r.
         assert_eq!(b.detached, vec![[3., 4., 25.]]);
+        // The full native call parameters the sim stages verbatim.
+        assert_eq!(
+            b.detached_full,
+            vec![(0x1000, 0x426ec0, 0x10000, 0, [3., 4., 25.], 0)]
+        );
     }
 }

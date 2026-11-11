@@ -361,6 +361,29 @@ pub struct LampBreakRequest {
     pub calls: Vec<BreakageCall>,
 }
 
+/// One staged part-detach intent: the DoDamage mesh arm resolved the
+/// part index, the receiver function/context and the live body velocity,
+/// but the detach virtual has no owner yet. Recorded MissionHelpLog-style
+/// for the future component owner; the taxi keeps the already-applied
+/// StaticResponse outcome. Observed live: part 11 with function
+/// 0x426ec0, context 0x10000 (probe C:\Temp\probe_legs.log). Velocity
+/// travels as raw bits to keep the record Eq.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PartDetachRequest {
+    /// Receiver vehicle address as carried by the native call.
+    pub vehicle: u32,
+    /// Detach function address (vehicle+0x2f8 word).
+    pub function: u32,
+    /// Detach context (vehicle+0xc74 word).
+    pub context: u32,
+    /// Part index within the damage rows.
+    pub index: u32,
+    /// Live body velocity at detach, raw bits.
+    pub velocity_bits: [u32; 3],
+    /// Native extra word.
+    pub extra: u32,
+}
+
 /// Original C_Vehicle breakage-dispatch helper, PC GAME 0x4d6580 (Game
 /// RVA 0xd6580; working name — the original symbol is unrecovered).
 /// Called from C_Vehicle::DoDamage's lamp arm (GAME 0x4d57c6, ECX =
