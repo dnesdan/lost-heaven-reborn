@@ -13,6 +13,31 @@ impl CrashActorBackend for VehicleFrameMemory {
     }
 }
 #[test]
+fn crash_ai_flag_dispatch_reports_each_unowned_effect_entry_in_table_order() {
+    // Live probe abort (C:\Temp\probe_uturn.log, tick 34500 at
+    // [-1427.4,-219.7]): StaticResponse ran crash_actor_ai over a prop
+    // actor and died on Dependency(5644656) = 0x562170. The ported
+    // flag-mask dispatch resolves each unowned effect routine before any
+    // effect call runs, so the sim can stage the intent and continue.
+    // Priority follows table order: mask 8 beats mask 2.
+    for (flags, entry) in [(0x3u32, 0x562170u32), (0xbu32, 0x5abe10u32)] {
+        let mut memory = VehicleFrameMemory::default();
+        let actor = memory.allocate(0x400).unwrap();
+        let world = memory.allocate(0x200).unwrap();
+        memory.write_word(actor + 0x38c, flags).unwrap();
+        memory
+            .write_word(actor + 0x390, (-1.0f32).to_bits())
+            .unwrap();
+        memory.write_word(actor + 0x68, world).unwrap();
+        memory.write_byte(world + 0xac, 0x20).unwrap();
+        assert_eq!(
+            crash_actor_ai(&mut memory, actor, 16),
+            Err(CrashActorError::Dependency(entry))
+        );
+    }
+}
+
+#[test]
 fn crash_construction_and_final_release_use_one_allocation_and_empty_the_real_registry() {
     let mut memory = VehicleFrameMemory::default();
     for (base, len) in [(0x63d2b8, 20), (0x647998, 12), (0x647908, 32)] {

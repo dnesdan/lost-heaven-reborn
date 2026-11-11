@@ -58,6 +58,11 @@ pub(crate) struct SimulationState {
     /// serves yet. Recorded MissionHelpLog-style, never replayed; the
     /// taxi keeps the StaticResponse outcome.
     pub impact_occupants: Vec<crate::vehicle_car_contacts::VehicleCarImpactOccupants>,
+    /// Staged crash-AI effect intents (C_crash_obj::AI431be0 flag-mask
+    /// dispatch to the unowned 0x5abe10/0x5aae10/0x562170/0x565720/0x565060
+    /// effect routines). Recorded MissionHelpLog-style, never replayed;
+    /// the taxi keeps the StaticResponse outcome.
+    pub crash_ai_intents: Vec<crate::crash_actor::CrashAiIntent>,
     /// Explicit standalone caller-stack fill for the empty allocator byte.
     pub allocator_marker: u8,
     /// Original process atexit registrations, retained in registration order.

@@ -1,6 +1,23 @@
 //! Source actor dispatch and Game temporary-actor list phases.
 use super::*;
 
+/// One staged crash-AI effect intent: the flag-mask dispatch in
+/// `crash_actor_ai` resolved an effect routine with no owner yet
+/// (0x5abe10, 0x5aae10, 0x562170, 0x565720, 0x565060 — model-gated
+/// visual/sound dispatches; Game.exe 0x562170 owns 422 insns over 35
+/// blocks per REA dossier ev_456a2a52, head ev_57efb393). Recorded
+/// MissionHelpLog-style for the future effect owner; the taxi keeps
+/// the already-applied StaticResponse outcome. Observed live:
+/// flags&2 with entry 0x562170 aborting the drive at [-1427.4,-219.7]
+/// (probe C:\Temp\probe_uturn.log, Dependency(5644656)).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CrashAiIntent {
+    /// Crash actor address as carried by the native call.
+    pub actor: u32,
+    /// Effect routine address from the flag-masks dispatch table.
+    pub entry: u32,
+}
+
 /// C_crash_obj::AI431be0. Unreconstructed destruction emitters retain their
 /// precise reached frontier; the common healthy path runs real PhThing AI.
 pub fn crash_actor_ai<B: CrashActorBackend>(

@@ -1,6 +1,6 @@
 //! Concrete Crash actor effects over the simulation's existing canonical owner.
 use super::*;
-use crate::crash_actor::{CrashActorBackend, CrashActorEffect};
+use crate::crash_actor::{CrashActorBackend, CrashActorEffect, CrashActorError};
 
 impl<B> CrashActorBackend for CarRuntimeSimulationBackend<'_, '_, B>
 where
@@ -80,9 +80,27 @@ where
                 0x407cd0 => crate::crash_actors::crash_debustize(self, actor)
                     .map(|_| 0)
                     .map_err(failure),
-                0x431be0 => crate::crash_actor::crash_actor_ai(self, actor, arguments[0])
-                    .map(|_| 0)
-                    .map_err(failure),
+                0x431be0 => match crate::crash_actor::crash_actor_ai(self, actor, arguments[0]) {
+                    Ok(()) => Ok(0),
+                    // Unowned crash-effect routines (model-gated visual/sound
+                    // dispatches per the flag-mask table; REA dossier
+                    // ev_456a2a52): stage the intent MissionHelpLog-style
+                    // and keep the StaticResponse outcome instead of
+                    // aborting the tick. Observed live as Dependency(5644656)
+                    // killing the drive at [-1427.4,-219.7].
+                    Err(CrashActorError::Dependency(entry))
+                        if matches!(
+                            entry,
+                            0x5abe10 | 0x5aae10 | 0x562170 | 0x565720 | 0x565060
+                        ) =>
+                    {
+                        self.state
+                            .crash_ai_intents
+                            .push(crate::crash_actor::CrashAiIntent { actor, entry });
+                        Ok(0)
+                    }
+                    Err(other) => Err(failure(other)),
+                },
                 0x45a690 => crate::ph_thing_ai::ph_thing_ai(self, actor, arguments[0])
                     .map(|_| 0)
                     .map_err(failure),
