@@ -2417,7 +2417,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         ));
                     }
                 }
-            } else if moved >= 2.5 {
+            } else if moved >= 2.5 && unstick == 0 && escape.is_none() {
+                // Freedom reset only for unchoreographed motion: escape
+                // pushes, lift coasts and K-turn cycles move the taxi
+                // without freeing it (the wp-140 grind in probe_cap100
+                // reset the counter every third window via K-turn meters
+                // and never reached the 5-window rejoin, looping 60000
+                // ticks). Only staged-route driving forgives a box streak.
                 boxed_windows = 0;
             }
             stuck_pos = last.position;
