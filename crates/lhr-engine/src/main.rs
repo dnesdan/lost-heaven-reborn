@@ -1104,29 +1104,17 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // Learned trap ledger: boxed poses that defeated escape steering,
     // K-turn rocking and the clutch lift (open-diff burnout with no
     // native traction control to brake the free wheel). Seeded with
-    // nine evidenced furniture pockets: [-1314,-227] (clutch
-    // stall-shudder wedge, 15+ probe_wedge runs), [-628,164]
-    // (beached/dangling driven wheels, probe_rock/steer/torque/slip
-    // runs, exit 1 after both rejoin budgets there), [-147,-163]
-    // (probe_denorm/probe_konec2: escape + K-turn + lift all defeated,
-    // rejoin 1/2 forced) and [-1265.7,-426.9] (probe_konec2: clutch
-    // 1.0/0x20, all wheels in contact on flat ground, spin turning,
-    // 0.0 m/s — body hung on a low rail the +0.4 m rays fly over;
-    // rejoin 2/2 forced, then boxed at its wp 2) and [-1307.8,-702.0]
-    // / [-1305.8,-714.0] (probe_seeds4 rejoins 1-2/2; that run then
-    // drove 30000+ ticks to wp 16/74 before wedging at [-1429,-557]
-    // in a recompute-arm sag: 0x5dc 0.44->0.36, flags 0x24, motor ~25,
-    // wheels turning in contact, 0.3-0.6 m per push), [-1349.6,-638.1]
-    // (probe_sag: K-turn eaten by a latched U-turn) and [-1431.6,-248.9]
-    // (probe_crash: re-lift + K-turn drove through the Dependency abort
-    // point at 7 m/s, then wedged at a standstill with the K-turn again
-    // eaten mid-cycle by a re-latched U-turn) and [-1431.6,-248.9]
-    // (probe_crash: U-turn fix verified live — full K-turn phases with
-    // 4-12 m pull-outs, drove through the Dependency abort point — then
-    // exit 1 at wp 1/94) and [-1276.4,-7.5,84.7] (probe_kturn: beached
-    // with 3 wheels dangling, driven rears contact=false without slip,
-    // low rails N/E/S, ledger hit cap 10 with rotation active).
-    // Edges whose segment
+    // ten evidenced furniture pockets: [-1314,-227] (clutch
+    // stall-shudder wedge), [-628,164] (beached/dangling driven wheels),
+    // [-147,-163] (escape + K-turn + lift all defeated), [-1265.7,-426.9]
+    // (all wheels in contact on flat ground, 0.0 m/s — hung on a low
+    // rail), [-1307.8,-702.0] / [-1305.8,-714.0] (rejoin pair),
+    // [-1349.6,-638.1] (K-turn eaten by a latched U-turn),
+    // [-1431.6,-248.9] (U-turn fix verified live, then re-wedged),
+    // [-1276.4,-7.5,84.7] (beached, 3 wheels dangling),
+    // [-1257.6,-7.9,71.5] (probe_rejoin: rejoin fires after the
+    // box-reset fix, K-turn runs 5.4->9.9->11.9 m to wp 2/54, then
+    // beaches 25 m on). Edges whose segment
     // passes within 45 m of a trap get a large additive penalty, so
     // Dijkstra prefers drivable streets; a pocket on the only link
     // still routes through it (finite penalty), which the probe then
@@ -1141,12 +1129,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         [-1349.6, -6.3, -638.1],
         [-1431.6, -6.9, -248.9],
         [-1276.4, -7.5, 84.7],
+        [-1257.6, -7.9, 71.5],
     ]);
     // Seeds are never evicted; learned pockets rotate in the slots above
     // the seed count so the ledger stays bounded while surviving new
     // pockets past the cap.
     let seed_trap_count = traps.borrow().len();
-    const TRAP_LEDGER_CAP: usize = 10;
+    const TRAP_LEDGER_CAP: usize = 12;
     let penalized = |node: usize, out: &mut Vec<(usize, f32)>| {
         neighbors(node, out);
         let traps = traps.borrow();
