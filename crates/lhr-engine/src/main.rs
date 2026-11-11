@@ -1116,7 +1116,11 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // / [-1305.8,-714.0] (probe_seeds4 rejoins 1-2/2; that run then
     // drove 30000+ ticks to wp 16/74 before wedging at [-1429,-557]
     // in a recompute-arm sag: 0x5dc 0.44->0.36, flags 0x24, motor ~25,
-    // wheels turning in contact, 0.3-0.6 m per push). Edges whose segment
+    // wheels turning in contact, 0.3-0.6 m per push) and [-1349.6,-638.1]
+    // (probe_sag: built from 6 seeds + sag-lift, drove ~100 m out of the
+    // [-1424] pocket via K-turn + re-lift, then wedged with the K-turn
+    // silently eaten by a latched U-turn — no phase sample ever fired).
+    // Edges whose segment
     // passes within 45 m of a trap get a large additive penalty, so
     // Dijkstra prefers drivable streets; a pocket on the only link
     // still routes through it (finite penalty), which the probe then
@@ -1128,7 +1132,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         [-1265.7, -7.1, -426.9],
         [-1307.8, -6.6, -702.0],
         [-1305.8, -6.7, -714.0],
+        [-1349.6, -6.3, -638.1],
     ]);
+    // Seeds are never evicted; learned pockets rotate in the slots above
+    // the seed count so the ledger stays bounded while surviving new
+    // pockets past the cap.
+    let seed_trap_count = traps.borrow().len();
+    const TRAP_LEDGER_CAP: usize = 10;
     let penalized = |node: usize, out: &mut Vec<(usize, f32)>| {
         neighbors(node, out);
         let traps = traps.borrow();
@@ -2192,8 +2202,15 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         // identical push: reverse out, rotate with full
                         // lock, pull out forward. Escape stays clear so
                         // the K-turn owns the recovery; the next window
-                        // re-sweeps from the new pose.
+                        // re-sweeps from the new pose. Drop the U-turn
+                        // latch first: a latched U-turn zeroes `unstick`
+                        // every tick below (rotation-in-the-open
+                        // override), which silently eats the whole K-turn
+                        // — the trigger message would print but no phase
+                        // sample ever fires, as seen at [-1349.6,-638.1].
                         unstick = 250;
+                        unstick_from = last.position;
+                        uturn = None;
                         escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
                         escape = None;
                         lift = 0;
@@ -2239,7 +2256,12 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     );
                     } // end escape (vs forced K-turn above)
                 } else {
+                    // Sealed pocket: no free heading at all. Same K-turn
+                    // fallback, with the U-turn latch dropped for the same
+                    // reason as the forced-rocking trigger above.
                     unstick = 250;
+                    unstick_from = last.position;
+                    uturn = None;
                     escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
                     println!(
                         "probe drive: no progress in 120 ticks (moved {moved:.1} m, boxed {boxed_windows}x), pocket sealed (no free heading), K-turn from [{:.1}, {:.1}, {:.1}] wp {}/{} gap={gap:.1}",
@@ -2255,19 +2277,26 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         rejoins += 1;
                         // Learn this pocket: penalize its nodes so the
                         // rejoin routes around the furniture instead of
-                        // back into the same trap. Bounded so the ledger
-                        // cannot grow the per-edge scan without limit.
+                        // back into the same trap. Seeds are never evicted;
+                        // learned pockets rotate once the ledger hits the
+                        // cap, so the per-edge scan stays bounded while
+                        // surviving new pockets.
                         let mut traps = traps.borrow_mut();
-                        if traps.len() < 8 {
-                            traps.push(last.position);
+                        if traps.len() >= TRAP_LEDGER_CAP {
+                            traps.remove(seed_trap_count);
                             println!(
-                                "probe drive: trap ledger now {} pockets, latest at [{:.1}, {:.1}, {:.1}]",
-                                traps.len(),
-                                last.position[0],
-                                last.position[1],
-                                last.position[2]
+                                "probe drive: trap ledger rotated, still {} pockets",
+                                traps.len() + 1
                             );
                         }
+                        traps.push(last.position);
+                        println!(
+                            "probe drive: trap ledger now {} pockets, latest at [{:.1}, {:.1}, {:.1}]",
+                            traps.len(),
+                            last.position[0],
+                            last.position[1],
+                            last.position[2]
+                        );
                         drop(traps);
                         let (new_path, new_graph_m) = lhr_engine::mission_play::road_graph_path(
                             &node_pos,
