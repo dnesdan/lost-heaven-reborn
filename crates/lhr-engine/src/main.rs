@@ -1104,16 +1104,25 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // Learned trap ledger: boxed poses that defeated escape steering,
     // K-turn rocking and the clutch lift (open-diff burnout with no
     // native traction control to brake the free wheel). Seeded with
-    // the two evidenced furniture pockets: [-1314,-227] (clutch
-    // stall-shudder wedge, 15+ probe_wedge runs) and [-628,164]
+    // four evidenced furniture pockets: [-1314,-227] (clutch
+    // stall-shudder wedge, 15+ probe_wedge runs), [-628,164]
     // (beached/dangling driven wheels, probe_rock/steer/torque/slip
-    // runs, exit 1 after both rejoin budgets there). Edges into nodes
-    // within 45 m of a trap get a large additive penalty, so
+    // runs, exit 1 after both rejoin budgets there), [-147,-163]
+    // (probe_denorm/probe_konec2: escape + K-turn + lift all defeated,
+    // rejoin 1/2 forced) and [-1265.7,-426.9] (probe_konec2: clutch
+    // 1.0/0x20, all wheels in contact on flat ground, spin turning,
+    // 0.0 m/s — body hung on a low rail the +0.4 m rays fly over;
+    // rejoin 2/2 forced, then boxed at its wp 2). Edges whose segment
+    // passes within 45 m of a trap get a large additive penalty, so
     // Dijkstra prefers drivable streets; a pocket on the only link
     // still routes through it (finite penalty), which the probe then
     // reports as usual instead of failing the search.
-    let traps: std::cell::RefCell<Vec<[f32; 3]>> =
-        std::cell::RefCell::new(vec![[-1314.0, -7.0, -227.0], [-628.0, 4.4, 165.0]]);
+    let traps: std::cell::RefCell<Vec<[f32; 3]>> = std::cell::RefCell::new(vec![
+        [-1314.0, -7.0, -227.0],
+        [-628.0, 4.4, 165.0],
+        [-147.5, 13.6, -162.7],
+        [-1265.7, -7.1, -426.9],
+    ]);
     let penalized = |node: usize, out: &mut Vec<(usize, f32)>| {
         neighbors(node, out);
         let traps = traps.borrow();
@@ -1765,14 +1774,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 }
                 // Wheel positions, live contact (0x8), force gating and
                 // spin during the push: which wheels are driven (0x2),
-                // touching right now (0x8), slipping (0x80), where their
-                // centers sit, and their visual spin angle (+0x114) whose
-                // delta across samples separates a spinning dangling
-                // wheel from a locked one. The stored contact point
-                // (+0x28) names WHAT the wheel last touched: a live
-                // touch sits ~one radius below the center, a stale or
-                // missing one exposes beaching. Any slipping driven wheel
-                // latches the brake-torque handbrake for the next pushes.
+                // touching right now (0x8), slipping (0x80); centers are
+                // car-local while the stored contact point (+0x28) is in
+                // world frame, so report touch-vs-taxi height (dy) instead
+                // of mixing frames. A touch at ground level with all
+                // contacts set yet zero motion plus changing spin means
+                // the body hangs on a low rail the +0.4 m rays fly over.
+                // Any slipping driven wheel latches the brake-torque
+                // handbrake for the next pushes.
                 match taxi.driving_wheel_diagnostics() {
                     Ok(rows) => {
                         for (i, row) in rows.iter().enumerate() {
@@ -1791,14 +1800,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                 wheel_slip = true;
                             }
                             println!(
-                                "probe push wheel {i}: pos=[{:.1},{:.1},{:.1}] touch=[{:.1},{:.1},{:.1}] hang={:.2} spin={:.2} flags={flags:#x} driven={} contact={} slip={}",
+                                "probe push wheel {i}: pos=[{:.1},{:.1},{:.1}] touch=[{:.1},{:.1},{:.1}] dy={:.2} spin={:.2} flags={flags:#x} driven={} contact={} slip={}",
                                 pos[0],
                                 pos[1],
                                 pos[2],
                                 touched[0],
                                 touched[1],
                                 touched[2],
-                                pos[1] - touched[1],
+                                touched[1] - last.position[1],
                                 f32::from_bits(row[9]),
                                 flags & 0x2 != 0,
                                 flags & 0x8 != 0,
@@ -2004,14 +2013,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                 ];
                                 let flags = row[4];
                                 println!(
-                                    "probe wedge wheel {i}: pos=[{:.1},{:.1},{:.1}] touch=[{:.1},{:.1},{:.1}] hang={:.2} flags={flags:#x} driven={} contact={} slip={}",
+                                    "probe wedge wheel {i}: pos=[{:.1},{:.1},{:.1}] touch=[{:.1},{:.1},{:.1}] dy={:.2} flags={flags:#x} driven={} contact={} slip={}",
                                     pos[0],
                                     pos[1],
                                     pos[2],
                                     touched[0],
                                     touched[1],
                                     touched[2],
-                                    pos[1] - touched[1],
+                                    touched[1] - last.position[1],
                                     flags & 0x2 != 0,
                                     flags & 0x8 != 0,
                                     flags & 0x80 != 0,
