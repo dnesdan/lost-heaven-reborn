@@ -1025,6 +1025,26 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         "probe konec: detector_konec at [{:.1}, {:.1}, {:.1}]",
         konec[0], konec[1], konec[2]
     );
+    // Scene2 object census anchor: parsed before installation moves into
+    // the taxi world below. The first boxed window reports named objects
+    // near the wedge so a prop vs. pocket can be told apart.
+    let scene_objects: Vec<(String, [f32; 3])> = {
+        let bytes = installation
+            .read_optional("missions/mise01/scene2.bin")
+            .map_err(|e| e.to_string())?
+            .ok_or("MISE01 scene2.bin absent")?;
+        let scene =
+            lhr_assets::parse_scene2(&bytes).map_err(|e| format!("Scene2 parse stopped: {e:?}"))?;
+        scene
+            .objects
+            .iter()
+            .filter_map(|o| o.world_position.map(|p| (o.name.clone(), p)))
+            .collect()
+    };
+    println!(
+        "probe scene objects: {} with world positions",
+        scene_objects.len()
+    );
     let lease = patches
         .lease()
         .map_err(|e| format!("Startup patch owner: {e:?}"))?;
@@ -1119,14 +1139,17 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         "probe drive geometry: spawn [{:.1}, {:.1}, {:.1}] straight [{:.1}, {:.1}, {:.1}]",
         spawn[0], spawn[1], spawn[2], straight[0], straight[1], straight[2]
     );
-    for (n, wp) in waypoints.iter().enumerate().take(4) {
+    for (n, wp) in waypoints.iter().enumerate() {
+        let prev = if n == 0 { spawn } else { waypoints[n - 1] };
+        let leg = (wp[0] - prev[0]).hypot(wp[2] - prev[2]);
         println!(
-            "probe drive: waypoint {}/{} at [{:.1}, {:.1}, {:.1}]",
+            "probe drive: waypoint {}/{} at [{:.1}, {:.1}, {:.1}] leg={:.0} m",
             n + 1,
             waypoints.len(),
             wp[0],
             wp[1],
-            wp[2]
+            wp[2],
+            leg
         );
     }
     if let Some(last_wp) = waypoints.last() {
@@ -1179,6 +1202,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     let mut stall_ticks = 0u32;
     let mut unstick = 0u32;
     let mut boxed_windows = 0u32;
+    // Steering side latched when a wedge triggers the unstick: steer
+    // toward the target side (err>=0 means target left, which needs
+    // negative steer). The pull-out phase arcs out toward it.
+    let mut escape_steer = 0.0f32;
     let mut min_gap = f32::INFINITY;
     // Lot exit south: the taxi spawns facing south with the konec route
     // north behind it, and the parking spot wedges any standing 180°
@@ -1246,16 +1273,49 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     last.position = exit_pos;
     let mut waypoint = 0usize;
     let mut stuck_pos = exit_pos;
+    // Bounded rejoins: a persistent wedge means the straight leg the
+    // taxi is pushing is not drivable (prop row, uncut corner), so let
+    // Dijkstra route around it from the boxed pose instead of failing.
+    // The destination anchor never moves: completion still requires
+    // arriving within 12 m of detector_konec itself.
+    let mut rejoins = 0u32;
     // Latched U-turn: when the target sits behind a moving taxi, the
     // per-tick err≈±π sign chatters and the taxi S-curves away instead of
     // circling. Latch full lock toward the target side until motion
     // aligns with it, then resume pursuit.
     let mut uturn: Option<f32> = None;
+    // Geometry-directed escape: when the taxi boxes, sweep the driving
+    // collision in 8 headings and pursue a virtual target 40 m along the
+    // freest one instead of K-turning blindly into the same walls. The
+    // K-turn stays as the fallback for sealed pockets. Holds a virtual
+    // target plus its expiry tick.
+    let mut escape: Option<([f32; 3], u32)> = None;
     while progress.stage() == Mise01Stage::DrivingToDestination {
-        let target = waypoints[waypoint];
+        // Geometry-directed escape overrides the staged waypoint until it
+        // expires or the taxi arrives within 3 m of the virtual target.
+        if let Some((esc_target, until)) = escape {
+            if drive_ticks > until {
+                escape = None;
+            } else {
+                let esc_gap =
+                    (esc_target[0] - last.position[0]).hypot(esc_target[2] - last.position[2]);
+                if esc_gap <= 3.0 {
+                    escape = None;
+                    stuck_pos = last.position;
+                }
+            }
+        }
+        let mut target = waypoints[waypoint];
+        let mut escaping = false;
+        if let Some((esc_target, _)) = escape {
+            target = esc_target;
+            escaping = true;
+        }
         let to_wp = [target[0] - last.position[0], target[2] - last.position[2]];
         let gap = to_wp[0].hypot(to_wp[1]);
-        min_gap = min_gap.min(gap);
+        if !escaping {
+            min_gap = min_gap.min(gap);
+        }
         // Velocity steering: wheels follow the rolling direction, and
         // stay straight until the taxi rolls. Steering from a persistent
         // heading instead turned the taxi into the lot/lamp geometry
@@ -1264,9 +1324,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         let speed_hint = vel[0].hypot(vel[1]);
         let mut steer = 0.0f32;
         let mut aligned = true;
+        // Heading error to the waypoint, reused by steering and by the
+        // corner-speed cap below. Zero while standing still.
+        let mut err = 0.0f32;
         if speed_hint > 1e-4 {
             let cross = vel[0] * to_wp[1] - vel[1] * to_wp[0];
             let dot = vel[0] * to_wp[0] + vel[1] * to_wp[1];
+            err = cross.atan2(dot);
             aligned = dot > 0.5 * speed_hint * gap;
             if uturn.is_none()
                 && !aligned
@@ -1290,7 +1354,6 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 }
             }
             if uturn.is_none() && steer == 0.0 {
-                let err = cross.atan2(dot);
                 // Negative gain: `err > 0` puts the target to the LEFT of
                 // motion, but positive steer turns RIGHT (D key is +1), so
                 // the correction must be negated. The unnegated form steered
@@ -1312,17 +1375,34 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         // pursuit follows streets instead of ramming through them. The
         // 37 m/s blast that triggered a part-detach abort came from
         // flat-out throttle in an alley; cap by gap with a low ceiling.
-        let target_speed = (gap * 0.5).clamp(3.0, 14.0);
+        // A min()-form cap (3+11*align) proved too slow here: crawling
+        // into the [41,108] node hung the taxi on street furniture it
+        // previously carried through, so the cap stays multiplicative.
+        let align = err.cos().clamp(0.2, 1.0);
+        let target_speed = (gap * 0.5 * align).clamp(3.0, 14.0);
         let speed = last.speed.abs();
         let (throttle, brake, handbrake, reverse) = if unstick > 0 {
-            // K-turn: back out with FULL lock in one consistent direction.
-            // Alternating the lock per trigger netted zero rotation (the
-            // start pocket and the [-1314,-227] wedge both shuffled ~0.3 m
-            // per window); a constant lock rotates the taxi while backing.
+            // K-turn in three phases, mirroring the proven reverse
+            // calibration (150 full-brake straight ticks move 6.5 m):
+            // back out STRAIGHT first at full brake (the entry line just
+            // drove here, so it is known free), then rotate with full
+            // lock once there is room behind, then pull OUT forward on an
+            // arc toward the target side. The earlier 40-tick half-brake
+            // straight phase never got rolling (~0.3 m per window at the
+            // [-1314,-227] wedge), and ending the unstick at ~zero speed
+            // resumes pursuit with steer=0 straight back into the prop.
             // Reverse uses native gear -1 with the brake as motive power.
             unstick -= 1;
-            steer = 1.0;
-            (0.0, 0.5, false, true)
+            if unstick >= 100 {
+                steer = 0.0;
+                (0.0, 1.0, false, true)
+            } else if unstick >= 40 {
+                steer = 1.0;
+                (0.0, 1.0, false, true)
+            } else {
+                steer = escape_steer;
+                (0.6, 0.0, false, false)
+            }
         } else if speed > target_speed + 2.0 {
             (0.0, 0.8, false, false)
         } else if speed > target_speed {
@@ -1349,17 +1429,24 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         // Tight cornering: intermediate waypoints flip at 6 m, not 15 m.
         // The 15 m radius flipped to the westbound leg 9 m short of the
         // [241.8, 200.7] corner and drove the taxi into the wall segment
-        // south of the street gap (wedge at z≈196). The taxi must reach
-        // the corner gap before turning west.
-        if gap <= 6.0 && waypoint + 1 < waypoints.len() {
+        // south of the street gap (wedge at z≈196). A 3 m trial flipped
+        // too late instead: the taxi drove into the node furniture at
+        // [41.2, 107.7] and wedged 5 m short of the node. 6 m stays: it
+        // steers around intersection props before reaching them.
+        // Waypoint flips stay with the staged route only; the escape leg
+        // has its own 3 m arrival check above.
+        if !escaping && gap <= 6.0 && waypoint + 1 < waypoints.len() {
             waypoint += 1;
+            let heading_deg = vel[0].atan2(vel[1]);
             println!(
-                "probe drive: waypoint {}/{} at [{:.1}, {:.1}, {:.1}]",
+                "probe drive: waypoint {}/{} at [{:.1}, {:.1}, {:.1}] heading={:.0}° err={:.0}°",
                 waypoint + 1,
                 waypoints.len(),
                 last.position[0],
                 last.position[1],
-                last.position[2]
+                last.position[2],
+                heading_deg.to_degrees(),
+                err.to_degrees()
             );
         }
         drive_ticks += 1;
@@ -1379,33 +1466,290 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             stall_ticks = 0;
         }
         // No real progress while driving means pushing into something the
-        // speedometer cannot see: back out in reverse gear (brake doubles
-        // as reverse throttle natively) even when the wheels spin.
-        // Negative throttle stays out: Coupled routing rejects it. Gated
-        // on low speed so an open-space U-turn circle (fast but
-        // positionally tight) is never mistaken for a wedge. Five
-        // consecutive boxed windows fail fast instead of burning the
-        // whole tick budget.
+        // speedometer cannot see. First sweep the driving collision in 8
+        // headings and escape along the freest one nearest the target
+        // bearing (a virtual 40 m target, pursued with the same velocity
+        // steering); the blind K-turn stays only for sealed pockets. Negative throttle stays
+        // out: Coupled routing rejects it. Gated on low speed so an
+        // open-space U-turn circle (fast but positionally tight) is
+        // never mistaken for a wedge. Five consecutive boxed windows
+        // fail fast instead of burning the whole tick budget.
         if drive_ticks % 120 == 119 {
             let moved = (last.position[0] - stuck_pos[0]).hypot(last.position[2] - stuck_pos[2]);
-            if moved < 2.5 && last.speed.abs() < 1.5 && unstick == 0 {
+            if moved < 2.5 && last.speed.abs() < 1.5 && unstick == 0 && escape.is_none() {
                 stall_ticks = 0;
-                unstick = 80;
+                // Wedge census on the body collision the car actually
+                // hits (the walk-scene sweep cannot see car props).
+                // Escape along the free heading closest to the target
+                // bearing: breaking ties by raw travel retreated NE,
+                // away from the route, while west lay open toward it.
+                let target_bearing =
+                    (target[0] - last.position[0]).atan2(target[2] - last.position[2]);
+                // The same target-side heading every window is a
+                // deterministic loop (the taxi re-wedges identically), so
+                // rotate through the free headings: sort by angular
+                // distance to the target, then take the boxed-count-th
+                // option. Every window tries a new direction; the K-turn
+                // stays only for sealed pockets.
+                let mut options: Vec<(f32, f32, f32)> = Vec::new();
+                // Sweep at bumper height (+0.4 m), not +1 m: a +1 m ray
+                // flies over curbs, medians and rubble that still beach
+                // the body, while every wall the car cannot pass under
+                // also reaches down to +0.4 m.
+                let sweep_y = last.position[1] + 0.4;
+                if let Some(world) = taxi.driving_collision() {
+                    for k in 0..8 {
+                        let heading = k as f32 * std::f32::consts::FRAC_PI_4;
+                        let request = lhr_engine::collision_query::CollisionLineRequest {
+                            origin: [last.position[0], sweep_y, last.position[2]],
+                            delta: [heading.sin() * 30.0, 0.0, heading.cos() * 30.0],
+                            selector: -1,
+                            reject_mask: 0,
+                        };
+                        let mut outputs = lhr_engine::collision_query::CollisionLineOutputs {
+                            point: None,
+                            normal: None,
+                        };
+                        let mut trav =
+                            lhr_engine::collision_query::CollisionTraversalState::default();
+                        let travelled = match world.test_line_v(&request, &mut outputs, &mut trav) {
+                            Ok(Some(hit)) => hit.fraction * 30.0,
+                            Ok(None) => 30.0,
+                            Err(error) => {
+                                println!(
+                                    "probe wedge walls: heading {:>3}° sweep stopped: {error:?}",
+                                    (k as f32 * 45.0) as u32
+                                );
+                                0.0
+                            }
+                        };
+                        println!(
+                            "probe wedge walls: heading {:>3}° travelled {travelled:5.1} m",
+                            (k as f32 * 45.0) as u32
+                        );
+                        if travelled >= 5.0 {
+                            // Shortest-arc distance on the circle: the raw
+                            // absolute difference can exceed 2π when the
+                            // target bearing is negative, which previously
+                            // wrapped to a negative turn and always won.
+                            let two_pi = 2.0 * std::f32::consts::PI;
+                            let mut turn = (heading - target_bearing).abs() % two_pi;
+                            if turn > std::f32::consts::PI {
+                                turn = two_pi - turn;
+                            }
+                            options.push((turn, k as f32 * 45.0, travelled));
+                        }
+                    }
+                }
+                options.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                // boxed_windows is still the pre-increment count here, so
+                // the first box takes options[0] (closest to the target)
+                // and later boxes rotate through the rest.
+                let pick = options
+                    .get(boxed_windows as usize % options.len().max(1))
+                    .copied();
                 boxed_windows += 1;
-                println!(
-                    "probe drive: no progress in 120 ticks (moved {moved:.1} m, boxed {boxed_windows}x), reversing out from [{:.1}, {:.1}, {:.1}] wp {}/{} gap={gap:.1}",
-                    last.position[0],
-                    last.position[1],
-                    last.position[2],
-                    waypoint + 1,
-                    waypoints.len()
-                );
-                if boxed_windows >= 5 {
-                    return Err(format!(
-                        "Taxi boxed at waypoint {}/{} gap {gap:.1} m after {boxed_windows} still windows",
+                // First box only: name the neighborhood (scene2 objects
+                // with world positions) and dump wheel state, so a prop
+                // vs. pocket vs. beached car can be told apart. The taxi
+                // barely moves in every mode here, which no wall layout
+                // alone explains.
+                if boxed_windows == 1 {
+                    let mut near: Vec<(&str, f32)> = scene_objects
+                        .iter()
+                        .map(|(name, p)| {
+                            (
+                                name.as_str(),
+                                (p[0] - last.position[0]).hypot(p[2] - last.position[2]),
+                            )
+                        })
+                        .filter(|(_, d)| *d < 25.0)
+                        .collect();
+                    near.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+                    println!(
+                        "probe wedge census: {} scene objects within 25 m",
+                        near.len()
+                    );
+                    for (name, d) in near.iter().take(25) {
+                        println!("probe wedge census: {name} d={d:.1}");
+                    }
+                    match taxi.driving_wheel_diagnostics() {
+                        Ok(rows) => println!("probe wedge wheels: {rows:?}"),
+                        Err(error) => println!("probe wedge wheels stopped: {error}"),
+                    }
+                    // Contact points: tell WHAT the taxi touches (ground
+                    // under the wheels vs. a prop wedged against the body).
+                    // Truncated: the ring holds up to 64 entries.
+                    match taxi.driving_contact_queries() {
+                        Ok(queries) => {
+                            let mut short = queries;
+                            short.truncate(1500);
+                            println!("probe wedge contacts: {short}");
+                        }
+                        Err(error) => println!("probe wedge contacts stopped: {error}"),
+                    }
+                    // Drivetrain words: tell a dead engine or refused
+                    // gearbox apart from real geometry. A car that cannot
+                    // move on flat open ground with full throttle is a
+                    // control/state failure, not a wall.
+                    match taxi.driving_vehicle_words() {
+                        Ok(words) => {
+                            let mut line = String::from("probe wedge drivetrain:");
+                            for (offset, value) in words {
+                                match value {
+                                    Some(word) => line.push_str(&format!(" {offset:#x}={word:#x}")),
+                                    None => line.push_str(&format!(" {offset:#x}=?")),
+                                }
+                            }
+                            println!("{line}");
+                        }
+                        Err(error) => println!("probe wedge drivetrain stopped: {error}"),
+                    }
+                }
+                // Heightmap census: downward rays from +4 m in a 3 m
+                // cross around the taxi. The +4 m origin stays under the
+                // metro deck (+4.7 over a taxi at -7.1): a +30 m origin
+                // hits the deck first and reports it as ground. If the
+                // street under the body reads at/above chassis level
+                // while walls are near, the taxi is beached; if level
+                // with only sides blocked, it is a pocket the escape or
+                // K-turn can work out of.
+                if let Some(world) = taxi.driving_collision() {
+                    for (ox, oz, tag) in [
+                        (0.0, 0.0, "c"),
+                        (3.0, 0.0, "e"),
+                        (-3.0, 0.0, "w"),
+                        (0.0, 3.0, "n"),
+                        (0.0, -3.0, "s"),
+                    ] {
+                        let request = lhr_engine::collision_query::CollisionLineRequest {
+                            origin: [
+                                last.position[0] + ox,
+                                last.position[1] + 4.0,
+                                last.position[2] + oz,
+                            ],
+                            delta: [0.0, -30.0, 0.0],
+                            selector: -1,
+                            reject_mask: 0,
+                        };
+                        let mut outputs = lhr_engine::collision_query::CollisionLineOutputs {
+                            point: None,
+                            normal: None,
+                        };
+                        let mut trav =
+                            lhr_engine::collision_query::CollisionTraversalState::default();
+                        let ground = match world.test_line_v(&request, &mut outputs, &mut trav) {
+                            Ok(Some(hit)) => last.position[1] + 4.0 - hit.fraction * 30.0,
+                            Ok(None) => f32::INFINITY,
+                            Err(_) => f32::NAN,
+                        };
+                        println!(
+                            "probe wedge ground {tag}: y={ground:.1} vs taxi y={:.1}",
+                            last.position[1]
+                        );
+                    }
+                }
+                if let Some((_, pick_deg, pick_travel)) = pick {
+                    let rad = pick_deg.to_radians();
+                    let best_travel = pick_travel;
+                    // Slot check: the center ray is thin, the taxi is ~2 m
+                    // wide. Parallel rays at ±1 m lateral tell a narrow
+                    // slot (sides blocked) from open road or a low
+                    // beach obstacle (all three free while the car sits).
+                    // Lateral rays use the same +0.4 m bumper height as
+                    // the main sweep so low props are not missed.
+                    let mut side = [0.0f32; 2];
+                    if let Some(world) = taxi.driving_collision() {
+                        for (i, s) in [-1.0f32, 1.0].iter().enumerate() {
+                            let request = lhr_engine::collision_query::CollisionLineRequest {
+                                origin: [
+                                    last.position[0] + rad.cos() * s,
+                                    last.position[1] + 0.4,
+                                    last.position[2] - rad.sin() * s,
+                                ],
+                                delta: [rad.sin() * 30.0, 0.0, rad.cos() * 30.0],
+                                selector: -1,
+                                reject_mask: 0,
+                            };
+                            let mut outputs = lhr_engine::collision_query::CollisionLineOutputs {
+                                point: None,
+                                normal: None,
+                            };
+                            let mut trav =
+                                lhr_engine::collision_query::CollisionTraversalState::default();
+                            side[i] = match world.test_line_v(&request, &mut outputs, &mut trav) {
+                                Ok(Some(hit)) => hit.fraction * 30.0,
+                                Ok(None) => 30.0,
+                                Err(_) => 0.0,
+                            };
+                        }
+                    }
+                    let esc_target = [
+                        last.position[0] + rad.sin() * 40.0,
+                        last.position[1],
+                        last.position[2] + rad.cos() * 40.0,
+                    ];
+                    escape = Some((esc_target, drive_ticks + 100));
+                    println!(
+                        "probe drive: boxed {boxed_windows}x, escaping toward [{:.1}, {:.1}, {:.1}] free {best_travel:.1} m at {pick_deg:.0}° slot=[{:.1},{:.1}]",
+                        esc_target[0], esc_target[1], esc_target[2], side[0], side[1]
+                    );
+                } else {
+                    unstick = 250;
+                    escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
+                    println!(
+                        "probe drive: no progress in 120 ticks (moved {moved:.1} m, boxed {boxed_windows}x), pocket sealed (no free heading), K-turn from [{:.1}, {:.1}, {:.1}] wp {}/{} gap={gap:.1}",
+                        last.position[0],
+                        last.position[1],
+                        last.position[2],
                         waypoint + 1,
                         waypoints.len()
-                    ));
+                    );
+                }
+                if boxed_windows >= 5 {
+                    if rejoins < 2 {
+                        rejoins += 1;
+                        let (new_path, new_graph_m) = lhr_engine::mission_play::road_graph_path(
+                            &node_pos,
+                            &neighbors,
+                            node_count,
+                            last.position,
+                            dest_node,
+                        )
+                        .ok_or("Rejoin path from boxed pose to detector_konec lost")?;
+                        waypoints.clear();
+                        for index in &new_path {
+                            let Some(p) = node_pos(*index) else {
+                                return Err(format!("Rejoin path node {index} lost its position"));
+                            };
+                            waypoints.push(p);
+                        }
+                        waypoint = 0;
+                        boxed_windows = 0;
+                        unstick = 0;
+                        uturn = None;
+                        println!(
+                            "probe drive: rejoin {rejoins}/2 from [{:.1}, {:.1}, {:.1}]: {} waypoints, {:.0} m by graph",
+                            last.position[0], last.position[1], last.position[2],
+                            waypoints.len(), new_graph_m
+                        );
+                        for (n, wp) in waypoints.iter().enumerate().take(6) {
+                            println!(
+                                "probe drive: releg {}/{} at [{:.1}, {:.1}, {:.1}]",
+                                n + 1,
+                                waypoints.len(),
+                                wp[0],
+                                wp[1],
+                                wp[2]
+                            );
+                        }
+                    } else {
+                        return Err(format!(
+                            "Taxi boxed at waypoint {}/{} gap {gap:.1} m after {boxed_windows} still windows",
+                            waypoint + 1,
+                            waypoints.len()
+                        ));
+                    }
                 }
             } else if moved >= 2.5 {
                 boxed_windows = 0;
@@ -1414,7 +1758,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         }
         if stall_ticks > 150 {
             stall_ticks = 0;
-            unstick = 80;
+            unstick = 250;
+            escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
             println!(
                 "probe drive: stalled at waypoint {}/{} gap {gap:.1} m, reversing out",
                 waypoint + 1,

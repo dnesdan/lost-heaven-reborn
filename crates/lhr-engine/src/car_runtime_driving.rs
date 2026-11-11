@@ -519,6 +519,41 @@ impl CarRuntime {
                 .contact_queries
         ))
     }
+    /// Read-only view of the driving collision world for probe diagnostics
+    /// and geometry-directed escape. Borrows the actual owner; the probe
+    /// sweeps the same KLZ data the body simulation hits.
+    pub fn driving_collision(
+        &self,
+    ) -> Option<&crate::collision_world_driving::DrivingCollisionWorld> {
+        self.driving.as_ref().map(|s| s.world.collision())
+    }
+    /// Read-only drivetrain words for probe diagnostics: (offset, value)
+    /// pairs for the current/requested gear, engine enable byte, power
+    /// channels, brake input/ramp, motor rotation, clutch target and
+    /// steering target. Lets a boxed probe tell a dead engine or refused
+    /// gearbox apart from real geometry. Missing offsets report None
+    /// instead of failing the whole readout.
+    pub fn driving_vehicle_words(&self) -> Result<Vec<(u32, Option<u32>)>, String> {
+        let car = self.car.as_ref().ok_or("Driving has no car owner")?;
+        let bytes = car.as_bytes();
+        let mut out = Vec::with_capacity(10);
+        for offset in [
+            0x55cu32, 0x560, 0x3a4, 0x3a8, 0x5b8, 0x3cc, 0x59c, 0x624, 0x548, 0x5e0,
+        ] {
+            let start = offset as usize;
+            let value = start
+                .checked_add(4)
+                .and_then(|end| bytes.get(start..end))
+                .and_then(|span| span.try_into().ok())
+                .map(u32::from_le_bytes);
+            out.push((offset, value));
+        }
+        let engine = bytes.get(0xc2c).copied().map(u32::from);
+        out.push((0xc2c, engine));
+        Ok(out)
+    }
+    /// Wheel state rows for probe diagnostics: word pairs at the same
+    /// offsets the contact counter reads, per wheel.
     pub fn driving_wheel_diagnostics(&mut self) -> Result<Vec<[u32; 6]>, String> {
         let car = self.car.as_ref().ok_or("Driving has no car owner")?;
         let bytes = car.as_bytes();
