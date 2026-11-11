@@ -1104,7 +1104,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // Learned trap ledger: boxed poses that defeated escape steering,
     // K-turn rocking and the clutch lift (open-diff burnout with no
     // native traction control to brake the free wheel). Seeded with
-    // four evidenced furniture pockets: [-1314,-227] (clutch
+    // six evidenced furniture pockets: [-1314,-227] (clutch
     // stall-shudder wedge, 15+ probe_wedge runs), [-628,164]
     // (beached/dangling driven wheels, probe_rock/steer/torque/slip
     // runs, exit 1 after both rejoin budgets there), [-147,-163]
@@ -1112,7 +1112,11 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // rejoin 1/2 forced) and [-1265.7,-426.9] (probe_konec2: clutch
     // 1.0/0x20, all wheels in contact on flat ground, spin turning,
     // 0.0 m/s — body hung on a low rail the +0.4 m rays fly over;
-    // rejoin 2/2 forced, then boxed at its wp 2). Edges whose segment
+    // rejoin 2/2 forced, then boxed at its wp 2) and [-1307.8,-702.0]
+    // / [-1305.8,-714.0] (probe_seeds4 rejoins 1-2/2; that run then
+    // drove 30000+ ticks to wp 16/74 before wedging at [-1429,-557]
+    // in a recompute-arm sag: 0x5dc 0.44->0.36, flags 0x24, motor ~25,
+    // wheels turning in contact, 0.3-0.6 m per push). Edges whose segment
     // passes within 45 m of a trap get a large additive penalty, so
     // Dijkstra prefers drivable streets; a pocket on the only link
     // still routes through it (finite penalty), which the probe then
@@ -1122,6 +1126,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         [-628.0, 4.4, 165.0],
         [-147.5, 13.6, -162.7],
         [-1265.7, -7.1, -426.9],
+        [-1307.8, -6.6, -702.0],
+        [-1305.8, -6.7, -714.0],
     ]);
     let penalized = |node: usize, out: &mut Vec<(usize, f32)>| {
         neighbors(node, out);
