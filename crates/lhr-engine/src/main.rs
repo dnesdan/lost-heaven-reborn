@@ -1104,7 +1104,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // Learned trap ledger: boxed poses that defeated escape steering,
     // K-turn rocking and the clutch lift (open-diff burnout with no
     // native traction control to brake the free wheel). Seeded with
-    // twelve evidenced furniture pockets: [-1314,-227] (clutch
+    // fourteen evidenced furniture pockets: [-1314,-227] (clutch
     // stall-shudder wedge), [-628,164] (beached/dangling driven wheels),
     // [-147,-163] (escape + K-turn + lift all defeated), [-1265.7,-426.9]
     // (all wheels in contact on flat ground, 0.0 m/s — hung on a low
@@ -1115,7 +1115,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // [-1257.6,-7.9,71.5] (probe_rejoin: rejoin fires after the
     // box-reset fix, K-turn runs 5.4->9.9->11.9 m to wp 2/54, then
     // beaches 25 m on), [-1287.0,-6.7,-706.1] / [-1298.0,-6.5,-718.8]
-    // (probe_p10: same furniture field as seeds 5-6, rotation churn).
+    // (probe_p10: same furniture field as seeds 5-6, rotation churn),
+    // [-1253.7,-7.7,24.8] / [-1237.8,-7.8,40.3] (probe_pullout: rejoin
+    // fires, K-turn runs full phases, wedges 25 m past wp 1 on flat
+    // ground with all wheels in contact — stall-shudder equilibrium).
     // Edges whose segment
     // passes within 45 m of a trap get a large additive penalty, so
     // Dijkstra prefers drivable streets; a pocket on the only link
@@ -1134,6 +1137,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         [-1257.6, -7.9, 71.5],
         [-1287.0, -6.7, -706.1],
         [-1298.0, -6.5, -718.8],
+        [-1253.7, -7.7, 24.8],
+        [-1237.8, -7.8, 40.3],
     ]);
     // Seeds are never evicted; learned pockets rotate in the slots above
     // the seed count so the ledger stays bounded while surviving new
