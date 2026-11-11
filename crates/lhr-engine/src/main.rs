@@ -1104,7 +1104,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // Learned trap ledger: boxed poses that defeated escape steering,
     // K-turn rocking and the clutch lift (open-diff burnout with no
     // native traction control to brake the free wheel). Seeded with
-    // six evidenced furniture pockets: [-1314,-227] (clutch
+    // eight evidenced furniture pockets: [-1314,-227] (clutch
     // stall-shudder wedge, 15+ probe_wedge runs), [-628,164]
     // (beached/dangling driven wheels, probe_rock/steer/torque/slip
     // runs, exit 1 after both rejoin budgets there), [-147,-163]
@@ -1116,11 +1116,11 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // / [-1305.8,-714.0] (probe_seeds4 rejoins 1-2/2; that run then
     // drove 30000+ ticks to wp 16/74 before wedging at [-1429,-557]
     // in a recompute-arm sag: 0x5dc 0.44->0.36, flags 0x24, motor ~25,
-    // wheels turning in contact, 0.3-0.6 m per push) and [-1349.6,-638.1]
-    // (probe_sag: built from 6 seeds + sag-lift, drove ~100 m out of the
-    // [-1424] pocket via K-turn + re-lift, then wedged with the K-turn
-    // silently eaten by a latched U-turn — no phase sample ever fired).
-    // Edges whose segment
+    // wheels turning in contact, 0.3-0.6 m per push), [-1349.6,-638.1]
+    // (probe_sag: K-turn eaten by a latched U-turn) and [-1431.6,-248.9]
+    // (probe_crash: re-lift + K-turn drove through the Dependency abort
+    // point at 7 m/s, then wedged at a standstill with the K-turn again
+    // eaten mid-cycle by a re-latched U-turn). Edges whose segment
     // passes within 45 m of a trap get a large additive penalty, so
     // Dijkstra prefers drivable streets; a pocket on the only link
     // still routes through it (finite penalty), which the probe then
@@ -1133,6 +1133,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         [-1307.8, -6.6, -702.0],
         [-1305.8, -6.7, -714.0],
         [-1349.6, -6.3, -638.1],
+        [-1431.6, -6.9, -248.9],
     ]);
     // Seeds are never evicted; learned pockets rotate in the slots above
     // the seed count so the ledger stays bounded while surviving new
@@ -1514,13 +1515,18 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             err = cross.atan2(dot);
             aligned = dot > 0.5 * speed_hint * gap;
             if uturn.is_none()
+                && unstick == 0
                 && !aligned
                 && dot < -0.3 * speed_hint * gap
                 && last.speed.abs() > 2.0
             {
                 // Target behind: latch full lock toward its side. Cross>0
                 // puts the target LEFT of motion, which needs negative
-                // steer (positive steer turns right).
+                // steer (positive steer turns RIGHT). Never latch mid
+                // K-turn: the reverse phases legitimately move with the
+                // target behind, and a fresh latch would zero `unstick`
+                // below and eat the rest of the cycle (no phase sample
+                // ever fired at [-1431.6,-248.9]).
                 uturn = Some(if cross >= 0.0 { -1.0 } else { 1.0 });
                 println!(
                     "probe drive: U-turn latched at [{:.1}, {:.1}, {:.1}] speed={:.1}",
@@ -1544,12 +1550,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         }
         // A latched U-turn overrides the K-turn: rotation in the open is
         // progress, never a wedge. If the taxi stops mid-turn, drop the
-        // latch so the K-turn unstick can work free instead.
+        // latch so the K-turn unstick can work free instead. While a
+        // K-turn runs it owns pedals and steering outright: an override
+        // here would zero `unstick` mid-cycle and strand the taxi in the
+        // pocket it was rocking out of.
         if speed_hint <= 1e-4 {
             uturn = None;
         }
-        if uturn.is_some() {
-            unstick = 0;
+        if uturn.is_some() && unstick == 0 {
             steer = uturn.unwrap_or(0.0);
         }
         // Static escape steering: the velocity block above leaves steer
