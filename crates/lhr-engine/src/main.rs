@@ -1290,6 +1290,15 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // K-turn stays as the fallback for sealed pockets. Holds a virtual
     // target plus its expiry tick.
     let mut escape: Option<([f32; 3], u32)> = None;
+    // Clutch lift: coast ticks with both pedals released at the start of
+    // an escape. A boxed taxi pushes with a disengaged clutch (0x5dc~0.06,
+    // flags 0x2c); driving on would keep the copy-path trap pinned by
+    // wedged_clutch_copy_path_self_sustains_under_full_throttle. Coasting
+    // runs the native power<=threshold arm, which snaps 0x5dc to max and
+    // requests Engaging (pinned by
+    // wedged_clutch_throttle_lift_snaps_progress_to_max_and_requests_engage),
+    // so the escape pursuit that follows pushes with a live clutch.
+    let mut lift = 0u32;
     while progress.stage() == Mise01Stage::DrivingToDestination {
         // Geometry-directed escape overrides the staged waypoint until it
         // expires or the taxi arrives within 3 m of the virtual target.
@@ -1403,6 +1412,50 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 steer = escape_steer;
                 (0.6, 0.0, false, false)
             }
+        } else if lift > 0 {
+            // Clutch lift coast: both pedals released, keep the computed
+            // steer (zero while standing still). The unstick reverse above
+            // keeps priority: it already coasts on the brake-as-throttle
+            // mapping, so the lift only ever shapes forward driving.
+            lift -= 1;
+            if lift == 0 {
+                println!(
+                    "probe drive: clutch lift done, pushing toward [{:.1}, {:.1}, {:.1}]",
+                    target[0], target[1], target[2]
+                );
+                // Decisive readout: did the native snap arm actually run
+                // live? Compare 0x5dc/0x5e8 here against the boxed snapshot
+                // (0x5dc~0.06, 0x5e8=0x2c): 0x5dc=1.0/0x5e8=0x21 means the
+                // lift coast re-engaged, anything else names the live arm
+                // that overrode it.
+                match taxi.driving_vehicle_words() {
+                    Ok(words) => {
+                        let mut line = String::from("probe lift clutch:");
+                        for (offset, value) in words {
+                            if matches!(
+                                offset,
+                                0x55c
+                                    | 0x3a4
+                                    | 0x548
+                                    | 0x5e0
+                                    | 0x5dc
+                                    | 0x5e8
+                                    | 0x540
+                                    | 0x59c
+                                    | 0x1a4
+                            ) {
+                                match value {
+                                    Some(word) => line.push_str(&format!(" {offset:#x}={word:#x}")),
+                                    None => line.push_str(&format!(" {offset:#x}=?")),
+                                }
+                            }
+                        }
+                        println!("{line}");
+                    }
+                    Err(error) => println!("probe lift clutch stopped: {error}"),
+                }
+            }
+            (0.0, 0.0, false, false)
         } else if speed > target_speed + 2.0 {
             (0.0, 0.8, false, false)
         } else if speed > target_speed {
@@ -1690,6 +1743,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         last.position[2] + rad.cos() * 40.0,
                     ];
                     escape = Some((esc_target, drive_ticks + 100));
+                    // Lift first: snap the disengaged clutch back to max
+                    // before the escape pursuit pushes (10 ticks is ample;
+                    // the snap itself lands on the first coast tick).
+                    lift = 10;
                     println!(
                         "probe drive: boxed {boxed_windows}x, escaping toward [{:.1}, {:.1}, {:.1}] free {best_travel:.1} m at {pick_deg:.0}° slot=[{:.1},{:.1}]",
                         esc_target[0], esc_target[1], esc_target[2], side[0], side[1]
@@ -1728,6 +1785,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         boxed_windows = 0;
                         unstick = 0;
                         uturn = None;
+                        lift = 0;
                         println!(
                             "probe drive: rejoin {rejoins}/2 from [{:.1}, {:.1}, {:.1}]: {} waypoints, {:.0} m by graph",
                             last.position[0], last.position[1], last.position[2],

@@ -738,6 +738,105 @@ fn wedged_clutch_negative_target_takes_recompute_path() {
 }
 
 #[test]
+fn wedged_clutch_throttle_lift_snaps_progress_to_max_and_requests_engage() {
+    // Same wedge snapshot as the copy-path trap, but with the throttle
+    // released (0x3a4 = 0.0, so power 0x540 <= threshold 0x24): the ported
+    // tick.clutch() takes the power<=threshold arm, snaps 0x5dc to the max
+    // 0x5e4, clears the stall bits and requests Engaging (bit0). This pins
+    // the native-modelled re-engage entry the probe choreography can drive
+    // without touching ported logic (no overlay entry, no REA evidence ID).
+    let mut b = Backend::new(0);
+    b.float(0xc30, 10.0);
+    b.float(0x498, 1.0);
+    b.float(0x434, 1.0);
+    b.bytes[0x432] = 1;
+    b.put(0xc68, 0x20);
+    b.bytes[0xc2c] = 1;
+    b.put(0x55c, 1);
+    b.put(0x560, 1);
+    b.float(0x3a4, 0.0);
+    b.float(0x3a8, 0.0);
+    b.float(0x540, 0.0);
+    b.put(0x24, 0x3dde_b334);
+    b.put(0x548, 0x422d_af12);
+    b.put(0x5ec, 0x4155_5556);
+    b.put(0x5c8, 0x422d_5556);
+    b.put(0x5c4, 0x4155_5556);
+    b.put(0x5c0, 0x4155_5556);
+    b.put(0x5dc, 0x3d73_287b);
+    b.put(0x5cc, 0x3d73_287b);
+    b.float(0x5e4, 1.0);
+    b.float(0x5e0, 1.0);
+    b.put(0x5d4, 0x4055_5555);
+    b.put(0x5d8, 0x40a0_0000);
+    b.put(0x5e8, 0x2c);
+    b.put(0x1a4, 1);
+    b.put(0x59c, 0x3c95_39e4);
+    b.float(0x1f9c, 600.0);
+    b.float(0x488, 200.0);
+    b.float(0x5d0, 4.0);
+    assert_eq!(run(&mut b, 16).0, Ok(()));
+    // Clutch snapped to max, target parked at -1.0, Engaging requested
+    // (bit0) with the stall bits cleared; gear and lifted throttle survive.
+    assert_eq!(b.word(0x5dc), 1.0_f32.to_bits());
+    assert_eq!(b.word(0x5cc), 0xbf80_0000);
+    assert_eq!(b.word(0x5e8), 0x21);
+    assert_eq!(b.word(0x55c), 1);
+    assert_eq!(b.word(0x540), 0.0_f32.to_bits());
+}
+
+#[test]
+fn wedged_clutch_even_motion_flag_defers_snap_by_one_tick() {
+    // Live wedge snapshots show 0x1a4 both set (0x1) and clear (0x2). With
+    // bit0 clear the tick takes the early coasting arm: it republishes the
+    // motor rotation, sets bit0 and returns Complete, so clutch() never
+    // runs and the snap waits for the next tick. (prepare_motion_state
+    // clears bit1 every tick, so an even seed lands on 0x1, not 0x3.)
+    // This pins that the lift needs at least two coast ticks from an
+    // even flag, not that it is refused (no overlay entry, no REA
+    // evidence ID).
+    let mut b = Backend::new(0);
+    b.float(0xc30, 10.0);
+    b.float(0x498, 1.0);
+    b.float(0x434, 1.0);
+    b.bytes[0x432] = 1;
+    b.put(0xc68, 0x20);
+    b.bytes[0xc2c] = 1;
+    b.put(0x55c, 1);
+    b.put(0x560, 1);
+    b.float(0x3a4, 0.0);
+    b.float(0x3a8, 0.0);
+    b.float(0x540, 0.0);
+    b.put(0x24, 0x3dde_b334);
+    b.put(0x548, 0x422d_af12);
+    b.put(0x5ec, 0x4155_5556);
+    b.put(0x5c8, 0x422d_5556);
+    b.put(0x5c4, 0x4155_5556);
+    b.put(0x5c0, 0x4155_5556);
+    b.put(0x5dc, 0x3d73_287b);
+    b.put(0x5cc, 0x3d73_287b);
+    b.float(0x5e4, 1.0);
+    b.float(0x5e0, 1.0);
+    b.put(0x5d4, 0x4055_5555);
+    b.put(0x5d8, 0x40a0_0000);
+    b.put(0x5e8, 0x2c);
+    b.put(0x1a4, 2);
+    b.put(0x59c, 0x3c95_39e4);
+    b.float(0x1f9c, 600.0);
+    b.float(0x488, 200.0);
+    b.float(0x5d0, 4.0);
+    assert_eq!(run(&mut b, 16).0, Ok(()));
+    // Early arm: clutch untouched, motion bit set for the next tick.
+    assert_eq!(b.word(0x5dc), 0x3d73_287b);
+    assert_eq!(b.word(0x1a4), 1);
+    // Second coast tick reaches clutch() and snaps like the odd-flag case.
+    assert_eq!(run(&mut b, 16).0, Ok(()));
+    assert_eq!(b.word(0x5dc), 1.0_f32.to_bits());
+    assert_eq!(b.word(0x5cc), 0xbf80_0000);
+    assert_eq!(b.word(0x5e8), 0x21);
+}
+
+#[test]
 fn a_failed_callback_retains_its_own_mutations_and_stops_later_phases() {
     let mut completed = callback_fixture();
     completed.capture_prefixes = true;
