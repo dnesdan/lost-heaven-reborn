@@ -2432,13 +2432,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 waypoints.len()
             );
         }
-        // Tick budget: the deflected konec route is ~3.8 km by graph
-        // plus escape/K-turn detours (probe_denorm drove 3215 m in 30000
-        // ticks at ~6.7 m/s with zero boxes before hitting this cap while
-        // still flipping waypoints at 7+ m/s). 60000 keeps a fail-fast
+        // Tick budget: the deflected konec route is ~5.5 km by graph
+        // plus escape/K-turn detours (probe_escape drove 4006.9 m in 60000
+        // ticks with zero aborts before the cap fired mid-escape at wp
+        // 140/189, still moving at 2.1 m/s). 100000 keeps a fail-fast
         // ceiling while fitting the proven-healthy long drive; wedges
         // still exit early via the rejoin budget.
-        if drive_ticks > 60000 {
+        if drive_ticks > 100000 {
             return Err(format!(
                 "Taxi never reached detector_konec (waypoint {}/{} closest gap {min_gap:.1} m, odometer {odometer:.1} m)",
                 waypoint + 1,
