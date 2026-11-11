@@ -1607,13 +1607,16 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         let target_speed = (gap * 0.5 * align).clamp(3.0, 14.0);
         let speed = last.speed.abs();
         // Sag-triggered re-lift: while an escape push grinds at ~0 speed,
-        // sample the live clutch progress every 30 ticks; below 0.9
-        // (0x5dc < 0x3f666666) the native recompute arm has re-trapped it
+        // sample the live clutch progress every 12 ticks; below 0.95
+        // (0x5dc < 0x3f733333) the native recompute arm has re-trapped it
         // under load, so coast 3 ticks to re-snap to max. Measured hold
         // (probe_sag2 traces at [-1429,-245]): snap to 1.0, droop below
-        // 0.9 within ~10 ticks, decay to 0.15-0.5, so re-lift at most
-        // every 30 ticks (each sample); never during the reverse K-turn
-        // (unstick owns the pedals there) or an active lift coast.
+        // 0.9 within ~10 ticks, decay to 0.15-0.5 — so the re-lift must
+        // fire nearly every sample, not every 150 ticks (that cadence
+        // left the clutch sagged ~90% of the grind and the taxi never
+        // broke 0.5 m/s at [-1441,-269]). Bounded cost: 3 coast ticks
+        // per re-lift. Never during the reverse K-turn (unstick owns
+        // the pedals there) or an active lift coast.
         // Trajectory log: every 10th escape-push tick records the clutch
         // words, so the snap→decay curve is measurable per grind pocket
         // (hold duration decides the re-lift cadence).
@@ -1638,8 +1641,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             && unstick == 0
             && lift == 0
             && speed < 1.5
-            && drive_ticks.wrapping_sub(last_sag_lift) >= 30
-            && drive_ticks % 30 == 0
+            && drive_ticks.wrapping_sub(last_sag_lift) >= 12
+            && drive_ticks % 12 == 0
         {
             if let Ok(words) = taxi.driving_vehicle_words() {
                 let mut progress_bits = 0x3f80_0000u32;
@@ -1648,7 +1651,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         progress_bits = value.unwrap_or(0x3f80_0000);
                     }
                 }
-                if progress_bits < 0x3f66_6666 {
+                if progress_bits < 0x3f73_3333 {
                     lift = 3;
                     last_sag_lift = drive_ticks;
                     wheel_slip = false;
