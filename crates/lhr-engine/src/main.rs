@@ -1254,6 +1254,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     let mut drive_ticks = 0u32;
     let mut stall_ticks = 0u32;
     let mut unstick = 0u32;
+    // Pull-out extension rounds used (max 2 per K-turn, see rolling exit).
+    let mut unstick_extend = 0u32;
     let mut unstick_from = [0.0f32; 3];
     let mut boxed_windows = 0u32;
     // Steering side latched when a wedge triggers the unstick: steer
@@ -1645,6 +1647,20 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 (0.0, 1.0, false, true)
             } else {
                 steer = escape_steer;
+                // Rolling exit: ending the fixed 40-tick pull-out at ~0
+                // speed resumes pursuit straight back into the prop
+                // (probe_p12 exit 1: pull-outs ended at 0.3-0.5 m/s, taxi
+                // re-boxed at wp 1). Hold the pull-out up to two extra
+                // 40-tick rounds until the taxi rolls at 3+ m/s, so
+                // velocity steering takes over meaningfully. Bounded, so
+                // a truly beached taxi still ends the K-turn.
+                if unstick == 1 && speed < 3.0 && unstick_extend < 2 {
+                    unstick = 39;
+                    unstick_extend += 1;
+                    println!(
+                        "probe drive: pull-out extended ({unstick_extend}/2) at speed {speed:.1}"
+                    );
+                }
                 (0.6, 0.0, false, false)
             }
         } else if lift > 0 {
@@ -2262,6 +2278,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         unstick = 250;
                         unstick_from = last.position;
                         uturn = None;
+                        unstick_extend = 0;
                         escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
                         escape = None;
                         lift = 0;
@@ -2313,6 +2330,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     unstick = 250;
                     unstick_from = last.position;
                     uturn = None;
+                    unstick_extend = 0;
                     escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
                     println!(
                         "probe drive: no progress in 120 ticks (moved {moved:.1} m, boxed {boxed_windows}x), pocket sealed (no free heading), K-turn from [{:.1}, {:.1}, {:.1}] wp {}/{} gap={gap:.1}",
@@ -2433,6 +2451,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         if stall_ticks > 150 {
             stall_ticks = 0;
             unstick = 250;
+            unstick_extend = 0;
             escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
             println!(
                 "probe drive: stalled at waypoint {}/{} gap {gap:.1} m, reversing out",
