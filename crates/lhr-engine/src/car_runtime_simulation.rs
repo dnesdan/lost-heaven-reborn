@@ -48,6 +48,11 @@ pub(crate) struct SimulationState {
     /// frame virtuals no owner serves yet. Recorded MissionHelpLog-style,
     /// never replayed; the taxi keeps the StaticResponse outcome.
     pub lamp_breaks: Vec<crate::vehicle_damage::LampBreakRequest>,
+    /// Staged occupant-impact intents (car_impact_callback amplitude gate
+    /// over a non-empty +0xd14 list) whose per-occupant Hit no owner
+    /// serves yet. Recorded MissionHelpLog-style, never replayed; the
+    /// taxi keeps the StaticResponse outcome.
+    pub impact_occupants: Vec<crate::vehicle_car_contacts::VehicleCarImpactOccupants>,
     /// Explicit standalone caller-stack fill for the empty allocator byte.
     pub allocator_marker: u8,
     /// Original process atexit registrations, retained in registration order.
@@ -941,6 +946,17 @@ where
             },
         )
         .map_err(|e| Error::Effect(failure(e)))
+    }
+    fn car_contact_impact_occupants(
+        &mut self,
+        call: crate::vehicle_car_contacts::VehicleCarImpactOccupants,
+    ) -> Result<(), crate::vehicle_car_contacts::VehicleCarContactUnavailable<String>> {
+        // The amplitude gate and native (begin, end, count) resolution
+        // already ran in the callback; the per-occupant Hit application
+        // (C_human::HitInCar) stays with the future human/car owner, so
+        // the intent stages into the session queue instead of aborting.
+        self.state.impact_occupants.push(call);
+        Ok(())
     }
     fn car_contact_material(&mut self, p: u32) -> Result<u8, String> {
         self.contact_primitive_material(p)

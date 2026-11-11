@@ -20,6 +20,16 @@ pub trait VehicleCarContactBackend: VehicleInitBackend {
     fn car_contact_impact_burst(&mut self, call: VehicleCarImpactBurst) -> Out<(), Self::Error> {
         boundary(VehicleCarContactBoundary::ImpactParticleBurst(call.count))
     }
+    /// Occupant-impact intent staging. The default refuses loudly, like
+    /// every other unowned virtual intent; owners that stage it record
+    /// the call and keep the StaticResponse outcome.
+    fn car_contact_impact_occupants(
+        &mut self,
+        call: VehicleCarImpactOccupants,
+    ) -> Out<(), Self::Error> {
+        let _ = call;
+        boundary(VehicleCarContactBoundary::ImpactOccupants)
+    }
     fn car_contact_material(&mut self, descriptor: u32) -> Result<u8, Self::Error> {
         self.read_byte(descriptor.wrapping_add(3))
     }
@@ -29,6 +39,27 @@ pub trait VehicleCarContactBackend: VehicleInitBackend {
     fn car_contact_actor_owner(&mut self, descriptor: u32) -> Result<u32, Self::Error> {
         self.read_word(descriptor.wrapping_add(0x44))
     }
+}
+/// One staged occupant-impact intent: the amplitude gate fired over a
+/// non-empty occupant list, but the per-occupant Hit application stays
+/// with the future human/car owner. Reference: `C_human::HitInCar`
+/// (GAME 0x578290, `game/actors/C_human.cpp:4359`), which counts type
+/// `HIT_IN_CAR` (5) against seat-owner energy; the seat-record topology
+/// beyond the 0x24 stride is unrecovered (no instruction walk here, no
+/// overlay credit). Recorded MissionHelpLog-style, never replayed; the
+/// taxi keeps the already-applied StaticResponse outcome.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VehicleCarImpactOccupants {
+    /// Car address carrying the +0xd14/+0xd18 occupant list.
+    pub car: u32,
+    /// List begin word (car+0xd14).
+    pub begin: u32,
+    /// List end word (car+0xd18).
+    pub end: u32,
+    /// Native signed record count: `(end-begin) as i32 / 0x24`.
+    pub count: i32,
+    /// Raw amplitude bits at the gate (strength-threshold scaled).
+    pub amplitude_bits: u32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VehicleCarContactBoundary {
@@ -290,9 +321,11 @@ fn impact_vector<B: VehicleInitBackend + ?Sized>(
         float(b, address + 8)?,
     ])
 }
-/// Complete ordinary static/no-occupant path. Particle, occupant and force
-/// feedback dependencies retain precise original call boundaries; they never
-/// produce a fabricated successful effect.
+/// Complete ordinary static path with staged occupant intents. Particle,
+/// force-feedback dependencies retain precise original call boundaries;
+/// they never produce a fabricated successful effect. The occupant
+/// branch stages its intent for the future human/car owner instead of
+/// aborting the tick; the per-occupant Hit stays unapplied.
 pub fn car_impact_callback<B: VehicleCarContactBackend + ?Sized>(
     b: &mut B,
     car: u32,
@@ -389,8 +422,16 @@ pub fn car_impact_callback<B: VehicleCarContactBackend + ?Sized>(
     }
     if amplitude > 0. {
         let begin = read(b, car + 0xd14)?;
-        if begin != 0 && (read(b, car + 0xd18)?.wrapping_sub(begin) as i32 / 0x24) != 0 {
-            return boundary(VehicleCarContactBoundary::ImpactOccupants);
+        let end = read(b, car + 0xd18)?;
+        let count = end.wrapping_sub(begin) as i32 / 0x24;
+        if begin != 0 && count != 0 {
+            b.car_contact_impact_occupants(VehicleCarImpactOccupants {
+                car,
+                begin,
+                end,
+                count,
+                amplitude_bits: amplitude.to_bits(),
+            })?;
         }
     }
     if byte(b, car + 0x20f5)? != 0 {
@@ -481,6 +522,24 @@ mod impact_tests {
                 self.write_word(0x6004 + i as u32 * 4, value.to_bits())
                     .map_err(VehicleCarContactUnavailable::Effect)?;
             }
+            Ok(())
+        }
+        fn car_contact_impact_occupants(
+            &mut self,
+            call: VehicleCarImpactOccupants,
+        ) -> Out<(), Self::Error> {
+            // Test-only staging mirror: records the native (car, begin,
+            // end, count, amplitude) resolution into scratch words.
+            self.write_word(0x6100, call.car)
+                .map_err(VehicleCarContactUnavailable::Effect)?;
+            self.write_word(0x6104, call.begin)
+                .map_err(VehicleCarContactUnavailable::Effect)?;
+            self.write_word(0x6108, call.end)
+                .map_err(VehicleCarContactUnavailable::Effect)?;
+            self.write_word(0x610c, call.count as u32)
+                .map_err(VehicleCarContactUnavailable::Effect)?;
+            self.write_word(0x6110, call.amplitude_bits)
+                .map_err(VehicleCarContactUnavailable::Effect)?;
             Ok(())
         }
     }
@@ -632,5 +691,58 @@ mod impact_tests {
         );
         assert_eq!(m.read_word(CAR + 0x168).unwrap(), 3);
         assert_eq!(f32::from_bits(m.read_word(CAR + 0x20c4).unwrap()), 100.);
+    }
+    fn occupant_memory(records: u32) -> VehicleFrameMemory {
+        let mut m = memory();
+        m.map_bytes(0x6100, &[0; 20]).unwrap();
+        if records > 0 {
+            m.map_bytes(0x8000, &vec![0; records as usize * 0x24])
+                .unwrap();
+            m.write_word(CAR + 0xd14, 0x8000).unwrap();
+            m.write_word(CAR + 0xd18, 0x8000 + records * 0x24).unwrap();
+        }
+        m
+    }
+    fn staged(m: &mut VehicleFrameMemory) -> (u32, u32, u32, u32, u32) {
+        (
+            m.read_word(0x6100).unwrap(),
+            m.read_word(0x6104).unwrap(),
+            m.read_word(0x6108).unwrap(),
+            m.read_word(0x610c).unwrap(),
+            m.read_word(0x6110).unwrap(),
+        )
+    }
+    #[test]
+    fn empty_occupant_list_passes_through_without_staging() {
+        // Null list head: the gate never fires, the tick continues past
+        // into health and flag stores exactly like the no-occupant path.
+        let mut m = occupant_memory(0);
+        car_impact_callback(&mut m, CAR, call([0., 900., 0.])).unwrap();
+        assert_eq!(staged(&mut m), (0, 0, 0, 0, 0));
+        assert_eq!(m.read_byte(CAR + 0x20c8).unwrap(), 1);
+        assert_eq!(m.read_word(CAR + 0x168).unwrap(), 2);
+    }
+    #[test]
+    fn populated_occupant_list_stages_native_begin_end_and_count() {
+        // Two 0x24 records: stages (car, begin, end, count 2) plus the
+        // positive amplitude bits, then continues the tick normally.
+        let mut m = occupant_memory(2);
+        car_impact_callback(&mut m, CAR, call([0., 900., 0.])).unwrap();
+        let (car, begin, end, count, amplitude_bits) = staged(&mut m);
+        assert_eq!(
+            (car, begin, end, count),
+            (CAR, 0x8000, 0x8000 + 2 * 0x24, 2)
+        );
+        assert!(f32::from_bits(amplitude_bits) > 0.);
+        assert_eq!(m.read_byte(CAR + 0x20c8).unwrap(), 1);
+    }
+    #[test]
+    fn weak_impact_below_threshold_stages_nothing() {
+        // Strength 0.1 stays below the 8.2 static threshold: amplitude
+        // never goes positive, so even a populated list stages nothing.
+        let mut m = occupant_memory(2);
+        car_impact_callback(&mut m, CAR, call([0., 10., 0.])).unwrap();
+        assert_eq!(staged(&mut m), (0, 0, 0, 0, 0));
+        assert_eq!(f32::from_bits(m.read_word(CAR + 0x20c4).unwrap()), 90.);
     }
 }
