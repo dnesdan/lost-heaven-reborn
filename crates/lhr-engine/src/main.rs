@@ -1201,6 +1201,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     let mut drive_ticks = 0u32;
     let mut stall_ticks = 0u32;
     let mut unstick = 0u32;
+    let mut unstick_from = [0.0f32; 3];
     let mut boxed_windows = 0u32;
     // Steering side latched when a wedge triggers the unstick: steer
     // toward the target side (err>=0 means target left, which needs
@@ -1344,6 +1345,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // heading; velocity steering takes over as soon as the taxi rolls.
     let mut approach = [0.0f32, 1.0];
     let mut escape_lock = 1.0f32;
+    // Latched wheel-slip state from the push sampler: any driven wheel
+    // with 0x80 set while the taxi stands still means the open
+    // differential feeds a dangling wheel. The escape push then holds
+    // the handbrake (rear wheels only, gradual ramp) to brake the
+    // spinner and send torque back to the gripping side — the native
+    // traction response, as host choreography.
+    let mut wheel_slip = false;
     while progress.stage() == Mise01Stage::DrivingToDestination {
         // Geometry-directed escape overrides the staged waypoint until it
         // expires or the taxi arrives within 3 m of the virtual target.
@@ -1469,6 +1477,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             // resumes pursuit with steer=0 straight back into the prop.
             // Reverse uses native gear -1 with the brake as motive power.
             unstick -= 1;
+            if unstick == 249 {
+                unstick_from = last.position;
+            }
             if unstick >= 100 {
                 steer = 0.0;
                 (0.0, 1.0, false, true)
@@ -1540,15 +1551,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             (0.0, 0.0, false, false)
         } else if escaping && last.speed.abs() < 1.5 {
             // Brake-torqued escape push: full throttle plus the handbrake
-            // (foot brake would zero the power channels in SetBrake, the
-            // handbrake runs on its own force channel with a gradual ramp).
-            // With an open differential and one dangling drive wheel, all
-            // torque escapes through the free wheel while the taxi sits
-            // still (slip flags set, 0x59c = 0). Loading the spinning
-            // wheel with the handbrake forces torque back to the gripping
-            // wheel — left-foot braking, as choreography. Only while
-            // escaping near-standstill; rolling pursuit keeps clean pedals.
-            (1.0 - 0.5 * steer.abs(), 0.0, true, false)
+            // ONLY while a driven wheel is actually slipping (latched
+            // wheel_slip from the push sampler below). A foot brake would
+            // zero the power channels in SetBrake; the handbrake runs on
+            // its own force channel with a gradual ramp, so it brakes
+            // the free spinner and lets torque reach the gripping wheel.
+            // Without slip the handbrake stays off so it can never hold
+            // the taxi itself.
+            (1.0 - 0.5 * steer.abs(), 0.0, wheel_slip, false)
         } else if speed > target_speed + 2.0 {
             (0.0, 0.8, false, false)
         } else if speed > target_speed {
@@ -1556,6 +1566,52 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         } else {
             (1.0 - 0.5 * steer.abs(), 0.0, false, false)
         };
+        // K-turn phase-boundary sample: does reverse engage the clutch
+        // (Disengage->Engage cycle from the gear change) and does the
+        // taxi move while backing/rotating/pulling out? Fires once per
+        // boundary per K-turn. Values 100/40/1 only occur via the
+        // decrement in the unstick arm above, so no extra gating needed.
+        if unstick == 100 || unstick == 40 || unstick == 1 {
+            let phase = if unstick == 100 {
+                "reverse-straight done"
+            } else if unstick == 40 {
+                "reverse-rotate done"
+            } else {
+                "pull-out done"
+            };
+            match taxi.driving_vehicle_words() {
+                Ok(words) => {
+                    let k_moved = (last.position[0] - unstick_from[0])
+                        .hypot(last.position[2] - unstick_from[2]);
+                    let mut line = format!(
+                        "probe kturn {phase}: moved {k_moved:.1} m pos=[{:.1},{:.1},{:.1}]:",
+                        last.position[0], last.position[1], last.position[2]
+                    );
+                    for (offset, value) in words {
+                        if matches!(
+                            offset,
+                            0x55c
+                                | 0x560
+                                | 0x3a4
+                                | 0x548
+                                | 0x5e0
+                                | 0x5dc
+                                | 0x5e8
+                                | 0x540
+                                | 0x59c
+                                | 0x1a4
+                        ) {
+                            match value {
+                                Some(word) => line.push_str(&format!(" {offset:#x}={word:#x}")),
+                                None => line.push_str(&format!(" {offset:#x}=?")),
+                            }
+                        }
+                    }
+                    println!("{line}");
+                }
+                Err(error) => println!("probe kturn sample stopped: {error}"),
+            }
+        }
         prev = last.position;
         last = taxi
             .driving_step(
@@ -1582,12 +1638,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 match taxi.driving_vehicle_words() {
                     Ok(words) => {
                         let mut line = format!(
-                            "probe push +{} ticks: moved {pushed:.1} m speed={:.1} pos=[{:.1},{:.1},{:.1}]:",
+                            "probe push +{} ticks: moved {pushed:.1} m speed={:.1} pos=[{:.1},{:.1},{:.1}] brake_torque={}:",
                             drive_ticks.wrapping_sub(lift_end_tick),
                             last.speed,
                             last.position[0],
                             last.position[1],
-                            last.position[2]
+                            last.position[2],
+                            wheel_slip
                         );
                         for (offset, value) in words {
                             if matches!(
@@ -1621,9 +1678,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     }
                     Err(error) => println!("probe push sample stopped: {error}"),
                 }
-                // Wheel positions and force gating during the push: which
-                // wheels are driven (0x120 bit 0x2), in contact (0x200),
-                // slipping (0x80), and where their centers sit.
+                // Wheel positions, live contact (0x8), force gating and
+                // spin during the push: which wheels are driven (0x2),
+                // touching right now (0x8), slipping (0x80), where their
+                // centers sit, and their visual spin angle (+0x114) whose
+                // delta across samples separates a spinning dangling
+                // wheel from a locked one. Any slipping driven wheel
+                // latches the brake-torque handbrake for the next pushes.
                 match taxi.driving_wheel_diagnostics() {
                     Ok(rows) => {
                         for (i, row) in rows.iter().enumerate() {
@@ -1633,13 +1694,17 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                 f32::from_bits(row[8]),
                             ];
                             let flags = row[4];
+                            if flags & 0x2 != 0 && flags & 0x80 != 0 {
+                                wheel_slip = true;
+                            }
                             println!(
-                                "probe push wheel {i}: pos=[{:.1},{:.1},{:.1}] flags={flags:#x} driven={} contact={} slip={}",
+                                "probe push wheel {i}: pos=[{:.1},{:.1},{:.1}] spin={:.2} flags={flags:#x} driven={} contact={} slip={}",
                                 pos[0],
                                 pos[1],
                                 pos[2],
+                                f32::from_bits(row[9]),
                                 flags & 0x2 != 0,
-                                flags & 0x200 != 0,
+                                flags & 0x8 != 0,
                                 flags & 0x80 != 0,
                             );
                         }
@@ -1972,6 +2037,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         // motor below the torque knee through the engaged
                         // clutch and the push re-traps instantly.
                         lift = 3;
+                        // Fresh slip assessment for this escape: the brake
+                        // torque applies only once a driven wheel is actually
+                        // seen slipping, never pre-emptively.
+                        wheel_slip = false;
                         // Static steering latch: velocity steering is
                         // identically zero while standing still, so latch full
                         // lock toward the escape target's side from the

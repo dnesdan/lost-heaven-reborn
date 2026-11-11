@@ -591,8 +591,10 @@ impl CarRuntime {
     /// Wheel state rows for probe diagnostics: word pairs at the same
     /// offsets the contact counter reads, per wheel, plus the wheel
     /// center position (+0x10/+0x14/+0x18 raw bits) so a dangling wheel
-    /// can be told apart from a touching one.
-    pub fn driving_wheel_diagnostics(&mut self) -> Result<Vec<[u32; 9]>, String> {
+    /// can be told apart from a touching one, plus the visual spin
+    /// angle (+0x114) whose delta across samples tells a spinning wheel
+    /// apart from a locked one.
+    pub fn driving_wheel_diagnostics(&mut self) -> Result<Vec<[u32; 10]>, String> {
         let car = self.car.as_ref().ok_or("Driving has no car owner")?;
         let bytes = car.as_bytes();
         let word = |a: usize| u32::from_le_bytes(bytes[a..a + 4].try_into().unwrap());
@@ -604,11 +606,10 @@ impl CarRuntime {
         for i in 0..count {
             let wheel = VehicleInitBackend::read_word(&mut self.memory, word(0xc38) + i * 4)
                 .map_err(|e| format!("Driving wheel: {e:?}"))?;
-            let mut row = [0; 9];
-            for (out, offset) in row
-                .iter_mut()
-                .zip([0xa8, 0xac, 0xb0, 0xb4, 0x120, 0x124, 0x10, 0x14, 0x18])
-            {
+            let mut row = [0; 10];
+            for (out, offset) in row.iter_mut().zip([
+                0xa8, 0xac, 0xb0, 0xb4, 0x120, 0x124, 0x10, 0x14, 0x18, 0x114,
+            ]) {
                 *out = VehicleInitBackend::read_word(&mut self.memory, wheel + offset)
                     .map_err(|e| format!("Driving wheel parameters: {e:?}"))?;
             }
