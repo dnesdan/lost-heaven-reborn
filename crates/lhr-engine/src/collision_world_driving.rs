@@ -2,8 +2,10 @@
 //!
 //! This is a host adapter, not an additional original function. It keeps KLZ
 //! membership and order, prepared property words, stored planes and complete
-//! source vertex indices. Scene construction, external model expansion and
-//! dynamic object registration remain caller dependencies. Arithmetic and
+//! source vertex indices, except for one documented repair: per-cell
+//! triangles are stable-sorted by ascending min-X so the sweep workers'
+//! ascending-X admission holds. Scene construction, external model expansion
+//! and dynamic object registration remain caller dependencies. Arithmetic and
 //! unsupported-query limits are those of `collision_query` and its workers.
 
 use crate::{
@@ -100,6 +102,13 @@ struct Cell {
 /// Owns query data independently of the KLZ and temporary frame vertex storage.
 /// Preparation failures stay in candidate order and fail only if reached after
 /// the original mask/early-break tests. A query error leaves outputs unchanged.
+/// Per-cell triangle order is stable-sorted by ascending min-X at build
+/// (volumes and unavailable records keep their slots), and triangle
+/// corners by ascending X: the sweep workers admit only ascending-X
+/// triangle runs/corners and break early on the max bound, and rare KLZ
+/// records violate file order. Nearest-hit semantics are
+/// preserved (order only feeds the early break); this is host repair
+/// satisfying the evidenced worker precondition, not a ported builder.
 pub struct DrivingCollisionWorld {
     geometry: StaticGridGeometry,
     cells: Vec<Cell>,
@@ -108,6 +117,52 @@ pub struct DrivingCollisionWorld {
     descriptors: Vec<CollisionPrimitive>,
 }
 
+/// Stable min-X order for one cell's candidates. Triangles sort by
+/// vertices[0][0] (the workers' admission key; vertices stay sorted
+/// within each triangle by the UnsortedVertices guard upstream).
+/// Volumes and unavailable records keep their exact slots: they never
+/// touch the workers' X guard. NaN keys compare Equal, preserving file
+/// order for unorderable entries.
+fn sort_cell_triangles_by_min_x(candidates: &mut [CollisionPrimitive]) {
+    use std::cmp::Ordering;
+    let mut order: Vec<usize> = candidates
+        .iter()
+        .enumerate()
+        .filter(|(_, candidate)| matches!(candidate, CollisionPrimitive::Triangle(_)))
+        .map(|(index, _)| index)
+        .collect();
+    order.sort_by(|&i, &j| {
+        let x = match candidates[i] {
+            CollisionPrimitive::Triangle(triangle) => triangle.vertices[0][0],
+            _ => f32::NAN,
+        };
+        let y = match candidates[j] {
+            CollisionPrimitive::Triangle(triangle) => triangle.vertices[0][0],
+            _ => f32::NAN,
+        };
+        x.partial_cmp(&y).unwrap_or(Ordering::Equal)
+    });
+    let sorted: Vec<CollisionPrimitive> = order.iter().map(|&i| candidates[i]).collect();
+    let slots: Vec<usize> = candidates
+        .iter()
+        .enumerate()
+        .filter(|(_, candidate)| matches!(candidate, CollisionPrimitive::Triangle(_)))
+        .map(|(index, _)| index)
+        .collect();
+    for (slot, primitive) in slots.into_iter().zip(sorted) {
+        candidates[slot] = primitive;
+    }
+}
+/// Stable ascending-X corner order for one triangle. The sweep workers
+/// admit only a[0] <= b[0] <= c[0] corners (UnsortedVertices guard), and
+/// rare KLZ records violate file order. Corner permutation leaves the
+/// geometric triangle and the stored bit-exact plane untouched. NaN
+/// compares Equal, preserving file order for unorderable corners.
+fn sort_triangle_corners(vertices: [[f32; 3]; 3]) -> [[f32; 3]; 3] {
+    let mut corners = vertices;
+    corners.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+    corners
+}
 fn reserve<T>(values: &mut Vec<T>, count: usize) -> Result<(), DrivingCollisionWorldError> {
     values
         .try_reserve_exact(count)
@@ -233,6 +288,16 @@ impl DrivingCollisionWorld {
                 begin,
                 end: candidates.len(),
             });
+        }
+        // Corners first: the cell sort keys on vertices[0][0], which is
+        // only the true min-X after corner sorting.
+        for candidate in &mut candidates {
+            if let CollisionPrimitive::Triangle(triangle) = candidate {
+                triangle.vertices = sort_triangle_corners(triangle.vertices);
+            }
+        }
+        for cell in &cells {
+            sort_cell_triangles_by_min_x(&mut candidates[cell.begin..cell.end]);
         }
         Ok(Self {
             geometry: StaticGridGeometry {
@@ -1069,5 +1134,89 @@ mod tests {
                 ResolvedCollisionWorldError::UnresolvedLink { link_index: 0 }
             ))
         ));
+    }
+    fn sort_triangle(min_x: f32, identity: u32) -> CollisionPrimitive {
+        CollisionPrimitive::Triangle(crate::collision_line::Triangle {
+            properties: 3,
+            vertices: [[min_x, 0., 0.], [min_x, 0., 1.], [min_x + 1., 0., 0.]],
+            plane: [0., 1., 0., 0.],
+            identity,
+        })
+    }
+    #[test]
+    fn cell_build_sorts_triangles_by_min_x_and_workers_accept() {
+        // File order a sweep worker would refuse with UnsortedCandidates.
+        let mut candidates = vec![
+            sort_triangle(5., 1),
+            sort_triangle(1., 2),
+            sort_triangle(3., 3),
+            sort_triangle(1., 4),
+        ];
+        sort_cell_triangles_by_min_x(&mut candidates);
+        let order: Vec<u32> = candidates
+            .iter()
+            .map(|candidate| match candidate {
+                CollisionPrimitive::Triangle(triangle) => triangle.identity,
+                _ => u32::MAX,
+            })
+            .collect();
+        // Ascending min-X; the two min-x=1 triangles keep file order.
+        assert_eq!(order, vec![2, 4, 3, 1]);
+        // The sphere worker's ascending-X admission now holds end to end.
+        let mut query =
+            crate::collision_swept::SphereParam::new(&crate::collision_swept::SphereSweepRequest {
+                origin: [2., 5., 0.5],
+                delta: [0., -10., 0.],
+                radius: 0.5,
+                selector: -1,
+                reject_mask: 0,
+            })
+            .unwrap();
+        assert!(
+            crate::collision_swept_world::sphere_in_tree_level(&candidates, &mut query).is_ok()
+        );
+    }
+    #[test]
+    fn triangle_corners_sort_stably_by_x_and_keep_plane() {
+        // KLZ corner order the sweep workers would refuse with
+        // UnsortedVertices; the stored plane is orthogonal bookkeeping.
+        let corners = [[3., 0., 0.], [1., 0., 1.], [2., 0., 0.]];
+        let sorted = sort_triangle_corners(corners);
+        assert_eq!([sorted[0][0], sorted[1][0], sorted[2][0]], [1., 2., 3.]);
+        // Stable on ties: equal-X corners keep file order.
+        let tied = [[2., 0., 0.], [2., 1., 1.], [1., 0., 0.]];
+        let sorted = sort_triangle_corners(tied);
+        assert_eq!(sorted[0], [1., 0., 0.]);
+        assert_eq!(sorted[1], [2., 0., 0.]);
+        assert_eq!(sorted[2], [2., 1., 1.]);
+    }
+    #[test]
+    fn corner_sort_runs_before_the_cell_sort_key() {
+        // Corners [5,1,3] read min-X 1 only after corner sorting; keying
+        // the cell order on the raw vertices[0][0]=5 would misorder it
+        // after the min-X 3 triangle, reproducing the probe abort.
+        fn raw(min_x: f32, first_x: f32, identity: u32) -> CollisionPrimitive {
+            CollisionPrimitive::Triangle(crate::collision_line::Triangle {
+                properties: 3,
+                vertices: [[first_x, 0., 0.], [min_x, 0., 1.], [min_x + 1., 0., 0.]],
+                plane: [0., 1., 0., 0.],
+                identity,
+            })
+        }
+        let mut candidates = vec![raw(5., 9., 1), raw(1., 1., 2), raw(3., 3., 3)];
+        for candidate in &mut candidates {
+            if let CollisionPrimitive::Triangle(triangle) = candidate {
+                triangle.vertices = sort_triangle_corners(triangle.vertices);
+            }
+        }
+        sort_cell_triangles_by_min_x(&mut candidates);
+        let order: Vec<u32> = candidates
+            .iter()
+            .map(|candidate| match candidate {
+                CollisionPrimitive::Triangle(triangle) => triangle.identity,
+                _ => u32::MAX,
+            })
+            .collect();
+        assert_eq!(order, vec![2, 3, 1]);
     }
 }

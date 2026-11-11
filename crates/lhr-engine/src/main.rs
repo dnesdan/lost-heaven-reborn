@@ -1315,18 +1315,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         let target_speed = (gap * 0.5).clamp(3.0, 14.0);
         let speed = last.speed.abs();
         let (throttle, brake, handbrake, reverse) = if unstick > 0 {
-            // K-turn: back out with FULL lock, alternating direction per
-            // trigger, so a boxed taxi rotates instead of shuttling
-            // straight back and forth. Dampened steer never turns here:
-            // with no motion the velocity steer above is identically
-            // zero, and 0.5 * 0 keeps pointing at the blocking wall.
+            // K-turn: back out with FULL lock in one consistent direction.
+            // Alternating the lock per trigger netted zero rotation (the
+            // start pocket and the [-1314,-227] wedge both shuffled ~0.3 m
+            // per window); a constant lock rotates the taxi while backing.
             // Reverse uses native gear -1 with the brake as motive power.
             unstick -= 1;
-            if boxed_windows % 2 == 0 {
-                steer = 1.0;
-            } else {
-                steer = -1.0;
-            }
+            steer = 1.0;
             (0.0, 0.5, false, true)
         } else if speed > target_speed + 2.0 {
             (0.0, 0.8, false, false)
