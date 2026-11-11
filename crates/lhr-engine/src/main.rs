@@ -1306,6 +1306,65 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         drive_graph_m,
         traps.borrow().len()
     );
+    // Route divergence: plain vs penalized Dijkstra from the same exit
+    // pose. Decides cut-vertex (identical corridors: the pocket is the
+    // only link, penalty cannot help) vs penalty weakness (corridors
+    // differ yet the taxi still wedges: the subdivided pursuit legs cut
+    // back into the pocket between graph nodes).
+    {
+        let plain = lhr_engine::mission_play::road_graph_path(
+            &node_pos, &neighbors, node_count, exit_pos, dest_node,
+        )
+        .ok_or("No plain road path from lot exit to detector_konec")?;
+        let first_diverge = drive_path
+            .iter()
+            .zip(plain.0.iter())
+            .position(|(a, b)| a != b)
+            .unwrap_or(drive_path.len().min(plain.0.len()));
+        let mut plain_min = f32::INFINITY;
+        let mut pen_min = f32::INFINITY;
+        for index in plain.0.iter() {
+            if let Some(p) = node_pos(*index) {
+                for t in traps.borrow().iter() {
+                    plain_min = plain_min.min((p[0] - t[0]).hypot(p[2] - t[2]));
+                }
+            }
+        }
+        for index in drive_path.iter() {
+            if let Some(p) = node_pos(*index) {
+                for t in traps.borrow().iter() {
+                    pen_min = pen_min.min((p[0] - t[0]).hypot(p[2] - t[2]));
+                }
+            }
+        }
+        let div_info = drive_path
+            .get(first_diverge)
+            .zip(plain.0.get(first_diverge))
+            .map(|(a, b)| {
+                let pa = node_pos(*a).unwrap_or([f32::NAN; 3]);
+                let pb = node_pos(*b).unwrap_or([f32::NAN; 3]);
+                format!(
+                    "pen node {a} [{:.1},{:.1},{:.1}] vs plain node {b} [{:.1},{:.1},{:.1}]",
+                    pa[0], pa[1], pa[2], pb[0], pb[1], pb[2]
+                )
+            })
+            .unwrap_or_else(|| "identical prefix (one path is a prefix of the other)".to_string());
+        println!(
+            "probe route divergence: plain {} nodes {:.0} m, penalized {} nodes {:.0} m, first diverge at leg {first_diverge}: {div_info}",
+            plain.0.len(),
+            plain.1,
+            drive_path.len(),
+            drive_graph_m,
+        );
+        println!(
+            "probe route divergence: min node distance to a trap: plain {plain_min:.1} m, penalized {pen_min:.1} m ({})",
+            if first_diverge >= drive_path.len().min(plain.0.len()) && drive_path.len() == plain.0.len() {
+                "SAME corridor, cut-vertex suspect"
+            } else {
+                "DEFLECTED corridor"
+            }
+        );
+    }
     for (n, wp) in waypoints.iter().enumerate().take(6) {
         println!(
             "probe drive: leg {}/{} at [{:.1}, {:.1}, {:.1}]",
@@ -1709,7 +1768,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 // touching right now (0x8), slipping (0x80), where their
                 // centers sit, and their visual spin angle (+0x114) whose
                 // delta across samples separates a spinning dangling
-                // wheel from a locked one. Any slipping driven wheel
+                // wheel from a locked one. The stored contact point
+                // (+0x28) names WHAT the wheel last touched: a live
+                // touch sits ~one radius below the center, a stale or
+                // missing one exposes beaching. Any slipping driven wheel
                 // latches the brake-torque handbrake for the next pushes.
                 match taxi.driving_wheel_diagnostics() {
                     Ok(rows) => {
@@ -1719,15 +1781,24 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                 f32::from_bits(row[7]),
                                 f32::from_bits(row[8]),
                             ];
+                            let touched = [
+                                f32::from_bits(row[10]),
+                                f32::from_bits(row[11]),
+                                f32::from_bits(row[12]),
+                            ];
                             let flags = row[4];
                             if flags & 0x2 != 0 && flags & 0x80 != 0 {
                                 wheel_slip = true;
                             }
                             println!(
-                                "probe push wheel {i}: pos=[{:.1},{:.1},{:.1}] spin={:.2} flags={flags:#x} driven={} contact={} slip={}",
+                                "probe push wheel {i}: pos=[{:.1},{:.1},{:.1}] touch=[{:.1},{:.1},{:.1}] hang={:.2} spin={:.2} flags={flags:#x} driven={} contact={} slip={}",
                                 pos[0],
                                 pos[1],
                                 pos[2],
+                                touched[0],
+                                touched[1],
+                                touched[2],
+                                pos[1] - touched[1],
                                 f32::from_bits(row[9]),
                                 flags & 0x2 != 0,
                                 flags & 0x8 != 0,
@@ -1918,7 +1989,35 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         println!("probe wedge census: {name} d={d:.1}");
                     }
                     match taxi.driving_wheel_diagnostics() {
-                        Ok(rows) => println!("probe wedge wheels: {rows:?}"),
+                        Ok(rows) => {
+                            println!("probe wedge wheels: {rows:?}");
+                            for (i, row) in rows.iter().enumerate() {
+                                let pos = [
+                                    f32::from_bits(row[6]),
+                                    f32::from_bits(row[7]),
+                                    f32::from_bits(row[8]),
+                                ];
+                                let touched = [
+                                    f32::from_bits(row[10]),
+                                    f32::from_bits(row[11]),
+                                    f32::from_bits(row[12]),
+                                ];
+                                let flags = row[4];
+                                println!(
+                                    "probe wedge wheel {i}: pos=[{:.1},{:.1},{:.1}] touch=[{:.1},{:.1},{:.1}] hang={:.2} flags={flags:#x} driven={} contact={} slip={}",
+                                    pos[0],
+                                    pos[1],
+                                    pos[2],
+                                    touched[0],
+                                    touched[1],
+                                    touched[2],
+                                    pos[1] - touched[1],
+                                    flags & 0x2 != 0,
+                                    flags & 0x8 != 0,
+                                    flags & 0x80 != 0,
+                                );
+                            }
+                        }
                         Err(error) => println!("probe wedge wheels stopped: {error}"),
                     }
                     // Contact points: tell WHAT the taxi touches (ground
