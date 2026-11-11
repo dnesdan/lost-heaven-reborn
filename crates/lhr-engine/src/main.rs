@@ -1101,6 +1101,31 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             }
         }
     };
+    // Learned trap ledger: boxed poses that defeated escape steering,
+    // K-turn rocking and the clutch lift (open-diff burnout with no
+    // native traction control to brake the free wheel). Seeded with
+    // the two evidenced furniture pockets: [-1314,-227] (clutch
+    // stall-shudder wedge, 15+ probe_wedge runs) and [-628,164]
+    // (beached/dangling driven wheels, probe_rock/steer/torque/slip
+    // runs, exit 1 after both rejoin budgets there). Edges into nodes
+    // within 45 m of a trap get a large additive penalty, so
+    // Dijkstra prefers drivable streets; a pocket on the only link
+    // still routes through it (finite penalty), which the probe then
+    // reports as usual instead of failing the search.
+    let traps: std::cell::RefCell<Vec<[f32; 3]>> =
+        std::cell::RefCell::new(vec![[-1314.0, -7.0, -227.0], [-628.0, 4.4, 165.0]]);
+    let penalized = |node: usize, out: &mut Vec<(usize, f32)>| {
+        neighbors(node, out);
+        let traps = traps.borrow();
+        let Some(a) = node_pos(node) else {
+            return;
+        };
+        for (other, weight) in out.iter_mut() {
+            if let Some(p) = node_pos(*other) {
+                *weight += lhr_engine::mission_play::trap_edge_penalty(a, p, &traps);
+            }
+        }
+    };
     let mut dest_node = None;
     let mut dest_gap = f32::INFINITY;
     for i in 0..node_count {
@@ -1244,7 +1269,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // at z≈196. Dijkstra from the exit pose decides; if the only link
     // runs back through the corner, the driven list will say so.
     let (drive_path, drive_graph_m) = lhr_engine::mission_play::road_graph_path(
-        &node_pos, &neighbors, node_count, exit_pos, dest_node,
+        &node_pos, &penalized, node_count, exit_pos, dest_node,
     )
     .ok_or("No road path from lot exit to detector_konec")?;
     let mut waypoints = Vec::with_capacity(drive_path.len());
@@ -1276,9 +1301,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         }
     }
     println!(
-        "probe drive path: {} waypoints from lot exit, {:.0} m by graph",
+        "probe drive path: {} waypoints from lot exit, {:.0} m by penalized graph ({} known traps)",
         waypoints.len(),
-        drive_graph_m
+        drive_graph_m,
+        traps.borrow().len()
     );
     for (n, wp) in waypoints.iter().enumerate().take(6) {
         println!(
@@ -2076,9 +2102,25 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 if boxed_windows >= 5 {
                     if rejoins < 2 {
                         rejoins += 1;
+                        // Learn this pocket: penalize its nodes so the
+                        // rejoin routes around the furniture instead of
+                        // back into the same trap. Bounded so the ledger
+                        // cannot grow the per-edge scan without limit.
+                        let mut traps = traps.borrow_mut();
+                        if traps.len() < 8 {
+                            traps.push(last.position);
+                            println!(
+                                "probe drive: trap ledger now {} pockets, latest at [{:.1}, {:.1}, {:.1}]",
+                                traps.len(),
+                                last.position[0],
+                                last.position[1],
+                                last.position[2]
+                            );
+                        }
+                        drop(traps);
                         let (new_path, new_graph_m) = lhr_engine::mission_play::road_graph_path(
                             &node_pos,
-                            &neighbors,
+                            &penalized,
                             node_count,
                             last.position,
                             dest_node,

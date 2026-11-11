@@ -880,6 +880,56 @@ pub fn mission_end_detector(
     }
 }
 
+/// Additive Dijkstra penalty for a graph node near learned trap poses.
+/// Full [`TRAP_PENALTY_M`] at the trap itself, linearly falling to zero
+/// at [`TRAP_RADIUS_M`]. Host-side routing cost only; it changes no
+/// native behavior and claims no original function.
+pub const TRAP_RADIUS_M: f32 = 45.0;
+pub const TRAP_PENALTY_M: f32 = 2000.0;
+
+/// Sum of trap penalties for a road-graph node position. Returns `0.0`
+/// with no traps or beyond the radius, so unpenalized routing is the
+/// exact fallback when no trap is near.
+pub fn trap_penalty(node: [f32; 3], traps: &[[f32; 3]]) -> f32 {
+    let mut penalty = 0.0f32;
+    for t in traps {
+        let d = (node[0] - t[0]).hypot(node[2] - t[2]);
+        if d < TRAP_RADIUS_M {
+            penalty += TRAP_PENALTY_M * (1.0 - d / TRAP_RADIUS_M);
+        }
+    }
+    penalty
+}
+
+/// Full additive penalty for a Dijkstra edge `a -> b`: the maximum of
+/// the endpoint penalties plus a segment term, so a long straight cut
+/// whose endpoints both lie outside the trap radius still pays when
+/// its middle passes through the pocket. Keeps routing honest on
+/// coarse graphs where subdivided waypoints thread between nodes.
+pub fn trap_edge_penalty(a: [f32; 3], b: [f32; 3], traps: &[[f32; 3]]) -> f32 {
+    let mut penalty = trap_penalty(a, traps).max(trap_penalty(b, traps));
+    for t in traps {
+        let abx = b[0] - a[0];
+        let abz = b[2] - a[2];
+        let denom = abx * abx + abz * abz;
+        if denom <= 0.0 {
+            continue;
+        }
+        let mut s = ((t[0] - a[0]) * abx + (t[2] - a[2]) * abz) / denom;
+        s = s.clamp(0.0, 1.0);
+        let cx = a[0] + abx * s - t[0];
+        let cz = a[2] + abz * s - t[2];
+        let d = (cx * cx + cz * cz).sqrt();
+        if d < TRAP_RADIUS_M {
+            let p = TRAP_PENALTY_M * (1.0 - d / TRAP_RADIUS_M);
+            if p > penalty {
+                penalty = p;
+            }
+        }
+    }
+    penalty
+}
+
 /// Full Dijkstra distances from the node nearest `from` over `neighbors`
 /// edge weights. Returns the start node and per-node distances (`INFINITY`
 /// stays unreached). The search itself is an explicit host driver.
@@ -1448,5 +1498,130 @@ mod tests {
         assert!(mid_fade < start_fade && mid_fade > 0);
         dub.dabing_tick(&audio, &mut faces, mid_fade);
         assert_eq!(dub.channel(0).unwrap().state, DABING_STATE_FREE);
+    }
+
+    #[test]
+    fn trap_penalty_is_full_at_center_and_zero_outside() {
+        let traps = vec![[50.0, 0.0, 10.0]];
+        assert_eq!(trap_penalty([50.0, 0.0, 10.0], &traps), TRAP_PENALTY_M);
+        assert_eq!(
+            trap_penalty([50.0, 100.0, 10.0 + TRAP_RADIUS_M], &traps),
+            0.0
+        );
+        assert_eq!(
+            trap_penalty([50.0, 100.0, 10.0 + TRAP_RADIUS_M + 1.0], &traps),
+            0.0
+        );
+        assert_eq!(trap_penalty([0.0, 0.0, 0.0], &[]), 0.0);
+    }
+
+    #[test]
+    fn trap_penalty_falls_off_linearly_and_stacks() {
+        let traps = vec![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]];
+        assert_eq!(
+            trap_penalty([TRAP_RADIUS_M / 2.0, 0.0, 0.0], &traps),
+            TRAP_PENALTY_M
+        );
+        let single = vec![[0.0, 0.0, 0.0]];
+        assert!(
+            (trap_penalty([TRAP_RADIUS_M / 4.0, 0.0, 0.0], &single) - 0.75 * TRAP_PENALTY_M).abs()
+                < 1e-3
+        );
+    }
+
+    #[test]
+    fn penalized_dijkstra_routes_around_a_trapped_node() {
+        // Diamond: 0 -> {1, 2} -> 3. Node 1 sits on the trap, node 2 is
+        // clear; both legs cost the same unpenalized.
+        let pos = |i: usize| {
+            Some(match i {
+                0 => [0.0, 0.0, 0.0],
+                1 => [50.0, 0.0, 10.0],
+                2 => [50.0, 0.0, -40.0],
+                _ => [100.0, 0.0, 0.0],
+            })
+        };
+        fn neighbors(node: usize, out: &mut Vec<(usize, f32)>) {
+            match node {
+                0 => out.extend([(1, 60.0), (2, 60.0)]),
+                1 | 2 => out.push((3, 60.0)),
+                _ => {}
+            }
+        }
+        // Sanity: without traps both legs tie; Dijkstra still returns a
+        // complete path to the destination.
+        let plain = road_graph_path(&pos, &neighbors, 4, [0.0, 0.0, 0.0], 3)
+            .expect("plain diamond path exists");
+        assert_eq!(plain.0.first(), Some(&0));
+        assert_eq!(plain.0.last(), Some(&3));
+        assert_eq!(plain.0.len(), 3);
+        // With a trap on node 1 the penalized search must avoid it.
+        let traps = vec![[50.0, 0.0, 10.0]];
+        let penalized = |node: usize, out: &mut Vec<(usize, f32)>| {
+            neighbors(node, out);
+            if let Some(a) = pos(node) {
+                for (other, weight) in out.iter_mut() {
+                    if let Some(p) = pos(*other) {
+                        *weight += trap_edge_penalty(a, p, &traps);
+                    }
+                }
+            }
+        };
+        let avoided = road_graph_path(&pos, &penalized, 4, [0.0, 0.0, 0.0], 3)
+            .expect("penalized diamond path exists");
+        assert_eq!(avoided.0, vec![0, 2, 3]);
+        // The 2->3 leg clips the 45 m disc, so it pays a partial segment
+        // penalty — but far less than the +2000 of the trapped node.
+        assert!(avoided.1 > 120.0 && avoided.1 < 1000.0);
+    }
+
+    #[test]
+    fn penalized_dijkstra_still_crosses_an_unavoidable_trap() {
+        // Single chain 0 -> 1 -> 2 with the trap on the only middle
+        // node: the finite penalty keeps the destination reachable
+        // instead of failing the search.
+        let pos = |i: usize| Some([i as f32 * 50.0, 0.0, 0.0]);
+        fn neighbors(node: usize, out: &mut Vec<(usize, f32)>) {
+            if node < 2 {
+                out.push((node + 1, 50.0));
+            }
+        }
+        let traps = vec![[50.0, 0.0, 0.0]];
+        let penalized = |node: usize, out: &mut Vec<(usize, f32)>| {
+            neighbors(node, out);
+            if let Some(a) = pos(node) {
+                for (other, weight) in out.iter_mut() {
+                    if let Some(p) = pos(*other) {
+                        *weight += trap_edge_penalty(a, p, &traps);
+                    }
+                }
+            }
+        };
+        let path = road_graph_path(&pos, &penalized, 3, [0.0, 0.0, 0.0], 2)
+            .expect("cut-vertex trap stays reachable");
+        assert_eq!(path.0, vec![0, 1, 2]);
+        assert!(path.1 > 100.0);
+    }
+
+    #[test]
+    fn trap_edge_penalty_catches_long_cuts_through_the_pocket() {
+        // A 300 m straight edge whose endpoints both lie outside the
+        // 45 m radius still pays (nearly) full price when its middle
+        // crosses the trap; a parallel edge 100 m off pays nothing.
+        let traps = vec![[0.0, 0.0, 0.0]];
+        let through = trap_edge_penalty([-150.0, 0.0, 0.0], [150.0, 0.0, 0.0], &traps);
+        assert!((through - TRAP_PENALTY_M).abs() < 1e-3);
+        let around = trap_edge_penalty([-150.0, 0.0, 100.0], [150.0, 0.0, 100.0], &traps);
+        assert_eq!(around, 0.0);
+        // Degenerate zero-length edges pay the point penalty of their
+        // location: nothing far from any trap, full price on top of one.
+        assert_eq!(
+            trap_edge_penalty([500.0, 0.0, 500.0], [500.0, 0.0, 500.0], &traps),
+            0.0
+        );
+        assert_eq!(
+            trap_edge_penalty([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], &traps),
+            TRAP_PENALTY_M
+        );
     }
 }
