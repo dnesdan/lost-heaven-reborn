@@ -425,10 +425,16 @@ fn motor_force<B: VehicleInitBackend>(
     let directional = if mode != 0 && mode != 2 {
         amount
     } else if gear > 0 {
+        // Native applies the SIGNED amount below pi/2 and |amount| at
+        // or above it (Game.exe SHA 08398317..., Move VA 0x4e3be6:
+        // JP-not-taken fall-through vs 0x4e3c35 FABS arm over FCOMP
+        // c64 vs [0x623490]; threshold bytes db0fc93f verified in situ).
+        // Complete 4811-insn Move walk, REA ev_2f07bed9. Reverse was
+        // already correct; forward had the arms swapped.
         if number(float(b, v.wrapping_add(0xc64))?)? < f32::from_bits(0x3fc90fdb) {
-            amount.abs()
-        } else {
             amount
+        } else {
+            amount.abs()
         }
     } else if gear < 0 {
         if number(float(b, v.wrapping_add(0xc64))?)? > f32::from_bits(0x3fc90fdb) {
@@ -627,5 +633,150 @@ mod retained_square_tests {
             dyadic(120)
         );
         assert!(inexact.precision_raised());
+    }
+}
+
+#[cfg(test)]
+mod motor_force_gear_sign_tests {
+    use super::*;
+    use crate::vehicle_dynamics_forces::VehicleMoveForceSetup;
+    use crate::vehicle_dynamics_prepare::VehicleMovePrepared;
+    use crate::vehicle_frame_backend::VehicleFrameMemory;
+
+    const V: u32 = 0x1000;
+    const W: u32 = 0x2000;
+
+    /// Minimal rig isolating motor_force's gear-sign arm: gate passes,
+    /// engine on, no grounded override, no friction-circle bound, no
+    /// slip flags, so the returned force is exactly the directional
+    /// term along +x.
+    fn rig(
+        gear: i32,
+        steer_angle: f32,
+        limited: f32,
+    ) -> (
+        VehicleFrameMemory,
+        VehicleMovePrepared,
+        VehicleMoveForceSetup,
+    ) {
+        let mut m = VehicleFrameMemory::default();
+        m.map_bytes(V, &vec![0; 0x1000]).unwrap();
+        m.map_bytes(W, &vec![0; 0x400]).unwrap();
+        m.write_word(W.wrapping_add(0x120), 0x202).unwrap();
+        m.write_word(V.wrapping_add(0x55c), gear as u32).unwrap();
+        m.write_byte(V.wrapping_add(0x1a4), 0).unwrap();
+        m.write_word(V.wrapping_add(0x3a4), 1.0f32.to_bits())
+            .unwrap();
+        m.write_word(V.wrapping_add(0x3a8), 0).unwrap();
+        m.write_byte(V.wrapping_add(0xc2c), 1).unwrap();
+        m.write_byte(V.wrapping_add(0x99), 0).unwrap();
+        m.write_word(V.wrapping_add(0x59c), 0.0f32.to_bits())
+            .unwrap();
+        m.write_word(V.wrapping_add(0x224), 5).unwrap();
+        m.write_word(V.wrapping_add(0xb8), 0).unwrap();
+        m.write_word(V.wrapping_add(0xc64), steer_angle.to_bits())
+            .unwrap();
+        m.write_word(W.wrapping_add(0x10c), 1.0f32.to_bits())
+            .unwrap();
+        m.write_word(W.wrapping_add(0xa0), 50.0f32.to_bits())
+            .unwrap();
+        m.write_word(W.wrapping_add(0xa4), 50.0f32.to_bits())
+            .unwrap();
+        let prepared = VehicleMovePrepared {
+            down: [0.0, -1.0, 0.0],
+            wheel_speed: 0.0,
+            driven_normal_force: [1.0, 1.0],
+        };
+        let setup = VehicleMoveForceSetup {
+            linear_force: [0.0; 3],
+            torque: [0.0; 3],
+            limited_motor_force: [limited, limited],
+            local_angular_velocity: [0.0; 3],
+            saved_traction_control: 0,
+            saved_brake_bits: 0,
+        };
+        (m, prepared, setup)
+    }
+
+    fn drive_x(
+        memory: &mut VehicleFrameMemory,
+        prepared: &VehicleMovePrepared,
+        setup: &VehicleMoveForceSetup,
+    ) -> f32 {
+        let mut drive_sum = 0.0;
+        let force = motor_force(
+            memory,
+            V,
+            W,
+            0,
+            prepared,
+            setup,
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            0.0,
+            [0.0, 0.0, 0.0],
+            &mut drive_sum,
+        )
+        .unwrap();
+        assert_eq!(force[1].to_bits(), 0);
+        assert_eq!(force[2].to_bits(), 0);
+        assert_eq!(drive_sum.to_bits(), 10.0f32.to_bits());
+        force[0]
+    }
+
+    /// Native gear-sign table (Game.exe SHA
+    /// 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27,
+    /// Move VA 0x4e2090, 4811-insn complete walk ev_2f07bed9...): forward
+    /// applies the SIGNED amount below the pi/2 angle (0x4e3be6 JP
+    /// fall-through, FCOMP c64 vs [0x623490]=1.51) and |amount| at or
+    /// above it (0x4e4e3c35 arm); reverse applies -amount above pi/2
+    /// (0x4e3c83 fall-through) and -|amount| at or below it (0x4e3cdd
+    /// arm). Threshold constant verified in situ (db0fc93f at 0x623490,
+    /// ev_e47093d2...).
+    #[test]
+    fn forward_gear_applies_signed_amount_below_pi_half() {
+        // amount = -10 (negative motor channel); native keeps the sign.
+        let (mut m, prepared, setup) = rig(1, 0.5, -10.0);
+        assert_eq!(
+            drive_x(&mut m, &prepared, &setup).to_bits(),
+            (-10.0f32).to_bits()
+        );
+        // amount = +10 stays +10 either way (sign guard).
+        let (mut m, prepared, setup) = rig(1, 0.5, 10.0);
+        assert_eq!(
+            drive_x(&mut m, &prepared, &setup).to_bits(),
+            10.0f32.to_bits()
+        );
+    }
+
+    #[test]
+    fn forward_gear_applies_abs_amount_at_or_above_pi_half() {
+        // amount = -10 (negative motor channel); native takes |amount|.
+        let (mut m, prepared, setup) = rig(1, 2.0, -10.0);
+        assert_eq!(
+            drive_x(&mut m, &prepared, &setup).to_bits(),
+            10.0f32.to_bits()
+        );
+        // amount = +10 stays +10 either way (sign guard).
+        let (mut m, prepared, setup) = rig(1, 2.0, 10.0);
+        assert_eq!(
+            drive_x(&mut m, &prepared, &setup).to_bits(),
+            10.0f32.to_bits()
+        );
+    }
+
+    #[test]
+    fn reverse_gear_matches_native_on_both_sides() {
+        // -amount above pi/2; -|amount| at or below it.
+        let (mut m, prepared, setup) = rig(-1, 2.0, -10.0);
+        assert_eq!(
+            drive_x(&mut m, &prepared, &setup).to_bits(),
+            10.0f32.to_bits()
+        );
+        let (mut m, prepared, setup) = rig(-1, 0.5, -10.0);
+        assert_eq!(
+            drive_x(&mut m, &prepared, &setup).to_bits(),
+            (-10.0f32).to_bits()
+        );
     }
 }
