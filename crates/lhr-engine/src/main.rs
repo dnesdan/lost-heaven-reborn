@@ -1967,15 +1967,19 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             // (probe_brakefix: wheels turning in contact, clutch 1.0,
             // brake on or off, 0.0 m per push — the model never re-grips
             // under a steady pedal, same class as the pinned clutch trap).
-            // Pulse 20 ticks full / 10 ticks 0.3 so the wheels can re-grip
-            // and launch, like a player feathering the pedal. The handbrake
-            // stays slip-gated as before (a foot brake would zero the power
-            // channels in SetBrake; the handbrake runs on its own force
-            // channel, braking only the free spinner).
+            // Pulse 20 ticks full / 10 ticks 0.05: the low phase sits
+            // below the 0x24 power threshold (~0.108), so it takes the
+            // snap arm like a mini-lift while the taxi still rolls —
+            // pinned by sagged_stall_low_throttle_boundary_follows_power_
+            // threshold_arm (0.05/0.1 re-engage, 0.15+ grind). The old 0.3
+            // low sat above the threshold and ground in the trap. The
+            // handbrake stays slip-gated as before (a foot brake would
+            // zero the power channels in SetBrake; the handbrake runs on
+            // its own force channel, braking only the free spinner).
             let feathered = if drive_ticks % 30 < 20 {
                 1.0 - 0.5 * steer.abs()
             } else {
-                0.3
+                0.05
             };
             (feathered, 0.0, wheel_slip, false)
         } else if speed > target_speed + 2.0 {

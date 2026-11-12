@@ -875,6 +875,83 @@ fn sagged_stall_throttle_sweep_only_coasting_reengages_in_model() {
 }
 
 #[test]
+fn sagged_stall_low_throttle_boundary_follows_power_threshold_arm() {
+    // The snap-vs-trap branch keys off power (0x540) against the 0x24
+    // threshold (~0.108): at or below it the tick takes the snap arm
+    // back to 1.0, above it the trap arm keeps the sag. Same p18 sag
+    // fixture and 15-tick protocol as the full-axis sweep: 0.05 and 0.1
+    // must re-engage (snap arm, like the 0.0 coast), while 0.15 and 0.2
+    // must not (trap arm, like 0.25+). This pins where the boundary
+    // lies, so the probe's feather low can sit below it (snap phases
+    // that still roll) instead of above it (0.3 grinds in the trap).
+    // Ported behavior only (no overlay entry, no REA evidence ID).
+    for throttle in [0.05_f32, 0.1, 0.15, 0.2] {
+        let mut b = Backend::new(0);
+        // Fuel/engine prerequisites (callback_fixture pattern).
+        b.float(0xc30, 10.0);
+        b.float(0x498, 1.0);
+        b.bytes[0x432] = 1;
+        b.put(0xc68, 0x20);
+        b.bytes[0xc2c] = 1;
+        // Probe-seeded sag snapshot (verbatim census words).
+        b.put(0x55c, 1);
+        b.put(0x560, 1);
+        b.put(0x3a8, 0);
+        b.put(0x544, 0);
+        b.put(0x24, 0x3dde_b334);
+        b.put(0x548, 0x4219_36c4);
+        b.put(0x5ec, 0x4155_5556);
+        b.put(0x5c8, 0x422d_5556);
+        b.put(0x5c4, 0x4155_5556);
+        b.put(0x5c0, 0x4155_5556);
+        b.put(0x5dc, 0x3d4b_7484);
+        b.put(0x5cc, 0xbf80_0000);
+        b.float(0x5e4, 1.0);
+        b.float(0x5e0, 1.0);
+        b.put(0x5d4, 0x4055_5555);
+        b.put(0x5d8, 0x40a0_0000);
+        b.put(0x5e8, 0x24);
+        b.put(0x1a4, 1);
+        b.put(0x59c, 0x3e8e_64ab);
+        b.put(0x5d0, 0x437a_0000);
+        b.put(0x570, 0x4170_0000);
+        b.put(0x574, 0x4170_0000);
+        b.put(0x5ac, 0x4031_bd81);
+        b.put(0x4cc, 1);
+        b.put(0x488, 0x423a_aab);
+        b.put(0x44, 0x3f80_0000);
+        b.float(0x434, 0.0);
+        // Host fixtures the census does not capture (redline domain;
+        // transmission is live).
+        b.float(0x1f9c, 600.0);
+        let mut ever_engaged = false;
+        for _ in 0..15 {
+            for _ in 0..8 {
+                b.force_results.push_back(2.0);
+            }
+            b.float(0x3a4, throttle);
+            b.float(0x540, throttle);
+            assert_eq!(run(&mut b, 16).0, Ok(()));
+            if f32::from_bits(b.word(0x5dc)) >= 0.9 {
+                ever_engaged = true;
+            }
+        }
+        if throttle <= 0.1 {
+            assert!(
+                ever_engaged,
+                "throttle {throttle}: below-threshold pedal did not take the snap arm"
+            );
+        } else {
+            assert!(
+                !ever_engaged,
+                "throttle {throttle}: above-threshold pedal re-engaged the clutch"
+            );
+        }
+        assert_eq!(b.word(0x55c), 1);
+    }
+}
+
+#[test]
 fn wedged_clutch_even_motion_flag_defers_snap_by_one_tick() {
     // Live wedge snapshots show 0x1a4 both set (0x1) and clear (0x2). With
     // bit0 clear the tick takes the early coasting arm: it republishes the
