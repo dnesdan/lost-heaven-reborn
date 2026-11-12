@@ -82,10 +82,34 @@ where
         Ok(())
     }
     /// Remaining live-forward active-actor phase after the original car pair.
+    /// Unowned crash-effect routines reached through the direct ported AI
+    /// call (crash_actor_tick -> crash_actor_ai) bypass the 0x431be0
+    /// effect-call staging arm, so they are staged here instead: the
+    /// intent is recorded MissionHelpLog-style and the tick continues
+    /// with the StaticResponse outcome. Observed live as Driving
+    /// temporary actors: Dependency(5644656) killing the drive at
+    /// [-1434,-229] (probe_feather). Actor identity is not carried by
+    /// this path (the ported error carries only the entry), so the
+    /// intent records actor 0 with the entry; the probe pocket locates
+    /// it. Other errors still abort loudly.
     pub(crate) fn tick_temporary_actors(&mut self, milliseconds: u32) -> Result<(), String> {
         let app = self.read_word(0x63788c)?;
         let game = self.read_word(app + 0x24)?;
-        crate::crash_actor::crash_temporary_actor_phase(self, game, milliseconds).map_err(failure)
+        match crate::crash_actor::crash_temporary_actor_phase(self, game, milliseconds) {
+            Ok(()) => Ok(()),
+            Err(crate::crash_actor::CrashActorError::Dependency(entry))
+                if matches!(
+                    entry,
+                    0x5abe10 | 0x5aae10 | 0x562170 | 0x565720 | 0x565060 | 0x5b9b90
+                ) =>
+            {
+                self.state
+                    .crash_ai_intents
+                    .push(crate::crash_actor::CrashAiIntent { actor: 0, entry });
+                Ok(())
+            }
+            Err(other) => Err(failure(other)),
+        }
     }
     /// Original temporary-actor lifecycle precedes releasing the caller's
     /// vector capacities and model cache. No actor/frame is dropped implicitly.
