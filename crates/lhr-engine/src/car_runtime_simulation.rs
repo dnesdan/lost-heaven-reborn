@@ -63,6 +63,11 @@ pub(crate) struct SimulationState {
     /// effect routines). Recorded MissionHelpLog-style, never replayed;
     /// the taxi keeps the StaticResponse outcome.
     pub crash_ai_intents: Vec<crate::crash_actor::CrashAiIntent>,
+    /// Staged material game-callback intents (PC 0x426340 body-contact
+    /// filter arms for materials 0x28/first-touch 0x1f) whose game
+    /// callee has no owner yet. Recorded MissionHelpLog-style, never
+    /// replayed; the taxi keeps the StaticResponse outcome.
+    pub material_callbacks: Vec<crate::vehicle_car_contacts::VehicleCarMaterialCallback>,
     /// Explicit standalone caller-stack fill for the empty allocator byte.
     pub allocator_marker: u8,
     /// Original process atexit registrations, retained in registration order.
@@ -981,6 +986,17 @@ where
         // (C_human::HitInCar) stays with the future human/car owner, so
         // the intent stages into the session queue instead of aborting.
         self.state.impact_occupants.push(call);
+        Ok(())
+    }
+    fn car_contact_game_callback(
+        &mut self,
+        call: crate::vehicle_car_contacts::VehicleCarMaterialCallback,
+    ) -> Result<(), crate::vehicle_car_contacts::VehicleCarContactUnavailable<String>> {
+        // The gate byte is already written (one-shot preserved); the game
+        // callee stays with the future game owner, so the intent stages
+        // into the session queue and the filter continues with the
+        // evidenced second-touch outcome instead of aborting.
+        self.state.material_callbacks.push(call);
         Ok(())
     }
     fn car_contact_material(&mut self, p: u32) -> Result<u8, String> {

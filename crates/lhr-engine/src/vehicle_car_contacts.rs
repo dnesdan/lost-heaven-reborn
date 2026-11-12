@@ -30,6 +30,21 @@ pub trait VehicleCarContactBackend: VehicleInitBackend {
         let _ = call;
         boundary(VehicleCarContactBoundary::ImpactOccupants)
     }
+    /// Material game-callback intent staging (PC 0x426340 filter arms for
+    /// materials 0x28/0x1f). The native filter fires a one-shot game
+    /// callback through the gate bytes (0x2219 for 0x1f); the callee is
+    /// unrecovered, so the default refuses loudly with the material's
+    /// branch. Owners that stage it record the call and continue with
+    /// the evidenced second-touch outcome.
+    fn car_contact_game_callback(
+        &mut self,
+        call: VehicleCarMaterialCallback,
+    ) -> Out<(), Self::Error> {
+        boundary(match call.material {
+            0x28 => VehicleCarContactBoundary::Material28GameCallback,
+            _ => VehicleCarContactBoundary::Material1fGameCallback,
+        })
+    }
     fn car_contact_material(&mut self, descriptor: u32) -> Result<u8, Self::Error> {
         self.read_byte(descriptor.wrapping_add(3))
     }
@@ -39,6 +54,24 @@ pub trait VehicleCarContactBackend: VehicleInitBackend {
     fn car_contact_actor_owner(&mut self, descriptor: u32) -> Result<u32, Self::Error> {
         self.read_word(descriptor.wrapping_add(0x44))
     }
+}
+/// One staged material game-callback intent: the PC 0x426340 body-contact
+/// filter met material 0x28 or first-touch 0x1f and fired the one-shot
+/// game callback through its gate byte (0x2219 for 0x1f), but the game
+/// callee has no owner yet. The gate write is already applied (one-shot
+/// preserved); the continuation reuses the evidenced second-touch
+/// outcome (Ok(0)). Recorded MissionHelpLog-style, never replayed; the
+/// taxi keeps the already-applied StaticResponse outcome. Observed
+/// live: first 0x1f touch aborting the drive at [-1454,-289]
+/// (probe_crawl.log, UnrecoveredBranch(Material1fGameCallback)).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VehicleCarMaterialCallback {
+    /// Car address carrying the gate bytes (+0x2219 / +0x20f2).
+    pub car: u32,
+    /// Opaque world descriptor whose material fired the callback.
+    pub descriptor: u32,
+    /// Firing material (0x28 or 0x1f).
+    pub material: u8,
 }
 /// One staged occupant-impact intent: the amplitude gate fired over a
 /// non-empty occupant list, but the per-occupant Hit application stays
@@ -166,12 +199,21 @@ pub fn car_body_contact_filter<B: VehicleCarContactBackend + ?Sized>(
         }
         0x28 => {
             put_byte(b, car.wrapping_add(0x2219), 1)?;
-            return boundary(VehicleCarContactBoundary::Material28GameCallback);
+            b.car_contact_game_callback(VehicleCarMaterialCallback {
+                car,
+                descriptor,
+                material: 0x28,
+            })?;
+            return Ok(0);
         }
         0x1f => {
             if byte(b, car.wrapping_add(0x2219))? == 0 {
                 put_byte(b, car.wrapping_add(0x2219), 1)?;
-                return boundary(VehicleCarContactBoundary::Material1fGameCallback);
+                b.car_contact_game_callback(VehicleCarMaterialCallback {
+                    car,
+                    descriptor,
+                    material: 0x1f,
+                })?;
             }
             return Ok(0);
         }

@@ -551,13 +551,14 @@ impl CarRuntime {
         ))
     }
     /// Staged-intent queue depths for probe diagnostics: (lamp breaks,
-    /// part detaches, crash-AI intents, impact occupants) plus the
-    /// latest crash-AI intent (actor, entry) if any. A grind that keeps
-    /// staging crash intents is stuck on knockable props whose
-    /// knock-away has no owner yet — not on static geometry.
+    /// part detaches, crash-AI intents, impact occupants, material
+    /// game callbacks) plus the latest crash-AI intent (actor, entry)
+    /// if any. A grind that keeps staging crash intents is stuck on
+    /// knockable props whose knock-away has no owner yet — not on
+    /// static geometry.
     pub fn driving_staged_intents(
         &self,
-    ) -> Result<(usize, usize, usize, usize, Option<(u32, u32)>), String> {
+    ) -> Result<(usize, usize, usize, usize, usize, Option<(u32, u32)>), String> {
         let sim = &self
             .driving
             .as_ref()
@@ -568,6 +569,7 @@ impl CarRuntime {
             sim.part_detaches.len(),
             sim.crash_ai_intents.len(),
             sim.impact_occupants.len(),
+            sim.material_callbacks.len(),
             sim.crash_ai_intents
                 .last()
                 .map(|intent| (intent.actor, intent.entry)),

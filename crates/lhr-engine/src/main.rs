@@ -2255,8 +2255,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     // not on static geometry — the knock-away has no
                     // owner yet so the props never clear.
                     match taxi.driving_staged_intents() {
-                        Ok((lamps, parts, crash, occupants, last_crash)) => {
-                            println!("probe wedge staged: lamps={lamps} parts={parts} crash={crash} occupants={occupants} last_crash={last_crash:?}");
+                        Ok((lamps, parts, crash, occupants, materials, last_crash)) => {
+                            println!("probe wedge staged: lamps={lamps} parts={parts} crash={crash} occupants={occupants} materials={materials} last_crash={last_crash:?}");
                         }
                         Err(error) => println!("probe wedge staged stopped: {error}"),
                     }
