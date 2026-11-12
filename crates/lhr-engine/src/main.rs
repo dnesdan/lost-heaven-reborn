@@ -1781,16 +1781,22 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             }
             (0.0, 0.0, false, false)
         } else if escaping && last.speed.abs() < 1.5 {
-            // Brake-torqued escape push: full throttle plus the handbrake
-            // ONLY while a driven wheel is actually slipping (wheel_slip
-            // refreshed from live diagnostics at each push sample below).
-            // A foot brake would
-            // zero the power channels in SetBrake; the handbrake runs on
-            // its own force channel with a gradual ramp, so it brakes
-            // the free spinner and lets torque reach the gripping wheel.
-            // Without slip the handbrake stays off so it can never hold
-            // the taxi itself.
-            (1.0 - 0.5 * steer.abs(), 0.0, wheel_slip, false)
+            // Brake-torqued escape push with throttle feathering: steady
+            // full throttle sustains the open-diff burnout equilibrium
+            // (probe_brakefix: wheels turning in contact, clutch 1.0,
+            // brake on or off, 0.0 m per push — the model never re-grips
+            // under a steady pedal, same class as the pinned clutch trap).
+            // Pulse 20 ticks full / 10 ticks 0.3 so the wheels can re-grip
+            // and launch, like a player feathering the pedal. The handbrake
+            // stays slip-gated as before (a foot brake would zero the power
+            // channels in SetBrake; the handbrake runs on its own force
+            // channel, braking only the free spinner).
+            let feathered = if drive_ticks % 30 < 20 {
+                1.0 - 0.5 * steer.abs()
+            } else {
+                0.3
+            };
+            (feathered, 0.0, wheel_slip, false)
         } else if speed > target_speed + 2.0 {
             (0.0, 0.8, false, false)
         } else if speed > target_speed {
