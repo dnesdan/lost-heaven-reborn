@@ -1210,9 +1210,7 @@ mod debug_draw_stub_tests {
     fn stub_0x168f0_draw_point_2d_is_unsupported() {
         assert_eq!(
             driver_draw_point_2d(4, 5, [0.0, 1.0, 0.0], 0),
-            Err(DebugDrawStubError::Unsupported {
-                entry: 0x168f0
-            })
+            Err(DebugDrawStubError::Unsupported { entry: 0x168f0 })
         );
     }
 
@@ -1236,9 +1234,7 @@ mod debug_draw_stub_tests {
     fn stub_0x16ff0_draw_triangles_is_unsupported() {
         assert_eq!(
             driver_draw_triangles(8, 36, [1.0; 3], 12, 0, false),
-            Err(DebugDrawStubError::Unsupported {
-                entry: 0x16ff0
-            })
+            Err(DebugDrawStubError::Unsupported { entry: 0x16ff0 })
         );
     }
 
@@ -1246,9 +1242,7 @@ mod debug_draw_stub_tests {
     fn stub_0x17580_draw_circle_2d_is_unsupported() {
         assert_eq!(
             driver_draw_circle_2d([0.0, 0.0], 4.0, [1.0; 3], 16, 0),
-            Err(DebugDrawStubError::Unsupported {
-                entry: 0x17580
-            })
+            Err(DebugDrawStubError::Unsupported { entry: 0x17580 })
         );
     }
 
@@ -1264,9 +1258,7 @@ mod debug_draw_stub_tests {
     fn stub_0x17d40_draw_text_2d_is_unsupported() {
         assert_eq!(
             driver_draw_text_2d(1, 2, "xy", 0, 1.0),
-            Err(DebugDrawStubError::Unsupported {
-                entry: 0x17d40
-            })
+            Err(DebugDrawStubError::Unsupported { entry: 0x17d40 })
         );
     }
 

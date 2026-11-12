@@ -195,22 +195,8 @@ pub struct ShotBone {
 /// `FindChildFrame` call for a hit index needs the model owner.
 pub fn shot_joint_index(name: &[u8]) -> Option<usize> {
     const JOINTS: [&[u8]; SHOT_JOINT_COUNT] = [
-        b"r_hand",
-        b"r_elbow",
-        b"r_arm",
-        b"r_foot",
-        b"r_shin",
-        b"r_thigh",
-        b"l_hand",
-        b"l_elbow",
-        b"l_arm",
-        b"l_foot",
-        b"l_shin",
-        b"l_thigh",
-        b"base",
-        b"back1",
-        b"back3",
-        b"neck",
+        b"r_hand", b"r_elbow", b"r_arm", b"r_foot", b"r_shin", b"r_thigh", b"l_hand", b"l_elbow",
+        b"l_arm", b"l_foot", b"l_shin", b"l_thigh", b"base", b"back1", b"back3", b"neck",
     ];
     JOINTS.iter().position(|joint| *joint == name)
 }
@@ -337,21 +323,8 @@ mod tests {
     fn skeleton_joint_index_covers_reference_table() {
         assert_eq!(SHOT_JOINT_COUNT, 16);
         let names: [&[u8]; 16] = [
-            b"r_hand",
-            b"r_elbow",
-            b"r_arm",
-            b"r_foot",
-            b"r_shin",
-            b"r_thigh",
-            b"l_hand",
-            b"l_elbow",
-            b"l_arm",
-            b"l_foot",
-            b"l_shin",
-            b"l_thigh",
-            b"base",
-            b"back1",
-            b"back3",
+            b"r_hand", b"r_elbow", b"r_arm", b"r_foot", b"r_shin", b"r_thigh", b"l_hand",
+            b"l_elbow", b"l_arm", b"l_foot", b"l_shin", b"l_thigh", b"base", b"back1", b"back3",
             b"neck",
         ];
         for (index, name) in names.iter().enumerate() {

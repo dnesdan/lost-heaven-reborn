@@ -933,8 +933,16 @@ mod tests {
         assert_eq!(
             state.door_open_requests(),
             &[
-                VehicleDoorOpenRequest { door: 1, open01: 1.0, unknown: false },
-                VehicleDoorOpenRequest { door: 1, open01: 0.0, unknown: false },
+                VehicleDoorOpenRequest {
+                    door: 1,
+                    open01: 1.0,
+                    unknown: false
+                },
+                VehicleDoorOpenRequest {
+                    door: 1,
+                    open01: 0.0,
+                    unknown: false
+                },
             ]
         );
         assert_eq!(state.door_open_amount(1), Some(0.0));

@@ -191,11 +191,7 @@ pub fn test_move_coll_owner_centres(frame_pos: [f32; 3]) -> [[f32; 3]; 3] {
         frame_pos[1] + TEST_MOVE_COLL_OWNER_LEGS_LIFT,
         frame_pos[2],
     ];
-    let body = [
-        legs[0],
-        legs[1] + TEST_MOVE_COLL_OWNER_BODY_LIFT,
-        legs[2],
-    ];
+    let body = [legs[0], legs[1] + TEST_MOVE_COLL_OWNER_BODY_LIFT, legs[2]];
     let head = [legs[0], legs[1] + TEST_MOVE_COLL_OWNER_HEAD_LIFT, legs[2]];
     [legs, body, head]
 }
@@ -244,10 +240,7 @@ pub fn test_move_coll_in_owner_result(
 /// [`test_move_coll_prefix`] (C_human.cpp:5293-5295, `this != GetPlayer()`
 /// adds `COLF2_UNKNOWN_80000`), while the merged owners ride the
 /// `DynSetNextCollOwnerMult` call around the same `TestPanak2` sweep.
-pub fn collect_next_coll_owners<T: Clone>(
-    colls: &[T],
-    ghost_colls: &[T],
-) -> Option<Vec<T>> {
+pub fn collect_next_coll_owners<T: Clone>(colls: &[T], ghost_colls: &[T]) -> Option<Vec<T>> {
     if ghost_colls.is_empty() {
         return None;
     }
@@ -364,11 +357,7 @@ pub fn movement_ground_query(
     move_ratio: f32,
     normalized_dir: Option<[f32; 3]>,
 ) -> MovementGroundQuery {
-    let mut origin = [
-        pos[0],
-        pos[1] + MOVEMENT_GROUND_LIFT,
-        pos[2],
-    ];
+    let mut origin = [pos[0], pos[1] + MOVEMENT_GROUND_LIFT, pos[2]];
     if move_ratio >= MOVEMENT_RATIO_THRESHOLD {
         if let Some(dir) = normalized_dir {
             origin = [
@@ -442,8 +431,8 @@ pub fn movement_apply_ground(
     };
     let drowned_now = contact.material == MAT_WATER_DEATH;
     let death_fall = is_player && contact.material == MAT_DEATH;
-    let may_fall = !(contact.hitpos[1] * contact.hitpos[1] - pos[1] * pos[1]
-        < MOVEMENT_GROUND_TOUCH_EPSILON);
+    let may_fall =
+        !(contact.hitpos[1] * contact.hitpos[1] - pos[1] * pos[1] < MOVEMENT_GROUND_TOUCH_EPSILON);
     let test_ground = if in_car {
         false
     } else {
@@ -493,12 +482,8 @@ fn movement_cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 ///, then normalize and scale by the original magnitude). A zero-length
 /// projection maps to zero (the original Normalize-then-scale order would
 /// divide by zero there; the guard is defensive, not original behavior).
-pub fn movement_project_on_ground(
-    displacement: [f32; 3],
-    ground_normal: [f32; 3],
-) -> [f32; 3] {
-    let length_squared =
-        movement_dot(displacement, displacement);
+pub fn movement_project_on_ground(displacement: [f32; 3], ground_normal: [f32; 3]) -> [f32; 3] {
+    let length_squared = movement_dot(displacement, displacement);
     if length_squared <= 0.0 {
         return [0.0, 0.0, 0.0];
     }
@@ -518,19 +503,11 @@ pub fn movement_project_on_ground(
 
 /// Gravity step (C_human.cpp:5136-5137): `fall += t * 9.81; move.y -= fall * t`
 /// with t = time_ms * 0.001 (C_human.cpp:5039).
-pub fn movement_apply_gravity(
-    displacement: [f32; 3],
-    fall: f32,
-    time_ms: u32,
-) -> ([f32; 3], f32) {
+pub fn movement_apply_gravity(displacement: [f32; 3], fall: f32, time_ms: u32) -> ([f32; 3], f32) {
     let t = time_ms as f32 * 0.001;
     let fall = fall + t * MOVEMENT_GRAVITY;
     (
-        [
-            displacement[0],
-            displacement[1] - fall * t,
-            displacement[2],
-        ],
+        [displacement[0], displacement[1] - fall * t, displacement[2]],
         fall,
     )
 }
@@ -663,8 +640,7 @@ pub fn movement_apply_step(
                 wants_person_anim = true;
             }
             if ((if jump_fall { 18 } else { 8 }) as f32) < fall {
-                landing_damage =
-                    Some((fall - (if jump_fall { 12.0 } else { 2.0 })) * 10.0);
+                landing_damage = Some((fall - (if jump_fall { 12.0 } else { 2.0 })) * 10.0);
             } else {
                 // Below the damage bar the original selects ANIM_DOSKOK plus
                 // SetWaitAnim instead of Hit (C_human.cpp:5196-5199); the
@@ -836,11 +812,7 @@ pub struct FallEntry {
     pub wants_person_anim: bool,
 }
 
-pub fn movement_fall_entry(
-    action_state: i32,
-    fall: f32,
-    may_fall: bool,
-) -> FallEntry {
+pub fn movement_fall_entry(action_state: i32, fall: f32, may_fall: bool) -> FallEntry {
     let mut may_fall = may_fall;
     if may_fall && action_state == HUMAN_ACTION_JUMP && fall < 10.0 {
         may_fall = false;
@@ -873,14 +845,8 @@ mod tests {
         assert_eq!(TEST_MOVE_COLL_LEGS_LIFT, 0.405);
         assert_eq!(TEST_MOVE_COLL_RESULT_DROP, 0.4);
         assert_eq!(TEST_MOVE_COLL_DIR_Y_BIAS, -0.015);
-        assert_eq!(
-            test_move_coll_torso_lifts(true, false),
-            Some([0.55, 1.0])
-        );
-        assert_eq!(
-            test_move_coll_torso_lifts(true, true),
-            Some([0.3, 0.6])
-        );
+        assert_eq!(test_move_coll_torso_lifts(true, false), Some([0.55, 1.0]));
+        assert_eq!(test_move_coll_torso_lifts(true, true), Some([0.3, 0.6]));
         assert_eq!(test_move_coll_torso_lifts(false, false), None);
         assert_eq!(test_move_coll_torso_lifts(false, true), None);
     }
@@ -962,11 +928,19 @@ mod tests {
         assert_eq!(legs, [1.0, 2.0 + TEST_MOVE_COLL_OWNER_LEGS_LIFT, 3.0]);
         assert_eq!(
             body,
-            [1.0, 2.0 + TEST_MOVE_COLL_OWNER_LEGS_LIFT + TEST_MOVE_COLL_OWNER_BODY_LIFT, 3.0]
+            [
+                1.0,
+                2.0 + TEST_MOVE_COLL_OWNER_LEGS_LIFT + TEST_MOVE_COLL_OWNER_BODY_LIFT,
+                3.0
+            ]
         );
         assert_eq!(
             head,
-            [1.0, 2.0 + TEST_MOVE_COLL_OWNER_LEGS_LIFT + TEST_MOVE_COLL_OWNER_HEAD_LIFT, 3.0]
+            [
+                1.0,
+                2.0 + TEST_MOVE_COLL_OWNER_LEGS_LIFT + TEST_MOVE_COLL_OWNER_HEAD_LIFT,
+                3.0
+            ]
         );
         // Railway probes regardless of seat; a car only for the seatless
         // human (seat == HUMAN_SEAT_NONE, :5348); other carriers probe nothing.
@@ -979,7 +953,11 @@ mod tests {
             [1.5, 1.75, 2.0]
         );
         assert_eq!(
-            test_move_coll_in_owner_result([1.0, 2.0, 3.0], [0.5, -0.25, -1.0], Some([10.0, 5.0, -3.0])),
+            test_move_coll_in_owner_result(
+                [1.0, 2.0, 3.0],
+                [0.5, -0.25, -1.0],
+                Some([10.0, 5.0, -3.0])
+            ),
             test_move_coll_hit_result([10.0, 5.0, -3.0])
         );
     }
@@ -1001,20 +979,14 @@ mod tests {
                 flags2: 0x800000,
             }
         );
-        let ahead =
-            movement_ground_query([1.0, 2.0, 3.0], 0.5, Some([1.0, 0.0, 0.0]));
+        let ahead = movement_ground_query([1.0, 2.0, 3.0], 0.5, Some([1.0, 0.0, 0.0]));
         assert_eq!(
             ahead.origin,
-            [
-                1.0 + MOVEMENT_STEP_AHEAD,
-                2.0 + MOVEMENT_GROUND_LIFT,
-                3.0
-            ]
+            [1.0 + MOVEMENT_STEP_AHEAD, 2.0 + MOVEMENT_GROUND_LIFT, 3.0]
         );
         assert_eq!(ahead.delta, [0.0, -1.5, 0.0]);
         // Below the threshold the look-ahead is skipped even with a direction.
-        let below =
-            movement_ground_query([1.0, 2.0, 3.0], 0.2, Some([1.0, 0.0, 0.0]));
+        let below = movement_ground_query([1.0, 2.0, 3.0], 0.2, Some([1.0, 0.0, 0.0]));
         assert_eq!(below.origin, base.origin);
     }
 

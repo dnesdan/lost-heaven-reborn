@@ -305,7 +305,10 @@ mod tests {
             Err(IfFltDecodeError::MaxConversion("interrupted"))
         );
         let parameter = slot.parameter().expect("completed prefix retained");
-        assert_eq!((parameter.register(), parameter.min()), (Some(4), Some(1.5)));
+        assert_eq!(
+            (parameter.register(), parameter.min()),
+            (Some(4), Some(1.5))
+        );
         assert_eq!(parameter.max(), None);
         assert_eq!(parameter.label(), None);
         assert_eq!(backend.conversions, vec![0, 1, 2]);

@@ -216,12 +216,7 @@ impl DoorControlState {
     /// Original `SetState` store (GAME 0x439610; `C_door.cpp:21-25`). The
     /// actor notify target and both unknown effect flags are deferred with
     /// the frame/sound owners, so only the enum transition is retained.
-    pub fn set_state(
-        &mut self,
-        state: DoorMotionState,
-        _unknown1: bool,
-        _unknown2: bool,
-    ) {
+    pub fn set_state(&mut self, state: DoorMotionState, _unknown1: bool, _unknown2: bool) {
         self.state = state;
     }
 

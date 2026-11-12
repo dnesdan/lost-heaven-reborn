@@ -1564,7 +1564,9 @@ mod tests {
                 &mut storage,
             )
             .unwrap();
-        shared.set_viewport(&arena, scene, [1, 2, 800, 600]).unwrap();
+        shared
+            .set_viewport(&arena, scene, [1, 2, 800, 600])
+            .unwrap();
         assert_eq!(shared.scene_viewport_rect(scene).unwrap(), [1, 2, 800, 600]);
         shared
             .set_view_proj_matrix(&arena, scene, SMatrix::identity())
@@ -1611,7 +1613,9 @@ mod tests {
             shared.scene_viewport_half_extent_of(scene),
             Err(SceneResourceError::UnsupportedDomain(_))
         ));
-        shared.set_viewport(&arena, scene, [1, 2, 800, 600]).unwrap();
+        shared
+            .set_viewport(&arena, scene, [1, 2, 800, 600])
+            .unwrap();
         // Viewport [1, 2, 800, 600]: halves [(800-1)*0.5, (2-600)*0.5],
         // center [1 + 399.5, 2 - (-299)].
         assert_eq!(

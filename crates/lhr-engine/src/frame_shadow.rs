@@ -740,7 +740,11 @@ impl ModelArena {
     /// `visible_range` directly with `FLD`/`FSTP` instead of calling it, per
     /// the 0x50c60 byte walk). Unconditional store of the caller's range;
     /// no validation, no flag or light effects.
-    pub fn set_shadow_visible_range(&mut self, key: FrameKey, range: f32) -> Result<(), ModelError> {
+    pub fn set_shadow_visible_range(
+        &mut self,
+        key: FrameKey,
+        range: f32,
+    ) -> Result<(), ModelError> {
         self.shadow_state_mut(key)?.visible_range = range;
         Ok(())
     }
@@ -1231,7 +1235,9 @@ mod tests {
         assert_eq!(arena.shadow_light_dir_of(key).unwrap(), [0.0, 0.0, 1.0]);
         let scene = arena.construct_scene_owner_prefix().unwrap();
         let sector = arena.scene(scene).unwrap().sectors[0];
-        arena.link_shadow_frame(key, Some(sector.frame()), 0, &mut visual).unwrap();
+        arena
+            .link_shadow_frame(key, Some(sector.frame()), 0, &mut visual)
+            .unwrap();
         arena.update_shadow_v(key).unwrap();
         assert_eq!(arena.shadow_scene_of(key).unwrap(), Some(scene));
         let def = def_two_parts();
@@ -1264,7 +1270,9 @@ mod tests {
         arena.set_shadow_visible_range(key, f32::NAN).unwrap();
         assert!(arena.shadow_state(key).unwrap().visible_range.is_nan());
         assert_eq!(
-            arena.set_shadow_visible_range(FrameKey(u32::MAX), 1.0).unwrap_err(),
+            arena
+                .set_shadow_visible_range(FrameKey(u32::MAX), 1.0)
+                .unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
     }
@@ -1344,7 +1352,9 @@ mod tests {
             released: Vec::new(),
         };
         assert_eq!(arena.shadow_texture_size_of(key).unwrap(), [64, 64]);
-        arena.shadow_set_texture_size(key, 100, 5, &mut tex).unwrap();
+        arena
+            .shadow_set_texture_size(key, 100, 5, &mut tex)
+            .unwrap();
         assert_eq!(arena.shadow_texture_size_of(key).unwrap(), [128, 128]);
         assert_eq!(
             arena
@@ -2020,7 +2030,9 @@ mod tests {
         assert!(arena.shadow_texture_valid_of(key).unwrap());
         assert!(!arena.shadow_verts_valid_of(key).unwrap());
         assert_eq!(
-            arena.shadow_texture_changed_of(FrameKey(u32::MAX)).unwrap_err(),
+            arena
+                .shadow_texture_changed_of(FrameKey(u32::MAX))
+                .unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
         assert_eq!(
@@ -2028,11 +2040,15 @@ mod tests {
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
         assert_eq!(
-            arena.shadow_verts_changed_of(FrameKey(u32::MAX)).unwrap_err(),
+            arena
+                .shadow_verts_changed_of(FrameKey(u32::MAX))
+                .unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
         assert_eq!(
-            arena.shadow_texture_valid_of(FrameKey(u32::MAX)).unwrap_err(),
+            arena
+                .shadow_texture_valid_of(FrameKey(u32::MAX))
+                .unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
         assert_eq!(
@@ -2082,11 +2098,15 @@ mod tests {
         arena.set_shadow_lock(key, 0).unwrap();
         assert!(arena.shadow_lock_is_none_of(key).unwrap());
         assert_eq!(
-            arena.shadow_opacity_changed_of(FrameKey(u32::MAX)).unwrap_err(),
+            arena
+                .shadow_opacity_changed_of(FrameKey(u32::MAX))
+                .unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
         assert_eq!(
-            arena.shadow_receivers_changed_of(FrameKey(u32::MAX)).unwrap_err(),
+            arena
+                .shadow_receivers_changed_of(FrameKey(u32::MAX))
+                .unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
         assert_eq!(
@@ -2094,7 +2114,9 @@ mod tests {
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
         assert_eq!(
-            arena.shadow_receivers_valid_of(FrameKey(u32::MAX)).unwrap_err(),
+            arena
+                .shadow_receivers_valid_of(FrameKey(u32::MAX))
+                .unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
         assert_eq!(
@@ -2102,7 +2124,9 @@ mod tests {
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
         assert_eq!(
-            arena.shadow_lock_is_vertices_of(FrameKey(u32::MAX)).unwrap_err(),
+            arena
+                .shadow_lock_is_vertices_of(FrameKey(u32::MAX))
+                .unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
     }
@@ -2136,9 +2160,7 @@ mod tests {
         let key = arena.create_shadow_frame(&mut visual).unwrap();
         assert_eq!(arena.shadow_verts_count_of(key).unwrap(), -1);
         assert_eq!(
-            arena
-                .shadow_verts_count_of(FrameKey(u32::MAX))
-                .unwrap_err(),
+            arena.shadow_verts_count_of(FrameKey(u32::MAX)).unwrap_err(),
             ModelError::UnknownFrame(FrameKey(u32::MAX))
         );
     }

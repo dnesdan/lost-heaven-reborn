@@ -77,10 +77,9 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
                 // C_traffic_generator::ZrusVsechnyMavajici over the live
                 // pedestrians; the set is empty (see NoPedestrians), so
                 // this only runs the native early-out shape.
-                if let Err(error) = crate::traffic_generator::zrus_vsechny_mavajici(
-                    &[],
-                    &mut NoPedestrians,
-                ) {
+                if let Err(error) =
+                    crate::traffic_generator::zrus_vsechny_mavajici(&[], &mut NoPedestrians)
+                {
                     return Err(format!("timer traffic wave-cancel: {error}"));
                 }
             }

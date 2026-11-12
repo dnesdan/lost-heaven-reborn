@@ -29,7 +29,9 @@ impl GetActorsDistParameter {
 /// the borrowed instruction. No failed callback is silently retried.
 pub trait GetActorsDistParameterBackend {
     type Error;
-    fn allocate_getactorsdist(&mut self) -> Result<Option<Box<GetActorsDistParameter>>, Self::Error>;
+    fn allocate_getactorsdist(
+        &mut self,
+    ) -> Result<Option<Box<GetActorsDistParameter>>, Self::Error>;
     fn convert_integer(
         &mut self,
         index: usize,
@@ -167,11 +169,7 @@ mod tests {
 
     #[test]
     fn getactorsdist_refuses_other_counts_and_unsupported_opcode() {
-        for source in [
-            &b"\0"[..],
-            &b"0,1\0"[..],
-            &b"0,1,2,3,4\0"[..],
-        ] {
+        for source in [&b"\0"[..], &b"0,1\0"[..], &b"0,1,2,3,4\0"[..]] {
             let mut buffer = source.to_vec();
             let mut slot = GetActorsDistParameterSlot::default();
             assert_eq!(

@@ -309,10 +309,7 @@ impl ModelArena {
     /// itself while there are none). The reference records no LS3DF FUNCTION
     /// address for a standalone reader: the rendering maintains it. Reports
     /// the live frame, if any; no state moves.
-    pub fn sector_next_visual_of(
-        &self,
-        key: SectorKey,
-    ) -> Result<Option<FrameKey>, ModelError> {
+    pub fn sector_next_visual_of(&self, key: SectorKey) -> Result<Option<FrameKey>, ModelError> {
         Ok(self.sector(key)?.next_visual)
     }
     /// Working name for the hierarchy bound-volume box field (mafia-re
@@ -321,10 +318,7 @@ impl ModelArena {
     /// LS3DF FUNCTION address for a standalone reader. Reports the stored
     /// box; None is the untouched invalid constructor bounds, not a valid
     /// empty box. No state moves.
-    pub fn sector_bounds_of(
-        &self,
-        key: SectorKey,
-    ) -> Result<Option<[[f32; 3]; 2]>, ModelError> {
+    pub fn sector_bounds_of(&self, key: SectorKey) -> Result<Option<[[f32; 3]; 2]>, ModelError> {
         Ok(self.sector(key)?.bounds)
     }
     /// Working name for the bound-sphere field kept next to the box (center
@@ -374,10 +368,7 @@ impl ModelArena {
     /// into this sector). Same inline-only status as `sector_portals_of`:
     /// no standalone LS3DF FUNCTION entry exists, so no RVA is claimed
     /// here. Reports the live borrowed list; no state moves.
-    pub fn sector_incoming_portals_of(
-        &self,
-        key: SectorKey,
-    ) -> Result<&[PortalKey], ModelError> {
+    pub fn sector_incoming_portals_of(&self, key: SectorKey) -> Result<&[PortalKey], ModelError> {
         Ok(&self.sector(key)?.geometry.incoming_portals)
     }
     /// Working name for the previous scene-ring link at +0x224
@@ -396,10 +387,7 @@ impl ModelArena {
     /// `sector_previous_in_scene_of`: no standalone LS3DF FUNCTION entry
     /// exists, so no RVA is claimed here. Reports the next sector, if
     /// ring-linked; no state moves.
-    pub fn sector_next_in_scene_of(
-        &self,
-        key: SectorKey,
-    ) -> Result<Option<SectorKey>, ModelError> {
+    pub fn sector_next_in_scene_of(&self, key: SectorKey) -> Result<Option<SectorKey>, ModelError> {
         Ok(self.sector(key)?.geometry.next)
     }
 }
@@ -1615,9 +1603,7 @@ mod tests {
         assert!(sector_far_no_children(u32::MAX));
         assert!(!sector_far_no_children(0));
         assert!(!sector_far_no_children(SCTF_VISIBLE));
-        assert!(!sector_far_no_children(
-            u32::MAX & !SCTF_FAR_NO_CHILDREN
-        ));
+        assert!(!sector_far_no_children(u32::MAX & !SCTF_FAR_NO_CHILDREN));
     }
     #[test]
     fn sector_primary_reports_only_bit_nine() {
@@ -1699,17 +1685,13 @@ mod tests {
         assert!(sector_occluder_hides(SCTF_OCCLUDER));
         assert!(!sector_occluder_hides(0));
         assert!(!sector_occluder_hides(SCTF_OCCLUDER_OFF));
-        assert!(!sector_occluder_hides(
-            SCTF_OCCLUDER | SCTF_OCCLUDER_OFF
-        ));
+        assert!(!sector_occluder_hides(SCTF_OCCLUDER | SCTF_OCCLUDER_OFF));
         assert!(!sector_occluder_hides(SCTF_VISIBLE));
     }
     #[test]
     fn sector_frames_only_cull_needs_both_bits() {
         // Working name for the partial-cull mode: no LS3DF FUNCTION entry.
-        assert!(sector_culls_frames_only(
-            SCTF_CULLED | SCTF_FAR_NO_CHILDREN
-        ));
+        assert!(sector_culls_frames_only(SCTF_CULLED | SCTF_FAR_NO_CHILDREN));
         assert!(sector_culls_frames_only(u32::MAX));
         assert!(!sector_culls_frames_only(0));
         assert!(!sector_culls_frames_only(SCTF_CULLED));

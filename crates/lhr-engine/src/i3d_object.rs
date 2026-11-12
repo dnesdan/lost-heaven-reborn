@@ -1949,8 +1949,14 @@ mod tests {
             .create_object_resources(None)
             .unwrap();
         assert_eq!(r.visual_type_word(foreign), Err(ObjectError::ForeignArena));
-        assert_eq!(r.object_mesh_handle(foreign), Err(ObjectError::ForeignArena));
-        assert_eq!(r.object_mesh_lod_index(foreign), Err(ObjectError::ForeignArena));
+        assert_eq!(
+            r.object_mesh_handle(foreign),
+            Err(ObjectError::ForeignArena)
+        );
+        assert_eq!(
+            r.object_mesh_lod_index(foreign),
+            Err(ObjectError::ForeignArena)
+        );
     }
     #[test]
     fn texbl_struct_teardown_releases_offsets_and_keeps_scalars() {

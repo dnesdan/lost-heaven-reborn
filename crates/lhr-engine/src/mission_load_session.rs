@@ -737,41 +737,45 @@ impl MissionLoadSession {
             return Err("mission snapshot viewport outside supported range".into());
         }
         let number = sequence.next_number()?;
-        Pc24PrecisionState::run_owner(self, |session| &mut session.precision, |session| {
-            let scene = session
-                .scene()
-                .map_err(|error| format!("mission snapshot scene: {error:?}"))?
-                .ok_or("mission snapshot Scene unavailable")?;
-            session
-                .resources
-                .set_viewport(
-                    &session.arena,
+        Pc24PrecisionState::run_owner(
+            self,
+            |session| &mut session.precision,
+            |session| {
+                let scene = session
+                    .scene()
+                    .map_err(|error| format!("mission snapshot scene: {error:?}"))?
+                    .ok_or("mission snapshot Scene unavailable")?;
+                session
+                    .resources
+                    .set_viewport(
+                        &session.arena,
+                        scene,
+                        [0, 0, target[0] as i32, target[1] as i32],
+                    )
+                    .map_err(|error| format!("mission snapshot viewport: {error:?}"))?;
+                let camera = session
+                    .arena
+                    .scene_active_camera(scene)
+                    .map_err(|error| format!("mission snapshot camera: {error:?}"))?
+                    .ok_or("mission snapshot active camera unavailable")?;
+                session
+                    .arena
+                    .camera_set_aspect_ratio(camera, target[0] as f32 / target[1] as f32)
+                    .map_err(|error| format!("mission snapshot aspect: {error:?}"))?;
+                let viewport = session
+                    .resources
+                    .construction(scene)
+                    .and_then(|construction| construction.viewport_projection)
+                    .ok_or("mission snapshot canonical viewport unavailable")?;
+                crate::scene_render::snapshot_scene(
+                    &mut session.arena,
                     scene,
-                    [0, 0, target[0] as i32, target[1] as i32],
+                    viewport,
+                    target,
+                    number,
                 )
-                .map_err(|error| format!("mission snapshot viewport: {error:?}"))?;
-            let camera = session
-                .arena
-                .scene_active_camera(scene)
-                .map_err(|error| format!("mission snapshot camera: {error:?}"))?
-                .ok_or("mission snapshot active camera unavailable")?;
-            session
-                .arena
-                .camera_set_aspect_ratio(camera, target[0] as f32 / target[1] as f32)
-                .map_err(|error| format!("mission snapshot aspect: {error:?}"))?;
-            let viewport = session
-                .resources
-                .construction(scene)
-                .and_then(|construction| construction.viewport_projection)
-                .ok_or("mission snapshot canonical viewport unavailable")?;
-            crate::scene_render::snapshot_scene(
-                &mut session.arena,
-                scene,
-                viewport,
-                target,
-                number,
-            )
-        })
+            },
+        )
     }
     /// Retained CPU Close evidence can outlive its Scene. Namespace validation
     /// still precedes this historical report lookup; no live owner is resolved.

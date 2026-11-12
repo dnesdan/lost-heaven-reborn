@@ -179,10 +179,8 @@ pub fn vehicle_get_special_dynamic_colls(flag: bool) -> bool {
 /// Returns the new speed and the deferred wake-up edge (always requested;
 /// the owner invokes `wake_up` through `callback_context` when present).
 pub fn vehicle_set_velocity(velocity: [f32; 3]) -> ([f32; 3], f32, bool) {
-    let speed = (velocity[0] * velocity[0]
-        + velocity[1] * velocity[1]
-        + velocity[2] * velocity[2])
-        .sqrt();
+    let speed =
+        (velocity[0] * velocity[0] + velocity[1] * velocity[1] + velocity[2] * velocity[2]).sqrt();
     (velocity, speed, true)
 }
 
@@ -199,7 +197,10 @@ pub fn vehicle_set_angular_velocity(angular_velocity: [f32; 3]) -> ([f32; 3], bo
 /// Returns the model-name field up to the first NUL byte, mirroring the
 /// original `char *` return without exposing the trailing fill.
 pub fn car_get_model_name(model_name: &[u8]) -> &[u8] {
-    let end = model_name.iter().position(|&b| b == 0).unwrap_or(model_name.len());
+    let end = model_name
+        .iter()
+        .position(|&b| b == 0)
+        .unwrap_or(model_name.len());
     &model_name[..end]
 }
 
@@ -934,10 +935,7 @@ pub fn car_deactivate_car_unsupported(_unknown: u32) -> Result<(), VehicleSmallS
 /// mafia-re 113b5b6 `game/vehicles/C_car.cpp:385-389`).
 /// STUB: resets the car. The frame/collision owners stay outside this
 /// contract, so the boundary is explicit.
-pub fn car_reset_unsupported(
-    _unknown: f32,
-    _unknown2: bool,
-) -> Result<(), VehicleSmallStubError> {
+pub fn car_reset_unsupported(_unknown: f32, _unknown2: bool) -> Result<(), VehicleSmallStubError> {
     Err(VehicleSmallStubError::Unsupported {
         entry: CAR_RESET_ENTRY,
     })
@@ -1066,7 +1064,10 @@ mod tests {
         // RVA 0x7b250: always wakes.
         assert_eq!(vehicle_set_light(0, true), (VLIGHT_LIGHT, true));
         assert_eq!(vehicle_set_light(VLIGHT_LIGHT, false), (0, true));
-        assert_eq!(vehicle_set_light(VLIGHT_MAIN, true), (VLIGHT_MAIN | VLIGHT_LIGHT, true));
+        assert_eq!(
+            vehicle_set_light(VLIGHT_MAIN, true),
+            (VLIGHT_MAIN | VLIGHT_LIGHT, true)
+        );
     }
 
     #[test]
@@ -1141,7 +1142,13 @@ mod tests {
         car_set_tank_hit_count(&mut hits, 3);
         assert_eq!(hits, CarTankHits { left: 3, count: 3 });
         car_set_tank_hit_count(&mut hits, -1);
-        assert_eq!(hits, CarTankHits { left: -1, count: -1 });
+        assert_eq!(
+            hits,
+            CarTankHits {
+                left: -1,
+                count: -1
+            }
+        );
     }
 
     #[test]
@@ -1739,7 +1746,12 @@ mod tests {
         // cached arm returns the stored matrix, the refresh arm needs the
         // model-frame owner and reports the boundary.
         assert_eq!(CAR_GET_INV_MODEL_MATRIX_ENTRY, 0x4293e0);
-        let stored = [[1.0f32, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        let stored = [
+            [1.0f32, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
         assert_eq!(car_get_inv_model_matrix(&stored, false), Ok(&stored));
         assert_eq!(
             car_get_inv_model_matrix(&stored, true),
@@ -1762,7 +1774,12 @@ mod tests {
         // C_Vehicle::ExternalImpuls GAME RVA 0xcb7e0 (VA 0x4cb7e0).
         assert_eq!(VEHICLE_EXTERNAL_IMPULS_ENTRY, 0x4cb7e0);
         assert_eq!(
-            vehicle_external_impuls_unsupported([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0, [0.0, 1.0, 0.0]),
+            vehicle_external_impuls_unsupported(
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                0,
+                [0.0, 1.0, 0.0]
+            ),
             Err(VehicleSmallStubError::Unsupported { entry: 0x4cb7e0 })
         );
     }

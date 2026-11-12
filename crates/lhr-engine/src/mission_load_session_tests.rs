@@ -572,27 +572,53 @@ fn load_map_preserves_non_utf8_names_and_continues_to_the_camera() {
 
 #[test]
 fn loaded_mission_presentation_reuses_live_scene_camera_and_disposes_normally() {
-    let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&scene2(&[])), None);
+    let fixture = Fixture::new(
+        Some(&world(&[dummy(0, b"world part")])),
+        Some(&scene2(&[])),
+        None,
+    );
     let mut session = fixture.session();
     let mut sequence = crate::scene_render::SceneSnapshotSequence::default();
-    assert!(session.snapshot_loaded_scene([64, 64], &mut sequence).is_err());
+    assert!(session
+        .snapshot_loaded_scene([64, 64], &mut sequence)
+        .is_err());
     load(&mut session, &[]).unwrap();
     let scene = session.scene().unwrap().unwrap();
     let camera = session.arena().scene_active_camera(scene).unwrap().unwrap();
     assert_eq!(session.loader().unwrap().camera, Some(camera));
-    assert_eq!(session.resources().construction(scene).unwrap().viewport, [0, 0, 800, 600]);
-    assert!(session.snapshot_loaded_scene([0, 64], &mut sequence).is_err());
-    assert_eq!(session.resources().construction(scene).unwrap().viewport, [0, 0, 800, 600]);
-    let snapshot = session.snapshot_loaded_scene([64, 64], &mut sequence).unwrap();
+    assert_eq!(
+        session.resources().construction(scene).unwrap().viewport,
+        [0, 0, 800, 600]
+    );
+    assert!(session
+        .snapshot_loaded_scene([0, 64], &mut sequence)
+        .is_err());
+    assert_eq!(
+        session.resources().construction(scene).unwrap().viewport,
+        [0, 0, 800, 600]
+    );
+    let snapshot = session
+        .snapshot_loaded_scene([64, 64], &mut sequence)
+        .unwrap();
     assert_eq!(snapshot.frame.viewport, [0, 0, 64, 64]);
     assert_eq!(session.scene().unwrap(), Some(scene));
-    assert_eq!(session.arena().scene_active_camera(scene).unwrap(), Some(camera));
+    assert_eq!(
+        session.arena().scene_active_camera(scene).unwrap(),
+        Some(camera)
+    );
     assert!(snapshot.scene.meshes.is_empty());
-    let next = session.snapshot_loaded_scene([128, 64], &mut sequence).unwrap();
+    let next = session
+        .snapshot_loaded_scene([128, 64], &mut sequence)
+        .unwrap();
     assert_eq!(next.frame.viewport, [0, 0, 128, 64]);
-    assert_eq!(session.resources().construction(scene).unwrap().viewport, [0, 0, 128, 64]);
+    assert_eq!(
+        session.resources().construction(scene).unwrap().viewport,
+        [0, 0, 128, 64]
+    );
     discard(&mut session);
-    assert!(session.snapshot_loaded_scene([64, 64], &mut sequence).is_err());
+    assert!(session
+        .snapshot_loaded_scene([64, 64], &mut sequence)
+        .is_err());
 }
 
 #[test]
@@ -742,9 +768,15 @@ fn game_init_reset_reads_actual_scene_weather_and_stops_at_unowned_render() {
         session.reset_game_mission_state_for_init(),
         Err("Init Scene::Render after sound mute unavailable".into()),
     );
-    assert_eq!(session.game_init_reset_observation(), (false, 0, Some(expected), -1));
+    assert_eq!(
+        session.game_init_reset_observation(),
+        (false, 0, Some(expected), -1)
+    );
     assert_eq!(session.audio().master_gain().unwrap(), 0.0);
-    assert_eq!(session.resources().construction(scene).unwrap().words, before);
+    assert_eq!(
+        session.resources().construction(scene).unwrap().words,
+        before
+    );
     assert_eq!(
         session.reset_game_mission_state_for_init(),
         Err("mission state reset already entered".into()),
@@ -764,7 +796,9 @@ impl crate::scene_projection::SceneRenderBackend for InitSceneRender {
         arena.scene(scene)?;
         self.calls.push(scene);
         if self.fail {
-            return Err(ModelError::Asset("injected scene render interruption".into()));
+            return Err(ModelError::Asset(
+                "injected scene render interruption".into(),
+            ));
         }
         // The original caller ignores the numeric I3D_scene::Render status.
         Ok(0x8000_0009)
@@ -829,7 +863,10 @@ fn game_init_render_failure_keeps_muted_prefix_and_does_not_mark_restore() {
 fn mission_tick_head_restores_real_pcm_master_gain_once_after_skipped_frames() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
-    assert_eq!(session.tick_restore_volume_head(), Err("mission tick requires completed Open".into()));
+    assert_eq!(
+        session.tick_restore_volume_head(),
+        Err("mission tick requires completed Open".into())
+    );
     load(&mut session, &[]).unwrap();
     // Stage the already loaded owner at the native post-Open boundary.
     session.mark_open_mission_opened().unwrap();
@@ -851,7 +888,10 @@ fn mission_tick_head_restores_real_pcm_master_gain_once_after_skipped_frames() {
     assert_eq!(session.tick_restore_volume_head(), Ok(false));
     assert_eq!(session.audio().master_gain().unwrap(), 0.6);
     discard(&mut session);
-    assert_eq!(session.set_skip_frames_for_tick(1), Err("terminal discard entered".into()));
+    assert_eq!(
+        session.set_skip_frames_for_tick(1),
+        Err("terminal discard entered".into())
+    );
 }
 
 #[test]
@@ -863,7 +903,10 @@ fn mission_tick_head_consumes_restore_before_a_refused_audio_write() {
     session.mute_audio_and_render_for_open().unwrap();
     session.set_open_configured_volume(1.5).unwrap();
     session.mark_open_restore_volume().unwrap();
-    assert!(session.tick_restore_volume_head().unwrap_err().contains("master volume outside host mixer domain"));
+    assert!(session
+        .tick_restore_volume_head()
+        .unwrap_err()
+        .contains("master volume outside host mixer domain"));
     assert!(!session.open_restore_volume());
     assert_eq!(session.open_restored(), None);
     assert_eq!(session.audio().master_gain().unwrap(), 0.0);

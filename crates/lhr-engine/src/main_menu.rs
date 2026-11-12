@@ -919,23 +919,17 @@ mod tests {
     }
     #[test]
     fn false_predicate_selects_mainmenu_name() {
-        assert_eq!(
-            select_main_menu_mission(false),
-            MainMenuMission::Mainmenu
-        );
+        assert_eq!(select_main_menu_mission(false), MainMenuMission::Mainmenu);
         assert_eq!(select_main_menu_mission(false).mission_name(), "mainmenu");
-        assert_eq!(MainMenuMission::from_racing(false).mission_name(), "mainmenu");
+        assert_eq!(
+            MainMenuMission::from_racing(false).mission_name(),
+            "mainmenu"
+        );
     }
     #[test]
     fn true_predicate_selects_mainmenurac_name() {
-        assert_eq!(
-            select_main_menu_mission(true),
-            MainMenuMission::MainmenuRac
-        );
-        assert_eq!(
-            select_main_menu_mission(true).mission_name(),
-            "mainmenurac"
-        );
+        assert_eq!(select_main_menu_mission(true), MainMenuMission::MainmenuRac);
+        assert_eq!(select_main_menu_mission(true).mission_name(), "mainmenurac");
         assert_eq!(
             MainMenuMission::from_racing(true).mission_name(),
             "mainmenurac"
@@ -1098,10 +1092,7 @@ mod tests {
         let effect = main_menu_onclick(MAINMENU_ITEM_LOAD_GAME).unwrap();
         assert_eq!(effect.close_all_result(), None);
         assert_eq!(effect.open_target(), Some(MainMenuOpenTarget::LoadGame));
-        assert_eq!(
-            MainMenuOpenTarget::LoadGame.definition_name(),
-            "loadgame"
-        );
+        assert_eq!(MainMenuOpenTarget::LoadGame.definition_name(), "loadgame");
         assert_eq!(MainMenuOpenTarget::FreeRide.definition_name(), "freeride");
         assert_eq!(MainMenuOpenTarget::Options.definition_name(), "optionsb");
         assert_eq!(
@@ -1112,7 +1103,10 @@ mod tests {
     }
     #[test]
     fn onchange_routes_the_active_id_to_the_camera_latch() {
-        assert_eq!(main_menu_onchange(Some(MAINMENU_ITEM_OPTIONS)), Some(MAINMENU_ITEM_OPTIONS));
+        assert_eq!(
+            main_menu_onchange(Some(MAINMENU_ITEM_OPTIONS)),
+            Some(MAINMENU_ITEM_OPTIONS)
+        );
         assert_eq!(main_menu_onchange(None), None);
         // The routed id lands in the latch unchanged.
         let mut camera = MenuCameraTarget::new();
@@ -1224,7 +1218,10 @@ mod tests {
                 target: OptionsOpenTarget::AudioVideo,
             })
         );
-        assert_eq!(options_onclick(OPTIONSB_BACK), Some(OptionsClickEffect::Close));
+        assert_eq!(
+            options_onclick(OPTIONSB_BACK),
+            Some(OptionsClickEffect::Close)
+        );
         for id in [0, OPTIONSB_CONTROLS - 1, OPTIONSB_BACK + 1, u32::MAX] {
             assert_eq!(options_onclick(id), None);
         }
@@ -1253,7 +1250,12 @@ mod tests {
         );
         assert_eq!(GAMEFAILED_RESULT_EXIT, 0x4fb);
         assert_eq!(GAMEFAILED_RESULT_RETRY, 0x4fd);
-        for id in [0, GAMEFAILED_RETRY_ITEM - 1, GAMEFAILED_EXIT_ITEM + 1, u32::MAX] {
+        for id in [
+            0,
+            GAMEFAILED_RETRY_ITEM - 1,
+            GAMEFAILED_EXIT_ITEM + 1,
+            u32::MAX,
+        ] {
             assert_eq!(game_failed_onclick(id), None);
         }
     }

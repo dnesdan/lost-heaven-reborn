@@ -188,7 +188,12 @@ pub fn vehicle_get_pivot_pos<B: VehicleInitBackend>(
     vehicle: u32,
     second: bool,
 ) -> Result<[u32; 3], B::Error> {
-    let base = vehicle + if second { layout::PIVOT_2 } else { layout::PIVOT };
+    let base = vehicle
+        + if second {
+            layout::PIVOT_2
+        } else {
+            layout::PIVOT
+        };
     Ok([
         backend.read_word(base)?,
         backend.read_word(base + 4)?,
@@ -375,7 +380,9 @@ pub fn vehicle_get_odometer<B: VehicleInitBackend>(
     backend: &mut B,
     vehicle: u32,
 ) -> Result<f32, B::Error> {
-    Ok(f32::from_bits(backend.read_word(vehicle + layout::ODOMETER)?))
+    Ok(f32::from_bits(
+        backend.read_word(vehicle + layout::ODOMETER)?,
+    ))
 }
 
 /// Working name `vehicle_get_tank_fuel` (no standalone entry: header-inline
@@ -395,7 +402,9 @@ pub fn vehicle_get_tank_size<B: VehicleInitBackend>(
     backend: &mut B,
     vehicle: u32,
 ) -> Result<f32, B::Error> {
-    Ok(f32::from_bits(backend.read_word(vehicle + layout::TANK_SIZE)?))
+    Ok(f32::from_bits(
+        backend.read_word(vehicle + layout::TANK_SIZE)?,
+    ))
 }
 
 /// Working name `vehicle_is_unknown_2000000` (no standalone entry: header-inline
@@ -624,11 +633,7 @@ mod latch_tests {
         fn free(&mut self, _: u32) -> Result<(), String> {
             Err("unexpected free".into())
         }
-        fn collect_frame(
-            &mut self,
-            _: &mut VehicleInitFrameVector,
-            _: u32,
-        ) -> Result<(), String> {
+        fn collect_frame(&mut self, _: &mut VehicleInitFrameVector, _: u32) -> Result<(), String> {
             Err("unexpected collector".into())
         }
         fn enumerate(
@@ -637,7 +642,9 @@ mod latch_tests {
             _: VehicleInitQuery,
             _: &mut VehicleInitEnumeration<'_>,
         ) -> Result<(), VehicleInitUnavailable<String>> {
-            Err(VehicleInitUnavailable::Effect("unexpected enumeration".into()))
+            Err(VehicleInitUnavailable::Effect(
+                "unexpected enumeration".into(),
+            ))
         }
     }
 
@@ -681,7 +688,10 @@ mod latch_tests {
             (VEHICLE + layout::PIVOT_2 + 4, 11),
             (VEHICLE + layout::PIVOT_2 + 8, 12),
         ]);
-        assert_eq!(vehicle_get_size(&mut backend, VEHICLE, false), Ok([1, 2, 3]));
+        assert_eq!(
+            vehicle_get_size(&mut backend, VEHICLE, false),
+            Ok([1, 2, 3])
+        );
         assert_eq!(vehicle_get_size(&mut backend, VEHICLE, true), Ok([4, 5, 6]));
         assert_eq!(
             vehicle_get_pivot_pos(&mut backend, VEHICLE, false),
@@ -908,16 +918,21 @@ mod latch_tests {
         // Header-inline C_Vehicle::SetAnalogInputs: four bool stores in order.
         let mut backend = LatchBackend::with_words(&[(VEHICLE + layout::ANALOG_STEER, 0)]);
         vehicle_set_analog_inputs(&mut backend, VEHICLE, true, false, true, false).unwrap();
-        assert_eq!(backend.get_word(VEHICLE + layout::ANALOG_STEER), 0x0001_0001);
+        assert_eq!(
+            backend.get_word(VEHICLE + layout::ANALOG_STEER),
+            0x0001_0001
+        );
         vehicle_set_analog_inputs(&mut backend, VEHICLE, false, true, false, true).unwrap();
-        assert_eq!(backend.get_word(VEHICLE + layout::ANALOG_STEER), 0x0100_0100);
+        assert_eq!(
+            backend.get_word(VEHICLE + layout::ANALOG_STEER),
+            0x0100_0100
+        );
     }
 
     #[test]
     fn light_unknown_800_sets_and_clears_bit() {
         // Header-inline C_Vehicle::SetLightUnknown800: bit 0x800 only.
-        let mut backend =
-            LatchBackend::with_words(&[(VEHICLE + layout::LIGHTS, 0xFFFF_FFFF)]);
+        let mut backend = LatchBackend::with_words(&[(VEHICLE + layout::LIGHTS, 0xFFFF_FFFF)]);
         vehicle_set_light_unknown_800(&mut backend, VEHICLE, false).unwrap();
         assert_eq!(backend.get_word(VEHICLE + layout::LIGHTS), !0x800);
         vehicle_set_light_unknown_800(&mut backend, VEHICLE, true).unwrap();
@@ -937,8 +952,7 @@ mod latch_tests {
     #[test]
     fn color_reads_car_variant_word() {
         // Header-inline C_car::GetColor: car+0x211c word round-trips.
-        let mut backend =
-            LatchBackend::with_words(&[(VEHICLE + layout::COLOR, 0x1234_5678)]);
+        let mut backend = LatchBackend::with_words(&[(VEHICLE + layout::COLOR, 0x1234_5678)]);
         assert_eq!(car_get_color(&mut backend, VEHICLE), Ok(0x1234_5678));
     }
 }

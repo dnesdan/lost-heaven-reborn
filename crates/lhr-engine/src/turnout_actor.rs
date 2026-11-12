@@ -90,10 +90,7 @@ mod tests {
         assert_eq!(TURNOUT_SAVE_GAME_EXTRA, 16);
         assert_eq!(turnout_save_game_size(0), 16);
         assert_eq!(turnout_save_game_size(64), 80);
-        assert_eq!(
-            turnout_save_game_size(i32::MAX),
-            i32::MIN.wrapping_add(15)
-        );
+        assert_eq!(turnout_save_game_size(i32::MAX), i32::MIN.wrapping_add(15));
     }
 
     #[test]

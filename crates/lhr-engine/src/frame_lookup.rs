@@ -542,9 +542,7 @@ pub fn find_child_frame(
         }
         at = arena
             .links(child)
-            .map_err(|_| {
-                FrameLookupError::StaleFrame(FrameReferenceId::from_existing(child.0))
-            })?
+            .map_err(|_| FrameLookupError::StaleFrame(FrameReferenceId::from_existing(child.0)))?
             .next;
     }
     Ok(hit)
@@ -1529,7 +1527,10 @@ mod tests {
         assert!(!get_child_frame_self_type_accepts(FrameKind::Joint, 0x400));
         assert!(!get_child_frame_self_type_accepts(FrameKind::Joint, 0x4ff));
         // Occluder and scene frames have no arm either (mask bit zero).
-        assert!(!get_child_frame_self_type_accepts(FrameKind::Occluder, 0x800));
+        assert!(!get_child_frame_self_type_accepts(
+            FrameKind::Occluder,
+            0x800
+        ));
         assert!(!get_child_frame_self_type_accepts(FrameKind::Scene, 0x800));
     }
     #[test]
@@ -1540,11 +1541,31 @@ mod tests {
         assert!(get_child_frame_self_name_accepts(Some(b"a"), None, 0));
         assert!(get_child_frame_self_name_accepts(None, None, 0x20000));
         assert!(!get_child_frame_self_name_accepts(None, Some(b"a"), 0));
-        assert!(get_child_frame_self_name_accepts(Some(b"hit"), Some(b"hit"), 0x20000));
-        assert!(!get_child_frame_self_name_accepts(Some(b"hit"), Some(b"miss"), 0x20000));
-        assert!(get_child_frame_self_name_accepts(Some(b"AlPhA"), Some(b"alpha"), 0));
-        assert!(get_child_frame_self_name_accepts(Some(b"prefix_rest"), Some(b"prefix*"), 0x10000));
-        assert!(!get_child_frame_self_name_accepts(Some(b"other"), Some(b"prefix*"), 0x10000));
+        assert!(get_child_frame_self_name_accepts(
+            Some(b"hit"),
+            Some(b"hit"),
+            0x20000
+        ));
+        assert!(!get_child_frame_self_name_accepts(
+            Some(b"hit"),
+            Some(b"miss"),
+            0x20000
+        ));
+        assert!(get_child_frame_self_name_accepts(
+            Some(b"AlPhA"),
+            Some(b"alpha"),
+            0
+        ));
+        assert!(get_child_frame_self_name_accepts(
+            Some(b"prefix_rest"),
+            Some(b"prefix*"),
+            0x10000
+        ));
+        assert!(!get_child_frame_self_name_accepts(
+            Some(b"other"),
+            Some(b"prefix*"),
+            0x10000
+        ));
     }
     #[test]
     fn find_frame_visit_order_is_primary_then_flag_gated_sectors() {
@@ -1552,7 +1573,10 @@ mod tests {
         // no LS3DF FUNCTION address exists for a standalone reader (ledger
         // RVA 0x49210 is occupied, not claimed here).
         use FindFrameSector::{Backdrop, Near, Omni, Primary};
-        assert_eq!(find_frame_sector_visit_order(0), [Some(Primary), None, None, None]);
+        assert_eq!(
+            find_frame_sector_visit_order(0),
+            [Some(Primary), None, None, None]
+        );
         assert_eq!(
             find_frame_sector_visit_order(0x40000),
             [Some(Primary), Some(Backdrop), None, None]

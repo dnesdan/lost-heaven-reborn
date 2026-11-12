@@ -550,9 +550,7 @@ pub struct AiFreeActorStore {
 impl AiFreeActorStore {
     /// Stage an empty free-actor vector (constructor state).
     pub fn new() -> Self {
-        Self {
-            actors: Vec::new(),
-        }
+        Self { actors: Vec::new() }
     }
 
     /// Staged free actors in push order.
@@ -913,10 +911,7 @@ mod tests {
         );
         assert_eq!(
             store.ghost_coll_snapshot(),
-            vec![
-                HumanDynCollId::from_raw(7),
-                HumanDynCollId::from_raw(9)
-            ]
+            vec![HumanDynCollId::from_raw(7), HumanDynCollId::from_raw(9)]
         );
         store.clear_for_game_init();
         assert!(store.is_empty());
@@ -1086,10 +1081,8 @@ mod tests {
             AiActionEntry::new(4, 9),
         ]);
         assert_eq!(manager.get_base_job(), Some(&AiActionEntry::new(3, 0)));
-        let parented = AiActionManager::from_parts(vec![
-            AiActionEntry::new(1, 5),
-            AiActionEntry::new(2, 6),
-        ]);
+        let parented =
+            AiActionManager::from_parts(vec![AiActionEntry::new(1, 5), AiActionEntry::new(2, 6)]);
         assert_eq!(parented.get_base_job(), None);
     }
 

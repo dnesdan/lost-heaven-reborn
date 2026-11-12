@@ -191,7 +191,11 @@ mod tests {
         assert_eq!(LS3D_CALLBACK_ANIM_END, 0x800);
         assert_eq!(LS3D_CALLBACK_NOTE_STRING, 0x1000);
         assert_eq!(
-            CBM_PROGRESS | CBM_ERROR | CBM_LOG | LS3D_CALLBACK_NOTE | LS3D_CALLBACK_ANIM_END
+            CBM_PROGRESS
+                | CBM_ERROR
+                | CBM_LOG
+                | LS3D_CALLBACK_NOTE
+                | LS3D_CALLBACK_ANIM_END
                 | LS3D_CALLBACK_NOTE_STRING,
             0x1a38
         );
@@ -199,10 +203,16 @@ mod tests {
 
     #[test]
     fn callback_message_enabled_reports_only_selected_bits() {
-        assert!(callback_message_enabled(LS3D_CALLBACK_NOTE, LS3D_CALLBACK_NOTE));
+        assert!(callback_message_enabled(
+            LS3D_CALLBACK_NOTE,
+            LS3D_CALLBACK_NOTE
+        ));
         assert!(callback_message_enabled(u32::MAX, CBM_LOG));
         assert!(!callback_message_enabled(0, CBM_ERROR));
         assert!(!callback_message_enabled(CBM_PROGRESS, LS3D_CALLBACK_NOTE));
-        assert!(!callback_message_enabled(u32::MAX & !CBM_PROGRESS, CBM_PROGRESS));
+        assert!(!callback_message_enabled(
+            u32::MAX & !CBM_PROGRESS,
+            CBM_PROGRESS
+        ));
     }
 }

@@ -2280,7 +2280,9 @@ mod tests {
         // LS3DF FUNCTION entry; set by the UpdateLight tails.
         assert_eq!(SHDF_OPACITY_CHANGED, 0x8);
         assert!(shdf_opacity_changed(SHDF_OPACITY_CHANGED));
-        assert!(shdf_opacity_changed(SHDF_OPACITY_CHANGED | SHDF_LIGHT_VALID));
+        assert!(shdf_opacity_changed(
+            SHDF_OPACITY_CHANGED | SHDF_LIGHT_VALID
+        ));
         assert!(shdf_opacity_changed(u32::MAX));
         assert!(!shdf_opacity_changed(0));
         assert!(!shdf_opacity_changed(SHDF_RECEIVERS_CHANGED));
@@ -2349,7 +2351,9 @@ mod tests {
         // LS3DF FUNCTION entry; set by the RenderTexture tail.
         assert_eq!(SHDF_TEXTURE_CHANGED, 0x1);
         assert!(shdf_texture_changed(SHDF_TEXTURE_CHANGED));
-        assert!(shdf_texture_changed(SHDF_TEXTURE_CHANGED | SHDF_TEXTURE_VALID));
+        assert!(shdf_texture_changed(
+            SHDF_TEXTURE_CHANGED | SHDF_TEXTURE_VALID
+        ));
         assert!(shdf_texture_changed(u32::MAX));
         assert!(!shdf_texture_changed(0));
         assert!(!shdf_texture_changed(SHDF_DIR_CHANGED));

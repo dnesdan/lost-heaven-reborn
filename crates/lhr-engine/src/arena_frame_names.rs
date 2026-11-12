@@ -399,7 +399,9 @@ mod tests {
         );
         assert_eq!(arena.frame_orig_name(key).unwrap(), b"");
         assert!(arena.fast_tree_root().is_none());
-        assert!(arena.set_frame_name(FrameKey(u32::MAX), Some(b"x")).is_err());
+        assert!(arena
+            .set_frame_name(FrameKey(u32::MAX), Some(b"x"))
+            .is_err());
         arena.release(key).unwrap();
         assert_eq!(arena.live_frame_count(), 0);
     }

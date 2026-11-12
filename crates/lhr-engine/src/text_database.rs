@@ -204,7 +204,11 @@ impl TextDatabase {
             } else {
                 probe < id
             };
-            if take_end { num - step - 1 } else { 0 }
+            if take_end {
+                num - step - 1
+            } else {
+                0
+            }
         } else {
             0
         };
@@ -219,7 +223,11 @@ impl TextDatabase {
             }
         }
         let hit = self.texts.get(pos as usize)?;
-        if hit.id == id { Some(pos as usize) } else { None }
+        if hit.id == id {
+            Some(pos as usize)
+        } else {
+            None
+        }
     }
 
     /// NUL-terminated text at a table position; undecodable bytes read as
@@ -235,10 +243,7 @@ impl TextDatabase {
             .as_ref()
             .and_then(|data| data.get(offset..))
             .unwrap_or(&[]);
-        let len = bytes
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(bytes.len());
+        let len = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
         std::str::from_utf8(&bytes[..len]).unwrap_or("")
     }
 }
@@ -300,8 +305,7 @@ mod tests {
             db.entry(1),
             Some(&TextEntry {
                 id: 42,
-                offset: (TEXT_DEF_HEADER_LEN + 3 * TEXT_DEF_ENTRY_LEN + "seven".len() + 1)
-                    as u32,
+                offset: (TEXT_DEF_HEADER_LEN + 3 * TEXT_DEF_ENTRY_LEN + "seven".len() + 1) as u32,
             })
         );
         assert_eq!(db.get_text(42), "forty-two");

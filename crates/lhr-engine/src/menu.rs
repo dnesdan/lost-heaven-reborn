@@ -11,8 +11,8 @@
 //! activeMenuWindow global and menu allocation (MenuOpen), the igraph pump
 //! plus mission/scene owners (ExecuteMenu, TickCamera, Draw device paths),
 //! and the component classes (Draw/Key/Mouse virtuals, text/value storage).
-use lhr_assets::{FontMetrics, Installation, MenuDefinition, Texture as Image};
 use crate::main_menu;
+use lhr_assets::{FontMetrics, Installation, MenuDefinition, Texture as Image};
 use lhr_render::{Mesh, Texture, Vertex};
 use std::sync::Arc;
 
@@ -1821,10 +1821,7 @@ mod tests {
             (main_menu::MAINMENU_ITEM_NEW_GAME, Action::NewGame),
             (main_menu::MAINMENU_ITEM_LOAD_GAME, Action::LoadGame),
             (main_menu::MAINMENU_ITEM_FREE_RIDE, Action::FreeRide),
-            (
-                main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME,
-                Action::Extreme,
-            ),
+            (main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME, Action::Extreme),
             (main_menu::MAINMENU_ITEM_RACING, Action::Racing),
             (main_menu::MAINMENU_ITEM_MULTIPLAYER, Action::Multiplayer),
             (
@@ -1864,12 +1861,10 @@ mod tests {
         // The root window is not activatable, so ActivateByIDOrNext(1) lands
         // on the lowest activatable id above it: Intro.
         assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_INTRO));
-        assert!(
-            stack
-                .find_component_by_id(main_menu::MAINMENU_ITEM_INTRO)
-                .unwrap()
-                .can_activate()
-        );
+        assert!(stack
+            .find_component_by_id(main_menu::MAINMENU_ITEM_INTRO)
+            .unwrap()
+            .can_activate());
     }
 
     #[test]
@@ -1884,10 +1879,7 @@ mod tests {
         assert_eq!(stack.active_id(), None);
         // The OrNext fallback skips the disabled row for New Game.
         stack.activate_by_id_or_next(main_menu::MAINMENU_ITEM_INTRO);
-        assert_eq!(
-            stack.active_id(),
-            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
-        );
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_NEW_GAME));
         stack.set_disabled(main_menu::MAINMENU_ITEM_INTRO, true);
         stack.activate_by_id(main_menu::MAINMENU_ITEM_INTRO);
         assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_INTRO));
@@ -1910,12 +1902,10 @@ mod tests {
         assert!(!intro.is_visible());
         assert!(intro.is_enabled());
         stack.set_hidden(main_menu::MAINMENU_ITEM_INTRO, true);
-        assert!(
-            stack
-                .find_component_by_id(main_menu::MAINMENU_ITEM_INTRO)
-                .unwrap()
-                .is_visible()
-        );
+        assert!(stack
+            .find_component_by_id(main_menu::MAINMENU_ITEM_INTRO)
+            .unwrap()
+            .is_visible());
     }
 
     #[test]
@@ -1961,54 +1951,33 @@ mod tests {
         }
         assert_eq!(stack.find_by_id_next(1), None);
         assert_eq!(stack.find_by_id_prev(u32::MAX), None);
-        assert_eq!(
-            stack.find_list_next(main_menu::MAINMENU_ITEM_INTRO),
-            None
-        );
-        assert_eq!(
-            stack.find_list_prev(main_menu::MAINMENU_ITEM_QUIT),
-            None
-        );
+        assert_eq!(stack.find_list_next(main_menu::MAINMENU_ITEM_INTRO), None);
+        assert_eq!(stack.find_list_prev(main_menu::MAINMENU_ITEM_QUIT), None);
     }
 
     #[test]
     fn tick_key_and_hover_routing_feed_the_onclick_dispatch() {
         let mut stack = MenuStack::create(&stack_definition());
         assert!(stack.route_key(TickKey::Down));
-        assert_eq!(
-            stack.active_id(),
-            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
-        );
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_NEW_GAME));
         assert!(stack.route_key(TickKey::Down));
         assert_eq!(
             stack.active_id(),
             Some(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME)
         );
         assert!(stack.route_key(TickKey::Up));
-        assert_eq!(
-            stack.active_id(),
-            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
-        );
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_NEW_GAME));
         assert!(stack.route_key(TickKey::TabForward));
         assert_eq!(
             stack.active_id(),
             Some(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME)
         );
         assert!(stack.route_key(TickKey::TabBackward));
-        assert_eq!(
-            stack.active_id(),
-            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
-        );
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_NEW_GAME));
         assert!(stack.route_key(TickKey::Left));
-        assert_eq!(
-            stack.active_id(),
-            Some(main_menu::MAINMENU_ITEM_INTRO)
-        );
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_INTRO));
         assert!(stack.route_key(TickKey::Right));
-        assert_eq!(
-            stack.active_id(),
-            Some(main_menu::MAINMENU_ITEM_NEW_GAME)
-        );
+        assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_NEW_GAME));
         // A key press that cannot move (single activatable row) changes nothing.
         let mut solo = MenuStack::create(&stack_definition());
         for id in [
@@ -2019,10 +1988,7 @@ mod tests {
             solo.set_disabled(id, false);
         }
         assert!(!solo.route_key(TickKey::Down));
-        assert_eq!(
-            solo.active_id(),
-            Some(main_menu::MAINMENU_ITEM_INTRO)
-        );
+        assert_eq!(solo.active_id(), Some(main_menu::MAINMENU_ITEM_INTRO));
         assert!(stack.hover(main_menu::MAINMENU_ITEM_QUIT));
         assert_eq!(stack.active_id(), Some(main_menu::MAINMENU_ITEM_QUIT));
         assert!(!stack.hover(main_menu::MAINMENU_ITEM_QUIT));
@@ -2045,10 +2011,7 @@ mod tests {
     fn close_latches_and_exchange_rebuild_preserve_requests() {
         let mut stack = MenuStack::create(&stack_definition());
         assert!(!stack.is_closing());
-        let result = stack.menu_close_all(
-            main_menu::MENU_CLOSE_CANCEL,
-            main_menu::MAINMENU_QUIT,
-        );
+        let result = stack.menu_close_all(main_menu::MENU_CLOSE_CANCEL, main_menu::MAINMENU_QUIT);
         assert_eq!(result, main_menu::MAINMENU_QUIT);
         assert!(stack.is_closing());
         assert_eq!(stack.close_code(), main_menu::MENU_CLOSE_CANCEL);
@@ -2062,25 +2025,17 @@ mod tests {
         // OnCreate stack activation gates Extreme, then selects Intro.
         let mut gated = MenuStack::create(&stack_definition());
         assert_eq!(oncreate_stack_activate(&mut gated, true), 0);
-        assert!(
-            !gated
-                .find_component_by_id(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME)
-                .unwrap()
-                .is_enabled()
-        );
+        assert!(!gated
+            .find_component_by_id(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME)
+            .unwrap()
+            .is_enabled());
         gated.activate_by_id(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME);
         assert_eq!(gated.active_id(), None);
         // The OrNext fallback skips the gated row for New Game.
         gated.activate_by_id_or_next(main_menu::MAINMENU_ITEM_FREE_RIDE_EXTREME);
-        assert_eq!(
-            gated.active_id(),
-            Some(main_menu::MAINMENU_ITEM_QUIT)
-        );
+        assert_eq!(gated.active_id(), Some(main_menu::MAINMENU_ITEM_QUIT));
         assert_eq!(oncreate_stack_activate(&mut gated, false), 0);
-        assert_eq!(
-            gated.active_id(),
-            Some(main_menu::MAINMENU_ITEM_INTRO)
-        );
+        assert_eq!(gated.active_id(), Some(main_menu::MAINMENU_ITEM_INTRO));
     }
 
     #[test]
@@ -2088,8 +2043,7 @@ mod tests {
         let resources = Resources::new();
         let installation = Installation::open(&resources.0).unwrap();
         // Only the fallback exists: the probe falls through to it.
-        let definition =
-            load_definition_for_menu(&installation, "mainmenu", 0x656e).unwrap();
+        let definition = load_definition_for_menu(&installation, "mainmenu", 0x656e).unwrap();
         assert_eq!(definition.items.len(), 2);
         assert!(load_definition_for_menu(&installation, "optionsb", 0x656e).is_err());
         assert!(load_definition_for_menu(&installation, "main menu", 0x656e).is_err());
@@ -2105,10 +2059,7 @@ mod tests {
         // Missing ids: set is a no-op, get reads the neutral element.
         stack.set_text_id(424242, main_menu::TEXT_QUIT_GAME);
         assert_eq!(stack.get_text_id(424242), 0);
-        stack.set_text_id(
-            main_menu::MAINMENU_ITEM_INTRO,
-            main_menu::TEXT_QUIT_GAME,
-        );
+        stack.set_text_id(main_menu::MAINMENU_ITEM_INTRO, main_menu::TEXT_QUIT_GAME);
         assert_eq!(
             stack.get_text_id(main_menu::MAINMENU_ITEM_INTRO),
             main_menu::TEXT_QUIT_GAME
@@ -2319,7 +2270,9 @@ mod tests {
         // GM_Menu::SetPointer GAME VA 0x5eb140 (RVA 0x1eb140): the raw
         // pointer has no typed owner, so the address is never stored.
         let stack = MenuStack::create(&stack_definition());
-        let error = stack.set_pointer(main_menu::MAINMENU_ITEM_INTRO, 0x1234).unwrap_err();
+        let error = stack
+            .set_pointer(main_menu::MAINMENU_ITEM_INTRO, 0x1234)
+            .unwrap_err();
         assert_eq!(error, MenuStubError::Unsupported("component classes"));
         let error = stack.set_pointer(424242, 0).unwrap_err();
         assert_eq!(error, MenuStubError::Unsupported("component classes"));
@@ -2337,7 +2290,9 @@ mod tests {
             .unwrap_err();
         assert_eq!(error, MenuStubError::Unsupported("component classes"));
         assert_eq!((min, max), (1.0, 2.0));
-        let error = stack.get_range_float(424242, &mut min, &mut max).unwrap_err();
+        let error = stack
+            .get_range_float(424242, &mut min, &mut max)
+            .unwrap_err();
         assert_eq!(error, MenuStubError::Unsupported("component classes"));
         assert_eq!((min, max), (1.0, 2.0));
     }
@@ -2381,11 +2336,7 @@ mod tests {
     fn rva_1e9cb0_duplicated_bumps_id_and_clears_active() {
         // GAME VA 0x5e9cb0 (RVA 0x1e9cb0): id + 1, ACTIVE cleared, text id
         // shared, no children carried over.
-        let mut source = MenuComponent::from_design_row(
-            41,
-            main_menu::DEFAULT_COMPONENT_FLAGS,
-            7,
-        );
+        let mut source = MenuComponent::from_design_row(41, main_menu::DEFAULT_COMPONENT_FLAGS, 7);
         source.set_active();
         source.insert_child(50);
         let duplicate = source.duplicated();

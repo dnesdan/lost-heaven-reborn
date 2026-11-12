@@ -495,7 +495,10 @@ impl PoliceGameInitState {
     /// `AddDoRiciActor` duplicate guard shape). No dedicated native getter
     /// exists, so no RVA is claimed.
     pub fn is_do_rici_listed(&self, actor: PoliceActorId) -> bool {
-        self.do_rici_actors.iter().rev().any(|&listed| listed == actor)
+        self.do_rici_actors
+            .iter()
+            .rev()
+            .any(|&listed| listed == actor)
     }
 
     /// Working name (no separate native entry): reports whether the car is
@@ -598,11 +601,7 @@ impl PoliceGameInitState {
     /// nonempty getter, so no RVA is claimed. The caller keeps each record's
     /// angry list; `angry` runs index-aligned with `records` like
     /// `angry_count_for_human`.
-    pub fn has_angry_for_human(
-        &self,
-        angry: &[Vec<PoliceActorId>],
-        human: PoliceHumanId,
-    ) -> bool {
+    pub fn has_angry_for_human(&self, angry: &[Vec<PoliceActorId>], human: PoliceHumanId) -> bool {
         self.angry_count_for_human(angry, human) != 0
     }
 
@@ -797,7 +796,12 @@ impl PoliceGameInitState {
         if human == 0 || !self.active {
             return false;
         }
-        if self.records.iter().rev().any(|record| record.human == human) {
+        if self
+            .records
+            .iter()
+            .rev()
+            .any(|record| record.human == human)
+        {
             return false;
         }
         let mut record = PolicePursuitRecord::new(human);
@@ -962,12 +966,7 @@ impl PoliceGameInitState {
     /// the host, then swap-removes from the list; the `again` loop reruns the
     /// pass after an entity leaves its car, and `all` wipes any remainder.
     /// Mission/camera/HUD owners stay deferred behind `DoRiciHost`.
-    pub fn tick_do_rici_actors(
-        &mut self,
-        camera: [f32; 3],
-        all: bool,
-        host: &mut impl DoRiciHost,
-    ) {
+    pub fn tick_do_rici_actors(&mut self, camera: [f32; 3], all: bool, host: &mut impl DoRiciHost) {
         loop {
             let mut again = false;
             let mut i = 0;
@@ -1101,7 +1100,10 @@ impl PoliceGameInitState {
     /// (header lines 228-231) documents the family; no PC symbol is
     /// evidenced for this outline.
     pub fn take_free_road_block_iris(&mut self) -> Option<PoliceActorId> {
-        let index = self.road_block_irises.iter().rposition(|entry| entry.free)?;
+        let index = self
+            .road_block_irises
+            .iter()
+            .rposition(|entry| entry.free)?;
         self.road_block_irises[index].free = false;
         Some(self.road_block_irises[index].actor)
     }
@@ -2090,7 +2092,11 @@ impl PoliceGameInitState {
             // Native `ADD`/`CMP`/`JLE`: keep the wrapped raise where it
             // tests signed `<= 20000`, else clamp.
             let raised = record.signal_time.wrapping_add(4000);
-            record.signal_time = if raised as i32 <= 20000 { raised } else { 20000 };
+            record.signal_time = if raised as i32 <= 20000 {
+                raised
+            } else {
+                20000
+            };
             record.flags |= SHVF_SIGNAL_MARK;
             return;
         }
@@ -2170,8 +2176,7 @@ impl PoliceGameInitState {
                 return None;
             }
             let fraction =
-                if record.wanted_time_start > 0 && record.wanted_time < record.wanted_time_start
-                {
+                if record.wanted_time_start > 0 && record.wanted_time < record.wanted_time_start {
                     let mut left = record
                         .wanted_time
                         .wrapping_sub(self.records_timer.time_ms as i32);
@@ -2413,10 +2418,7 @@ pub fn report_police_car_theft(
 /// police car comes near a block). The game's road-block set plus the
 /// mission/actor owners stay outside this contract, so the boundary is
 /// explicit.
-pub fn create_road_block(
-    _index: u32,
-    _human: PoliceHumanId,
-) -> Result<(), PoliceDispatchError> {
+pub fn create_road_block(_index: u32, _human: PoliceHumanId) -> Result<(), PoliceDispatchError> {
     Err(PoliceDispatchError::Unsupported {
         entry: CREATE_ROAD_BLOCK_ENTRY,
     })
@@ -2767,11 +2769,7 @@ impl SledovackaState {
     /// list-evict outline exists, so no RVA is claimed. Returns whether the
     /// car was listed.
     pub fn evict_chase_car(&mut self, car: PoliceActorId) -> bool {
-        let Some(index) = self
-            .chase_cars
-            .iter()
-            .rposition(|&listed| listed == car)
-        else {
+        let Some(index) = self.chase_cars.iter().rposition(|&listed| listed == car) else {
             return false;
         };
         self.chase_cars.swap_remove(index);
@@ -2799,11 +2797,7 @@ impl SledovackaState {
     /// native list-evict outline exists, so no RVA is claimed. Returns
     /// whether the actor was listed.
     pub fn evict_chase_bridge(&mut self, actor: PoliceActorId) -> bool {
-        let Some(index) = self
-            .bridges
-            .iter()
-            .rposition(|&listed| listed == actor)
-        else {
+        let Some(index) = self.bridges.iter().rposition(|&listed| listed == actor) else {
             return false;
         };
         self.bridges.swap_remove(index);
@@ -3899,7 +3893,11 @@ pub fn angry_alive_count(
     angry: &[PoliceActorId],
     is_dead: impl Fn(PoliceActorId) -> bool,
 ) -> usize {
-    angry.iter().copied().filter(|&actor| !is_dead(actor)).count()
+    angry
+        .iter()
+        .copied()
+        .filter(|&actor| !is_dead(actor))
+        .count()
 }
 
 /// Working name (no outline entry is claimed): the add half of one record's
@@ -3920,10 +3918,7 @@ pub fn admit_angry_actor(list: &mut Vec<PoliceActorId>, actor: PoliceActorId) ->
 /// game/ai/C_shvestky.cpp:314-326 at pin 113b5b6): drops the actors the host
 /// reports dead (`C_actor::GetDead`) with swap-with-back + pop in place.
 /// The host owns actors and supplies the deadness probe.
-pub fn retain_living_angry(
-    list: &mut Vec<PoliceActorId>,
-    is_dead: impl Fn(PoliceActorId) -> bool,
-) {
+pub fn retain_living_angry(list: &mut Vec<PoliceActorId>, is_dead: impl Fn(PoliceActorId) -> bool) {
     let mut index = 0;
     while index < list.len() {
         if is_dead(list[index]) {
@@ -4208,7 +4203,9 @@ mod tests {
         let mut state = PoliceGameInitState::default();
         assert_eq!(state.take_free_road_block_iris(), None);
         for (actor, free) in [(1, false), (2, true), (3, true)] {
-            state.road_block_irises.push(PoliceRoadBlockIris { actor, free });
+            state
+                .road_block_irises
+                .push(PoliceRoadBlockIris { actor, free });
         }
         assert_eq!(state.take_free_road_block_iris(), Some(3));
         assert!(!state.road_block_irises[2].free);
@@ -4223,7 +4220,9 @@ mod tests {
         let mut state = PoliceGameInitState::default();
         assert_eq!(state.take_random_free_road_block_enemy(|_| 0), None);
         for (actor, free) in [(1, true), (2, false), (3, true), (4, true)] {
-            state.road_block_enemies.push(PoliceRoadBlockEnemy { actor, free });
+            state
+                .road_block_enemies
+                .push(PoliceRoadBlockEnemy { actor, free });
         }
         assert_eq!(state.take_random_free_road_block_enemy(|_| 0), Some(4));
         assert_eq!(state.take_random_free_road_block_enemy(|_| 1), Some(1));
@@ -4344,7 +4343,10 @@ mod tests {
         assert_ne!(state.records[0].flags & SHVF_HIT_POLICEMAN, 0);
         // `records_timer.time` climbs to `period` only where lower.
         assert_eq!(
-            (state.records_timer.time_ms(), state.records_timer.period_ms()),
+            (
+                state.records_timer.time_ms(),
+                state.records_timer.period_ms()
+            ),
             (200, 200)
         );
         state.records_timer.reset(500);
@@ -4556,7 +4558,11 @@ mod tests {
         let removed = state.del_person(9).expect("staged record");
         assert_eq!(removed.human, 9);
         assert_eq!(
-            state.records.iter().map(|record| record.human).collect::<Vec<_>>(),
+            state
+                .records
+                .iter()
+                .map(|record| record.human)
+                .collect::<Vec<_>>(),
             vec![7, 13, 11]
         );
         // Manually staged duplicate with a car marker: the back-to-front
@@ -4567,7 +4573,11 @@ mod tests {
         let removed = state.del_person(13).expect("duplicate record");
         assert_eq!(removed.car, Some(99));
         assert_eq!(
-            state.records.iter().map(|record| record.human).collect::<Vec<_>>(),
+            state
+                .records
+                .iter()
+                .map(|record| record.human)
+                .collect::<Vec<_>>(),
             vec![7, 13, 11]
         );
         assert_eq!(state.del_person(99), None);
@@ -4887,10 +4897,7 @@ mod tests {
         assert!(state.temp_cars().is_empty());
         assert_eq!(
             host.calls,
-            vec![
-                HostCall::GlobalDelNasrany(41),
-                HostCall::Invalidate(41),
-            ]
+            vec![HostCall::GlobalDelNasrany(41), HostCall::Invalidate(41),]
         );
     }
 
@@ -5064,7 +5071,10 @@ mod tests {
     fn rva_a8670_action_status_no_chase_is_done() {
         // C_sledovacka::ActionStatus GAME VA 0x4a8670 (RVA 0xa8670).
         assert_eq!(SLEDOVACKA_ACTION_STATUS_ENTRY, 0x4a8670);
-        assert_eq!(sledovacka_action_status_no_chase(), PursuitChaseStatus::Done);
+        assert_eq!(
+            sledovacka_action_status_no_chase(),
+            PursuitChaseStatus::Done
+        );
         assert_eq!(PursuitChaseStatus::Done.word(), 1);
         assert_eq!(PursuitChaseStatus::Failed.word(), 2);
         assert_eq!(PursuitChaseStatus::DriverDead.word(), 3);
@@ -5444,18 +5454,16 @@ mod tests {
         // Working name: S_road_block_car free marks; no PC outline.
         let mut state = PoliceGameInitState::default();
         assert_eq!(state.count_free_road_block_cars(), 0);
-        state.road_block_cars.push(PoliceRoadBlockCar {
-            car: 1,
-            free: true,
-        });
+        state
+            .road_block_cars
+            .push(PoliceRoadBlockCar { car: 1, free: true });
         state.road_block_cars.push(PoliceRoadBlockCar {
             car: 2,
             free: false,
         });
-        state.road_block_cars.push(PoliceRoadBlockCar {
-            car: 3,
-            free: true,
-        });
+        state
+            .road_block_cars
+            .push(PoliceRoadBlockCar { car: 3, free: true });
         assert_eq!(state.count_free_road_block_cars(), 2);
     }
 
@@ -5592,10 +5600,9 @@ mod tests {
     fn road_block_car_and_iris_counts_stay_independent() {
         // Working names: car/iris/enemy free counts track separate lists.
         let mut state = PoliceGameInitState::default();
-        state.road_block_cars.push(PoliceRoadBlockCar {
-            car: 1,
-            free: true,
-        });
+        state
+            .road_block_cars
+            .push(PoliceRoadBlockCar { car: 1, free: true });
         state.road_block_irises.push(PoliceRoadBlockIris {
             actor: 2,
             free: false,
@@ -5673,10 +5680,7 @@ mod tests {
         let mut record = PolicePursuitRecord::new(7);
         record.flags = SHVF_WEAPON | SHVF_SPEEDING;
         state.records.push(record);
-        assert_eq!(
-            state.human_status_for_human(7),
-            SHVF_WEAPON | SHVF_SPEEDING
-        );
+        assert_eq!(state.human_status_for_human(7), SHVF_WEAPON | SHVF_SPEEDING);
     }
 
     #[test]
@@ -6019,20 +6023,14 @@ mod tests {
         // Working name: PocetNasranychZivych lookup half; 0 without a record.
         let mut state = PoliceGameInitState::default();
         let empty: Vec<Vec<PoliceActorId>> = Vec::new();
-        assert_eq!(
-            state.angry_alive_count_for_human(&empty, 7, |_| false),
-            0
-        );
+        assert_eq!(state.angry_alive_count_for_human(&empty, 7, |_| false), 0);
         state.records.push(PolicePursuitRecord::new(7));
         let angry = vec![vec![1, 2, 3]];
         assert_eq!(
             state.angry_alive_count_for_human(&angry, 7, |actor| actor == 2),
             2
         );
-        assert_eq!(
-            state.angry_alive_count_for_human(&angry, 8, |_| false),
-            0
-        );
+        assert_eq!(state.angry_alive_count_for_human(&angry, 8, |_| false), 0);
     }
 
     #[test]
@@ -7110,10 +7108,9 @@ mod tests {
             free: false,
         });
         assert!(!state.has_any_free_road_block_car());
-        state.road_block_cars.push(PoliceRoadBlockCar {
-            car: 2,
-            free: true,
-        });
+        state
+            .road_block_cars
+            .push(PoliceRoadBlockCar { car: 2, free: true });
         assert!(state.has_any_free_road_block_car());
     }
 
@@ -7234,10 +7231,9 @@ mod tests {
     fn road_block_indexed_reads_stay_independent_across_lists() {
         // Working names: each list keeps its own stored order and flags.
         let mut state = PoliceGameInitState::default();
-        state.road_block_cars.push(PoliceRoadBlockCar {
-            car: 1,
-            free: true,
-        });
+        state
+            .road_block_cars
+            .push(PoliceRoadBlockCar { car: 1, free: true });
         state.road_block_irises.push(PoliceRoadBlockIris {
             actor: 2,
             free: false,
@@ -7289,10 +7285,9 @@ mod tests {
         // Working name: road_block_cars (+0x4c) nonempty; inline size test.
         let mut state = PoliceGameInitState::default();
         assert!(!state.has_road_block_cars());
-        state.road_block_cars.push(PoliceRoadBlockCar {
-            car: 1,
-            free: true,
-        });
+        state
+            .road_block_cars
+            .push(PoliceRoadBlockCar { car: 1, free: true });
         assert!(state.has_road_block_cars());
         state.road_block_cars.clear();
         assert!(!state.has_road_block_cars());
