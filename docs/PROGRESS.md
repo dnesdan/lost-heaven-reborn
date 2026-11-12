@@ -1,113 +1,22 @@
 # Progress
 
-## Current milestone — 2026-10-29, mission cars, recordings and global programs
+## Current state
 
-[Tested code `d9c2d3e`](implementation/2026-10-29-car-replay-programs.md) connects
-genuine Car/Vehicle owners to the same ActorWorld/ModelArena, original source
-conversion, shared resources, validity-aware opaque copies and actual record
-cleanup. Both MISE01 cars load; 38 actors precede unsupported kind 20. Disposal
-closes every tracked lifetime. Original REP intake and bounded first binding,
-global Init/Done and synchronous CallSubroutine are implemented in their stated
-domains. INTRO GlobalInit still stops at opcode-13 parameters; no mission plays.
+The first mission is not playable; all six gates in [GOALS](GOALS.md) remain
+open. The MISE01 probe loads 3,183 scene objects, 293 actors, 39 scripts, the
+13,857-node navigation graph and the 229-node road network, and disposes every
+tracked owner. The application reaches the original menu, plays an intro
+stand-in, walks Tommy on foot and drives the staged taxi; mission scripts run
+only within their decoded frontier (see the README rewrite card).
 
-Final public APIs match controlled original projections: 17,248 car words,
-184 binding words, four destructor fields, 390 zero-parameter cases, 295 global
-loop words and 332/668 subroutine projections. Full Linux checks pass 1,942
-default / 1,966 all-feature Rust tests and 106 Python tests, plus Clippy/build;
-two sequential independent reviews passed. A fresh static MISE01 capture exits 0.
-Accepted snapshot totals remain 311 entries / 114 contracts; strict gates 0/12.
+Open work in dependency order: MissionOpen/Close in native order, GameInit and
+Game scheduling over the live owners, player/taxi/camera coupled to scene
+collision and damage, detector ticks, HUD/indicators, dialogue audio and
+mission AI through objectives and completion.
 
-## Retained milestone — 2026-10-29, Human/source owners and base VM
-
-[Tested code `041eed8`](implementation/2026-10-29-human-program-runtime.md)
-adds actual Human/Player and C_entity constructors, Init, bounded source reads
-and derived cleanup. INTRO source loading now completes all 358 objects,
-28 actors and 15 global program sources. MISE01 reaches 33 actors before the
-genuine car-kind-4 boundary. Both CPU probes dispose all tracked owners.
-
-The same actual CProgram now compiles and executes three base commands; its
-scalar layout supports 102 IDs. Original REP intake reads the header and
-28-entry dictionary, then requires the recorded-actor pipeline. Final public
-library comparisons match 3,492 Human words, 1,632 scalar cases and 368 VM words.
-Whole checks pass 1,881 default / 1,905 all-feature Rust tests and 106 Python
-tests, plus Clippy/build; every substantive milestone has two independent
-reviews. Gameplay/GameInit and the original mission remain open. Accepted
-snapshot totals remain 311 entries / 114 contracts, strict system gates 0/12.
-
-## Retained milestone — 2026-10-29, model-owned animation
-
-The [model-owned animation milestone](implementation/2026-10-29-animation-runtime.md)
-at `b3b6b67` binds actual shared resources, advances the in-place controller and
-refreshes the owned skin through live joints. Original Tommy, Paulie and Sam
-have changed geometry and GPU pixels. Controlled original-instruction Tick
-comparison matches 12 snapshots / 264 normalized words in its supported domain.
-Human actor initialization, replay, mission VM and scheduling remain open.
-
-`scripts/test.sh` is now green: 1,839 Rust and 106 Python tests; the all-feature
-run including GPU passes 1,863 Rust tests with zero ignored. Both independent
-review rounds, Clippy and the application build passed. INTRO now reaches all
-358 objects before actor kind 2; MISE01 still reaches kind 27 and the menu's
-animated model still interrupts cleanup. Accepted totals remain 311 entries /
-114 contracts, strict system gates 0/12; no first-mission gate is closed.
-
-## Retained milestone — 2026-10-27
-
-The reviewed parity stack adds sound/render fixes, ordered actor/program source
-intake, interrupted cleanup, menu navigation, owned material clocks and MRPH
-deformation, startup-table leases and populated navigation owners. The integrated
-Lab exposes their actual state and preserves driver time across reload. MISE01
-now retains 27 actors before stopping at unsupported kind 27, cursor 3,795,696;
-all 3,183 objects load. This remains incomplete mission initialization.
-
-Three sequential independent reviews covered each substantial code PR. The
-final source passed 1,649 supplemental CPU tests with only two known host x87
-precondition cases filtered, 21 explicit software-Vulkan GPU tests, all-feature
-Clippy, 47 progress tests and the generated snapshot check. The required
-`scripts/test.sh` still fails those two unchanged x87 tests and is not green.
-Analysis-wrapper tests passed separately on unchanged source. Five original
-mission probes, actual MRPH before/after images and a final native Lab run are
-recorded in [current evidence](implementation/parity-continuation.md).
-
-All six first-mission gates remain open. No original function or executable ran
-for this milestone, and accepted scoped-port/system-gate counters are unchanged.
-The new original PS2 linker inventory supplies naming evidence; the configured
-REA/Ghidra provider refuses its R5900 target before analysis.
-
-## Retained milestone — 2026-10-26
-
-The owned Rust Scene/Camera renderer now culls the road correctly and draws
-actual sky geometry. The MISE01 diagnostic loaded all 3,183 objects, reached
-ordered Game actor dispatch at cursor 3,794,014 (`0x544a16`), produced 267
-draws (five zapad backdrop, 262 main) and closed cleanly. Saved-lighting,
-Singlemesh/Singlemorph/Billboard/Lensflare, initial animated material pose,
-Dummy/Sound/AREA and fog-light resources use live owners. Standalone driving,
-the optional Lab and bounded Game control/camera/table/load-save helpers are
-available as bounded dependencies. Authored mission play remains open.
-
-The final applied code passed **1,561 Rust tests, 56 Python tests, 13 Vulkan
-checks and 48 feature-enabled Lab tests**, plus both sequential independent
-source reviews. The CPU probe disposed all tracked owners, including 423
-textures, to zero. A GPU-only sky change affected 136,934 pixels and restored
-byte-identically. [Evidence and limits](implementation/mafia-re-remediation.md)
-and [dated captures](screenshots/README.md) record the scopes. No new original
-game function was executed or credited; [coverage](../COVERAGE.md) holds the
-unchanged ledger and gate totals.
-
-[Preceding progress page, verbatim](history/2026-10-26-pre-final-documentation.md#docsprogressmd).
-
-## Earlier milestones
-
-[Previous driver/railway Source-v2 milestone](history/2026-10-25-driver-railway-source-v2.md)
-retains its original 273-file/1113-test validation and separate cohorts.
-
-[Previous texture/Scene Source-v5 milestone](history/2026-10-25-texture-scene-source-v5.md)
-retains its original 270-file/1093-test source and native/UI scopes.
-
-The [verbatim narrative through baseline `0da90fb`](history/2026-10-25-progress-narrative.md)
-retains the weather/default workers, standalone driving, resource ownership,
-animation, archive and script milestones with their original source/proof scope.
-The [reference audit](REFERENCE_PROJECTS.md) records the current source/tool scope.
-Machine observations and immutable snapshots remain in [progress.json](progress.json).
+The function rewrite dashboard is generated into the README by
+`scripts/rewrite_progress.py`. History lives in `git log` on `rust-engine`;
+machine snapshots remain in [progress.json](progress.json).
 
 <details>
 <summary>Generated static inventory, accepted ports and ledger history</summary>
