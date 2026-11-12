@@ -1104,7 +1104,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // Learned trap ledger: boxed poses that defeated escape steering,
     // K-turn rocking and the clutch lift (open-diff burnout with no
     // native traction control to brake the free wheel). Seeded with
-    // twenty evidenced furniture pockets: [-1314,-227] (clutch
+    // twenty-two evidenced furniture pockets: [-1314,-227] (clutch
     // stall-shudder wedge), [-628,164] (beached/dangling driven wheels),
     // [-147,-163] (escape + K-turn + lift all defeated), [-1265.7,-426.9]
     // (all wheels in contact on flat ground, 0.0 m/s — hung on a low
@@ -1125,7 +1125,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // 2/2 start pocket, stall-shudder equilibrium on flat ground, K-turn
     // + extensions + sag-lift all firing but 0.0-0.5 m/s),
     // [-1429.0,-7.2,-274.6] / [-1441.8,-7.1,-269.0] (probe_cadence:
-    // same pocket, rejoin 2/2 restarts inside it and boxes at wp 1).
+    // same pocket, rejoin 2/2 restarts inside it and boxes at wp 1),
+    // [-1598.6,4.2,-323.3] / [-1600.7,4.2,-299.6] (probe_ground: new
+    // field past the old one at street level, rejoin 1-2/3 stops).
     // Edges whose segment
     // passes within 45 m of a trap get a large additive penalty, so
     // Dijkstra prefers drivable streets; a pocket on the only link
@@ -1152,6 +1154,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         [-1438.8, -6.9, -229.2],
         [-1429.0, -7.2, -274.6],
         [-1441.8, -7.1, -269.0],
+        [-1598.6, 4.2, -323.3],
+        [-1600.7, 4.2, -299.6],
     ]);
     // Seeds are never evicted; learned pockets rotate in the slots above
     // the seed count so the ledger stays bounded while surviving new
@@ -2645,13 +2649,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 waypoints.len()
             );
         }
-        // Tick budget: the deflected konec route is ~5.5 km by graph
-        // plus escape/K-turn detours (probe_escape drove 4006.9 m in 60000
-        // ticks with zero aborts before the cap fired mid-escape at wp
-        // 140/189, still moving at 2.1 m/s). 100000 keeps a fail-fast
-        // ceiling while fitting the proven-healthy long drive; wedges
-        // still exit early via the rejoin budget.
-        if drive_ticks > 100000 {
+        // Tick budget: the deflected konec route is ~7.1 km by graph
+        // plus escape/K-turn detours (probe_ground drove 6068.5 m in
+        // 100000 ticks with zero aborts before the cap fired mid-drive
+        // at wp 7/39, still moving at 4.9 m/s with closest gap 4.1 m).
+        // 140000 keeps a fail-fast ceiling while fitting the
+        // proven-healthy long drive; wedges still exit early via the
+        // rejoin budget.
+        if drive_ticks > 140000 {
             return Err(format!(
                 "Taxi never reached detector_konec (waypoint {}/{} closest gap {min_gap:.1} m, odometer {odometer:.1} m)",
                 waypoint + 1,
