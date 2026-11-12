@@ -2760,6 +2760,8 @@ impl CProgram {
         Ok(())
     }
 }
+/// DETECTOR_ISSIGNAL payload: actor register plus the two jump labels.
+type DetectorSignalPayload = (i32, Box<[u8]>, Box<[u8]>);
 struct Process<'a, B> {
     owner: &'a mut Option<ActorReferenceId>,
     /// The owning program's vtable selects derived dispatch: Detector-vtable
@@ -2848,7 +2850,7 @@ impl<B: RuntimeBackend> Process<'_, B> {
     fn detector_signal_payload(
         &self,
         state: &ResetState,
-    ) -> Result<(i32, Box<[u8]>, Box<[u8]>), RuntimeError> {
+    ) -> Result<DetectorSignalPayload, RuntimeError> {
         let parameter = self
             .instructions
             .active()

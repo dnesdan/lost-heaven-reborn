@@ -31,20 +31,25 @@ use crate::scene_visibility::{
 /// projection folds OCCLF_ACTIVE onto arena frame-flag bit 2 (cleared with
 /// `put_flags` below when a victim is hidden).
 /// OCCLF_ACTIVE 0x2: UpdateShadow made its volume this frame, and nothing hides it.
+#[cfg(test)] // Test-only bit readers; production tracks the active state as a bool.
 pub const OCCLF_ACTIVE: u32 = 0x2;
 /// OCCLF_PORTAL 0x4: the camera is on both sides of its sector's portals.
+#[cfg(test)] // Test-only bit readers; production tracks the active state as a bool.
 pub const OCCLF_PORTAL: u32 = 0x4;
 /// OCCLFF_FACING 0x1: the face faces the camera (UpdateShadow).
+#[cfg(test)] // Test-only bit readers; production writes the face-flag word directly.
 pub const OCCLFF_FACING: u32 = 0x1;
 
 /// Upstream working name, not an evidenced original symbol: direct read of
 /// the OCCLF_ACTIVE bit (I3D.h:2350). No named original accessor.
+#[cfg(test)] // Test-only bit readers; production tracks the active state as a bool.
 pub fn occluder_shadow_active(flags: u32) -> bool {
     flags & OCCLF_ACTIVE != 0
 }
 
 /// Upstream working name, not an evidenced original symbol: direct read of
 /// the OCCLFF_FACING bit (I3D.h:2356). No named original accessor.
+#[cfg(test)] // Test-only bit readers; production writes the face-flag word directly.
 pub fn occluder_face_facing(face_flags: u32) -> bool {
     face_flags & OCCLFF_FACING != 0
 }

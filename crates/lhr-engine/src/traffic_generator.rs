@@ -1160,9 +1160,11 @@ mod tests {
         assert!(log.calls.is_empty());
 
         // TickElements 0x44ef70: hidden state returns early, timers/dist untouched.
-        let mut hidden = TrafficTickState::default();
-        hidden.t_horn = 500;
-        hidden.try_do_rici = 7;
+        let mut hidden = TrafficTickState {
+            t_horn: 500,
+            try_do_rici: 7,
+            ..TrafficTickState::default()
+        };
         let mut elems = [element(true, false, false, false, true, None, 1.0, 2.0)];
         let mut log = Log::default();
         let outcome = hidden

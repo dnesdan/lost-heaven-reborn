@@ -343,8 +343,8 @@ impl LookupWorldBackend for FakeEntityWorld {
                 "injected collision-flags failure".into(),
             ));
         }
-        if self.collision_flags.contains_key(&actor) {
-            self.collision_flags.insert(actor, flags);
+        if let Some(slot) = self.collision_flags.get_mut(&actor) {
+            *slot = flags;
             return Ok(());
         }
         Err(LookupError::StaleActor(actor))

@@ -10948,8 +10948,8 @@ mod human_owner_tests {
         let mid = record_rot_at(&records, 100, 50);
         assert_eq!(mid[0], 0.0);
         assert_eq!(mid[2], 0.0);
-        assert!((mid[1] - 0.70710678).abs() < 1e-6);
-        assert!((mid[3] - 0.70710678).abs() < 1e-6);
+        assert!((mid[1] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
+        assert!((mid[3] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
         let norm = (mid[0] * mid[0] + mid[1] * mid[1] + mid[2] * mid[2] + mid[3] * mid[3]).sqrt();
         assert!((norm - 1.0).abs() < 1e-6);
     }

@@ -195,6 +195,7 @@ pub fn scene_anim_slot_in_range(index: u32) -> bool {
 /// NaN passes through unchanged because both native comparisons are false
 /// for it (no quieting is evidenced). Exact f32 comparison order; no state
 /// moves.
+#[allow(clippy::manual_clamp)] // Keeps the documented native compare order explicitly.
 pub fn scene_set_anim_blend_clamped(blend: f32) -> f32 {
     if blend < 0.0 {
         0.0
@@ -371,7 +372,7 @@ pub fn scene_anim_slot_count() -> u32 {
 /// caller-owned. Ordered `f32` comparison, so NaN reports out of range like
 /// the native false-false clamp path. No state moves.
 pub fn scene_anim_blend_is_in_range(blend: f32) -> bool {
-    blend >= 0.0 && blend <= 1.0
+    (0.0..=1.0).contains(&blend)
 }
 
 /// Working name for the `SetViewport` half-extent factor (mafia-re
@@ -3503,7 +3504,7 @@ mod tests {
         // file-static SetSpaceParam (only the setter has RVA 0x4a8d0).
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(arena.scene_world_space(scene).unwrap(), false);
+        assert!(!arena.scene_world_space(scene).unwrap());
         assert!(arena
             .scene_world_space(SceneKey(FrameKey(u32::MAX)))
             .is_err());
@@ -3513,7 +3514,7 @@ mod tests {
         // Working name, no LS3DF FUNCTION: unknown_274 at +0x274.
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(arena.scene_occluder_flag_274(scene).unwrap(), false);
+        assert!(!arena.scene_occluder_flag_274(scene).unwrap());
         assert!(arena
             .scene_occluder_flag_274(SceneKey(FrameKey(u32::MAX)))
             .is_err());
@@ -3523,7 +3524,7 @@ mod tests {
         // Working name, no LS3DF FUNCTION: ipol_set presence at +0x178.
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(arena.scene_has_animation_set(scene).unwrap(), false);
+        assert!(!arena.scene_has_animation_set(scene).unwrap());
         assert!(arena
             .scene_has_animation_set(SceneKey(FrameKey(u32::MAX)))
             .is_err());
@@ -3584,13 +3585,13 @@ mod tests {
         // already occupied) writes it.
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(arena.scene_has_callback(scene).unwrap(), false);
+        assert!(!arena.scene_has_callback(scene).unwrap());
         arena
             .scene_set_callback(scene, Some(SceneCallback(0x1234)), 0x7)
             .unwrap();
-        assert_eq!(arena.scene_has_callback(scene).unwrap(), true);
+        assert!(arena.scene_has_callback(scene).unwrap());
         arena.scene_set_callback(scene, None, 0x7).unwrap();
-        assert_eq!(arena.scene_has_callback(scene).unwrap(), false);
+        assert!(!arena.scene_has_callback(scene).unwrap());
         let bad = SceneKey(FrameKey(u32::MAX));
         assert!(arena.scene_has_callback(bad).is_err());
     }
@@ -4079,7 +4080,7 @@ mod scene_frame_getter_working_name_tests {
         // LS3DF FUNCTION entry exists.
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(arena.scene_allocation_incomplete_of(scene).unwrap(), false);
+        assert!(!arena.scene_allocation_incomplete_of(scene).unwrap());
         let bad = SceneKey(FrameKey(u32::MAX));
         assert!(arena.scene_allocation_incomplete_of(bad).is_err());
     }
@@ -4094,9 +4095,9 @@ mod scene_frame_getter_working_name_tests {
         let frame = arena
             .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
             .unwrap();
-        assert_eq!(arena.scene_tick_contains(scene, frame).unwrap(), false);
+        assert!(!arena.scene_tick_contains(scene, frame).unwrap());
         arena.scene_add_tick_frame(scene, frame).unwrap();
-        assert_eq!(arena.scene_tick_contains(scene, frame).unwrap(), true);
+        assert!(arena.scene_tick_contains(scene, frame).unwrap());
         // Duplicate add keeps membership without duplicating the list.
         arena.scene_add_tick_frame(scene, frame).unwrap();
         assert_eq!(arena.scene(scene).unwrap().tick_frames.len(), 1);

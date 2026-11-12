@@ -1488,7 +1488,7 @@ mod tests {
         let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
         assert_eq!(mission.get_tshift(), 0);
         mission.put_word(0x28, 0x1234_5678);
-        assert_eq!(mission.get_tshift(), 0x1234_5678 as i32);
+        assert_eq!(mission.get_tshift(), 0x1234_5678_i32);
     }
     #[test]
     fn get_tshift_round_trips_negative_bit_patterns() {
@@ -1505,7 +1505,7 @@ mod tests {
         let mut mission = MissionLifecycle::construct(0x6c00_0000, [0; MISSION_BYTES]);
         assert_eq!(mission.get_game(), 0);
         mission.put_word(0x24, 0x1234_5678);
-        assert_eq!(mission.get_game(), 0x1234_5678 as i32);
+        assert_eq!(mission.get_game(), 0x1234_5678_i32);
     }
     #[test]
     fn mission_get_scene_reads_staged_member_word() {

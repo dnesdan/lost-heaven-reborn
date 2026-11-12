@@ -1272,7 +1272,6 @@ mod tests {
 
 #[cfg(test)]
 mod area_switch_fade_time_rva_0x5280_tests {
-    use super::*;
     use crate::model_loading::ModelArena;
 
     #[test]

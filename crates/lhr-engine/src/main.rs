@@ -175,6 +175,8 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 .ok_or("Missing trap radius argument")?
                 .parse()
                 .map_err(|_| "Invalid trap radius argument")?;
+            // NaN-preserving compare: NaN must be rejected.
+            #[allow(clippy::neg_cmp_op_on_partial_ord)]
             if !(raw > 0.0) || !raw.is_finite() {
                 return Err("Trap radius must be a positive finite metre value".into());
             }
@@ -778,7 +780,7 @@ fn load(
 fn scene_mesh_tris(meshes: &[Mesh], index: usize) -> Option<Vec<[[f32; 3]; 3]>> {
     let mesh = meshes.get(index)?;
     let mut tris = Vec::new();
-    for face in mesh.indices.chunks_exact(3) {
+    for face in mesh.indices.as_chunks::<3>().0 {
         let mut tri = [[0.0; 3]; 3];
         for (slot, corner) in tri.iter_mut().zip(face.iter()) {
             *slot = mesh.vertices.get(*corner as usize)?.position;
@@ -1152,7 +1154,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 if blocked {
                     blocked_ticks += 1;
                 }
-                blocked.then(|| lhr_engine::human_move_coll::StepContact {
+                blocked.then_some(lhr_engine::human_move_coll::StepContact {
                     newpos: rest,
                     material: 0,
                     owner_arm: false,
@@ -1583,9 +1585,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // slip it leaves the latch clear, so reverse stays unbraked. The
     // grip latch refreshes alongside: a driven wheel in contact without
     // slip still pulls, and the rear-axle handbrake must not hold it.
-    let mut refresh_slip_latch = |taxi: &mut lhr_engine::car_runtime::GuardedCarRuntime,
-                                  slip: &mut bool,
-                                  grip: &mut bool| {
+    let refresh_slip_latch = |taxi: &mut lhr_engine::car_runtime::GuardedCarRuntime,
+                              slip: &mut bool,
+                              grip: &mut bool| {
         if let Ok(rows) = taxi.driving_wheel_diagnostics() {
             *slip = rows
                 .iter()
@@ -1757,8 +1759,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         );
     }
     let mut prev = exit_pos;
-    let mut last = lhr_engine::car_runtime::CarDrivingState::default();
-    last.position = exit_pos;
+    let mut last = lhr_engine::car_runtime::CarDrivingState {
+        position: exit_pos,
+        ..Default::default()
+    };
     let mut waypoint = 0usize;
     let mut stuck_pos = exit_pos;
     // Cross-track leg start: pursuit steers toward the waypoint (pure
@@ -1960,7 +1964,6 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             approach = vel;
         }
         let mut steer = 0.0f32;
-        let mut aligned = true;
         // Heading error to the waypoint, reused by steering and by the
         // corner-speed cap below. Zero while standing still.
         let mut err = 0.0f32;
@@ -1968,7 +1971,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             let cross = vel[0] * to_wp[1] - vel[1] * to_wp[0];
             let dot = vel[0] * to_wp[0] + vel[1] * to_wp[1];
             err = cross.atan2(dot);
-            aligned = dot > 0.5 * speed_hint * gap;
+            let aligned = dot > 0.5 * speed_hint * gap;
             if uturn.is_none()
                 && unstick == 0
                 && !aligned
@@ -2067,7 +2070,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 && esc_len > 1e-4
                 && approach[0] * to_esc[0] + approach[1] * to_esc[1] > 0.7 * approach_len * esc_len;
             if !aligned {
-                let saw = if drive_ticks.wrapping_sub(escape_start_tick) / 40 % 2 == 0 {
+                let saw = if (drive_ticks.wrapping_sub(escape_start_tick) / 40).is_multiple_of(2) {
                     escape_lock
                 } else {
                     -escape_lock
@@ -2119,7 +2122,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 if len > 1e-4 {
                     let (dx, dz) = (vel[0] / len, vel[1] / len);
                     if let Some(world) = taxi.driving_collision() {
-                        let mut travelled = |h: f32| {
+                        let travelled = |h: f32| {
                             let request = lhr_engine::collision_query::CollisionLineRequest {
                                 origin: [
                                     last.position[0] + dx * 2.0,
@@ -2271,7 +2274,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         // Trajectory log: every 10th escape-push tick records the clutch
         // words, so the snap→decay curve is measurable per grind pocket
         // (hold duration decides the re-lift cadence).
-        if escaping && unstick == 0 && lift == 0 && speed < 1.5 && drive_ticks % 10 == 0 {
+        if escaping && unstick == 0 && lift == 0 && speed < 1.5 && drive_ticks.is_multiple_of(10) {
             if let Ok(words) = taxi.driving_vehicle_words() {
                 let mut line = format!(
                     "probe sag trace tick={drive_ticks} pos=[{:.1},{:.1},{:.1}] speed={:.1}:",
@@ -2293,7 +2296,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             && lift == 0
             && speed < 1.5
             && drive_ticks.wrapping_sub(last_sag_lift) >= 12
-            && drive_ticks % 12 == 0
+            && drive_ticks.is_multiple_of(12)
         {
             if let Ok(words) = taxi.driving_vehicle_words() {
                 let mut progress_bits = 0x3f80_0000u32;
@@ -2659,7 +2662,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             );
         }
         drive_ticks += 1;
-        if drive_ticks % 300 == 0 {
+        if drive_ticks.is_multiple_of(300) {
             println!(
                 "probe drive trace tick={drive_ticks} pos=[{:.1},{:.1},{:.1}] speed={:.1} contacts={} gap={gap:.1}",
                 last.position[0],
@@ -4085,7 +4088,7 @@ impl App {
                     )
                     .map_err(|e| e.to_string())
                 })
-                .and_then(|mut taxi| taxi.start_driving("mise01").map(|_| taxi).map_err(|e| e))
+                .and_then(|mut taxi| taxi.start_driving("mise01").map(|_| taxi))
         });
         match taxi {
             Some(Ok(taxi)) => {
@@ -4234,7 +4237,7 @@ impl App {
                             from,
                             delta,
                         );
-                        blocked.then(|| lhr_engine::human_move_coll::StepContact {
+                        blocked.then_some(lhr_engine::human_move_coll::StepContact {
                             newpos: rest,
                             material: 0,
                             owner_arm: false,

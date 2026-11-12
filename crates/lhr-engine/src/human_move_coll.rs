@@ -431,6 +431,8 @@ pub fn movement_apply_ground(
     };
     let drowned_now = contact.material == MAT_WATER_DEATH;
     let death_fall = is_player && contact.material == MAT_DEATH;
+    // NaN-preserving native compare: NaN must yield `may_fall == true`.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
     let may_fall =
         !(contact.hitpos[1] * contact.hitpos[1] - pos[1] * pos[1] < MOVEMENT_GROUND_TOUCH_EPSILON);
     let test_ground = if in_car {
@@ -995,7 +997,7 @@ mod tests {
         // Hand-derived from C_human.cpp:5080-5127. A miss keeps falling
         // (test_ground true, fall floored at 3.0, up normal, no material).
         let miss = movement_apply_ground(None, [0.0, 5.0, 0.0], 0.0, false, false);
-        assert_eq!(miss.test_ground, true);
+        assert!(miss.test_ground);
         assert_eq!(miss.fall, 3.0);
         assert_eq!(miss.ground_normal, [0.0, 1.0, 0.0]);
         assert_eq!(miss.ground_material, 0);

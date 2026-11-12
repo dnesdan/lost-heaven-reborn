@@ -1309,7 +1309,7 @@ mod tests {
         SessionLightGraph {
             scene: Some(SceneId(7)),
             root: Some(LightFrameId(1)),
-            views: views.iter().map(|(id, view)| (*id, view.clone())).collect(),
+            views: views.iter().map(|(id, view)| (*id, *view)).collect(),
         }
     }
 

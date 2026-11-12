@@ -28,9 +28,9 @@
 //! `g_camera.cpp:55-90`; every one of those names is a mafia-re working guess
 //! ("the names are ours", "the name is a guess" for menu-adjacent ones), never an
 //! original symbol. Only the three `G_Camera` function names are evidenced.
-//! `params` words are retained native addresses (entry values = 0x638700 + i*0x44
-//! + 0x8), the same convention as `FIRST_CAMERA_VALUES` 0x638708 in
-//! `game_camera_reset.rs` (entry 0 here resolves to exactly that address).
+//! `params` words are retained native addresses (entry values =
+//! 0x638700 + i*0x44 + 0x8), the same convention as `FIRST_CAMERA_VALUES`
+//! 0x638708 in `game_camera_reset.rs` (entry 0 here resolves to exactly that address).
 //!
 //! Pure integer/pointer words only: no float arithmetic, so no precision policy
 //! beyond bit retention (`0.0f32.to_bits()` is exactly 0).
@@ -460,9 +460,9 @@ pub fn set_mode(
     if resolved == CAMERA_NEXT {
         resolved = word(camera, OFF_NEXT_MODE);
     }
-    let keep = if resolved >= CAMERA_C_FIRST && resolved < CAMERA_C_END {
+    let keep = if (CAMERA_C_FIRST..CAMERA_C_END).contains(&resolved) {
         ProfileKeep::CarCamera(resolved)
-    } else if resolved >= CAMERA_P_FIRST && resolved < CAMERA_P_END {
+    } else if (CAMERA_P_FIRST..CAMERA_P_END).contains(&resolved) {
         ProfileKeep::FootCamera(resolved)
     } else {
         ProfileKeep::None
@@ -833,7 +833,7 @@ pub fn enable_free_look(
     }
     camera[OFF_FREE_LOOK] = u8::from(on);
     let mode = word(camera, OFF_MODE);
-    if behind && mode > CAMERA_C_BEHIND_HELLBOY && mode < CAMERA_C_END && mode >= CAMERA_C_CHASE {
+    if behind && mode > CAMERA_C_BEHIND_HELLBOY && (CAMERA_C_CHASE..CAMERA_C_END).contains(&mode) {
         Ok(Some(set_mode(
             camera,
             need_look_from_eyes,

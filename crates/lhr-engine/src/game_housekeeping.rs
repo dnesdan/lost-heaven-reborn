@@ -1287,8 +1287,8 @@ pub fn del_all_hydrants(hydrants: &mut Vec<HydrantEntry>, backend: &mut impl Hyd
 }
 
 /// STUB: GAME RVA 0x1b6d10, VA 0x5b6d10 (`game.cpp:3634-3639`,
-/// `C_game::IsValidTaxiPassenger`): the native body is unwritten (`StubLog`
-/// + `false`). The taxi-passenger human and the car/seat checks stay with
+/// `C_game::IsValidTaxiPassenger`): the native body is unwritten (`StubLog` +
+/// `false`). The taxi-passenger human and the car/seat checks stay with
 /// the actor owner. Verified: `.text` entry loads the `taxi_passenger`
 /// field at `game.h:347` (`mov eax,[ecx+0x204]`) before the null test.
 pub fn is_valid_taxi_passenger() -> bool {
@@ -2124,19 +2124,10 @@ pub fn game_init_death_fade_time() -> i32 {
 /// Working name; no outline GAME entry is claimed. Reason: pure fragment of
 /// the occupied `Init` body (`game.cpp:292-293`). No function credit is
 /// taken.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CheatKeysState {
     pub keys: [u8; 32],
     pub cheats: u32,
-}
-
-impl Default for CheatKeysState {
-    fn default() -> Self {
-        Self {
-            keys: [0; 32],
-            cheats: 0,
-        }
-    }
 }
 
 /// Working-name fragment of `C_game::Init` (`game.cpp:292-293`):
@@ -3250,7 +3241,7 @@ fn npc_name_matches(stored: &[u8; 32], wanted: &str) -> bool {
     stored_slice
         .iter()
         .zip(wanted_bytes.iter())
-        .all(|(&a, &b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
+        .all(|(&a, &b)| a.eq_ignore_ascii_case(&b))
 }
 
 /// FUNCTION: GAME RVA 0x1b0750, VA 0x5b0750 (`game/mission/game.cpp:4562-4576`,

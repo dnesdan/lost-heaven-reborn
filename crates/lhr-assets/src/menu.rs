@@ -552,7 +552,7 @@ mod tests {
         ] {
             assert!(MenuDefinition::menu_file_candidates(bad, 0x656e).is_none());
         }
-        assert_eq!(MenuDefinition::language_letters(0x637a), Some([b'c', b'z']));
+        assert_eq!(MenuDefinition::language_letters(0x637a), Some(*b"cz"));
         assert_eq!(MenuDefinition::language_letters(0x2f2e), None);
     }
     #[test]

@@ -140,35 +140,34 @@ fn owned_program_updates_live_game_flags_and_resolves_the_retained_actor() {
 
 #[test]
 fn missing_game_owners_stop_at_the_reached_effect_and_keep_the_prefix() {
-    for (unsupported, detail) in [(
+    let (unsupported, detail) = (
         "setcitytrafficvisible 1",
         "session city-traffic visibility owner unavailable",
-    )] {
-        let source = format!(
-            "commandblock 1\ngame_nightmission 1\n{unsupported}\ngame_nightmission 0\ncommandblock 0"
-        );
-        let fixture = fixture(source.as_bytes());
-        let mut session = fixture.session();
-        load(&mut session, &[]).unwrap();
-        session.initialize_owned_global_programs().unwrap();
-        let error = run(&mut session).unwrap_err();
-        assert_eq!(
-            error,
-            MissionGlobalProgramError::Runtime(RuntimeError::Scheduler(format!(
-                "Backend(Effect({detail:?}))"
-            ),))
-        );
-        assert!(session.game_state().night_mission());
-        assert_eq!(
-            session.loader().unwrap().content.programs()[0]
-                .runtime()
-                .unwrap()
-                .fields
-                .program_counter(),
-            2
-        );
-        finish(&mut session);
-    }
+    );
+    let source = format!(
+        "commandblock 1\ngame_nightmission 1\n{unsupported}\ngame_nightmission 0\ncommandblock 0"
+    );
+    let fixture = fixture(source.as_bytes());
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    session.initialize_owned_global_programs().unwrap();
+    let error = run(&mut session).unwrap_err();
+    assert_eq!(
+        error,
+        MissionGlobalProgramError::Runtime(RuntimeError::Scheduler(format!(
+            "Backend(Effect({detail:?}))"
+        ),))
+    );
+    assert!(session.game_state().night_mission());
+    assert_eq!(
+        session.loader().unwrap().content.programs()[0]
+            .runtime()
+            .unwrap()
+            .fields
+            .program_counter(),
+        2
+    );
+    finish(&mut session);
 }
 
 #[test]
