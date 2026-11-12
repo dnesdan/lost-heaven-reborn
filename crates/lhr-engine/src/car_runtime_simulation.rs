@@ -994,8 +994,9 @@ where
     ) -> Result<(), crate::vehicle_car_contacts::VehicleCarContactUnavailable<String>> {
         // The gate byte is already written (one-shot preserved); the game
         // callee stays with the future game owner, so the intent stages
-        // into the session queue and the filter continues with the
-        // evidenced second-touch outcome instead of aborting.
+        // into the session queue and the hit keeps its descriptor, so
+        // the default StaticResponse still applies instead of rejecting
+        // the contact (which drops the taxi through 0x1f ground).
         self.state.material_callbacks.push(call);
         Ok(())
     }

@@ -34,8 +34,8 @@ pub trait VehicleCarContactBackend: VehicleInitBackend {
     /// materials 0x28/0x1f). The native filter fires a one-shot game
     /// callback through the gate bytes (0x2219 for 0x1f); the callee is
     /// unrecovered, so the default refuses loudly with the material's
-    /// branch. Owners that stage it record the call and continue with
-    /// the evidenced second-touch outcome.
+    /// branch. Owners that stage it record the call and keep the contact
+    /// with its original descriptor (the StaticResponse outcome).
     fn car_contact_game_callback(
         &mut self,
         call: VehicleCarMaterialCallback,
@@ -59,10 +59,15 @@ pub trait VehicleCarContactBackend: VehicleInitBackend {
 /// filter met material 0x28 or first-touch 0x1f and fired the one-shot
 /// game callback through its gate byte (0x2219 for 0x1f), but the game
 /// callee has no owner yet. The gate write is already applied (one-shot
-/// preserved); the continuation reuses the evidenced second-touch
-/// outcome (Ok(0)). Recorded MissionHelpLog-style, never replayed; the
-/// taxi keeps the already-applied StaticResponse outcome. Observed
-/// live: first 0x1f touch aborting the drive at [-1454,-289]
+/// preserved). The staged continuation keeps the hit with its original
+/// descriptor so the default StaticResponse still applies: returning
+/// zero would REJECT the hit (body_collision_map_descriptor contract),
+/// which drops the taxi through 0x1f ground — observed live in
+/// probe_material2, where Ok(0) continuation sent the taxi to
+/// y=-29000 at 200 m/s. Native can reject because its game callee owns
+/// the contact response; without that owner only the default response
+/// keeps physics alive. Recorded MissionHelpLog-style, never replayed.
+/// Observed live: first 0x1f touch aborting the drive at [-1454,-289]
 /// (probe_crawl.log, UnrecoveredBranch(Material1fGameCallback)).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VehicleCarMaterialCallback {
@@ -204,7 +209,7 @@ pub fn car_body_contact_filter<B: VehicleCarContactBackend + ?Sized>(
                 descriptor,
                 material: 0x28,
             })?;
-            return Ok(0);
+            return Ok(descriptor);
         }
         0x1f => {
             if byte(b, car.wrapping_add(0x2219))? == 0 {
@@ -215,7 +220,10 @@ pub fn car_body_contact_filter<B: VehicleCarContactBackend + ?Sized>(
                     material: 0x1f,
                 })?;
             }
-            return Ok(0);
+            // Without a game owner nothing handled the contact, so the
+            // hit stays mapped: rejecting here drops the taxi through
+            // 0x1f ground (probe_material2 fell to y=-29000).
+            return Ok(descriptor);
         }
         0x2b => {
             if byte(b, car.wrapping_add(0x20f2))? == 0 {
