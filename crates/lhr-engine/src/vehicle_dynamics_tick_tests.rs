@@ -786,6 +786,95 @@ fn wedged_clutch_throttle_lift_snaps_progress_to_max_and_requests_engage() {
 }
 
 #[test]
+fn sagged_stall_throttle_sweep_only_coasting_reengages_in_model() {
+    // Live stall-shudder equilibrium (probe_p18 wedge census at
+    // [-1431,-248]: gear 1/1, clutch 0x5dc=0x3d4b7484 (~0.05) sagged,
+    // flags 0x24, target 0x5cc=-1.0, motor 0x548=0x421936c4 (~17.6)
+    // against static wheels (0x59c=0x3e8e64ab), any positive throttle.
+    // Only a coast (0.0) takes the snap arm back to 1.0; every positive
+    // throttle keeps the trap (never reaches 0.9 in 15 ticks). This pins
+    // ported behavior only (no overlay entry, no REA evidence ID); it
+    // explains why the probe's escape pushes grind at 0-2 m/s and why
+    // only the lift cadence moves the taxi at all.
+    for throttle in [0.0_f32, 0.25, 0.5, 0.75, 1.0] {
+        let mut b = Backend::new(0);
+        // Fuel/engine prerequisites (callback_fixture pattern).
+        b.float(0xc30, 10.0);
+        b.float(0x498, 1.0);
+        b.bytes[0x432] = 1;
+        b.put(0xc68, 0x20);
+        b.bytes[0xc2c] = 1;
+        // Probe-seeded sag snapshot (verbatim census words).
+        b.put(0x55c, 1);
+        b.put(0x560, 1);
+        b.put(0x3a8, 0);
+        b.put(0x544, 0);
+        b.put(0x24, 0x3dde_b334);
+        b.put(0x548, 0x4219_36c4);
+        b.put(0x5ec, 0x4155_5556);
+        b.put(0x5c8, 0x422d_5556);
+        b.put(0x5c4, 0x4155_5556);
+        b.put(0x5c0, 0x4155_5556);
+        b.put(0x5dc, 0x3d4b_7484);
+        b.put(0x5cc, 0xbf80_0000);
+        b.float(0x5e4, 1.0);
+        b.float(0x5e0, 1.0);
+        b.put(0x5d4, 0x4055_5555);
+        b.put(0x5d8, 0x40a0_0000);
+        b.put(0x5e8, 0x24);
+        b.put(0x1a4, 1);
+        b.put(0x59c, 0x3e8e_64ab);
+        b.put(0x5d0, 0x437a_0000);
+        b.put(0x570, 0x4170_0000);
+        b.put(0x574, 0x4170_0000);
+        b.put(0x5ac, 0x4031_bd81);
+        b.put(0x4cc, 1);
+        b.put(0x488, 0x423a_aab);
+        b.put(0x44, 0x3f80_0000);
+        // Handbrake released: the unbraked grind. (0x434 doubles as the
+        // handbrake force; the wedge tests stage 1.0 there.)
+        b.float(0x434, 0.0);
+        // Host fixtures the census does not capture (redline domain,
+        // transmission is live).
+        b.float(0x1f9c, 600.0);
+        let mut ever_touched = false;
+        let mut ever_engaged = false;
+        for _ in 0..15 {
+            for _ in 0..8 {
+                b.force_results.push_back(2.0);
+            }
+            // Re-apply the driver input every tick like the probe does.
+            b.float(0x3a4, throttle);
+            b.float(0x540, throttle);
+            assert_eq!(run(&mut b, 16).0, Ok(()));
+            let progress = b.word(0x5dc);
+            if progress != 0x3d4b_7484 {
+                ever_touched = true;
+            }
+            if f32::from_bits(progress) >= 0.9 {
+                ever_engaged = true;
+            }
+        }
+        assert!(
+            ever_touched,
+            "throttle {throttle}: tick never wrote the clutch progress"
+        );
+        if throttle == 0.0 {
+            assert!(
+                ever_engaged,
+                "throttle {throttle}: coast did not take the snap arm"
+            );
+        } else {
+            assert!(
+                !ever_engaged,
+                "throttle {throttle}: partial throttle re-engaged the clutch"
+            );
+        }
+        assert_eq!(b.word(0x55c), 1);
+    }
+}
+
+#[test]
 fn wedged_clutch_even_motion_flag_defers_snap_by_one_tick() {
     // Live wedge snapshots show 0x1a4 both set (0x1) and clear (0x2). With
     // bit0 clear the tick takes the early coasting arm: it republishes the
