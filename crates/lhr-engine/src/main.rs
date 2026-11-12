@@ -95,6 +95,9 @@ struct Options {
     audio_capture: Option<PathBuf>,
     steer: Option<f32>,
     steer_steps: u32,
+    /// Plain-route experiment: skip every trap penalty in drive and
+    /// rejoin routing (see route_cost). Probe-side only.
+    plain_route: bool,
     /// Rail-forensics probe: "X,Z" world point. Loads the real MISE01
     /// scene and prints a ground-height grid around the point plus
     /// approach-line profiles, using the same MeshGroundSpace the
@@ -131,6 +134,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         audio_capture: None,
         steer: None,
         steer_steps: 1,
+        plain_route: false,
         rail_profile: None,
     };
     let mut provided_options = Vec::new();
@@ -140,6 +144,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         match arg.as_str() {
             "--mission-load-probe" => result.mission_load_probe = true,
             "--mission-play-probe" => result.mission_play_probe = true,
+        "--plain-route" => result.plain_route = true,
             "--probe-model-dir" => result.probe_model_directories.push(args.next().ok_or("Missing probe model directory")?),
             "--probe-render-capture" => result.probe_render_capture = Some(args.next().ok_or("Missing probe GPU capture output")?.into()),
             "--textures" => result.textures = args.next().ok_or("Missing textures argument")?,
@@ -221,7 +226,10 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
     }
     if result.mission_play_probe {
         for option in &provided_options {
-            if !matches!(option.as_str(), "--mission-play-probe" | "--root") {
+            if !matches!(
+                option.as_str(),
+                "--mission-play-probe" | "--root" | "--plain-route"
+            ) {
                 return Err(format!(
                     "{option} is not used by --mission-play-probe; omit it"
                 ));
@@ -1280,6 +1288,23 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             }
         }
     };
+    // Plain-route experiment flag: skip every trap penalty and drive the
+    // raw 26-node graph (plus unpenalized rejoins). Rationale: every
+    // seed added since #20 coincided with worse outcomes, and the
+    // penalized 7622 m detour threads unknown furniture fields while
+    // the plain 3230 m corridor passes only within 11.7 m of one known
+    // trap. If the mature grind choreography (escapes, K-turns, lifts,
+    // persistence) can push through that corridor, the mission completes
+    // inside the tick budget; if it boxes at the known pocket, that
+    // proves the penalty was load-bearing and the grind (not the route)
+    // is the blocker. Fail-safes unchanged.
+    let route_cost = |node: usize, out: &mut Vec<(usize, f32)>| {
+        if options.plain_route {
+            neighbors(node, out);
+        } else {
+            penalized(node, out);
+        }
+    };
     let mut dest_node = None;
     let mut dest_gap = f32::INFINITY;
     for i in 0..node_count {
@@ -1438,7 +1463,11 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // at z≈196. Dijkstra from the exit pose decides; if the only link
     // runs back through the corner, the driven list will say so.
     let (drive_path, drive_graph_m) = lhr_engine::mission_play::road_graph_path(
-        &node_pos, &penalized, node_count, exit_pos, dest_node,
+        &node_pos,
+        &route_cost,
+        node_count,
+        exit_pos,
+        dest_node,
     )
     .ok_or("No road path from lot exit to detector_konec")?;
     let mut waypoints = Vec::with_capacity(drive_path.len());
@@ -1470,9 +1499,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         }
     }
     println!(
-        "probe drive path: {} waypoints from lot exit, {:.0} m by penalized graph ({} known traps)",
+        "probe drive path: {} waypoints from lot exit, {:.0} m by {} graph ({} known traps)",
         waypoints.len(),
         drive_graph_m,
+        if options.plain_route {
+            "plain"
+        } else {
+            "penalized"
+        },
         traps.borrow().len()
     );
     // Route divergence: plain vs penalized Dijkstra from the same exit
@@ -2905,7 +2939,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         drop(traps);
                         let (new_path, new_graph_m) = lhr_engine::mission_play::road_graph_path(
                             &node_pos,
-                            &penalized,
+                            &route_cost,
                             node_count,
                             last.position,
                             dest_node,
