@@ -952,6 +952,133 @@ fn sagged_stall_low_throttle_boundary_follows_power_threshold_arm() {
 }
 
 #[test]
+fn direct_gear_poke_from_sag_stays_trapped_without_shift_cycle() {
+    // Negative pin: a direct 0x55c (engaged-gear) poke is NOT a native
+    // shift and cannot prove a neutral-rev-then-dump escape. The native
+    // protocol is request_gear_change (vehicle_controls/storage.rs:
+    // writes 0x560 requested gear and, with 0x20 set, arms 0x5e8 bit1
+    // Disengaging) followed by advance_clutch_shift
+    // (vehicle_drivetrain.rs: Disengaging ramps 0x5dc to zero, then
+    // copies 0x560->0x55c and enters Engaging). Poking 0x55c bypasses
+    // that cycle: requested (0x560) and engaged (0x55c) diverge with no
+    // Disengaging arm, a state the native copy would never leave
+    // standing. The tick harness additionally mocks tick_motor_rot,
+    // tick_engine and tick_set_gear, so 0x548 never integrates and the
+    // drivetrain copy never runs here at all.
+    // The fixture numbers forbid engagement regardless: motor 0x548 is
+    // 38.30 rad/s while the sync threshold 0x5c8 is 43.33, so the
+    // clutch sync branch (0x5c8 <= motor) can never fire and the target
+    // 0x5cc stays at -1. Phase 1's old "rev past 30" assertion was
+    // vacuous (the fixture already starts at 38.30). Pinned instead:
+    // the motor is static in this harness, and the poked dump stays
+    // trapped every tick. No rev-dump probe maneuver follows from
+    // this harness; one would need a drivetrain-level test driving
+    // the real Disengaging->Engaging cycle. Ported behavior only (no
+    // overlay entry, no REA evidence ID).
+    let mut b = Backend::new(0);
+    b.float(0xc30, 10.0);
+    b.float(0x498, 1.0);
+    b.bytes[0x432] = 1;
+    b.put(0xc68, 0x20);
+    b.bytes[0xc2c] = 1;
+    b.put(0x55c, 1);
+    b.put(0x560, 1);
+    b.put(0x3a8, 0);
+    b.put(0x544, 0);
+    b.put(0x24, 0x3dde_b334);
+    b.put(0x548, 0x4219_36c4);
+    b.put(0x5ec, 0x4155_5556);
+    b.put(0x5c8, 0x422d_5556);
+    b.put(0x5c4, 0x4155_5556);
+    b.put(0x5c0, 0x4155_5556);
+    b.put(0x5dc, 0x3d4b_7484);
+    b.put(0x5cc, 0xbf80_0000);
+    b.float(0x5e4, 1.0);
+    b.float(0x5e0, 1.0);
+    b.put(0x5d4, 0x4055_5555);
+    b.put(0x5d8, 0x40a0_0000);
+    b.put(0x5e8, 0x24);
+    b.put(0x1a4, 1);
+    b.put(0x59c, 0x3e8e_64ab);
+    b.put(0x5d0, 0x437a_0000);
+    b.put(0x570, 0x4170_0000);
+    b.put(0x574, 0x4170_0000);
+    b.put(0x5ac, 0x4031_bd81);
+    b.put(0x4cc, 1);
+    b.put(0x488, 0x423a_aab);
+    b.put(0x44, 0x3f80_0000);
+    b.float(0x434, 0.0);
+    b.float(0x1f9c, 600.0);
+    // Phase 1: poke neutral + full throttle for 30 ticks. The motor
+    // must NOT evolve in this harness (tick_motor_rot/tick_engine are
+    // spies, not integrators): max stays at the fixture 38.303482.
+    // Requested (0x560) stays 1 while engaged (0x55c) is poked to 0,
+    // with no Disengaging arm (0x5e8 bit1 clear) - the invalid state.
+    let mut max_rev = 0.0f32;
+    for _ in 0..30 {
+        for _ in 0..8 {
+            b.force_results.push_back(2.0);
+        }
+        b.put(0x55c, 0);
+        b.float(0x3a4, 1.0);
+        b.float(0x540, 1.0);
+        assert_eq!(run(&mut b, 16).0, Ok(()));
+        max_rev = max_rev.max(f32::from_bits(b.word(0x548)));
+    }
+    assert_eq!(b.word(0x55c), 0, "poke did not hold neutral");
+    assert_eq!(b.word(0x560), 1, "requested gear moved without a request");
+    assert_eq!(
+        b.word(0x5e8) & 2,
+        0,
+        "Disengaging armed without request_gear_change"
+    );
+    assert!(
+        (max_rev - 38.303482).abs() < 1e-3,
+        "motor evolved in a non-integrating harness (max {max_rev:.3} rad/s)"
+    );
+    // Phase 2: poke gear 1 under full throttle (the would-be dump),
+    // 15 ticks. Pinned outcome: stays trapped every tick (progress
+    // ~0.05, target -1), held engagement 0/15 - the poke never takes
+    // the sync branch (motor 38.30 < 0x5c8 43.33).
+    let mut held = 0u32;
+    let mut trace = Vec::new();
+    for _ in 0..15 {
+        for _ in 0..8 {
+            b.force_results.push_back(2.0);
+        }
+        b.put(0x55c, 1);
+        b.float(0x3a4, 1.0);
+        b.float(0x540, 1.0);
+        assert_eq!(run(&mut b, 16).0, Ok(()));
+        let progress = f32::from_bits(b.word(0x5dc));
+        let target = f32::from_bits(b.word(0x5cc));
+        trace.push((
+            progress,
+            target,
+            f32::from_bits(b.word(0x548)),
+            b.word(0x5e8),
+            b.word(0x1a4),
+            b.word(0x55c),
+            b.word(0x560),
+        ));
+        if progress >= 0.9 && target >= 0.0 {
+            held += 1;
+        }
+    }
+    assert_eq!(
+        held, 0,
+        "poked dump engaged without the shift cycle: {trace:?}"
+    );
+    assert!(
+        trace
+            .iter()
+            .all(|&(p, t, _, _, _, _, _)| p < 0.9 && t < 0.0),
+        "poke left the trap without a shift cycle: {trace:?}"
+    );
+    assert_eq!(b.word(0x55c), 1);
+}
+
+#[test]
 fn wedged_clutch_even_motion_flag_defers_snap_by_one_tick() {
     // Live wedge snapshots show 0x1a4 both set (0x1) and clear (0x2). With
     // bit0 clear the tick takes the early coasting arm: it republishes the
