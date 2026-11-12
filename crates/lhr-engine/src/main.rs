@@ -2633,13 +2633,19 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             waypoints.len()
                         );
                     } else {
-                        // Crawl-aware escape duration: 200 ticks, not 100.
-                        // The feathered grind moves 0.3-1.9 m per push, so
-                        // 100 ticks (~1.5 m) always re-boxed at the same
-                        // streak count; 200 ticks lets one escape accumulate
-                        // ~3 m and either trip the freedom reset or prove
-                        // the heading productive for the persistence latch.
-                        escape = Some((esc_target, drive_ticks + 200));
+                        // Crawl-aware escape duration: 400 ticks, not 100.
+                        // The feathered grind moves 0.3-1.9 m per push; 100
+                        // ticks (~1.5 m) always re-boxed at the same streak
+                        // count and 200 still burned a rejoin every 5
+                        // windows in the [-1305,14] field (probe_p24: K-turn
+                        // cycles move ~5 m but each escape only proved ~2
+                        // m). 400 ticks lets one escape accumulate ~6 m and
+                        // either clear the 1 m box bar outright or prove the
+                        // heading for the persistence latch — the escape
+                        // becomes the field-crossing locomotion and rejoins
+                        // fire only on true dead stalls. Arrival within 3 m
+                        // of the virtual target still ends it early.
+                        escape = Some((esc_target, drive_ticks + 400));
                         // Latch this heading and origin for persistence:
                         // the next box keeps pushing here if it moved the
                         // taxi, instead of rotating to a new heading.
