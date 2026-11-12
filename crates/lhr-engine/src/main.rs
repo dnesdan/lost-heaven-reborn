@@ -106,6 +106,12 @@ struct Options {
     /// or fails the search, which decides existence rigorously.
     /// Probe-side only; takes precedence over plain_route.
     block_traps: bool,
+    /// Trap-radius ablation in metres (see route_cost): overrides the
+    /// 45 m default disc radius for penalty and block routing. The
+    /// default was never ablated and metre-scale furniture pockets
+    /// with 45 m discs can merge into street-covering blobs by host
+    /// choice. Probe-side only.
+    trap_radius: Option<f32>,
     /// Rail-forensics probe: "X,Z" world point. Loads the real MISE01
     /// scene and prints a ground-height grid around the point plus
     /// approach-line profiles, using the same MeshGroundSpace the
@@ -144,6 +150,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         steer_steps: 1,
         plain_route: false,
         block_traps: false,
+        trap_radius: None,
         rail_profile: None,
     };
     let mut provided_options = Vec::new();
@@ -155,6 +162,17 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
             "--mission-play-probe" => result.mission_play_probe = true,
         "--plain-route" => result.plain_route = true,
         "--block-traps" => result.block_traps = true,
+        "--trap-radius" => {
+            let raw: f32 = args
+                .next()
+                .ok_or("Missing trap radius argument")?
+                .parse()
+                .map_err(|_| "Invalid trap radius argument")?;
+            if !(raw > 0.0) || !raw.is_finite() {
+                return Err("Trap radius must be a positive finite metre value".into());
+            }
+            result.trap_radius = Some(raw);
+        }
             "--probe-model-dir" => result.probe_model_directories.push(args.next().ok_or("Missing probe model directory")?),
             "--probe-render-capture" => result.probe_render_capture = Some(args.next().ok_or("Missing probe GPU capture output")?.into()),
             "--textures" => result.textures = args.next().ok_or("Missing textures argument")?,
@@ -238,7 +256,11 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         for option in &provided_options {
             if !matches!(
                 option.as_str(),
-                "--mission-play-probe" | "--root" | "--plain-route" | "--block-traps"
+                "--mission-play-probe"
+                    | "--root"
+                    | "--plain-route"
+                    | "--block-traps"
+                    | "--trap-radius"
             ) {
                 return Err(format!(
                     "{option} is not used by --mission-play-probe; omit it"
@@ -1286,6 +1308,11 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // one and logs it instead of panicking.
     let seed_trap_count = traps.borrow().len();
     const TRAP_LEDGER_CAP: usize = 28;
+    // Effective disc radius: the --trap-radius ablation overrides the
+    // 45 m default in both penalty and block routing below.
+    let trap_radius = options
+        .trap_radius
+        .unwrap_or(lhr_engine::mission_play::TRAP_RADIUS_M);
     let penalized = |node: usize, out: &mut Vec<(usize, f32)>| {
         neighbors(node, out);
         let traps = traps.borrow();
@@ -1294,7 +1321,12 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         };
         for (other, weight) in out.iter_mut() {
             if let Some(p) = node_pos(*other) {
-                *weight += lhr_engine::mission_play::trap_edge_penalty(a, p, &traps);
+                *weight += lhr_engine::mission_play::trap_edge_penalty_with_radius(
+                    a,
+                    p,
+                    &traps,
+                    trap_radius,
+                );
             }
         }
     };
@@ -1313,7 +1345,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             // Blocking mode: any edge intersecting a trap disc costs
             // infinity, which dijkstra_core skips outright. Either a
             // pocket-free corridor exists (drive it) or the search
-            // fails loudly (cut-vertex proven, not inferred).
+            // fails loudly (cut-vertex proven, not inferred). The
+            // --trap-radius ablation applies here too: proving the
+            // vertex at 45 m does not prove it at 15 m.
             neighbors(node, out);
             let traps = traps.borrow();
             let Some(a) = node_pos(node) else {
@@ -1321,7 +1355,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             };
             for (other, weight) in out.iter_mut() {
                 if let Some(p) = node_pos(*other) {
-                    if lhr_engine::mission_play::trap_edge_penalty(a, p, &traps) > 0.0 {
+                    if lhr_engine::mission_play::trap_edge_penalty_with_radius(
+                        a,
+                        p,
+                        &traps,
+                        trap_radius,
+                    ) > 0.0
+                    {
                         *weight = f32::INFINITY;
                     }
                 }
@@ -1532,7 +1572,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         }
     }
     println!(
-        "probe drive path: {} waypoints from lot exit, {:.0} m by {} graph ({} known traps)",
+        "probe drive path: {} waypoints from lot exit, {:.0} m by {} graph ({} known traps, radius {:.0} m)",
         waypoints.len(),
         drive_graph_m,
         if options.block_traps {
@@ -1542,7 +1582,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         } else {
             "penalized"
         },
-        traps.borrow().len()
+        traps.borrow().len(),
+        trap_radius,
     );
     // Route divergence: plain vs penalized Dijkstra from the same exit
     // pose. Decides cut-vertex (identical corridors: the pocket is the

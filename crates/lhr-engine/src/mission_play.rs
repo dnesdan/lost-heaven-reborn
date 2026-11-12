@@ -898,11 +898,24 @@ pub const TRAP_PENALTY_M: f32 = 2000.0;
 /// with no traps or beyond the radius, so unpenalized routing is the
 /// exact fallback when no trap is near.
 pub fn trap_penalty(node: [f32; 3], traps: &[[f32; 3]]) -> f32 {
+    trap_penalty_with_radius(node, traps, TRAP_RADIUS_M)
+}
+
+/// Radius-parameterized node penalty. The 45 m default was never
+/// ablated (only the 2000/6000 penalty height was); furniture pockets
+/// are metre-scale, so overlapping 45 m discs can merge into a
+/// street-covering blob that disconnects the graph by host choice
+/// rather than by geometry. The probe's --trap-radius flag ablates
+/// this dimension; the const stays the default.
+pub fn trap_penalty_with_radius(node: [f32; 3], traps: &[[f32; 3]], radius: f32) -> f32 {
     let mut penalty = 0.0f32;
+    if !(radius > 0.0) {
+        return penalty;
+    }
     for t in traps {
         let d = (node[0] - t[0]).hypot(node[2] - t[2]);
-        if d < TRAP_RADIUS_M {
-            penalty += TRAP_PENALTY_M * (1.0 - d / TRAP_RADIUS_M);
+        if d < radius {
+            penalty += TRAP_PENALTY_M * (1.0 - d / radius);
         }
     }
     penalty
@@ -914,7 +927,23 @@ pub fn trap_penalty(node: [f32; 3], traps: &[[f32; 3]]) -> f32 {
 /// its middle passes through the pocket. Keeps routing honest on
 /// coarse graphs where subdivided waypoints thread between nodes.
 pub fn trap_edge_penalty(a: [f32; 3], b: [f32; 3], traps: &[[f32; 3]]) -> f32 {
-    let mut penalty = trap_penalty(a, traps).max(trap_penalty(b, traps));
+    trap_edge_penalty_with_radius(a, b, traps, TRAP_RADIUS_M)
+}
+
+/// Radius-parameterized edge penalty: the maximum of the endpoint
+/// penalties plus a segment term, all measured against `radius`.
+/// See [`trap_penalty_with_radius`].
+pub fn trap_edge_penalty_with_radius(
+    a: [f32; 3],
+    b: [f32; 3],
+    traps: &[[f32; 3]],
+    radius: f32,
+) -> f32 {
+    let mut penalty =
+        trap_penalty_with_radius(a, traps, radius).max(trap_penalty_with_radius(b, traps, radius));
+    if !(radius > 0.0) {
+        return penalty;
+    }
     for t in traps {
         let abx = b[0] - a[0];
         let abz = b[2] - a[2];
@@ -927,8 +956,8 @@ pub fn trap_edge_penalty(a: [f32; 3], b: [f32; 3], traps: &[[f32; 3]]) -> f32 {
         let cx = a[0] + abx * s - t[0];
         let cz = a[2] + abz * s - t[2];
         let d = (cx * cx + cz * cz).sqrt();
-        if d < TRAP_RADIUS_M {
-            let p = TRAP_PENALTY_M * (1.0 - d / TRAP_RADIUS_M);
+        if d < radius {
+            let p = TRAP_PENALTY_M * (1.0 - d / radius);
             if p > penalty {
                 penalty = p;
             }
@@ -1534,6 +1563,46 @@ mod tests {
             (trap_penalty([TRAP_RADIUS_M / 4.0, 0.0, 0.0], &single) - 0.75 * TRAP_PENALTY_M).abs()
                 < 1e-3
         );
+    }
+
+    #[test]
+    fn radius_variants_match_legacy_at_default_radius() {
+        // Refactor guard: the _with_radius variants with TRAP_RADIUS_M
+        // must equal the legacy entry points bit-for-bit, so existing
+        // pins keep covering the default behavior.
+        let traps = vec![[10.0, 0.0, 5.0], [-30.0, 0.0, 40.0]];
+        for node in [
+            [10.0, 0.0, 5.0],
+            [10.0 + TRAP_RADIUS_M / 3.0, 0.0, 5.0],
+            [10.0 + TRAP_RADIUS_M + 1.0, 0.0, 5.0],
+            [0.0, 0.0, 0.0],
+        ] {
+            assert_eq!(
+                trap_penalty_with_radius(node, &traps, TRAP_RADIUS_M),
+                trap_penalty(node, &traps)
+            );
+            assert_eq!(
+                trap_edge_penalty_with_radius([0.0, 0.0, 0.0], node, &traps, TRAP_RADIUS_M),
+                trap_edge_penalty([0.0, 0.0, 0.0], node, &traps)
+            );
+        }
+    }
+
+    #[test]
+    fn narrow_radius_frees_distant_nodes_and_edges() {
+        // A node 30 m out pays under the 45 m default but is free at
+        // 15 m; the edge term agrees. Pins the ablation dimension.
+        let traps = vec![[0.0, 0.0, 0.0]];
+        let node = [30.0, 0.0, 0.0];
+        assert!(trap_penalty(node, &traps) > 0.0);
+        assert_eq!(trap_penalty_with_radius(node, &traps, 15.0), 0.0);
+        assert!(trap_edge_penalty([20.0, 0.0, 0.0], node, &traps) > 0.0);
+        assert_eq!(
+            trap_edge_penalty_with_radius([20.0, 0.0, 0.0], node, &traps, 15.0),
+            0.0
+        );
+        // Non-positive radius penalizes nothing (used as "no traps").
+        assert_eq!(trap_penalty_with_radius(node, &traps, 0.0), 0.0);
     }
 
     #[test]
