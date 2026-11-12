@@ -117,6 +117,12 @@ struct Options {
     /// approach-line profiles, using the same MeshGroundSpace the
     /// play probe walks on. Read-only; drives no gameplay.
     rail_profile: Option<[f32; 2]>,
+    /// Road-proximity probe: one or more "X,Z" world points (repeat the
+    /// flag). Loads the real MISE01 road graph and prints nearest nodes
+    /// and edges per point: on-road (small lateral offset to a segment)
+    /// vs off-road (far from all segments). Decides the road-fidelity
+    /// hypothesis for beached pockets without driving. Read-only.
+    road_proximity: Vec<[f32; 2]>,
 }
 fn options() -> Result<Options, String> {
     parse_options(std::env::args().skip(1))
@@ -152,6 +158,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         block_traps: false,
         trap_radius: None,
         rail_profile: None,
+        road_proximity: Vec::new(),
     };
     let mut provided_options = Vec::new();
     let mut steer_steps_set = false;
@@ -222,6 +229,19 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 }
                 result.rail_profile = Some([x, z]);
             },
+            "--road-proximity" => {
+                let pair = args.next().ok_or("Missing road proximity X,Z argument")?;
+                let mut parts = pair.split(',');
+                let x: f32 = parts.next().ok_or("Road proximity needs X,Z")?.parse().map_err(|_| "Invalid road proximity X")?;
+                let z: f32 = parts.next().ok_or("Road proximity needs X,Z")?.parse().map_err(|_| "Invalid road proximity Z")?;
+                if parts.next().is_some() {
+                    return Err("Road proximity needs exactly X,Z".into());
+                }
+                if !x.is_finite() || !z.is_finite() {
+                    return Err("Road proximity X,Z must be finite".into());
+                }
+                result.road_proximity.push([x, z]);
+            },
             "--help" => return Err(concat!(
                 "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS [--animation RELATIVE_5DS] | --mission NAME]] ",
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
@@ -249,6 +269,17 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         }
         if result.root.is_none() {
             return Err("--rail-profile requires --root".into());
+        }
+        return Ok(result);
+    }
+    if !result.road_proximity.is_empty() {
+        for option in &provided_options {
+            if !matches!(option.as_str(), "--road-proximity" | "--root") {
+                return Err(format!("{option} is not used by --road-proximity; omit it"));
+            }
+        }
+        if result.root.is_none() {
+            return Err("--road-proximity requires --root".into());
         }
         return Ok(result);
     }
@@ -843,6 +874,77 @@ fn rail_profile_probe(options: &Options, center: [f32; 2]) -> Result<(), String>
             }
         }
         println!("{line}");
+    }
+    Ok(())
+}
+
+/// Road-proximity forensics: for each given world (x, z) point, report
+/// the nearest road-graph nodes and node-pair segments from the real
+/// MISE01 road.bin, with lateral (perpendicular) distance to each
+/// segment. A beached pocket sitting ON a segment (small lateral
+/// offset) means the route itself crosses the beaching geometry and
+/// only a drivable crossing (speed, not routing) can pass it; a pocket
+/// far from every segment means the pursuit left the road and road
+/// fidelity, not the contact response, is the owner. Read-only; drives
+/// no gameplay.
+fn road_proximity_probe(options: &Options, points: &[[f32; 2]]) -> Result<(), String> {
+    let root = options.root.as_deref().ok_or("Probe needs --root")?;
+    let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
+    let road_bytes = installation
+        .read_optional("missions/mise01/road.bin")
+        .map_err(|e| e.to_string())?
+        .ok_or("MISE01 road.bin absent")?;
+    let network = lhr_engine::road_network::parse_road_network(&road_bytes)
+        .map_err(|e| format!("Road network parse stopped: {e:?}"))?;
+    println!("probe roads: {} nodes", network.nodes.len());
+    for point in points {
+        println!(
+            "probe road proximity around [{:.1}, {:.1}]:",
+            point[0], point[1]
+        );
+        let mut nodes: Vec<(usize, f32)> = (0..network.nodes.len())
+            .filter_map(|i| {
+                network.nodes.get(i).map(|n| {
+                    let p = n.position();
+                    (i, (p[0] - point[0]).hypot(p[2] - point[1]))
+                })
+            })
+            .collect();
+        nodes.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        for (i, d) in nodes.iter().take(5) {
+            let p = network.nodes[*i].position();
+            println!(
+                "probe road node {i}: [{:.1}, {:.1}, {:.1}] d={d:.1} m",
+                p[0], p[1], p[2]
+            );
+        }
+        let mut segs: Vec<(usize, usize, f32, f32, f32)> = Vec::new();
+        for (i, node) in network.nodes.iter().enumerate() {
+            for lane in 0..lhr_engine::road_network::ROAD_LANES {
+                let j = node.lane_neighbor(lane) as usize;
+                if j == 0xFFFF || j <= i || j >= network.nodes.len() {
+                    continue;
+                }
+                let a = node.position();
+                let b = network.nodes[j].position();
+                let abx = b[0] - a[0];
+                let abz = b[2] - a[2];
+                let denom = abx * abx + abz * abz;
+                if denom <= 0.0 {
+                    continue;
+                }
+                let mut s = ((point[0] - a[0]) * abx + (point[1] - a[2]) * abz) / denom;
+                s = s.clamp(0.0, 1.0);
+                let lat = ((a[0] + abx * s - point[0]).powi(2)
+                    + (a[2] + abz * s - point[1]).powi(2))
+                .sqrt();
+                segs.push((i, j, lat, denom.sqrt(), s));
+            }
+        }
+        segs.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+        for (i, j, lat, len, s) in segs.iter().take(8) {
+            println!("probe road seg {i}-{j}: lateral {lat:.1} m, len {len:.0} m, t={s:.2}");
+        }
     }
     Ok(())
 }
@@ -1659,6 +1761,17 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     last.position = exit_pos;
     let mut waypoint = 0usize;
     let mut stuck_pos = exit_pos;
+    // Cross-track leg start: pursuit steers toward the waypoint (pure
+    // pursuit), which cuts corners off the road graph; on the coarse
+    // graph the straight legs span whole blocks and the cuts walk the
+    // taxi off the road into furniture/rail slots (rail slot
+    // [-1317,153] beached 21.8 m off the nearest road segment, seed
+    // #24 20.7 m off). Steering back toward the leg line keeps the
+    // taxi on the road centerline while rolling. Reset at every leg
+    // change (flip, rejoin).
+    let mut leg_from = exit_pos;
+    // Logged flag so the first trim engagement per leg shows once.
+    let mut leg_trim_logged = false;
     // Bounded rejoins: a persistent wedge means the straight leg the
     // taxi is pushing is not drivable (prop row, uncut corner), so let
     // Dijkstra route around it from the boxed pose instead of failing.
@@ -1901,6 +2014,34 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         }
         if uturn.is_some() && unstick == 0 {
             steer = uturn.unwrap_or(0.0);
+        }
+        // Cross-track trim: steer back toward the leg line, not just the
+        // waypoint. Pure pursuit aims at the node and cuts the corner;
+        // the trim adds at most ±0.3 toward the leg centerline, so
+        // intersection turns, escapes and K-turns keep authority — it
+        // only resists lateral drift while rolling on an open leg.
+        // Same sign convention as err (positive cross = left): a taxi
+        // left of the leg turns right (positive steer).
+        if !escaping && unstick == 0 && uturn.is_none() && speed_hint > 0.5 {
+            let leg = [target[0] - leg_from[0], target[2] - leg_from[2]];
+            let leg_len = leg[0].hypot(leg[1]);
+            if leg_len > 1e-4 && gap > 8.0 {
+                let rx = last.position[0] - leg_from[0];
+                let rz = last.position[2] - leg_from[2];
+                let lat = (leg[0] * rz - leg[1] * rx) / leg_len;
+                if lat.abs() > 2.0 {
+                    let trim = (0.15 * lat).clamp(-0.3, 0.3);
+                    steer = (steer + trim).clamp(-1.0, 1.0);
+                    if !leg_trim_logged {
+                        leg_trim_logged = true;
+                        println!(
+                            "probe drive: cross-track trim {trim:+.2} at lateral {lat:+.1} m on wp {}/{}",
+                            waypoint + 1,
+                            waypoints.len()
+                        );
+                    }
+                }
+            }
         }
         // Static escape steering with a slow saw: the velocity block
         // above leaves steer identically zero while standing still, so
@@ -2503,6 +2644,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         // has its own 3 m arrival check above.
         if !escaping && gap <= 6.0 && waypoint + 1 < waypoints.len() {
             waypoint += 1;
+            leg_from = last.position;
+            leg_trim_logged = false;
             let heading_deg = vel[0].atan2(vel[1]);
             println!(
                 "probe drive: waypoint {}/{} at [{:.1}, {:.1}, {:.1}] heading={:.0}° err={:.0}°",
@@ -3203,6 +3346,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         lift = 0;
                         last_sag_lift = drive_ticks;
                         escape_deg = None;
+                        leg_from = last.position;
+                        leg_trim_logged = false;
                         wheel_slip = false;
                         wheel_grip = false;
                         // Fresh route, fresh aimed-stall memory: waypoint
@@ -5355,6 +5500,9 @@ fn run() -> Result<(), String> {
     }
     if let Some(center) = options.rail_profile {
         return rail_profile_probe(&options, center);
+    }
+    if !options.road_proximity.is_empty() {
+        return road_proximity_probe(&options, &options.road_proximity);
     }
     // These optional startup files are read once, before any Scene/source owner.
     // Keep their actual table across App transitions and inspection reloads.
