@@ -1588,6 +1588,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // the latch.
     let mut escape_deg: Option<f32> = None;
     let mut escape_origin = [0.0f32; 3];
+    // Escape start tick for the stall abort below; 400-tick escapes
+    // that move nothing get abandoned at 150 instead of grinding
+    // the full duration.
+    let mut escape_start_tick = 0u32;
     // Clutch lift: coast ticks with both pedals released at the start of
     // an escape. A boxed taxi pushes with a disengaged clutch (0x5dc~0.06,
     // flags 0x2c); driving on would keep the copy-path trap pinned by
@@ -1636,7 +1640,12 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     let mut wheel_slip = false;
     while progress.stage() == Mise01Stage::DrivingToDestination {
         // Geometry-directed escape overrides the staged waypoint until it
-        // expires or the taxi arrives within 3 m of the virtual target.
+        // expires, the taxi arrives within 3 m of the virtual target, or
+        // it stalls: no movement 150 ticks in means pushing into an
+        // unyielding prop, and the remaining 250 ticks would only grind
+        // in place (probe_signfix boxed at wp 1/72 after full-length
+        // stalled escapes). Abort early so the next window re-boxes,
+        // rotates the heading or K-turns instead of burning the budget.
         if let Some((esc_target, until)) = escape {
             if drive_ticks > until {
                 escape = None;
@@ -1646,6 +1655,19 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 if esc_gap <= 3.0 {
                     escape = None;
                     stuck_pos = last.position;
+                } else if drive_ticks.wrapping_sub(escape_start_tick) >= 150
+                    && (last.position[0] - escape_origin[0])
+                        .hypot(last.position[2] - escape_origin[2])
+                        < 0.5
+                {
+                    println!(
+                        "probe drive: abandoning stalled escape at [{:.1}, {:.1}, {:.1}] after {} ticks",
+                        last.position[0],
+                        last.position[1],
+                        last.position[2],
+                        drive_ticks.wrapping_sub(escape_start_tick),
+                    );
+                    escape = None;
                 }
             }
         }
@@ -2723,7 +2745,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             };
                         }
                     }
-                    let esc_target = if gap < 60.0 {
+                    let aimed = gap < 60.0;
+                    let esc_target = if aimed {
                         // Aimed grind: the blocked waypoint itself is near
                         // (every observed rejoin loop stalls 9-40 m short
                         // of wp 1 while escapes wander off on radial 40 m
@@ -2790,6 +2813,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         // taxi, instead of rotating to a new heading.
                         escape_deg = Some(pick_deg);
                         escape_origin = last.position;
+                        escape_start_tick = drive_ticks;
                         // Lift first: snap the disengaged clutch back to max
                         // before the escape pursuit pushes. Three ticks: the
                         // snap lands on the first coast tick (second from an
@@ -2820,8 +2844,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             escape_lock = if cross >= 0.0 { -1.0 } else { 1.0 };
                         }
                         println!(
-                        "probe drive: boxed {boxed_windows}x, escaping toward [{:.1}, {:.1}, {:.1}] free {best_travel:.1} m at {pick_deg:.0}° slot=[{:.1},{:.1}]",
-                        esc_target[0], esc_target[1], esc_target[2], side[0], side[1]
+                        "probe drive: boxed {boxed_windows}x, escaping toward [{:.1}, {:.1}, {:.1}] free {best_travel:.1} m at {pick_deg:.0}° slot=[{:.1},{:.1}] {}",
+                        esc_target[0], esc_target[1], esc_target[2], side[0], side[1],
+                        if aimed { "aimed" } else { "radial" }
                     );
                     } // end escape (vs forced K-turn above)
                 } else {
