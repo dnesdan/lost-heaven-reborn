@@ -1644,6 +1644,16 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // that move nothing get abandoned at 150 instead of grinding
     // the full duration.
     let mut escape_start_tick = 0u32;
+    // Whether the in-progress escape aims at the blocked waypoint.
+    // Two consecutive stall-aborts of aimed escapes at the same
+    // waypoint index force one radial escape: re-aiming at a blocker
+    // the taxi cannot move toward only repeats the 150-tick grind
+    // (probe_hold boxed at wp 1/79 gap 6.9 m this way). The radial
+    // cycle explores the free heading instead; the counter resets
+    // afterwards so aiming resumes.
+    let mut escape_aimed = false;
+    let mut aimed_stall_count = 0u32;
+    let mut aimed_stall_wp = usize::MAX;
     // Clutch lift: coast ticks with both pedals released at the start of
     // an escape. A boxed taxi pushes with a disengaged clutch (0x5dc~0.06,
     // flags 0x2c); driving on would keep the copy-path trap pinned by
@@ -1734,6 +1744,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         last.position[2],
                         drive_ticks.wrapping_sub(escape_start_tick),
                     );
+                    if escape_aimed {
+                        if waypoint == aimed_stall_wp {
+                            aimed_stall_count += 1;
+                        } else {
+                            aimed_stall_count = 1;
+                            aimed_stall_wp = waypoint;
+                        }
+                    }
                     escape = None;
                 }
             }
@@ -2883,7 +2901,24 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             "probe wedge low center: heading {pick_deg:.0}° travelled {low_center:.1} m"
                         );
                     }
-                    let aimed = gap < 60.0 && low_center >= gap.min(29.0);
+                    let mut aimed = gap < 60.0 && low_center >= gap.min(29.0);
+                    // Radial fallback: two consecutive stall-aborts of
+                    // aimed escapes at this waypoint prove the waypoint
+                    // itself ungrindable from here (probe_hold: rail slot
+                    // [-1317,153], 3 wheels dangling, 150-tick aborts
+                    // cycling at the same 6.9 m gap). Force one radial
+                    // cycle down the free heading instead, then resume
+                    // aiming; the counter resets so the pattern repeats
+                    // only on fresh failures.
+                    if aimed && aimed_stall_count >= 2 && waypoint == aimed_stall_wp {
+                        aimed = false;
+                        aimed_stall_count = 0;
+                        println!(
+                            "probe drive: forcing radial escape at wp {}/{} after aimed stalls",
+                            waypoint + 1,
+                            waypoints.len()
+                        );
+                    }
                     let esc_target = if aimed {
                         // Aimed grind: the blocked waypoint itself is near
                         // (every observed rejoin loop stalls 9-40 m short
@@ -2952,6 +2987,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         escape_deg = Some(pick_deg);
                         escape_origin = last.position;
                         escape_start_tick = drive_ticks;
+                        escape_aimed = aimed;
                         // Lift first: snap the disengaged clutch back to max
                         // before the escape pursuit pushes. Three ticks: the
                         // snap lands on the first coast tick (second from an
@@ -3099,6 +3135,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         escape_deg = None;
                         wheel_slip = false;
                         wheel_grip = false;
+                        // Fresh route, fresh aimed-stall memory: waypoint
+                        // indices restart with the rebuilt list.
+                        aimed_stall_count = 0;
+                        aimed_stall_wp = usize::MAX;
                         println!(
                             "probe drive: rejoin {rejoins}/5 from [{:.1}, {:.1}, {:.1}]: {} waypoints, {:.0} m by graph",
                             last.position[0], last.position[1], last.position[2],
