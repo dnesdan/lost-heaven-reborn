@@ -1540,11 +1540,12 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // taxi is pushing is not drivable (prop row, uncut corner), so let
     // Dijkstra route around it from the boxed pose instead of failing.
     // The destination anchor never moves: completion still requires
-    // arriving within 12 m of detector_konec itself. Budget 3: the
-    // [-1462,-293] furniture field needed two hops just to cross it
-    // (probe_material3 learned a pocket per hop and still exited at the
-    // second rejoin's wp 1); fail-fast survives via the tick cap plus
-    // the 5-window box rule.
+    // arriving within 12 m of detector_konec itself. Budget 5:
+    // probe_esc400 proved rejoins hop forward through fields instead of
+    // looping (each rejoin starts in new terrain, persistence walks
+    // 10 m+ per escape), but 3 hops ran out inside the [-1263,91]
+    // terrace field; fail-fast survives via the tick cap plus the
+    // 5-window box rule.
     let mut rejoins = 0u32;
     // Latched U-turn: when the target sits behind a moving taxi, the
     // per-tick err≈±π sign chatters and the taxi S-curves away instead of
@@ -2706,7 +2707,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     );
                 }
                 if boxed_windows >= 5 {
-                    if rejoins < 3 {
+                    if rejoins < 5 {
                         rejoins += 1;
                         // Learn this pocket: penalize its nodes so the
                         // rejoin routes around the furniture instead of
@@ -2781,7 +2782,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         escape_deg = None;
                         wheel_slip = false;
                         println!(
-                            "probe drive: rejoin {rejoins}/3 from [{:.1}, {:.1}, {:.1}]: {} waypoints, {:.0} m by graph",
+                            "probe drive: rejoin {rejoins}/5 from [{:.1}, {:.1}, {:.1}]: {} waypoints, {:.0} m by graph",
                             last.position[0], last.position[1], last.position[2],
                             waypoints.len(), new_graph_m
                         );
