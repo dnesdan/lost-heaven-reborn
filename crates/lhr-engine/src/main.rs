@@ -1609,6 +1609,18 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // rolling; true only on the low-blocked/high-free signature, so
     // the 8 m/s hold cannot stick on anywhere else.
     let mut rail_carry_was = false;
+    // Sticky carry ticks: once the sweep sees the rail signature while
+    // rolling, keep the 8 m/s floor for up to 150 ticks afterwards.
+    // probe_grip stalled 12 m short of wp 2/79 on a low-walled rail
+    // slot (low rays 2-11 m blocked, ground level): the taxi slows
+    // onto the lip, the sweep drops the instant speed hits ~0, the
+    // corner cap clamps to ~3 m/s and it never carries over. The hold
+    // keeps full throttle into the lip through the stall; the box
+    // machinery still fires on zero progress, and void_hold (checked
+    // first below) still wins over real edges.
+    let mut rail_carry_hold = 0u32;
+    // Announced flag so the hold extension logs once per arming.
+    let mut rail_carry_hold_announced = false;
     // Void-hold rising edge: per-tick ground ray 15 m ahead while
     // rolling; true only over a hole or past an edge within the drop
     // budget, so normal roads never trip it.
@@ -1941,9 +1953,19 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             rail_carry_was = carry;
             if carry {
                 // Hold speed over the rail; never brake into it.
+                rail_carry_hold = 150;
+                rail_carry_hold_announced = false;
+            } else if rail_carry_hold > 0 && !escaping && unstick == 0 && !rail_carry_hold_announced
+            {
+                rail_carry_hold_announced = true;
+                println!(
+                    "probe drive: rail carry holding (sweep lost) at [{:.1}, {:.1}, {:.1}] speed={:.1}",
+                    last.position[0], last.position[1], last.position[2], last.speed
+                );
             }
         }
-        let target_speed = if rail_carry_was {
+        let target_speed = if !escaping && unstick == 0 && rail_carry_hold > 0 {
+            rail_carry_hold -= 1;
             target_speed.max(8.0)
         } else {
             target_speed
