@@ -1759,8 +1759,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         // onto it; the corner cap still governs everywhere else. No
         // speed gate: the gated version never fired once in probe_rail
         // (the crawl toward the rail runs below it), and the zero-length
-        // direction check already skips standstill. Precedent: the
-        // [41,108] node, previously carried through at speed but hung on
+        // direction check already skips standstill. Grounded-ahead
+        // requirement: probe_rbrake proved the unguarded version floors
+        // it straight through a guardrail lip and off the world edge
+        // (y=-26 to y=-11000 free fall, carry still firing mid-air) —
+        // a low rail at a cliff lip has the identical sweep signature
+        // as a crossable rail. Require level ground 25 m out, same
+        // rule as the escape-heading filter. Precedent: the [41,108]
+        // node, previously carried through at speed but hung on
         // furniture when crawled into. Logged on rising edge only;
         // fail-safes untouched (a beach still drops speed to ~0 and the
         // box machinery takes over).
@@ -1794,7 +1800,34 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                 Err(_) => 0.0,
                             }
                         };
-                        carry = travelled(0.1) < 30.0 && travelled(0.4) >= 29.0;
+                        let low = travelled(0.1);
+                        let high = travelled(0.4);
+                        let mut grounded_ahead = false;
+                        if low < 30.0 && high >= 29.0 {
+                            let request = lhr_engine::collision_query::CollisionLineRequest {
+                                origin: [
+                                    last.position[0] + dx * 25.0,
+                                    last.position[1] + 4.0,
+                                    last.position[2] + dz * 25.0,
+                                ],
+                                delta: [0.0, -30.0, 0.0],
+                                selector: -1,
+                                reject_mask: 0,
+                            };
+                            let mut outputs = lhr_engine::collision_query::CollisionLineOutputs {
+                                point: None,
+                                normal: None,
+                            };
+                            let mut trav =
+                                lhr_engine::collision_query::CollisionTraversalState::default();
+                            if let Ok(Some(hit)) =
+                                world.test_line_v(&request, &mut outputs, &mut trav)
+                            {
+                                let gy = last.position[1] + 4.0 - hit.fraction * 30.0;
+                                grounded_ahead = gy >= last.position[1] - 3.0;
+                            }
+                        }
+                        carry = low < 30.0 && high >= 29.0 && grounded_ahead;
                     }
                 }
             }
