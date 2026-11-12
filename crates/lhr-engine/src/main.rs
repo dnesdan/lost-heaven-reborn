@@ -2019,10 +2019,16 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         // out: Coupled routing rejects it. Gated on low speed so an
         // open-space U-turn circle (fast but positionally tight) is
         // never mistaken for a wedge. Five consecutive boxed windows
-        // fail fast instead of burning the whole tick budget.
+        // fail fast instead of burning the whole tick budget. The box
+        // bar is crawl-aware (1.0 m, not 2.5 m): the feathered grind
+        // moves 0.5-0.9 m per 70-tick push with the motor screaming
+        // against dangling wheels (probe_rejoin3 at [-1483,-308]),
+        // so ~1.5 m per 120-tick window. Calling that "boxed" burns a
+        // rejoin every 5 windows for a taxi that is actually crawling
+        // out; sub-meter windows still box and escalate as before.
         if drive_ticks % 120 == 119 {
             let moved = (last.position[0] - stuck_pos[0]).hypot(last.position[2] - stuck_pos[2]);
-            if moved < 2.5 && last.speed.abs() < 1.5 && unstick == 0 && escape.is_none() {
+            if moved < 1.0 && last.speed.abs() < 1.5 && unstick == 0 && escape.is_none() {
                 stall_ticks = 0;
                 // Wedge census on the body collision the car actually
                 // hits (the walk-scene sweep cannot see car props).
