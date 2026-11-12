@@ -1782,8 +1782,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             (0.0, 0.0, false, false)
         } else if escaping && last.speed.abs() < 1.5 {
             // Brake-torqued escape push: full throttle plus the handbrake
-            // ONLY while a driven wheel is actually slipping (latched
-            // wheel_slip from the push sampler below). A foot brake would
+            // ONLY while a driven wheel is actually slipping (wheel_slip
+            // refreshed from live diagnostics at each push sample below).
+            // A foot brake would
             // zero the power channels in SetBrake; the handbrake runs on
             // its own force channel with a gradual ramp, so it brakes
             // the free spinner and lets torque reach the gripping wheel.
@@ -1921,6 +1922,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 // handbrake for the next pushes.
                 match taxi.driving_wheel_diagnostics() {
                     Ok(rows) => {
+                        // Refresh the slip latch from live data: brake only
+                        // while a driven wheel is actually slipping now.
+                        // probe_staged2 showed a permanent latch holding the
+                        // handbrake on with clutch 1.0, locked wheels and
+                        // 0.0-0.4 m per push after the slip was long gone.
+                        wheel_slip = rows
+                            .iter()
+                            .any(|row| row[4] & 0x2 != 0 && row[4] & 0x80 != 0);
                         for (i, row) in rows.iter().enumerate() {
                             let pos = [
                                 f32::from_bits(row[6]),
@@ -1933,9 +1942,6 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                 f32::from_bits(row[12]),
                             ];
                             let flags = row[4];
-                            if flags & 0x2 != 0 && flags & 0x80 != 0 {
-                                wheel_slip = true;
-                            }
                             println!(
                                 "probe push wheel {i}: pos=[{:.1},{:.1},{:.1}] touch=[{:.1},{:.1},{:.1}] dy={:.2} spin={:.2} flags={flags:#x} driven={} contact={} slip={}",
                                 pos[0],
@@ -2388,13 +2394,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         // motor below the torque knee through the engaged
                         // clutch and the push re-traps instantly.
                         lift = 3;
-                        // No slip reset here: the slip latch persists across
-                        // escapes now (probe_crash showed brake-torqued
-                        // pushes moving 1-2.5 m at 2-4 m/s while unbraked
-                        // ones sit at 0-0.3 m, and every new escape used to
-                        // clear the latch before the sampler could re-fire).
-                        // The brake only ever applies to standstill escapes,
-                        // so normal driving and K-turns are unaffected.
+                        // Fresh slip assessment for this escape: the brake
+                        // torque applies only once a driven wheel is actually
+                        // seen slipping, never pre-emptively. The latch then
+                        // persists across sag re-lifts within this escape
+                        // (no reset at the sag site), so the brake does not
+                        // flicker off mid-grind; a new escape re-assesses.
+                        wheel_slip = false;
                         // Static steering latch: velocity steering is
                         // identically zero while standing still, so latch full
                         // lock toward the escape target's side from the
@@ -2509,6 +2515,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         lift = 0;
                         last_sag_lift = drive_ticks;
                         escape_deg = None;
+                        wheel_slip = false;
                         println!(
                             "probe drive: rejoin {rejoins}/2 from [{:.1}, {:.1}, {:.1}]: {} waypoints, {:.0} m by graph",
                             last.position[0], last.position[1], last.position[2],
