@@ -1569,6 +1569,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // rolling; true only on the low-blocked/high-free signature, so
     // the 8 m/s hold cannot stick on anywhere else.
     let mut rail_carry_was = false;
+    // Void-hold rising edge: per-tick ground ray 15 m ahead while
+    // rolling; true only over a hole or past an edge within the drop
+    // budget, so normal roads never trip it.
+    let mut void_hold_was = false;
     // Geometry-directed escape: when the taxi boxes, sweep the driving
     // collision in 8 headings and pursue a virtual target 40 m along the
     // freest one instead of K-turning blindly into the same walls. The
@@ -1847,6 +1851,61 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         } else {
             target_speed
         };
+        // Void-ahead hold: one ground ray 15 m ahead along velocity while
+        // rolling; a hole or an edge inside the 30 m drop means the route
+        // graph is wrong here, not the taxi. probe_rbrake drove straight
+        // off it at wp 2/73 (y=-26 to y=-11000 free fall, gap growing) —
+        // pursuit never boxes a moving taxi and neither the escape
+        // target check (destination only, not the path) nor rail carry
+        // (which only needs a low rail + high clearance) stops it.
+        // Hold to a stop instead: the stall machinery then reverses out
+        // along the known-free entry line, and the box/escape/rejoin
+        // layers re-plan from safety. K-turn keeps priority (it already
+        // owns the pedals and mostly reverses away). Logged on rising
+        // edge only.
+        let mut void_hold = false;
+        if unstick == 0 {
+            let len = vel[0].hypot(vel[1]);
+            // NOTE: vel is per-tick displacement (m/tick), not m/s —
+            // any non-trivial motion qualifies; standstill skips.
+            if len > 1e-4 {
+                if let Some(world) = taxi.driving_collision() {
+                    let request = lhr_engine::collision_query::CollisionLineRequest {
+                        origin: [
+                            last.position[0] + vel[0] / len * 15.0,
+                            last.position[1] + 4.0,
+                            last.position[2] + vel[1] / len * 15.0,
+                        ],
+                        delta: [0.0, -30.0, 0.0],
+                        selector: -1,
+                        reject_mask: 0,
+                    };
+                    let mut outputs = lhr_engine::collision_query::CollisionLineOutputs {
+                        point: None,
+                        normal: None,
+                    };
+                    let mut trav = lhr_engine::collision_query::CollisionTraversalState::default();
+                    void_hold = !matches!(
+                        world.test_line_v(&request, &mut outputs, &mut trav),
+                        Ok(Some(_))
+                    );
+                }
+            }
+        }
+        if void_hold && !void_hold_was {
+            println!(
+                "probe drive: void ahead, holding at [{:.1}, {:.1}, {:.1}] speed={:.1}",
+                last.position[0], last.position[1], last.position[2], last.speed
+            );
+        }
+        void_hold_was = void_hold;
+        if void_hold && escaping {
+            // An escape in progress just drove at a hole: end it now so
+            // the next window re-boxes with a fresh sweep instead of
+            // pushing 400 ticks into the void. The hold below stops the
+            // taxi this tick; steering keeps its current value.
+            escape = None;
+        }
         // Sag-triggered re-lift: while an escape push grinds at ~0 speed,
         // sample the live clutch progress every 12 ticks; below 0.95
         // (0x5dc < 0x3f733333) the native recompute arm has re-trapped it
@@ -1953,6 +2012,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 }
                 (0.6, 0.0, false, false)
             }
+        } else if void_hold {
+            // Void-ahead hold: stop before the edge instead of driving
+            // off it. The stall counter then trips the K-turn reverse
+            // (which keeps priority above and backs out along the known
+            // entry line), and the box/escape/rejoin layers re-plan from
+            // safety. Steering is left alone; with no motion it does not
+            // steer anyway.
+            (0.0, 0.8, false, false)
         } else if lift > 0 {
             // Clutch lift coast: both pedals released. Steering is left
             // alone, so the escape lock (latched above) already pre-turns
