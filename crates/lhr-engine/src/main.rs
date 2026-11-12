@@ -2388,10 +2388,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         // motor below the torque knee through the engaged
                         // clutch and the push re-traps instantly.
                         lift = 3;
-                        // Fresh slip assessment for this escape: the brake
-                        // torque applies only once a driven wheel is actually
-                        // seen slipping, never pre-emptively.
-                        wheel_slip = false;
+                        // No slip reset here: the slip latch persists across
+                        // escapes now (probe_crash showed brake-torqued
+                        // pushes moving 1-2.5 m at 2-4 m/s while unbraked
+                        // ones sit at 0-0.3 m, and every new escape used to
+                        // clear the latch before the sampler could re-fire).
+                        // The brake only ever applies to standstill escapes,
+                        // so normal driving and K-turns are unaffected.
                         // Static steering latch: velocity steering is
                         // identically zero while standing still, so latch full
                         // lock toward the escape target's side from the
