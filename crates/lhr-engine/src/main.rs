@@ -98,6 +98,14 @@ struct Options {
     /// Plain-route experiment: skip every trap penalty in drive and
     /// rejoin routing (see route_cost). Probe-side only.
     plain_route: bool,
+    /// Block-traps experiment: treat every trap disc as impassable in
+    /// drive and rejoin routing (see route_cost) instead of merely
+    /// penalized. A finite penalty cannot prove a cut-vertex (the 6000
+    /// detour kept the identical 19.4 m crossing while doubling the
+    /// route); infinite edge cost either finds a pocket-free corridor
+    /// or fails the search, which decides existence rigorously.
+    /// Probe-side only; takes precedence over plain_route.
+    block_traps: bool,
     /// Rail-forensics probe: "X,Z" world point. Loads the real MISE01
     /// scene and prints a ground-height grid around the point plus
     /// approach-line profiles, using the same MeshGroundSpace the
@@ -135,6 +143,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         steer: None,
         steer_steps: 1,
         plain_route: false,
+        block_traps: false,
         rail_profile: None,
     };
     let mut provided_options = Vec::new();
@@ -145,6 +154,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
             "--mission-load-probe" => result.mission_load_probe = true,
             "--mission-play-probe" => result.mission_play_probe = true,
         "--plain-route" => result.plain_route = true,
+        "--block-traps" => result.block_traps = true,
             "--probe-model-dir" => result.probe_model_directories.push(args.next().ok_or("Missing probe model directory")?),
             "--probe-render-capture" => result.probe_render_capture = Some(args.next().ok_or("Missing probe GPU capture output")?.into()),
             "--textures" => result.textures = args.next().ok_or("Missing textures argument")?,
@@ -228,7 +238,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         for option in &provided_options {
             if !matches!(
                 option.as_str(),
-                "--mission-play-probe" | "--root" | "--plain-route"
+                "--mission-play-probe" | "--root" | "--plain-route" | "--block-traps"
             ) {
                 return Err(format!(
                     "{option} is not used by --mission-play-probe; omit it"
@@ -1299,7 +1309,24 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // proves the penalty was load-bearing and the grind (not the route)
     // is the blocker. Fail-safes unchanged.
     let route_cost = |node: usize, out: &mut Vec<(usize, f32)>| {
-        if options.plain_route {
+        if options.block_traps {
+            // Blocking mode: any edge intersecting a trap disc costs
+            // infinity, which dijkstra_core skips outright. Either a
+            // pocket-free corridor exists (drive it) or the search
+            // fails loudly (cut-vertex proven, not inferred).
+            neighbors(node, out);
+            let traps = traps.borrow();
+            let Some(a) = node_pos(node) else {
+                return;
+            };
+            for (other, weight) in out.iter_mut() {
+                if let Some(p) = node_pos(*other) {
+                    if lhr_engine::mission_play::trap_edge_penalty(a, p, &traps) > 0.0 {
+                        *weight = f32::INFINITY;
+                    }
+                }
+            }
+        } else if options.plain_route {
             neighbors(node, out);
         } else {
             penalized(node, out);
@@ -1508,7 +1535,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         "probe drive path: {} waypoints from lot exit, {:.0} m by {} graph ({} known traps)",
         waypoints.len(),
         drive_graph_m,
-        if options.plain_route {
+        if options.block_traps {
+            "blocked"
+        } else if options.plain_route {
             "plain"
         } else {
             "penalized"
