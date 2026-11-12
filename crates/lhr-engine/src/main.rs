@@ -2168,7 +2168,12 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 if let Some(deg) = escape_deg {
                     let moved_since = (last.position[0] - escape_origin[0])
                         .hypot(last.position[2] - escape_origin[2]);
-                    if moved_since >= 2.5 {
+                    // Crawl-aware persistence: keep any heading that moves
+                    // the taxi at all (>= 1.0 m). The feathered crawl yields
+                    // 0.3-1.9 m per push (probe_temp), so the old 2.5 m bar
+                    // never engaged and the probe rotated through headings
+                    // instead of grinding one way out of the pocket.
+                    if moved_since >= 1.0 {
                         if let Some(kept) = options.iter().find(|o| o.1 == deg).copied() {
                             println!(
                                 "probe drive: keeping productive escape heading {deg:.0}° (moved {moved_since:.1} m)"
@@ -2387,7 +2392,13 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             waypoints.len()
                         );
                     } else {
-                        escape = Some((esc_target, drive_ticks + 100));
+                        // Crawl-aware escape duration: 200 ticks, not 100.
+                        // The feathered grind moves 0.3-1.9 m per push, so
+                        // 100 ticks (~1.5 m) always re-boxed at the same
+                        // streak count; 200 ticks lets one escape accumulate
+                        // ~3 m and either trip the freedom reset or prove
+                        // the heading productive for the persistence latch.
+                        escape = Some((esc_target, drive_ticks + 200));
                         // Latch this heading and origin for persistence:
                         // the next box keeps pushing here if it moved the
                         // taxi, instead of rotating to a new heading.
