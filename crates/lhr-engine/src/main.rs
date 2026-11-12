@@ -1867,8 +1867,11 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         if unstick == 0 {
             let len = vel[0].hypot(vel[1]);
             // NOTE: vel is per-tick displacement (m/tick), not m/s —
-            // any non-trivial motion qualifies; standstill skips.
-            if len > 1e-4 {
+            // gate on the stable scalar speed instead: at standstill
+            // position jitter makes len nonzero with a random direction,
+            // which flickered the hold (probe_void logged it repeatedly
+            // at speed=0.0). Above 1 m/s vel points where the taxi goes.
+            if len > 1e-4 && speed > 1.0 {
                 if let Some(world) = taxi.driving_collision() {
                     let request = lhr_engine::collision_query::CollisionLineRequest {
                         origin: [
