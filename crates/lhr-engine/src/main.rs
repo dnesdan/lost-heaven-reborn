@@ -95,6 +95,11 @@ struct Options {
     audio_capture: Option<PathBuf>,
     steer: Option<f32>,
     steer_steps: u32,
+    /// Rail-forensics probe: "X,Z" world point. Loads the real MISE01
+    /// scene and prints a ground-height grid around the point plus
+    /// approach-line profiles, using the same MeshGroundSpace the
+    /// play probe walks on. Read-only; drives no gameplay.
+    rail_profile: Option<[f32; 2]>,
 }
 fn options() -> Result<Options, String> {
     parse_options(std::env::args().skip(1))
@@ -126,6 +131,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         audio_capture: None,
         steer: None,
         steer_steps: 1,
+        rail_profile: None,
     };
     let mut provided_options = Vec::new();
     let mut steer_steps_set = false;
@@ -170,6 +176,19 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
             "--audio-capture" => result.audio_capture = Some(args.next().ok_or("Missing audio capture output")?.into()),
             "--steer" => result.steer = Some(args.next().ok_or("Missing steering request")?.parse().map_err(|_| "Invalid steering request")?),
             "--steer-steps" => { steer_steps_set = true; result.steer_steps = args.next().ok_or("Missing steering preview step count")?.parse().map_err(|_| "Invalid steering preview step count")?; },
+            "--rail-profile" => {
+                let pair = args.next().ok_or("Missing rail profile X,Z argument")?;
+                let mut parts = pair.split(',');
+                let x: f32 = parts.next().ok_or("Rail profile needs X,Z")?.parse().map_err(|_| "Invalid rail profile X")?;
+                let z: f32 = parts.next().ok_or("Rail profile needs X,Z")?.parse().map_err(|_| "Invalid rail profile Z")?;
+                if parts.next().is_some() {
+                    return Err("Rail profile needs exactly X,Z".into());
+                }
+                if !x.is_finite() || !z.is_finite() {
+                    return Err("Rail profile X,Z must be finite".into());
+                }
+                result.rail_profile = Some([x, z]);
+            },
             "--help" => return Err(concat!(
                 "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS [--animation RELATIVE_5DS] | --mission NAME]] ",
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
@@ -188,6 +207,17 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
             ).into()),
             _ => return Err("Unknown command option".into()),
         }
+    }
+    if result.rail_profile.is_some() {
+        for option in &provided_options {
+            if !matches!(option.as_str(), "--rail-profile" | "--root") {
+                return Err(format!("{option} is not used by --rail-profile; omit it"));
+            }
+        }
+        if result.root.is_none() {
+            return Err("--rail-profile requires --root".into());
+        }
+        return Ok(result);
     }
     if result.mission_play_probe {
         for option in &provided_options {
@@ -709,6 +739,74 @@ fn scene_ground_at(
 /// board the real `models/taxi00.4ds` driving world and drive 150 m to
 /// `Complete`. Prints every stage transition; fails loudly on the first
 /// stage that does not advance. No window or GPU is required.
+/// Rail forensics: ground-height grids from the real MISE01 scene around
+/// a boxed pocket, using the same MeshGroundSpace the play probe walks
+/// on. Read-only; drives no gameplay. The tunnel rail at [-1318,153]
+/// beached the taxi beyond any wheel choreography (reverse 0.0 m with
+/// the motor screaming), so the profile decides what the rail is: a
+/// narrow ridge shows as a 1-2 m wide high line in the grid, a pit edge
+/// as a one-sided drop, a flat floor as level ground (i.e. not geometry
+/// at all — then the beach is a response/friction artifact).
+fn rail_profile_probe(options: &Options, center: [f32; 2]) -> Result<(), String> {
+    use lhr_engine::mission_play::MeshGroundSpace;
+    let root = options.root.as_deref().ok_or("Probe needs --root")?;
+    let installation = lhr_assets::Installation::open(root).map_err(|e| e.to_string())?;
+    let mut patches = lhr_engine::program_patch::ProgramPatchStartup::default();
+    patches
+        .initialize(&installation)
+        .map_err(|e| format!("Startup program patches: {e:?}"))?;
+    let mut candidate = options.clone();
+    candidate.mission = Some("mise01".into());
+    let loaded = load(&candidate, INITIAL_CAR_VIEWPORT, 0, &patches)?;
+    println!(
+        "probe rail: {} static meshes loaded for MISE01",
+        loaded.scene.meshes.len()
+    );
+    let ground = MeshGroundSpace::build(loaded.scene.meshes.len(), &|index| {
+        loaded.scene.meshes.get(index).and_then(|mesh| {
+            let verts: Vec<[f32; 3]> = mesh.vertices.iter().map(|v| v.position).collect();
+            lhr_engine::mission_play::mesh_aabb(&verts)
+        })
+    });
+    let tris_of = |index: usize| scene_mesh_tris(&loaded.scene.meshes, index);
+    // Two ceilings: +30 finds the surface/deck above, -20 finds the tunnel
+    // roadway the taxi beached on (taxi origin sat at -25.3).
+    for (tag, top_y, max_drop) in [("deck", 30.0f32, 200.0f32), ("road", -20.0f32, 40.0f32)] {
+        println!(
+            "probe rail grid {tag} top={top_y:.1} around [{:.1}, {:.1}]:",
+            center[0], center[1]
+        );
+        for dz in -4..=4 {
+            let mut row = format!("{:>4} ", dz * 2);
+            for dx in -4..=4 {
+                let x = center[0] + dx as f32 * 2.0;
+                let z = center[1] + dz as f32 * 2.0;
+                match ground.ground_below(&tris_of, x, z, top_y, max_drop) {
+                    Some(h) => row.push_str(&format!("{h:7.1}")),
+                    None => row.push_str("    ---"),
+                }
+            }
+            println!("{row}");
+        }
+    }
+    // Approach lines from the pocket toward the escape headings the probe
+    // tried (135 deg SE and 0 deg N), 0-15 m in 1 m steps, road ceiling.
+    for deg in [0.0f32, 135.0] {
+        let rad = deg.to_radians();
+        let mut line = format!("probe rail line {deg:.0}deg:");
+        for d in 0..=15 {
+            let x = center[0] + rad.sin() * d as f32;
+            let z = center[1] + rad.cos() * d as f32;
+            match ground.ground_below(&tris_of, x, z, -20.0, 40.0) {
+                Some(h) => line.push_str(&format!(" {h:.1}")),
+                None => line.push_str(" ---"),
+            }
+        }
+        println!("{line}");
+    }
+    Ok(())
+}
+
 fn mission_play_probe(options: &Options) -> Result<(), String> {
     use lhr_engine::mission_play::{
         mesh_aabb, CutscenePlayback, MeshGroundSpace, Mise01Progress, Mise01Stage, OnFootPlayer,
@@ -1636,19 +1734,22 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         let target_speed = (gap * 0.5 * align).clamp(3.0, 14.0);
         let speed = last.speed.abs();
         // Rail carry: a low (+0.1 m) blockage with a free +0.4 m line
-        // 12 m ahead while rolling is a rail/beam the pan would
-        // high-center on at crawl speed — probe_pen6k beached exactly
-        // this way at [-1318,153] (reverse 0.0 m, motor screaming) and
-        // then proved the corridor a cut-vertex, so it must be crossed,
-        // not avoided. Hold at least 8 m/s to carry over instead of
-        // slowing onto it; the corner cap still governs everywhere
-        // else. Precedent: the [41,108] node, previously carried
-        // through at speed but hung on furniture when crawled into.
-        // Logged on rising edge only; fail-safes untouched (a beach
-        // still drops speed to ~0 and the box machinery takes over).
+        // 30 m ahead is a rail/beam the pan would high-center on at
+        // crawl speed — probe_pen6k beached exactly this way at
+        // [-1318,153] (reverse 0.0 m, motor screaming) and then proved
+        // the corridor a cut-vertex, so it must be crossed, not
+        // avoided. Hold at least 8 m/s to carry over instead of slowing
+        // onto it; the corner cap still governs everywhere else. No
+        // speed gate: the gated version never fired once in probe_rail
+        // (the crawl toward the rail runs below it), and the zero-length
+        // direction check already skips standstill. Precedent: the
+        // [41,108] node, previously carried through at speed but hung on
+        // furniture when crawled into. Logged on rising edge only;
+        // fail-safes untouched (a beach still drops speed to ~0 and the
+        // box machinery takes over).
         {
             let mut carry = false;
-            if !escaping && unstick == 0 && speed_hint > 1.0 {
+            if !escaping && unstick == 0 {
                 let len = vel[0].hypot(vel[1]);
                 if len > 1e-4 {
                     let (dx, dz) = (vel[0] / len, vel[1] / len);
@@ -1660,7 +1761,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                     last.position[1] + h,
                                     last.position[2] + dz * 2.0,
                                 ],
-                                delta: [dx * 12.0, 0.0, dz * 12.0],
+                                delta: [dx * 30.0, 0.0, dz * 30.0],
                                 selector: -1,
                                 reject_mask: 0,
                             };
@@ -1671,12 +1772,12 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             let mut trav =
                                 lhr_engine::collision_query::CollisionTraversalState::default();
                             match world.test_line_v(&request, &mut outputs, &mut trav) {
-                                Ok(Some(hit)) => hit.fraction * 12.0,
-                                Ok(None) => 12.0,
+                                Ok(Some(hit)) => hit.fraction * 30.0,
+                                Ok(None) => 30.0,
                                 Err(_) => 0.0,
                             }
                         };
-                        carry = travelled(0.1) < 12.0 && travelled(0.4) >= 11.0;
+                        carry = travelled(0.1) < 30.0 && travelled(0.4) >= 29.0;
                     }
                 }
             }
@@ -4812,6 +4913,9 @@ fn run() -> Result<(), String> {
     }
     if options.mission_play_probe {
         return mission_play_probe(&options);
+    }
+    if let Some(center) = options.rail_profile {
+        return rail_profile_probe(&options, center);
     }
     // These optional startup files are read once, before any Scene/source owner.
     // Keep their actual table across App transitions and inspection reloads.
