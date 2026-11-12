@@ -2782,7 +2782,37 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             };
                         }
                     }
-                    let aimed = gap < 60.0;
+                    // Center low ray along the picked heading: the +0.4 m
+                    // sweep flies over curbs/rails/rubble that still beach
+                    // the floor pan. A low-blocked path means pushing the
+                    // waypoint grinds into furniture (radial escape may find
+                    // a gap instead); a low-clear path means the blockage,
+                    // if any, reads like open road and the aimed grind is
+                    // the honest try. One ray per box, not per tick.
+                    let mut low_center = 30.0f32;
+                    if let Some(world) = taxi.driving_collision() {
+                        let request = lhr_engine::collision_query::CollisionLineRequest {
+                            origin: [last.position[0], last.position[1] + 0.1, last.position[2]],
+                            delta: [rad.sin() * 30.0, 0.0, rad.cos() * 30.0],
+                            selector: -1,
+                            reject_mask: 0,
+                        };
+                        let mut outputs = lhr_engine::collision_query::CollisionLineOutputs {
+                            point: None,
+                            normal: None,
+                        };
+                        let mut trav =
+                            lhr_engine::collision_query::CollisionTraversalState::default();
+                        low_center = match world.test_line_v(&request, &mut outputs, &mut trav) {
+                            Ok(Some(hit)) => hit.fraction * 30.0,
+                            Ok(None) => 30.0,
+                            Err(_) => 0.0,
+                        };
+                        println!(
+                            "probe wedge low center: heading {pick_deg:.0}° travelled {low_center:.1} m"
+                        );
+                    }
+                    let aimed = gap < 60.0 && low_center >= gap.min(29.0);
                     let esc_target = if aimed {
                         // Aimed grind: the blocked waypoint itself is near
                         // (every observed rejoin loop stalls 9-40 m short
@@ -2949,11 +2979,19 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         )
                         .ok_or("Rejoin path from boxed pose to detector_konec lost")?;
                         waypoints.clear();
-                        // Same leg subdivision as the initial drive path:
-                        // rejoined routes inherit the same long straight
-                        // cuts, so cut them the same way.
+                        // Leg subdivision with a reachable first leg: the
+                        // taxi boxes within metres of rejoin wp 1 (gaps
+                        // 9-40 m in every observed loop) and an escape push
+                        // moves 0-10 m, so a 25 m first cut is unreachable
+                        // by construction — the taxi re-boxes at the same
+                        // spot until the budget burns. Cut the FIRST leg to
+                        // <=8 m so wp 1 sits inside one escape grind; later
+                        // legs keep the 25 m spacing so open-road driving
+                        // stays fast (the corner cap would crawl dense
+                        // waypoints everywhere).
                         {
                             let mut from = last.position;
+                            let mut first_leg = true;
                             for index in &new_path {
                                 let Some(p) = node_pos(*index) else {
                                     return Err(format!(
@@ -2961,7 +2999,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                     ));
                                 };
                                 let leg = (p[0] - from[0]).hypot(p[2] - from[2]);
-                                let cuts = (leg / 25.0).floor() as usize;
+                                let step = if first_leg { 8.0 } else { 25.0 };
+                                let cuts = (leg / step).floor() as usize;
                                 for c in 1..=cuts {
                                     let t = c as f32 / (cuts + 1) as f32;
                                     waypoints.push([
@@ -2972,6 +3011,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                 }
                                 waypoints.push(p);
                                 from = p;
+                                first_leg = false;
                             }
                         }
                         waypoint = 0;
