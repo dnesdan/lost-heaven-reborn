@@ -2166,6 +2166,61 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     }
                     drop(traps);
                 }
+                // Ground-ahead check: a "free" heading whose 40 m target
+                // has no ground (hole) or sits over a cliff drop leads
+                // the taxi off the mapped world — probe_box10 ground
+                // itself out past [-1614,-416] and fell to y=-10239.
+                // Probe straight down from +4 m at each escape target;
+                // require finite ground no deeper than 3 m below the
+                // taxi. If no heading passes (taxi already off-map),
+                // keep all and let the existing machinery work.
+                if let Some(world) = taxi.driving_collision() {
+                    let grounded: Vec<(f32, f32, f32)> = options
+                        .iter()
+                        .copied()
+                        .filter(|opt| {
+                            let rad = opt.1.to_radians();
+                            let tx = last.position[0] + rad.sin() * 40.0;
+                            let tz = last.position[2] + rad.cos() * 40.0;
+                            let request = lhr_engine::collision_query::CollisionLineRequest {
+                                origin: [tx, last.position[1] + 4.0, tz],
+                                delta: [0.0, -30.0, 0.0],
+                                selector: -1,
+                                reject_mask: 0,
+                            };
+                            let mut outputs = lhr_engine::collision_query::CollisionLineOutputs {
+                                point: None,
+                                normal: None,
+                            };
+                            let mut trav =
+                                lhr_engine::collision_query::CollisionTraversalState::default();
+                            match world.test_line_v(&request, &mut outputs, &mut trav) {
+                                Ok(Some(hit)) => {
+                                    last.position[1] + 4.0 - hit.fraction * 30.0
+                                        >= last.position[1] - 3.0
+                                }
+                                Ok(None) => false,
+                                Err(_) => false,
+                            }
+                        })
+                        .collect();
+                    if grounded.is_empty() {
+                        println!(
+                            "probe drive: no escape target grounded, keeping all {} headings",
+                            options.len()
+                        );
+                    } else if grounded.len() < options.len() {
+                        println!(
+                            "probe drive: ground-aware escape keeps {}/{} headings",
+                            grounded.len(),
+                            options.len()
+                        );
+                        options = grounded;
+                        options.sort_by(|a, b| {
+                            a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                        });
+                    }
+                }
                 // boxed_windows is still the pre-increment count here, so
                 // the first box takes options[0] (closest to the target)
                 // and later boxes rotate through the rest — unless the
