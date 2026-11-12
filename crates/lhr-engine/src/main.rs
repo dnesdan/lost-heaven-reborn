@@ -2602,11 +2602,23 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             };
                         }
                     }
-                    let esc_target = [
-                        last.position[0] + rad.sin() * 40.0,
-                        last.position[1],
-                        last.position[2] + rad.cos() * 40.0,
-                    ];
+                    let esc_target = if gap < 60.0 {
+                        // Aimed grind: the blocked waypoint itself is near
+                        // (every observed rejoin loop stalls 9-40 m short
+                        // of wp 1 while escapes wander off on radial 40 m
+                        // virtual targets, then re-box at the same spot).
+                        // Grind straight at the waypoint instead, so push,
+                        // lift, sag re-lift and K-turn all work toward the
+                        // path; arrival within 3 m still ends the escape
+                        // early and the 6 m flip advances the route.
+                        target
+                    } else {
+                        [
+                            last.position[0] + rad.sin() * 40.0,
+                            last.position[1],
+                            last.position[2] + rad.cos() * 40.0,
+                        ]
+                    };
                     if boxed_windows == 3 {
                         // Forced rocking: two escapes with steer locked did
                         // not move the taxi (beached body, dangling drive
