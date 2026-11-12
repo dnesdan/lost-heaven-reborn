@@ -1445,6 +1445,15 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // K-turn stays as the fallback for sealed pockets. Holds a virtual
     // target plus its expiry tick.
     let mut escape: Option<([f32; 3], u32)> = None;
+    // Persisted escape heading: when an escape actually moves the taxi
+    // (>= 2.5 m since it started), the next box keeps pushing that same
+    // heading instead of rotating to a new one — rotating every window
+    // walks the taxi in circles inside the pocket (probe_cap100 ground
+    // out 60000 ticks at wp 140/189 this way). A heading that moved
+    // nothing falls back to rotation; freedom (unboxed driving) clears
+    // the latch.
+    let mut escape_deg: Option<f32> = None;
+    let mut escape_origin = [0.0f32; 3];
     // Clutch lift: coast ticks with both pedals released at the start of
     // an escape. A boxed taxi pushes with a disengaged clutch (0x5dc~0.06,
     // flags 0x2c); driving on would keep the copy-path trap pinned by
@@ -2137,10 +2146,25 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 }
                 // boxed_windows is still the pre-increment count here, so
                 // the first box takes options[0] (closest to the target)
-                // and later boxes rotate through the rest.
-                let pick = options
+                // and later boxes rotate through the rest — unless the
+                // previous escape moved the taxi, in which case keep
+                // pushing its heading: rotation made the probe wander the
+                // pocket instead of leaving it.
+                let mut pick = options
                     .get(boxed_windows as usize % options.len().max(1))
                     .copied();
+                if let Some(deg) = escape_deg {
+                    let moved_since = (last.position[0] - escape_origin[0])
+                        .hypot(last.position[2] - escape_origin[2]);
+                    if moved_since >= 2.5 {
+                        if let Some(kept) = options.iter().find(|o| o.1 == deg).copied() {
+                            println!(
+                                "probe drive: keeping productive escape heading {deg:.0}° (moved {moved_since:.1} m)"
+                            );
+                            pick = Some(kept);
+                        }
+                    }
+                }
                 boxed_windows += 1;
                 // First box only: name the neighborhood (scene2 objects
                 // with world positions) and dump wheel state, so a prop
@@ -2340,6 +2364,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         unstick_extend = 0;
                         escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
                         escape = None;
+                        escape_deg = None;
                         lift = 0;
                         println!(
                             "probe drive: boxed {boxed_windows}x, escape stalled twice, K-turn rocking from [{:.1}, {:.1}, {:.1}] wp {}/{} gap={gap:.1}",
@@ -2351,6 +2376,11 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         );
                     } else {
                         escape = Some((esc_target, drive_ticks + 100));
+                        // Latch this heading and origin for persistence:
+                        // the next box keeps pushing here if it moved the
+                        // taxi, instead of rotating to a new heading.
+                        escape_deg = Some(pick_deg);
+                        escape_origin = last.position;
                         // Lift first: snap the disengaged clutch back to max
                         // before the escape pursuit pushes. Three ticks: the
                         // snap lands on the first coast tick (second from an
@@ -2390,6 +2420,8 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     unstick_from = last.position;
                     uturn = None;
                     unstick_extend = 0;
+                    escape = None;
+                    escape_deg = None;
                     escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
                     println!(
                         "probe drive: no progress in 120 ticks (moved {moved:.1} m, boxed {boxed_windows}x), pocket sealed (no free heading), K-turn from [{:.1}, {:.1}, {:.1}] wp {}/{} gap={gap:.1}",
@@ -2473,6 +2505,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         uturn = None;
                         lift = 0;
                         last_sag_lift = drive_ticks;
+                        escape_deg = None;
                         println!(
                             "probe drive: rejoin {rejoins}/2 from [{:.1}, {:.1}, {:.1}]: {} waypoints, {:.0} m by graph",
                             last.position[0], last.position[1], last.position[2],
@@ -2502,8 +2535,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 // without freeing it (the wp-140 grind in probe_cap100
                 // reset the counter every third window via K-turn meters
                 // and never reached the 5-window rejoin, looping 60000
-                // ticks). Only staged-route driving forgives a box streak.
+                // ticks). Only staged-route driving forgives a box streak,
+                // and it also drops the persisted escape heading.
                 boxed_windows = 0;
+                escape_deg = None;
             }
             stuck_pos = last.position;
         }
