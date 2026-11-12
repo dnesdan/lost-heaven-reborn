@@ -153,7 +153,7 @@ cargo test --locked -p lhr-engine --lib cutscene_owner
 ```
 
 These exercise the actual owner APIs; there is no public authored mission-play
-command yet. [Supported commands, original comparisons and gaps](implementation/2026-10-29-human-program-runtime.md).
+command yet. Supported commands, original comparisons and gaps.
 
 The explicit skeletal command is an existing host inspection path, separate
 from the new model-owned controller and mission actors. Its 100 controlled

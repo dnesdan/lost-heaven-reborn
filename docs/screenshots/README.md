@@ -12,7 +12,7 @@ disposal. WebP quality 90, no crop or resize, 90,058 bytes. The static street
 camera matches the preceding view and does not show the loaded car actors.
 This is original-content rendering, not authored animation, replay or gameplay.
 Separate CPU intake now loads both genuine cars and 38 actors before kind 20;
-[implementation and exact proof scopes](../implementation/2026-10-29-car-replay-programs.md).
+implementation and exact proof scopes.
 
 ## 2026-10-29 — Human/source and base-VM checkpoint
 
@@ -30,7 +30,7 @@ Separate CPU intake completes INTRO's 358 objects, 28 actors and 15 global
 program sources; MISE01 reaches 33 actors and stops at kind 4. Both dispose
 all tracked owners. The CPU runner used a staged executable whose complete
 hash equals the final application. Original images/logs remain private;
-[implementation and verification](../implementation/2026-10-29-human-program-runtime.md).
+implementation and verification.
 
 ## 2026-10-29 — actual model-owned animation
 
@@ -57,7 +57,7 @@ The explicit resource diagnostic changes geometry and pixels on all three
 models at Tick(0) and Tick(1746). It does not run original human selection,
 recording playback or the first mission. The existing public CLI host preview
 also rendered at zero and 100 controlled steps (1,600 ms), changing 18,563
-pixels. [Implementation, original-instruction comparisons and open gates](../implementation/2026-10-29-animation-runtime.md).
+pixels. Implementation, original-instruction comparisons and open gates.
 Historical city/menu screenshots below retain their earlier source and limits.
 
 ## 2026-10-29 — reviewed PR integration
@@ -82,7 +82,7 @@ Menu pixels are valid, but New Game failed during INTRO and cache cleanup
 remained interrupted (exit 1). Black startup frames and a false camera baseline
 were rejected. Final source/binary seals and owned-process cleanup passed.
 
-[Full validation, reviews, native research and remaining frontiers](../implementation/2026-10-29-pr-integration.md).
+Full validation, reviews, native research and remaining frontiers.
 These are static inspection and bounded standalone input checks, not a playable
 first mission or original-renderer equivalence.
 
@@ -109,7 +109,7 @@ steering and handbrake input, followed by zero tracked resources at cleanup.
 The MISE01 image is static inspection at the known unsupported-kind-27 frontier;
 it is not authored gameplay. The menu PNG was produced before its existing
 animated-model limitation caused retained interrupted cleanup and exit 1.
-The [full record](../implementation/2026-10-28-pr-integration.md) includes these
+The full record includes these
 limits, executed tests and separate PS2 metadata evidence.
 
 ## 2026-10-27 — live mission/material inspectors and MRPH deformation
@@ -154,7 +154,7 @@ exports. Final graphics bytes are zero. Harness executable SHA-256:
 
 These images prove bounded Rust rendering/inspection, not authored mission
 execution or original-renderer equivalence. No original executable ran.
-[Implementation, reviews, probes and remaining gates](../implementation/parity-continuation.md).
+Implementation, reviews, probes and remaining gates.
 
 ## 2026-10-26 — road, source sky and complete object intake
 
@@ -174,7 +174,7 @@ The menu capture is 960 × 640, 44,472 bytes. Its loader stops at unsupported
 the successful MISE01 disposal result. Both captures used reviewed source
 manifest `0c60e6fc…`; the final `43af8105…` revision adds shared driving
 audio binding and explicit Scene/Vehicle frame-owner tags.
-Full receipts and checks are in [current evidence](../implementation/mafia-re-remediation.md)
+Full receipts and checks are in current evidence
 and [progress.json](../progress.json). WebP SHA-256 values, respectively:
 `8ca3b1de99d597632c2599b6e80754e8c3c73c5c7d6d6b2fd256838e3f0a4d63`,
 `e9d8b663171eefdb405cb458183c59d367e377b4905861eef8aecab371c94586`.
@@ -467,7 +467,7 @@ behavior, original renderer parity or mission gameplay. CPU audio mixing does
 not establish hardware audibility. No new video was created.
 
 [Current scope](../../COVERAGE.md) · [source-bound records](../progress.json) ·
-[earlier documentation](../history/README.md).
+earlier documentation.
 
 
 ## 2026-10-25 — driver Scene registry and CPU cleanup
