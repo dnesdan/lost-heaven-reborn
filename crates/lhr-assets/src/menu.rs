@@ -541,7 +541,15 @@ mod tests {
         let candidates = MenuDefinition::menu_file_candidates("mainmenu", 0x2f2e).unwrap();
         assert_eq!(candidates, vec!["tables/menu/mainmenu.mnu".to_owned()]);
         let long = "x".repeat(65);
-        for bad in ["", "a/b", "a\\b", "a:b", "options b", "menu.mnu", long.as_str()] {
+        for bad in [
+            "",
+            "a/b",
+            "a\\b",
+            "a:b",
+            "options b",
+            "menu.mnu",
+            long.as_str(),
+        ] {
             assert!(MenuDefinition::menu_file_candidates(bad, 0x656e).is_none());
         }
         assert_eq!(MenuDefinition::language_letters(0x637a), Some([b'c', b'z']));

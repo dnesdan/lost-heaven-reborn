@@ -493,7 +493,9 @@ mod tests {
             ranges: Vec::new(),
             updates: 0,
         };
-        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut driver = FakeDriver {
+            lod_bits: Vec::new(),
+        };
         let mut weather = FakeWeather { calls: Vec::new() };
         options.update_settings(true, Some(&mut camera), &mut driver, &mut weather);
         assert_eq!(camera.ranges, vec![[0.05, 125.0]]);
@@ -514,7 +516,9 @@ mod tests {
             ranges: Vec::new(),
             updates: 0,
         };
-        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut driver = FakeDriver {
+            lod_bits: Vec::new(),
+        };
         let mut weather = FakeWeather { calls: Vec::new() };
         options.update_settings(false, Some(&mut camera), &mut driver, &mut weather);
         assert_eq!(camera.ranges, vec![[0.05, 250.0]]);
@@ -529,7 +533,9 @@ mod tests {
             level_of_detail: 1.5,
             ..MissionOptions::new()
         };
-        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut driver = FakeDriver {
+            lod_bits: Vec::new(),
+        };
         let mut weather = FakeWeather { calls: Vec::new() };
         let camera: Option<&mut FakeCamera> = None;
         options.update_settings(false, camera, &mut driver, &mut weather);
@@ -548,7 +554,9 @@ mod tests {
             ranges: Vec::new(),
             updates: 0,
         };
-        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut driver = FakeDriver {
+            lod_bits: Vec::new(),
+        };
         options.restore_settings(Some(&mut camera), &mut driver);
         assert_eq!(camera.ranges, vec![[0.05, 250.0]]);
         assert_eq!(camera.updates, 1);

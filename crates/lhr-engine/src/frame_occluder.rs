@@ -393,76 +393,55 @@ impl ModelArena {
     /// FUNCTION address for a standalone reader; the word is stored by
     /// `Build`/`UpdateV`/`UpdateShadow` (RVAs already occupied, not claimed
     /// here). Reports the stored word with no backend effects.
-    pub fn occluder_occl_flags_of(
-        &self,
-        key: OccluderKey,
-    ) -> Result<Option<u32>, ModelError> {
+    pub fn occluder_occl_flags_of(&self, key: OccluderKey) -> Result<Option<u32>, ModelError> {
         Ok(self.occluder(key)?.word(0x5c4))
     }
     /// Working name for the `center` read at +0x5cc (mafia-re
     /// ls3df/I3D/I3D.h:2402; the vertices' box center in world space).
     /// Same provenance as `occluder_occl_flags_of`: no getter body exists;
     /// the words are stored by the taken update path. Native order is kept.
-    pub fn occluder_center_of(
-        &self,
-        key: OccluderKey,
-    ) -> Result<Option<[f32; 3]>, ModelError> {
+    pub fn occluder_center_of(&self, key: OccluderKey) -> Result<Option<[f32; 3]>, ModelError> {
         let frame = self.occluder(key)?;
-        Ok(match (frame.word(0x5cc), frame.word(0x5d0), frame.word(0x5d4)) {
-            (Some(x), Some(y), Some(z)) => Some([
-                f32::from_bits(x),
-                f32::from_bits(y),
-                f32::from_bits(z),
-            ]),
-            _ => None,
-        })
+        Ok(
+            match (frame.word(0x5cc), frame.word(0x5d0), frame.word(0x5d4)) {
+                (Some(x), Some(y), Some(z)) => {
+                    Some([f32::from_bits(x), f32::from_bits(y), f32::from_bits(z)])
+                }
+                _ => None,
+            },
+        )
     }
     /// Working name for the `radius` read at +0x5d8 (mafia-re
     /// ls3df/I3D/I3D.h:2403; of the sphere around the occluder; `Build`
     /// sets 1, 0 means never built). Same provenance as
     /// `occluder_occl_flags_of`.
-    pub fn occluder_radius_of(
-        &self,
-        key: OccluderKey,
-    ) -> Result<Option<f32>, ModelError> {
+    pub fn occluder_radius_of(&self, key: OccluderKey) -> Result<Option<f32>, ModelError> {
         Ok(self.occluder(key)?.word(0x5d8).map(f32::from_bits))
     }
     /// Working name for the `radius_2` read at +0x5dc (mafia-re
     /// ls3df/I3D/I3D.h:2404; the squared radius). Same provenance as
     /// `occluder_radius_of`.
-    pub fn occluder_radius_squared_of(
-        &self,
-        key: OccluderKey,
-    ) -> Result<Option<f32>, ModelError> {
+    pub fn occluder_radius_squared_of(&self, key: OccluderKey) -> Result<Option<f32>, ModelError> {
         Ok(self.occluder(key)?.word(0x5dc).map(f32::from_bits))
     }
     /// Working name for the `dist` read at +0x5e8 (mafia-re
     /// ls3df/I3D/I3D.h:2407; from the camera, nearer occluders first in
     /// `CullOcclsEachOther`). Same provenance as
     /// `occluder_occl_flags_of`.
-    pub fn occluder_dist_of(
-        &self,
-        key: OccluderKey,
-    ) -> Result<Option<f32>, ModelError> {
+    pub fn occluder_dist_of(&self, key: OccluderKey) -> Result<Option<f32>, ModelError> {
         Ok(self.occluder(key)?.word(0x5e8).map(f32::from_bits))
     }
     /// Working name for the `num_side_planes` read at +0x39c (mafia-re
     /// ls3df/I3D/I3D.h:2396). Same provenance as
     /// `occluder_occl_flags_of`; the count is stored by the taken
     /// `UpdateShadow` path.
-    pub fn occluder_num_side_planes_of(
-        &self,
-        key: OccluderKey,
-    ) -> Result<Option<i32>, ModelError> {
+    pub fn occluder_num_side_planes_of(&self, key: OccluderKey) -> Result<Option<i32>, ModelError> {
         Ok(self.occluder(key)?.word(0x39c).map(|v| v as i32))
     }
     /// Working name for the `num_face_planes` read at +0x5b0 (mafia-re
     /// ls3df/I3D/I3D.h:2398). Same provenance as
     /// `occluder_num_side_planes_of`.
-    pub fn occluder_num_face_planes_of(
-        &self,
-        key: OccluderKey,
-    ) -> Result<Option<i32>, ModelError> {
+    pub fn occluder_num_face_planes_of(&self, key: OccluderKey) -> Result<Option<i32>, ModelError> {
         Ok(self.occluder(key)?.word(0x5b0).map(|v| v as i32))
     }
     /// Working name for the scene-ring link read at +0x5c8 (mafia-re
@@ -1492,10 +1471,7 @@ mod tests {
         let mut arena = ModelArena::default();
         let key = arena.create_occluder().unwrap();
         assert_eq!(arena.occluder_occl_flags_of(key).unwrap(), Some(0));
-        assert_eq!(
-            arena.occluder_center_of(key).unwrap(),
-            Some([0., 0., 0.])
-        );
+        assert_eq!(arena.occluder_center_of(key).unwrap(), Some([0., 0., 0.]));
         assert_eq!(arena.occluder_radius_of(key).unwrap(), Some(0.));
         assert_eq!(arena.occluder_radius_squared_of(key).unwrap(), Some(0.));
         assert_eq!(arena.occluder_dist_of(key).unwrap(), Some(0.));
@@ -1526,12 +1502,24 @@ mod tests {
         assert_eq!(world.arena.occluder_previous_in_scene_of(a).unwrap(), None);
         assert_eq!(world.arena.occluder_next_in_scene_of(a).unwrap(), None);
         assert_eq!(world.arena.occluder_next_in_sector_of(a).unwrap(), None);
-        world.arena.occluder_set_scene_ring(a, Some(world.scene)).unwrap();
-        world.arena.occluder_set_scene_ring(b, Some(world.scene)).unwrap();
+        world
+            .arena
+            .occluder_set_scene_ring(a, Some(world.scene))
+            .unwrap();
+        world
+            .arena
+            .occluder_set_scene_ring(b, Some(world.scene))
+            .unwrap();
         assert_eq!(world.arena.occluder_scene_of(a).unwrap(), Some(world.scene));
-        assert_eq!(world.arena.occluder_previous_in_scene_of(a).unwrap(), Some(b));
+        assert_eq!(
+            world.arena.occluder_previous_in_scene_of(a).unwrap(),
+            Some(b)
+        );
         assert_eq!(world.arena.occluder_next_in_scene_of(a).unwrap(), Some(b));
-        assert_eq!(world.arena.occluder_previous_in_scene_of(b).unwrap(), Some(a));
+        assert_eq!(
+            world.arena.occluder_previous_in_scene_of(b).unwrap(),
+            Some(a)
+        );
         assert_eq!(world.arena.occluder_next_in_scene_of(b).unwrap(), Some(a));
         let sector = world.arena.scene(world.scene).unwrap().sectors[0];
         let ai = world.arena.occluder_index(a).unwrap();
@@ -1561,26 +1549,17 @@ mod tests {
         assert_eq!(arena.occluder_radius_of(key).unwrap(), Some(1.));
         assert_eq!(arena.occluder_radius_squared_of(key).unwrap(), Some(0.));
         arena.occluder_update_v(key).unwrap();
-        assert_eq!(
-            arena.occluder(key).unwrap().word(0x5d8),
-            Some(0x3f3504f3)
-        );
+        assert_eq!(arena.occluder(key).unwrap().word(0x5d8), Some(0x3f3504f3));
         assert_eq!(
             arena.occluder_radius_of(key).unwrap(),
             Some(f32::from_bits(0x3f3504f3))
         );
-        assert_eq!(
-            arena.occluder(key).unwrap().word(0x5dc),
-            Some(0x3effffff)
-        );
+        assert_eq!(arena.occluder(key).unwrap().word(0x5dc), Some(0x3effffff));
         assert_eq!(
             arena.occluder_radius_squared_of(key).unwrap(),
             Some(f32::from_bits(0x3effffff))
         );
-        assert_eq!(
-            arena.occluder_center_of(key).unwrap(),
-            Some([0.5, 0.5, 0.])
-        );
+        assert_eq!(arena.occluder_center_of(key).unwrap(), Some([0.5, 0.5, 0.]));
         assert_eq!(arena.occluder_dist_of(key).unwrap(), Some(0.));
         assert_eq!(arena.occluder_occl_flags_of(key).unwrap(), Some(0));
         arena.release(key.frame()).unwrap();

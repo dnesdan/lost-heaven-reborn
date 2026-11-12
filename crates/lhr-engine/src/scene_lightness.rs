@@ -202,7 +202,10 @@ pub fn lightness_range_attenuated(
     distance: f32,
     near_range: f32,
 ) -> Out<f32> {
-    mul(f, div(sub(far_range, distance)?, sub(far_range, near_range)?)?)
+    mul(
+        f,
+        div(sub(far_range, distance)?, sub(far_range, near_range)?)?,
+    )
 }
 
 /// Working name for the `I3D_scene::GetLightness` final sum (mafia-re
@@ -443,14 +446,8 @@ mod tests {
             lightness_spot_cone_scaled(2.0, 0.75, 0.5, 4.0).unwrap(),
             2.0
         );
-        assert_eq!(
-            lightness_spot_cone_scaled(8.0, 1.0, 0.5, 0.5).unwrap(),
-            2.0
-        );
-        assert_eq!(
-            lightness_spot_cone_scaled(3.0, 0.5, 0.5, 7.0).unwrap(),
-            0.0
-        );
+        assert_eq!(lightness_spot_cone_scaled(8.0, 1.0, 0.5, 0.5).unwrap(), 2.0);
+        assert_eq!(lightness_spot_cone_scaled(3.0, 0.5, 0.5, 7.0).unwrap(), 0.0);
     }
     #[test]
     fn lightness_range_falloff_mirrors_native_quotient_order() {
@@ -473,10 +470,7 @@ mod tests {
     fn lightness_sum_and_clamp_match_native_tail() {
         // Working names for I3d_scene.cpp:363-366: the sum runs before the
         // two ordered clamp branches; NaN fails both and returns 1.0 natively.
-        assert_eq!(
-            lightness_combine_direct_ambient(0.25, 0.5).unwrap(),
-            0.75
-        );
+        assert_eq!(lightness_combine_direct_ambient(0.25, 0.5).unwrap(), 0.75);
         assert_eq!(lightness_clamp_result(-0.5), 0.0);
         assert_eq!(lightness_clamp_result(0.0), 0.0);
         assert_eq!(lightness_clamp_result(0.3), 0.3);

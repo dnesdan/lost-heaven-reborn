@@ -234,8 +234,7 @@ impl BaseActorState {
     }
     fn set_window_triplet(window: &mut [u8; 63], offset: usize, value: [f32; 3]) {
         for (lane, word) in value.iter().enumerate() {
-            window[offset + lane * 4..offset + lane * 4 + 4]
-                .copy_from_slice(&word.to_le_bytes());
+            window[offset + lane * 4..offset + lane * 4 + 4].copy_from_slice(&word.to_le_bytes());
         }
     }
     /// GAME 0x47aff0 (RVA 0x7aff0) C_actor::SetUnknown65 (mafia-re 113b5b6
@@ -524,7 +523,9 @@ pub struct LiveFramePlacement {
 /// words pass through as the saved words. The in-actor saved_* stores stay
 /// DEFERRED with the actor owner; the caller keeps the returned words. The
 /// GameInit saved_on writer is a separate producer and is not staged here.
-pub fn snapshot_placement_for_reset(frame: Option<LiveFramePlacement>) -> Option<LiveFramePlacement> {
+pub fn snapshot_placement_for_reset(
+    frame: Option<LiveFramePlacement>,
+) -> Option<LiveFramePlacement> {
     frame
 }
 /// GAME 0x405ee0 (RVA 0x5ee0) C_actor::ResetPlacement frame-flag core
@@ -715,8 +716,8 @@ pub fn record_pos_at(records: &[StagedActorRecord], last_key_time: i32, time: i3
 /// branch selection and algebra are pinned here. Private helper, no port
 /// claimed.
 fn quat_slerp_short(first: [f32; 4], second: [f32; 4], fraction: f32) -> [f32; 4] {
-    let mut cosom = first[0] * second[0] + first[1] * second[1] + first[2] * second[2]
-        + first[3] * second[3];
+    let mut cosom =
+        first[0] * second[0] + first[1] * second[1] + first[2] * second[2] + first[3] * second[3];
     let mut to = second;
     if cosom < 0.0 {
         cosom = -cosom;
@@ -1652,7 +1653,11 @@ impl ActorWorld {
     /// projection over the static collection. The vector itself stays with
     /// the collection owner; see add_actor_to_global/del_actor_from_global.
     pub fn global_actor_count(&self) -> usize {
-        self.static_actors.values.iter().filter(|a| a.is_some()).count()
+        self.static_actors
+            .values
+            .iter()
+            .filter(|a| a.is_some())
+            .count()
     }
     /// Context AddActor returns immediately for a primary duplicate, including
     /// an attempted false-to-true active promotion.
@@ -4142,10 +4147,7 @@ impl ActorWorld {
     /// wait_for_hit/dyn_colls latches. The C_actor::GameInit call, the
     /// actor=self assignment, C_program::Init, unknown_65 handling,
     /// DebustizeFrame and the coll-pointer nulling stay with future owners.
-    pub fn game_init_detector(
-        &mut self,
-        actor: ActorReferenceId,
-    ) -> Result<(), ActorWorldError> {
+    pub fn game_init_detector(&mut self, actor: ActorReferenceId) -> Result<(), ActorWorldError> {
         let i = self.ready(actor)?;
         self.guard_program_dispatch(actor)?;
         self.actors[i]
@@ -4158,10 +4160,7 @@ impl ActorWorld {
     /// Owned slice of C_detector::Init (mafia-re game/actors/C_detector.cpp:24-30,
     /// GAME 0x432990): zero the human_types mask (+0xd8). The C_actor::Init
     /// gate and the actor=self assignment stay with the base owner.
-    pub fn init_detector(
-        &mut self,
-        actor: ActorReferenceId,
-    ) -> Result<(), ActorWorldError> {
+    pub fn init_detector(&mut self, actor: ActorReferenceId) -> Result<(), ActorWorldError> {
         let i = self.ready(actor)?;
         self.guard_program_dispatch(actor)?;
         let detector = self.actors[i]
@@ -4248,10 +4247,7 @@ impl ActorWorld {
     /// the staged actor. No RVA is claimed: the read is inlined with no
     /// standalone FUNCTION copy (C_game::ChangeActState reads it at call
     /// sites), so this wrapper only stages the lookup. Stale actors propagate.
-    pub fn actor_act_state_word(
-        &self,
-        actor: ActorReferenceId,
-    ) -> Result<u32, ActorWorldError> {
+    pub fn actor_act_state_word(&self, actor: ActorReferenceId) -> Result<u32, ActorWorldError> {
         Ok(self.actors[self.index(actor)?].state.act_state())
     }
     /// Working-name world projection of C_actor::GetActFlags (mafia-re 113b5b6
@@ -4259,10 +4255,7 @@ impl ActorWorld {
     /// the staged actor. No new RVA is claimed here: the folded copy needs no
     /// new owner and the base leaf already stages the word, so this wrapper
     /// only stages the lookup. Stale actors propagate.
-    pub fn actor_act_flags_word(
-        &self,
-        actor: ActorReferenceId,
-    ) -> Result<u32, ActorWorldError> {
+    pub fn actor_act_flags_word(&self, actor: ActorReferenceId) -> Result<u32, ActorWorldError> {
         Ok(self.actors[self.index(actor)?].state.act_flags())
     }
     /// Working-name world projection of C_actor::GetAlive (mafia-re 113b5b6
@@ -4292,7 +4285,10 @@ impl ActorWorld {
         ) {
             return Ok(None);
         }
-        let human = self.actors[i].human.as_ref().ok_or(ActorWorldError::NotHuman)?;
+        let human = self.actors[i]
+            .human
+            .as_ref()
+            .ok_or(ActorWorldError::NotHuman)?;
         Ok(Some(human.car()))
     }
     /// Test/host setter for the human car latch (enter-car AI deferred).
@@ -4328,7 +4324,10 @@ impl ActorWorld {
         ) {
             return Ok(None);
         }
-        let car = self.actors[i].car.as_ref().ok_or(ActorWorldError::UnsupportedVtable)?;
+        let car = self.actors[i]
+            .car
+            .as_ref()
+            .ok_or(ActorWorldError::UnsupportedVtable)?;
         Ok(Some(car.script_speed_mps()))
     }
     /// Test/host setter for the car speed latch.
@@ -6998,10 +6997,7 @@ mod tests {
         assert!(w.detector(a).unwrap().dyn_colls);
         // The rejected stores must not touch base bytes.
         let b = w.construct_base(7, seed(), &mut e).unwrap();
-        assert_eq!(
-            w.detector_human_types(b),
-            Err(ActorWorldError::NotDetector)
-        );
+        assert_eq!(w.detector_human_types(b), Err(ActorWorldError::NotDetector));
         assert_eq!(
             w.detector_collision_flags(b),
             Err(ActorWorldError::NotDetector)
@@ -9772,12 +9768,22 @@ mod racecam_tests {
         let mut arena = ModelArena::default();
         let victim_keep = actor(&mut world, &mut heap);
         world
-            .delete_racecam(victim_keep, 0, &mut ModelActorFrames::borrow(&mut arena, true), &mut heap)
+            .delete_racecam(
+                victim_keep,
+                0,
+                &mut ModelActorFrames::borrow(&mut arena, true),
+                &mut heap,
+            )
             .unwrap();
         assert!(!heap.actor_freed);
         let victim_free = actor(&mut world, &mut heap);
         world
-            .delete_racecam(victim_free, 1, &mut ModelActorFrames::borrow(&mut arena, true), &mut heap)
+            .delete_racecam(
+                victim_free,
+                1,
+                &mut ModelActorFrames::borrow(&mut arena, true),
+                &mut heap,
+            )
             .unwrap();
         assert!(heap.actor_freed);
     }

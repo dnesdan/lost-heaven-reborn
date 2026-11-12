@@ -692,7 +692,10 @@ impl ModelArena {
     /// occupied). No LS3DF getter body exists. `None` is an unavailable
     /// constructor byte, matching `orthographic_byte_if_available`.
     pub fn camera_is_orthogonal(&self, key: CameraKey) -> Result<Option<bool>, ModelError> {
-        Ok(self.camera(key)?.orthographic_byte_if_available().map(|byte| byte != 0))
+        Ok(self
+            .camera(key)?
+            .orthographic_byte_if_available()
+            .map(|byte| byte != 0))
     }
     /// Working name for the `ortho_scale` read at +0x160 written by
     /// `I3D_camera::SetOrthoScale` (mafia-re
@@ -708,10 +711,7 @@ impl ModelArena {
     /// constructor (I3d_camera.cpp:22), `Duplicate` (I3d_camera.cpp:68, RVA
     /// 0xb290 already occupied, not claimed here) and the render/update
     /// owners. `None` is an unwritten constructor word.
-    pub fn camera_last_update_count(
-        &self,
-        key: CameraKey,
-    ) -> Result<Option<u32>, ModelError> {
+    pub fn camera_last_update_count(&self, key: CameraKey) -> Result<Option<u32>, ModelError> {
         Ok(self.camera(key)?.word(0x3fc))
     }
     /// Working name for the `last_sector_update_count` read at +0x400
@@ -732,10 +732,7 @@ impl ModelArena {
     /// `Duplicate` (I3d_camera.cpp:70-71, RVA 0xb290 already occupied) and
     /// `UpdateProjMatrix` (I3d_camera.cpp:128-129, RVA 0xb400 already
     /// occupied). Native order is kept.
-    pub fn camera_ncp_half_extents(
-        &self,
-        key: CameraKey,
-    ) -> Result<Option<[f32; 2]>, ModelError> {
+    pub fn camera_ncp_half_extents(&self, key: CameraKey) -> Result<Option<[f32; 2]>, ModelError> {
         let frame = self.camera(key)?;
         Ok(match (frame.scalar(0x3e4), frame.scalar(0x3e8)) {
             (Some(x), Some(y)) => Some([x, y]),
@@ -1393,16 +1390,16 @@ mod tests {
                 world.arena.camera_is_orthogonal(camera).unwrap(),
                 Some(false)
             );
-            assert_eq!(
-                world.arena.camera_ortho_scale(camera).unwrap(),
-                Some(1.)
-            );
+            assert_eq!(world.arena.camera_ortho_scale(camera).unwrap(), Some(1.));
             assert_eq!(world.arena.camera_scene(camera).unwrap(), None);
             assert_eq!(world.arena.camera_sector(camera).unwrap(), None);
             world.arena.camera_set_fov(camera, 1.).unwrap();
             world.arena.camera_set_range(camera, 0.5, 500.).unwrap();
             world.arena.camera_set_near_fov(camera, 1.5).unwrap();
-            world.arena.camera_set_near_range(camera, 0.25, 100.).unwrap();
+            world
+                .arena
+                .camera_set_near_range(camera, 0.25, 100.)
+                .unwrap();
             world.arena.camera_set_aspect_ratio(camera, 2.).unwrap();
             world.arena.camera_set_orthographic(camera, true).unwrap();
             world.arena.camera_set_ortho_scale(camera, 3.5).unwrap();
@@ -1416,23 +1413,17 @@ mod tests {
                 world.arena.camera_near_clip_range(camera).unwrap(),
                 Some([0.25, 100.])
             );
+            assert_eq!(world.arena.camera_aspect_ratio(camera).unwrap(), Some(2.));
             assert_eq!(
-                world.arena.camera_aspect_ratio(camera).unwrap(),
-                Some(2.)
+                world.arena.camera_is_orthogonal(camera).unwrap(),
+                Some(true)
             );
-            assert_eq!(world.arena.camera_is_orthogonal(camera).unwrap(), Some(true));
-            assert_eq!(
-                world.arena.camera_ortho_scale(camera).unwrap(),
-                Some(3.5)
-            );
+            assert_eq!(world.arena.camera_ortho_scale(camera).unwrap(), Some(3.5));
             world
                 .arena
                 .scene_set_active_camera(world.scene, Some(camera))
                 .unwrap();
-            assert_eq!(
-                world.arena.camera_scene(camera).unwrap(),
-                Some(world.scene)
-            );
+            assert_eq!(world.arena.camera_scene(camera).unwrap(), Some(world.scene));
             assert!(world.arena.camera_sector(camera).unwrap().is_some());
             world
                 .arena
@@ -1462,10 +1453,7 @@ mod tests {
             );
             world.arena.release(camera.frame()).unwrap();
             assert!(world.arena.camera_last_update_count(camera).is_err());
-            assert!(world
-                .arena
-                .camera_last_sector_update_count(camera)
-                .is_err());
+            assert!(world.arena.camera_last_sector_update_count(camera).is_err());
             world.destroy_scene();
         });
     }
@@ -1485,50 +1473,25 @@ mod tests {
             assert!(live.is_some());
             let live = live.unwrap();
             assert!(live[0] > live[1] && live[1] > 0.);
-            let live_near = world
-                .arena
-                .camera_near_ncp_half_extents(camera)
-                .unwrap();
+            let live_near = world.arena.camera_near_ncp_half_extents(camera).unwrap();
             assert!(live_near.is_some());
             let live_near = live_near.unwrap();
             assert!(live_near[0] > live_near[1] && live_near[1] > 0.);
-            world
-                .arena
-                .camera_mut(camera)
-                .unwrap()
-                .put(0x3e4, 1.5);
-            world
-                .arena
-                .camera_mut(camera)
-                .unwrap()
-                .put(0x3e8, 2.5);
-            world
-                .arena
-                .camera_mut(camera)
-                .unwrap()
-                .put(0x3ec, 0.25);
-            world
-                .arena
-                .camera_mut(camera)
-                .unwrap()
-                .put(0x3f0, 0.125);
+            world.arena.camera_mut(camera).unwrap().put(0x3e4, 1.5);
+            world.arena.camera_mut(camera).unwrap().put(0x3e8, 2.5);
+            world.arena.camera_mut(camera).unwrap().put(0x3ec, 0.25);
+            world.arena.camera_mut(camera).unwrap().put(0x3f0, 0.125);
             assert_eq!(
                 world.arena.camera_ncp_half_extents(camera).unwrap(),
                 Some([1.5, 2.5])
             );
             assert_eq!(
-                world
-                    .arena
-                    .camera_near_ncp_half_extents(camera)
-                    .unwrap(),
+                world.arena.camera_near_ncp_half_extents(camera).unwrap(),
                 Some([0.25, 0.125])
             );
             world.arena.release(camera.frame()).unwrap();
             assert!(world.arena.camera_ncp_half_extents(camera).is_err());
-            assert!(world
-                .arena
-                .camera_near_ncp_half_extents(camera)
-                .is_err());
+            assert!(world.arena.camera_near_ncp_half_extents(camera).is_err());
             world.destroy_scene();
         });
     }
@@ -2133,23 +2096,14 @@ mod tests {
             assert_eq!(frame.camera_view_matrix(), frame.matrix(0x164));
             assert_eq!(frame.camera_proj_matrix(), frame.matrix(0x1a4));
             assert_eq!(frame.camera_view_proj_matrix(), frame.matrix(0x1e4));
-            assert_eq!(
-                frame.camera_backdrop_view_matrix(),
-                frame.matrix(0x264)
-            );
+            assert_eq!(frame.camera_backdrop_view_matrix(), frame.matrix(0x264));
             assert_eq!(
                 frame.camera_backdrop_view_proj_matrix(),
                 frame.matrix(0x324)
             );
-            assert_eq!(
-                frame.camera_near_view_proj_matrix(),
-                frame.matrix(0x3a4)
-            );
+            assert_eq!(frame.camera_near_view_proj_matrix(), frame.matrix(0x3a4));
             // Ready camera exposes all six; the view starts as identity.
-            assert_eq!(
-                frame.camera_view_matrix(),
-                Some(SMatrix::identity())
-            );
+            assert_eq!(frame.camera_view_matrix(), Some(SMatrix::identity()));
             assert_ne!(frame.camera_proj_matrix(), Some(SMatrix::identity()));
             world.arena.release(camera.frame()).unwrap();
             world.destroy_scene();

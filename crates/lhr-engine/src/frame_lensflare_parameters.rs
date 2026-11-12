@@ -390,9 +390,15 @@ mod tests {
         lensflare_plain_set_test_interval(&mut params, u32::MAX);
         assert_eq!(params.test_interval, u32::MAX);
         lensflare_plain_set_fade(&mut params, 3.0, 4.0);
-        assert_eq!((params.fade_in.to_bits(), params.fade_out.to_bits()), (3.0f32.to_bits(), 4.0f32.to_bits()));
+        assert_eq!(
+            (params.fade_in.to_bits(), params.fade_out.to_bits()),
+            (3.0f32.to_bits(), 4.0f32.to_bits())
+        );
         lensflare_plain_set_fade(&mut params, f32::INFINITY, f32::NEG_INFINITY);
-        assert_eq!((params.fade_in, params.fade_out), (f32::INFINITY, f32::NEG_INFINITY));
+        assert_eq!(
+            (params.fade_in, params.fade_out),
+            (f32::INFINITY, f32::NEG_INFINITY)
+        );
         lensflare_plain_set_range(&mut params, 42.0);
         assert_eq!(params.range.to_bits(), 42.0f32.to_bits());
         // Untouched fields keep their values through each plain store.

@@ -319,10 +319,7 @@ pub fn railway_get_entry(_actor: u32) -> Result<bool, RailwaySmallStubError> {
 /// 0x4989a0, RVA 0x989a0): the original only logs. The frame owner stays
 /// outside this contract, so the boundary is explicit. The frame identity is
 /// opaque and never dereferenced.
-pub fn railway_set_rain_dummy(
-    _inside: bool,
-    _frame: u32,
-) -> Result<(), RailwaySmallStubError> {
+pub fn railway_set_rain_dummy(_inside: bool, _frame: u32) -> Result<(), RailwaySmallStubError> {
     Err(RailwaySmallStubError::Unsupported {
         entry: RAILWAY_SET_RAIN_DUMMY_ENTRY,
     })

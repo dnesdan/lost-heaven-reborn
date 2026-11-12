@@ -516,22 +516,10 @@ mod lock_tests {
     // aim holds SHOOT_AIM_TIME.
     fn shoot_recoil_rva_195390_sniper_scales_and_overflow_resamples() {
         assert_eq!(super::SHOOT_AIM_TIME, 3000);
-        assert_eq!(
-            PlayerState::shoot_recoil_next(0.25, 0.5, false, 0.0),
-            0.75
-        );
-        assert_eq!(
-            PlayerState::shoot_recoil_next(0.0, 2.0, true, 0.0),
-            0.2
-        );
-        assert_eq!(
-            PlayerState::shoot_recoil_next(4.0, 4.0, false, 0.0),
-            0.8
-        );
-        assert_eq!(
-            PlayerState::shoot_recoil_next(4.0, 4.0, false, 1.0),
-            1.0
-        );
+        assert_eq!(PlayerState::shoot_recoil_next(0.25, 0.5, false, 0.0), 0.75);
+        assert_eq!(PlayerState::shoot_recoil_next(0.0, 2.0, true, 0.0), 0.2);
+        assert_eq!(PlayerState::shoot_recoil_next(4.0, 4.0, false, 0.0), 0.8);
+        assert_eq!(PlayerState::shoot_recoil_next(4.0, 4.0, false, 1.0), 1.0);
         assert_eq!(PlayerState::shoot_accuracy(0.75), 3.25);
         let mut human = HumanState::construct(human_seed());
         let mut player = PlayerState::construct(0xd7, &mut human);
@@ -575,11 +563,20 @@ mod lock_tests {
         use super::WEAPON_TEXT_BASE;
         let mut human = HumanState::construct(human_seed());
         let mut player = PlayerState::construct(0xd7, &mut human);
-        assert_eq!(player.poll_weapon_name(5, 1, 0, false), Some(5 + WEAPON_TEXT_BASE));
+        assert_eq!(
+            player.poll_weapon_name(5, 1, 0, false),
+            Some(5 + WEAPON_TEXT_BASE)
+        );
         assert_eq!(player.poll_weapon_name(5, 1, 0, false), None);
         assert_eq!(player.poll_weapon_name(6, 0, 9, true), None);
         assert_eq!(player.poll_weapon_name(6, 0, 9, true), None);
-        assert_eq!(player.poll_weapon_name(7, 1, 9, true), Some(7 + WEAPON_TEXT_BASE));
-        assert_eq!(player.poll_weapon_name(8, 0, 0, true), Some(8 + WEAPON_TEXT_BASE));
+        assert_eq!(
+            player.poll_weapon_name(7, 1, 9, true),
+            Some(7 + WEAPON_TEXT_BASE)
+        );
+        assert_eq!(
+            player.poll_weapon_name(8, 0, 0, true),
+            Some(8 + WEAPON_TEXT_BASE)
+        );
     }
 }

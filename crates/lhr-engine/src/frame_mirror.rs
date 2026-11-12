@@ -1370,9 +1370,7 @@ mod tests {
         // inlines branch on it.
         assert_eq!(VISF_WORLD_SPACE, 0x40);
         assert!(visual_is_world_space(VISF_WORLD_SPACE));
-        assert!(visual_is_world_space(
-            VISF_WORLD_SPACE | VISF_BOUND_VALID
-        ));
+        assert!(visual_is_world_space(VISF_WORLD_SPACE | VISF_BOUND_VALID));
         assert!(visual_is_world_space(u32::MAX));
         assert!(!visual_is_world_space(0));
         assert!(!visual_is_world_space(VISF_BOUND_VALID));

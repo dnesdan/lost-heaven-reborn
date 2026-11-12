@@ -783,10 +783,7 @@ impl ModelArena {
     /// getter; only the spot arm of `UpdateV` (PC RVA 0x20d10, occupied)
     /// refreshes it, so other kinds report their stale store verbatim, as
     /// natively. Same availability guard as `light`.
-    pub fn light_spot_sphere_of(
-        &self,
-        key: FrameKey,
-    ) -> Result<([f32; 3], f32), ModelError> {
+    pub fn light_spot_sphere_of(&self, key: FrameKey) -> Result<([f32; 3], f32), ModelError> {
         let state = self.light(key)?;
         Ok((state.sphere_center, state.sphere_radius))
     }
@@ -983,7 +980,10 @@ mod tests {
         assert!(arena.light_sectors_of(light).unwrap().is_empty());
         let sector = arena.create_sector_frame().unwrap();
         arena.sector_add_light(sector, light).unwrap();
-        assert_eq!(arena.light_sectors_of(light).unwrap(), &[sector.frame()][..]);
+        assert_eq!(
+            arena.light_sectors_of(light).unwrap(),
+            &[sector.frame()][..]
+        );
         assert!(arena.light_sectors_of(FrameKey(u32::MAX)).is_err());
         arena.release(light).unwrap();
     }
@@ -1026,10 +1026,7 @@ mod tests {
         assert_eq!(center, [dir[0] * radius, dir[1] * radius, dir[2] * radius]);
         // The diffuse/range setters retrack their own words.
         arena.graph.set_light_diffuse(key, [0.5, 0.25, 1.]).unwrap();
-        assert_eq!(
-            arena.light_scaled_color_of(key).unwrap(),
-            [0.5, 0.25, 1.]
-        );
+        assert_eq!(arena.light_scaled_color_of(key).unwrap(), [0.5, 0.25, 1.]);
         arena.graph.set_light_range(key, 2., 50.).unwrap();
         assert_eq!(arena.light_scaled_range_of(key).unwrap(), [2., 50.]);
     }
@@ -1082,7 +1079,9 @@ mod tests {
         assert!(light_dynamic_shadow_mode(u32::MAX));
         assert!(!light_dynamic_shadow_mode(0));
         assert!(!light_dynamic_shadow_mode(LIGHTMODE_LIGHTMAP));
-        assert!(!light_dynamic_shadow_mode(u32::MAX & !LIGHTMODE_DYNAMIC_SHADOW));
+        assert!(!light_dynamic_shadow_mode(
+            u32::MAX & !LIGHTMODE_DYNAMIC_SHADOW
+        ));
         assert!(light_dynamic_shadow_mode(0xff6b));
     }
     #[test]
@@ -1139,7 +1138,10 @@ mod tests {
         let mut arena = ModelArena::default();
         let key = arena.create_light().unwrap();
         assert_eq!(arena.light_diffuse_of(key).unwrap(), [1.; 3]);
-        arena.graph.set_light_diffuse(key, [0.25, 0.5, 0.75]).unwrap();
+        arena
+            .graph
+            .set_light_diffuse(key, [0.25, 0.5, 0.75])
+            .unwrap();
         assert_eq!(arena.light_diffuse_of(key).unwrap(), [0.25, 0.5, 0.75]);
     }
     #[test]
@@ -1477,18 +1479,23 @@ mod tests {
             arena.light_cone_scale_of(key).unwrap(),
             state.cone_reciprocal
         );
-        assert_eq!(
-            arena.light_cone_radius_of(key).unwrap(),
-            state.cone_radius
-        );
+        assert_eq!(arena.light_cone_radius_of(key).unwrap(), state.cone_radius);
         // The constructor leaves a positive cone/sphere setup for the default
         // spot-capable caches.
         assert!(state.cone_reciprocal > 0.0);
         assert!(state.cone_radius > 0.0);
-        assert!(arena.light_outer_cos_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
-        assert!(arena.light_inner_cos_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
-        assert!(arena.light_cone_scale_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
-        assert!(arena.light_cone_radius_of(crate::frame_transform::FrameKey(u32::MAX)).is_err());
+        assert!(arena
+            .light_outer_cos_of(crate::frame_transform::FrameKey(u32::MAX))
+            .is_err());
+        assert!(arena
+            .light_inner_cos_of(crate::frame_transform::FrameKey(u32::MAX))
+            .is_err());
+        assert!(arena
+            .light_cone_scale_of(crate::frame_transform::FrameKey(u32::MAX))
+            .is_err());
+        assert!(arena
+            .light_cone_radius_of(crate::frame_transform::FrameKey(u32::MAX))
+            .is_err());
         arena.release(key).unwrap();
     }
     #[test]
@@ -1508,10 +1515,7 @@ mod tests {
                 arena.light_cone_scale_of(key).unwrap(),
                 state.cone_reciprocal
             );
-            assert_eq!(
-                arena.light_cone_radius_of(key).unwrap(),
-                state.cone_radius
-            );
+            assert_eq!(arena.light_cone_radius_of(key).unwrap(), state.cone_radius);
             assert!(state.outer_cos < state.inner_cos);
             assert!(state.cone_reciprocal > 0.0);
             assert!(state.cone_radius > 0.0);
@@ -1578,9 +1582,18 @@ mod tests {
     fn light_scaled_channel_multiplies_diffuse_by_power() {
         // Working name for the SetDiffuse channel product (I3d_light.cpp:97):
         // no standalone LS3DF FUNCTION exists for one channel.
-        assert_eq!(light_scaled_color_channel(1.5, 2.0).to_bits(), 3.0f32.to_bits());
-        assert_eq!(light_scaled_color_channel(0.0, 99.0).to_bits(), 0.0f32.to_bits());
-        assert_eq!(light_scaled_color_channel(-0.0, 1.0).to_bits(), (-0.0f32).to_bits());
+        assert_eq!(
+            light_scaled_color_channel(1.5, 2.0).to_bits(),
+            3.0f32.to_bits()
+        );
+        assert_eq!(
+            light_scaled_color_channel(0.0, 99.0).to_bits(),
+            0.0f32.to_bits()
+        );
+        assert_eq!(
+            light_scaled_color_channel(-0.0, 1.0).to_bits(),
+            (-0.0f32).to_bits()
+        );
         assert!(light_scaled_color_channel(f32::NAN, 1.0).is_nan());
         // inf * 0.0 is NaN with an unspecified sign bit (const-folded vs
         // runtime multiplies differ), so only NaN-ness is asserted.
@@ -1590,9 +1603,18 @@ mod tests {
     fn light_range_delta_subtracts_near_from_far() {
         // Working name for the scaled range delta (I3d_light.cpp:138):
         // no standalone LS3DF FUNCTION exists for the word.
-        assert_eq!(light_range_delta_from_scaled(100.0, 1.0).to_bits(), 99.0f32.to_bits());
-        assert_eq!(light_range_delta_from_scaled(1.0, 1.0).to_bits(), 0.0f32.to_bits());
-        assert_eq!(light_range_delta_from_scaled(0.0, 5.0).to_bits(), (-5.0f32).to_bits());
+        assert_eq!(
+            light_range_delta_from_scaled(100.0, 1.0).to_bits(),
+            99.0f32.to_bits()
+        );
+        assert_eq!(
+            light_range_delta_from_scaled(1.0, 1.0).to_bits(),
+            0.0f32.to_bits()
+        );
+        assert_eq!(
+            light_range_delta_from_scaled(0.0, 5.0).to_bits(),
+            (-5.0f32).to_bits()
+        );
         assert!(light_range_delta_from_scaled(f32::NAN, 1.0).is_nan());
     }
 }

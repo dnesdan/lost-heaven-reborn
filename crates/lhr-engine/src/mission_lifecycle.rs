@@ -2526,7 +2526,10 @@ mod tests {
     fn tshift_elem_tick_rva_160410_wraps_and_gates_by_flags() {
         // S_tshift_elem::Tick GAME RVA 0x160410 (VA 0x560410). Exact binary
         // fractions keep the f32 wrap assertions bit-exact.
-        let mut backend = OffsetLog { texture: vec![], env: vec![] };
+        let mut backend = OffsetLog {
+            texture: vec![],
+            env: vec![],
+        };
         let mut elem = TshiftElem::init(1, 2, 0.75, -0.75, TSHIFT_TEXTURE | TSHIFT_ENVIRONMENT);
         tshift_elem_tick(&mut elem, 2.0, &mut backend);
         assert_eq!(elem.u, 0.5);
@@ -2534,14 +2537,20 @@ mod tests {
         assert_eq!(backend.texture, vec![[0.5, -0.5]]);
         assert_eq!(backend.env, vec![[0.5, -0.5]]);
         // Texture-only: env sink stays quiet; in-range shift passes through.
-        let mut backend = OffsetLog { texture: vec![], env: vec![] };
+        let mut backend = OffsetLog {
+            texture: vec![],
+            env: vec![],
+        };
         let mut elem = TshiftElem::init(1, 2, 0.25, 0.25, TSHIFT_TEXTURE);
         tshift_elem_tick(&mut elem, 1.0, &mut backend);
         assert_eq!((elem.u, elem.v), (0.25, 0.25));
         assert_eq!(backend.texture.len(), 1);
         assert!(backend.env.is_empty());
         // No flags: no sink writes, shift still advances.
-        let mut backend = OffsetLog { texture: vec![], env: vec![] };
+        let mut backend = OffsetLog {
+            texture: vec![],
+            env: vec![],
+        };
         let mut elem = TshiftElem::init(1, 2, 0.5, 0.5, 0);
         tshift_elem_tick(&mut elem, 1.0, &mut backend);
         assert_eq!((elem.u, elem.v), (0.5, 0.5));

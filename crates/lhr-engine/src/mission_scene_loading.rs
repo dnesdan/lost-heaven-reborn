@@ -4416,7 +4416,13 @@ mod tests {
         // refuse; a car deactivates before it empties its seats.
         let mut buffer = Vec::new();
         let mut backend = store_actor_fake(BufferedActorKind::Car);
-        assert!(!frm_act_buff_store_actor(&mut buffer, &mut backend, None, [None, None], true));
+        assert!(!frm_act_buff_store_actor(
+            &mut buffer,
+            &mut backend,
+            None,
+            [None, None],
+            true
+        ));
         backend.frame = None;
         assert!(!frm_act_buff_store_actor(
             &mut buffer,
@@ -4455,7 +4461,10 @@ mod tests {
         assert_eq!(buffer[0].frame, FrameKey(3));
         assert_eq!(buffer[0].name, b"alarm01.i3d".to_vec());
         assert!(buffer[0].release_frame);
-        assert_eq!(backend.calls, vec!["deactivate_car", "clear_seats", "reset"]);
+        assert_eq!(
+            backend.calls,
+            vec!["deactivate_car", "clear_seats", "reset"]
+        );
         assert!(!frm_act_buff_store_actor(
             &mut buffer,
             &mut backend,
@@ -4470,10 +4479,22 @@ mod tests {
         // human deactivates without seat clearing.
         let mut buffer = Vec::new();
         let mut backend = store_actor_fake(BufferedActorKind::Human);
-        assert!(frm_act_buff_store_actor(&mut buffer, &mut backend, Some(FrameKey(4)), [None, None], false));
+        assert!(frm_act_buff_store_actor(
+            &mut buffer,
+            &mut backend,
+            Some(FrameKey(4)),
+            [None, None],
+            false
+        ));
         assert_eq!(backend.calls, vec!["deactivate_human", "reset"]);
         let mut other = store_actor_fake(BufferedActorKind::Other);
-        assert!(frm_act_buff_store_actor(&mut buffer, &mut other, Some(FrameKey(5)), [None, None], false));
+        assert!(frm_act_buff_store_actor(
+            &mut buffer,
+            &mut other,
+            Some(FrameKey(5)),
+            [None, None],
+            false
+        ));
         assert_eq!(other.calls, vec!["reset"]);
     }
     struct StoreActiveFake {
@@ -4504,7 +4525,12 @@ mod tests {
             kind: BufferedActorKind::Car,
             calls: Vec::new(),
         };
-        assert!(!frm_act_buff_store_active_actor(&mut active, &mut backend, FrameKey(1), [None, None]));
+        assert!(!frm_act_buff_store_active_actor(
+            &mut active,
+            &mut backend,
+            FrameKey(1),
+            [None, None]
+        ));
         assert!(!frm_act_buff_store_active_actor(
             &mut active,
             &mut backend,
@@ -4512,9 +4538,17 @@ mod tests {
             [Some(FrameKey(2)), None]
         ));
         assert_eq!(active, vec![FrameKey(1)]);
-        assert!(frm_act_buff_store_active_actor(&mut active, &mut backend, FrameKey(2), [None, None]));
+        assert!(frm_act_buff_store_active_actor(
+            &mut active,
+            &mut backend,
+            FrameKey(2),
+            [None, None]
+        ));
         assert_eq!(active, vec![FrameKey(1), FrameKey(2)]);
-        assert_eq!(backend.calls, vec!["clear_seats", "deactivate_car", "reset"]);
+        assert_eq!(
+            backend.calls,
+            vec!["clear_seats", "deactivate_car", "reset"]
+        );
     }
     struct FinishFake {
         finished: Vec<FrameKey>,
@@ -4532,10 +4566,18 @@ mod tests {
         let mut backend = FinishFake {
             finished: Vec::new(),
         };
-        assert!(frm_act_buff_remove_active_actor(&mut active, &mut backend, FrameKey(2)));
+        assert!(frm_act_buff_remove_active_actor(
+            &mut active,
+            &mut backend,
+            FrameKey(2)
+        ));
         assert_eq!(backend.finished, vec![FrameKey(2)]);
         assert_eq!(active, vec![FrameKey(1), FrameKey(2)]);
-        assert!(!frm_act_buff_remove_active_actor(&mut active, &mut backend, FrameKey(7)));
+        assert!(!frm_act_buff_remove_active_actor(
+            &mut active,
+            &mut backend,
+            FrameKey(7)
+        ));
         assert_eq!(active, vec![FrameKey(1), FrameKey(2)]);
     }
     struct TakebackFake {
@@ -4563,16 +4605,28 @@ mod tests {
             kind: BufferedActorKind::Car,
             calls: Vec::new(),
         };
-        assert!(frm_act_buff_is_active_actor(&mut active, &mut car, FrameKey(2)));
+        assert!(frm_act_buff_is_active_actor(
+            &mut active,
+            &mut car,
+            FrameKey(2)
+        ));
         assert_eq!(car.calls, vec!["reset_car", "rebirth"]);
         assert_eq!(active, vec![FrameKey(1), FrameKey(3)]);
         let mut human = TakebackFake {
             kind: BufferedActorKind::Human,
             calls: Vec::new(),
         };
-        assert!(frm_act_buff_is_active_actor(&mut active, &mut human, FrameKey(1)));
+        assert!(frm_act_buff_is_active_actor(
+            &mut active,
+            &mut human,
+            FrameKey(1)
+        ));
         assert_eq!(human.calls, vec!["rebirth"]);
-        assert!(!frm_act_buff_is_active_actor(&mut active, &mut human, FrameKey(9)));
+        assert!(!frm_act_buff_is_active_actor(
+            &mut active,
+            &mut human,
+            FrameKey(9)
+        ));
     }
     #[test]
     fn frm_act_buff_store_actor_sound_rva_146830_dedups_by_pair() {
@@ -4603,7 +4657,10 @@ mod tests {
                 sound: 41,
             },
         ];
-        assert_eq!(frm_act_buff_get_actor_sound(&mut buffer, FrameKey(1), 4), Some(40));
+        assert_eq!(
+            frm_act_buff_get_actor_sound(&mut buffer, FrameKey(1), 4),
+            Some(40)
+        );
         assert_eq!(
             buffer,
             vec![ActorSoundBufferEntry {
@@ -4612,13 +4669,21 @@ mod tests {
                 sound: 41,
             }]
         );
-        assert_eq!(frm_act_buff_get_actor_sound(&mut buffer, FrameKey(1), 4), None);
+        assert_eq!(
+            frm_act_buff_get_actor_sound(&mut buffer, FrameKey(1), 4),
+            None
+        );
     }
     struct ClearFake {
         calls: Vec<(u32, FrameKey, bool, FrameKey)>,
     }
     impl FrmActBuffClearBackend for ClearFake {
-        fn teardown_buffered_entry(&mut self, actor: FrameKey, release_frame: bool, frame: FrameKey) {
+        fn teardown_buffered_entry(
+            &mut self,
+            actor: FrameKey,
+            release_frame: bool,
+            frame: FrameKey,
+        ) {
             self.calls.push((0, actor, release_frame, frame));
         }
         fn release_buffered_frame(&mut self, frame: FrameKey) {
@@ -4726,7 +4791,12 @@ mod tests {
         }
         let mut sink = Sink { calls: Vec::new() };
         assert!(forward_scene_callback(&mut sink, 8, 0x3f80_0000, 1));
-        assert!(!forward_scene_callback(&mut sink, SCENE_CALLBACK_ERROR, 1, 2));
+        assert!(!forward_scene_callback(
+            &mut sink,
+            SCENE_CALLBACK_ERROR,
+            1,
+            2
+        ));
         assert!(!forward_scene_callback(&mut sink, SCENE_CALLBACK_LOG, 3, 4));
         assert!(forward_scene_callback(&mut sink, 10000, 7, 1));
         assert_eq!(sink.calls, vec![(8, 0x3f80_0000, 1), (10000, 7, 1)]);

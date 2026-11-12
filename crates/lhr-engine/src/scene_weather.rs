@@ -853,10 +853,7 @@ mod tests {
         assert_eq!(weather_color(&scene), 0x8060_6060);
         assert_eq!(weather_color_2(&scene), 0x0060_6060);
         assert_eq!(weather_color(&scene), get_weather_system_param(&scene, 3));
-        assert_eq!(
-            weather_color_2(&scene),
-            get_weather_system_param(&scene, 4)
-        );
+        assert_eq!(weather_color_2(&scene), get_weather_system_param(&scene, 4));
     }
     #[test]
     fn weather_scalar_arms_scale_through_the_pc24_pipeline() {

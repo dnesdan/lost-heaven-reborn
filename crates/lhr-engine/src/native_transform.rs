@@ -16,11 +16,11 @@ use crate::native_precision::{add, div, mul, sqrt, sub};
 mod frame_direction;
 #[path = "native_retained_angle.rs"]
 mod retained_angle;
+pub use native_trig::car_resource_math::animation_angle;
+pub use native_trig::car_resource_math::rotate_y;
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 pub(crate) use native_trig::vector_angle::try_ph_thing_friction_products;
 pub use native_trig::vector_angle::try_vector_angle_to;
-pub use native_trig::car_resource_math::animation_angle;
-pub use native_trig::car_resource_math::rotate_y;
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 pub use native_trig::vector_angle::{
     try_acos_sin_cos_products, try_cosine_product, try_vector_angle_sine,
@@ -1968,10 +1968,18 @@ mod tests {
         // LS3DF RVA 0x2eab0: asm rotate then per-column renormalization
         // (|col|^2 vs 1 gate, divide on miss). Ghidra body 122 insns, 10 bbs.
         let m = SMatrix::identity();
-        assert_eq!(m.rotate_by_norm_matrix([1.0, 2.0, 3.0], &m).unwrap(), [1.0, 2.0, 3.0]);
+        assert_eq!(
+            m.rotate_by_norm_matrix([1.0, 2.0, 3.0], &m).unwrap(),
+            [1.0, 2.0, 3.0]
+        );
         let mut scaled = SMatrix::identity();
         scaled.elements[0] = 2.0;
-        assert_eq!(scaled.rotate_by_norm_matrix([1.0, 0.0, 0.0], &scaled).unwrap(), [1.0, 0.0, 0.0]);
+        assert_eq!(
+            scaled
+                .rotate_by_norm_matrix([1.0, 0.0, 0.0], &scaled)
+                .unwrap(),
+            [1.0, 0.0, 0.0]
+        );
     }
     #[test]
     fn pin_quat_dir_roll_inverse() {

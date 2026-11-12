@@ -1629,7 +1629,9 @@ mod igraph_global_tests {
 
     #[test]
     fn set_app_name_pins_rva_0x6c820_change_and_noop() {
-        let mut backend = EffectFixture { effects: Vec::new() };
+        let mut backend = EffectFixture {
+            effects: Vec::new(),
+        };
         let mut state = GraphWindowState::default();
         assert_eq!(
             state.set_app_name(SystemHandle(9), b"LS3D", &mut backend),

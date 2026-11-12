@@ -79,8 +79,14 @@ mod tests {
     #[test]
     fn width_single_is_plain_i32_to_f32_cast() {
         // GAME 0x604890 helper lane: no PC24 policy on the width cast.
-        assert_eq!(GameCameraProjection::width_single(640).to_bits(), 640.0f32.to_bits());
-        assert_eq!(GameCameraProjection::width_single(-1).to_bits(), (-1.0f32).to_bits());
+        assert_eq!(
+            GameCameraProjection::width_single(640).to_bits(),
+            640.0f32.to_bits()
+        );
+        assert_eq!(
+            GameCameraProjection::width_single(-1).to_bits(),
+            (-1.0f32).to_bits()
+        );
     }
     #[test]
     fn original_helper_twelve_native_projection_cases() {

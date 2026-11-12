@@ -279,7 +279,13 @@ pub fn fill_needle_vertices(corners: &NeedleCorners, color: u32) -> [TlVertex; 6
     let verts = [
         TlVertex::colored_point(corners.tail_left[0], corners.tail_left[1], color, 0.0, 0.0),
         TlVertex::colored_point(corners.tip_left[0], corners.tip_left[1], color, 1.0, 0.0),
-        TlVertex::colored_point(corners.tail_right[0], corners.tail_right[1], color, 0.0, 1.0),
+        TlVertex::colored_point(
+            corners.tail_right[0],
+            corners.tail_right[1],
+            color,
+            0.0,
+            1.0,
+        ),
         TlVertex::colored_point(corners.tip_right[0], corners.tip_right[1], color, 1.0, 1.0),
     ];
     [verts[0], verts[1], verts[2], verts[3], verts[2], verts[1]]
@@ -853,12 +859,8 @@ impl IndicatorsState {
         }
         if revs != self.tach_revs_value {
             self.tach_revs_value = revs;
-            self.tach_revs_corners = compute_needle_corners(
-                &TACHOMETER_DEF_REVS,
-                revs,
-                self.revs_pos,
-                self.hud_scale,
-            );
+            self.tach_revs_corners =
+                compute_needle_corners(&TACHOMETER_DEF_REVS, revs, self.revs_pos, self.hud_scale);
         }
         if fuel != self.tach_fuel_value {
             self.tach_fuel_value = fuel;
@@ -947,7 +949,9 @@ impl IndicatorsState {
     /// intro-subtitle text owner is missing, so no state changes and the call
     /// is rejected.
     pub fn intro_subtitles_add(&self, _a: u32, _b: u32) -> Result<(), IndicatorsStubError> {
-        Err(IndicatorsStubError::Unsupported("intro subtitle text owner"))
+        Err(IndicatorsStubError::Unsupported(
+            "intro subtitle text owner",
+        ))
     }
 
     /// `IntroSubtitlesAddSimple` (GAME RVA 0x1f9690, VA 0x5f9690; reference
@@ -955,7 +959,9 @@ impl IndicatorsState {
     /// only): explicit-Unsupported STUB, same missing owner as
     /// `intro_subtitles_add`.
     pub fn intro_subtitles_add_simple(&self, _id: u32) -> Result<(), IndicatorsStubError> {
-        Err(IndicatorsStubError::Unsupported("intro subtitle text owner"))
+        Err(IndicatorsStubError::Unsupported(
+            "intro subtitle text owner",
+        ))
     }
 
     /// `MissionHelpClear` (GAME RVA 0x1f99b0, VA 0x5f99b0; reference mafia-re
@@ -1003,7 +1009,12 @@ impl IndicatorsState {
     /// explicit-Unsupported STUB. The reference marks the body STUB; the
     /// blood-quad device owner is missing, so no quad stages and the call
     /// is rejected.
-    pub fn add_blood_splash(&self, _x: f32, _y: f32, _size: f32) -> Result<(), IndicatorsStubError> {
+    pub fn add_blood_splash(
+        &self,
+        _x: f32,
+        _y: f32,
+        _size: f32,
+    ) -> Result<(), IndicatorsStubError> {
         Err(IndicatorsStubError::Unsupported("blood quad device owner"))
     }
 
@@ -1021,11 +1032,7 @@ impl IndicatorsState {
     /// only): explicit-Unsupported STUB. The reference marks the body STUB;
     /// the console text-database owner is missing, so no line stages and the
     /// call is rejected.
-    pub fn console_add_text_by_id(
-        &self,
-        _id: u32,
-        _color: u32,
-    ) -> Result<(), IndicatorsStubError> {
+    pub fn console_add_text_by_id(&self, _id: u32, _color: u32) -> Result<(), IndicatorsStubError> {
         Err(IndicatorsStubError::Unsupported("console text owner"))
     }
 
@@ -1073,7 +1080,12 @@ impl IndicatorsState {
     /// explicit-Unsupported STUB. The reference marks the body STUB; the
     /// fade state machine owner is missing, so the on/time/color triple
     /// stages nothing and the call is rejected.
-    pub fn fade_in_out(&self, _on: bool, _time: u32, _color: u32) -> Result<(), IndicatorsStubError> {
+    pub fn fade_in_out(
+        &self,
+        _on: bool,
+        _time: u32,
+        _color: u32,
+    ) -> Result<(), IndicatorsStubError> {
         Err(IndicatorsStubError::Unsupported("fade state machine"))
     }
 
@@ -1157,7 +1169,11 @@ impl IndicatorsState {
     /// `g_indicators.cpp:1283/1329`). Native keeps `edge->size() + 1` points
     /// and drops edges below two nodes; vertex allocation stays deferred.
     pub fn stage_radar_edge(&mut self, side: RadarEdgeSide, points: Vec<[f32; 3]>) {
-        let kept = if points.len() >= 2 { points } else { Vec::new() };
+        let kept = if points.len() >= 2 {
+            points
+        } else {
+            Vec::new()
+        };
         match side {
             RadarEdgeSide::Left => self.radar_left_edge = kept,
             RadarEdgeSide::Right => self.radar_right_edge = kept,
@@ -1281,10 +1297,7 @@ impl IndicatorsState {
         } else if layout == ParheliaLayout::Triple {
             self.hud_size[0] *= 1.0 / 3.0;
         }
-        self.tachometer_pos = [
-            right[0] - scale[0] * 189.0,
-            right[1] - scale[1] * 189.0,
-        ];
+        self.tachometer_pos = [right[0] - scale[0] * 189.0, right[1] - scale[1] * 189.0];
         self.revs_pos = [
             right[0] - 259.0 * scale[0] + scale[0] * 11.0,
             right[1] - 84.0 * scale[1],
@@ -1356,7 +1369,11 @@ impl IndicatorsState {
         self.timer_hands_invalid
     }
     pub fn tachometer_values(&self) -> (f32, f32, f32) {
-        (self.tach_speed_value, self.tach_revs_value, self.tach_fuel_value)
+        (
+            self.tach_speed_value,
+            self.tach_revs_value,
+            self.tach_fuel_value,
+        )
     }
     pub fn gear_column(&self) -> f32 {
         self.gear_column
@@ -1548,7 +1565,10 @@ impl<'a> IndicatorsLoadSave<'a> {
 impl LoadSaveEffects for IndicatorsLoadSave<'_> {
     type Error = IndicatorsEffectError;
 
-    fn all_default(&mut self, _profile: &mut super::game_loadsave_lifecycle::ProfileState) -> Result<(), Self::Error> {
+    fn all_default(
+        &mut self,
+        _profile: &mut super::game_loadsave_lifecycle::ProfileState,
+    ) -> Result<(), Self::Error> {
         Err(IndicatorsEffectError::Unavailable("profile defaults"))
     }
 
@@ -2073,7 +2093,9 @@ mod tests {
             (verts[0].u, verts[0].v, verts[1].u, verts[2].v, verts[3].u),
             (0.0, 0.0, 1.0, 1.0, 1.0)
         );
-        assert!(verts.iter().all(|v| v.z == 0.0 && v.rhw == 1.0 && v.color == 0xff74130d));
+        assert!(verts
+            .iter()
+            .all(|v| v.z == 0.0 && v.rhw == 1.0 && v.color == 0xff74130d));
     }
 
     #[test]
@@ -2084,7 +2106,16 @@ mod tests {
         assert_eq!((rect[1].x, rect[3].x, rect[3].y), (40.0, 40.0, 60.0));
         assert_eq!((rect[4], rect[5]), (rect[2], rect[1]));
         let mut diamond = [TlVertex::colored_point(0.0, 0.0, 0, 0.0, 0.0); 6];
-        set_diamond_vertices([10.0, 20.0], [3.0, 4.0], 0.1, 0.2, 0.3, 0.4, 9, &mut diamond);
+        set_diamond_vertices(
+            [10.0, 20.0],
+            [3.0, 4.0],
+            0.1,
+            0.2,
+            0.3,
+            0.4,
+            9,
+            &mut diamond,
+        );
         assert_eq!((diamond[0].x, diamond[0].y), (7.0, 20.0));
         assert_eq!((diamond[1].x, diamond[1].y), (10.0, 16.0));
         assert_eq!((diamond[2].x, diamond[2].y), (10.0, 24.0));
@@ -2102,9 +2133,9 @@ mod tests {
 
     #[test]
     fn loadsave_adapter_drives_hud_calls_and_refuses_others() {
-        use crate::game_loadsave_lifecycle::{LoadSaveEffects, ProfileState};
-        use crate::game_loadsave_controls::ProfileBindings;
         use crate::game_controls::ControlBinding;
+        use crate::game_loadsave_controls::ProfileBindings;
+        use crate::game_loadsave_lifecycle::{LoadSaveEffects, ProfileState};
         let mut state = IndicatorsState::constructed(staged_clock());
         state.set_flags(INDF_PLAYER);
         let empty = ControlBinding {
@@ -2203,9 +2234,15 @@ mod tests {
         let mut state = IndicatorsState::constructed(staged_clock());
         state.set_flags(INDF_PLAYER);
         state.add_flags(INDF_TIMER | INDF_CROSSHAIR);
-        assert_eq!(state.show_flags(), INDF_PLAYER | INDF_TIMER | INDF_CROSSHAIR);
+        assert_eq!(
+            state.show_flags(),
+            INDF_PLAYER | INDF_TIMER | INDF_CROSSHAIR
+        );
         state.add_flags(0);
-        assert_eq!(state.show_flags(), INDF_PLAYER | INDF_TIMER | INDF_CROSSHAIR);
+        assert_eq!(
+            state.show_flags(),
+            INDF_PLAYER | INDF_TIMER | INDF_CROSSHAIR
+        );
     }
     #[test]
     fn pin_remove_flags_clears_only_masked_bits() {
