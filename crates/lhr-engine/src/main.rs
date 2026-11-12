@@ -1665,6 +1665,11 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // heading; velocity steering takes over as soon as the taxi rolls.
     let mut approach = [0.0f32, 1.0];
     let mut escape_lock = 1.0f32;
+    // Saw side previously applied by the stalled-escape steering saw
+    // below; flipping the lock every 40 ticks walks a diagonally
+    // high-centered taxi laterally off the crest instead of grinding
+    // one tire against the prop for the whole 400-tick escape.
+    let mut escape_saw_prev = 1.0f32;
     // Latched wheel-slip state from the push sampler: any driven wheel
     // with 0x80 set while the taxi stands still means the open
     // differential feeds a dangling wheel. The escape push then holds
@@ -1781,14 +1786,22 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         if uturn.is_some() && unstick == 0 {
             steer = uturn.unwrap_or(0.0);
         }
-        // Static escape steering: the velocity block above leaves steer
-        // identically zero while standing still, so an escape push would
-        // run straight ahead into whatever the nose faces. Hold the
-        // latched full lock toward the escape target's side instead —
-        // unless the approach heading already points at the target, in
-        // which case pushing straight is correct and a full lock would
-        // only grind the taxi into the slot walls. Velocity steering
-        // resumes as soon as the taxi rolls.
+        // Static escape steering with a slow saw: the velocity block
+        // above leaves steer identically zero while standing still, so
+        // an escape push would run straight ahead into whatever the
+        // nose faces. Hold the latched full lock toward the escape
+        // target's side instead — unless the approach heading already
+        // points at the target, in which case pushing straight is
+        // correct and a full lock would only grind the taxi into the
+        // slot walls. While stalled, flip the lock side every 40 ticks
+        // of the escape: probe_reach beached diagonally (wheel dy
+        // -1.03/+0.51/-0.51/+1.03, one driven wheel slipping, K-turn
+        // reverse 0.0 m with the motor screaming) and a constant lock
+        // just saws one tire against the prop. Alternating the lock
+        // loads/unloads each side in turn and can walk the taxi
+        // laterally off the crest, like a player rocking the wheel
+        // while feathering the pedal. Velocity steering resumes as
+        // soon as the taxi rolls.
         if escaping && speed_hint <= 1e-4 && unstick == 0 {
             let to_esc = [target[0] - last.position[0], target[2] - last.position[2]];
             let approach_len = approach[0].hypot(approach[1]);
@@ -1797,7 +1810,19 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 && esc_len > 1e-4
                 && approach[0] * to_esc[0] + approach[1] * to_esc[1] > 0.7 * approach_len * esc_len;
             if !aligned {
-                steer = escape_lock;
+                let saw = if drive_ticks.wrapping_sub(escape_start_tick) / 40 % 2 == 0 {
+                    escape_lock
+                } else {
+                    -escape_lock
+                };
+                if saw != escape_saw_prev {
+                    escape_saw_prev = saw;
+                    println!(
+                        "probe drive: escape saw flipped to {saw:+.0} at [{:.1}, {:.1}, {:.1}]",
+                        last.position[0], last.position[1], last.position[2]
+                    );
+                }
+                steer = saw;
             }
         }
         // Adaptive speed: near stops and sharp corners take it slow so the
@@ -2909,6 +2934,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             ];
                             let cross = approach[0] * to_esc[1] - approach[1] * to_esc[0];
                             escape_lock = if cross >= 0.0 { -1.0 } else { 1.0 };
+                            // Saw starts on the latched side; the first
+                            // flip fires 40 ticks into a stalled escape.
+                            escape_saw_prev = escape_lock;
                         }
                         println!(
                         "probe drive: boxed {boxed_windows}x, escaping toward [{:.1}, {:.1}, {:.1}] free {best_travel:.1} m at {pick_deg:.0}° slot=[{:.1},{:.1}] {}",
