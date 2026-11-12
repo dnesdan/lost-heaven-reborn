@@ -780,3 +780,109 @@ mod motor_force_gear_sign_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod wheel_loop_head_gate_tests {
+    use super::*;
+    use crate::vehicle_dynamics_forces::VehicleMoveForceSetup;
+    use crate::vehicle_dynamics_prepare::VehicleMovePrepared;
+    use crate::vehicle_frame_backend::VehicleFrameMemory;
+
+    const V: u32 = 0x1000;
+    const W: u32 = 0x2000;
+    const T: u32 = 0x4000;
+
+    fn write_f32(m: &mut VehicleFrameMemory, address: u32, value: f32) {
+        m.write_word(address, value.to_bits()).unwrap();
+    }
+
+    /// Minimal one-wheel rig isolating the per-wheel loop head: the
+    /// native sequence at Move VA 0x4e2fc7 (Game.exe SHA 08398317...,
+    /// 4811-insn walk ev_2f07bed9) is AND flags,~0x1b0 / TEST AL,8 /
+    /// JZ skip / TEST EAX,0x40000000 / JNZ skip. Contact bit 0x8 and
+    /// the 0x40000000 exclusion gate the whole per-wheel force
+    /// computation; the 0x1b0 flag clear (0x10/0x20 slip-brake,
+    /// 0x80/0x100 spin) is written back even for skipped wheels.
+    fn rig(
+        flags: u32,
+    ) -> (
+        VehicleFrameMemory,
+        VehicleMovePrepared,
+        VehicleMoveForceSetup,
+    ) {
+        let mut m = VehicleFrameMemory::default();
+        m.map_bytes(V, &vec![0; 0x1000]).unwrap();
+        m.map_bytes(W, &vec![0; 0x400]).unwrap();
+        m.map_bytes(T, &vec![0; 0x10]).unwrap();
+        m.write_word(V.wrapping_add(0x4c4), 1).unwrap();
+        m.write_word(V.wrapping_add(0xc38), T).unwrap();
+        m.write_word(T, W).unwrap();
+        m.write_word(W.wrapping_add(0x120), flags).unwrap();
+        // Benign nonzero tire/rolling constants so the included path
+        // runs on exact arithmetic instead of faulting on 0/0.
+        write_f32(&mut m, W.wrapping_add(0x10c), 1.0);
+        write_f32(&mut m, W.wrapping_add(0xa0), 50.0);
+        write_f32(&mut m, W.wrapping_add(0xa4), 50.0);
+        for (offset, v) in [(0x4c, [1.0, 1.0, 0.0]), (0x58, [1.0, 0.0, 0.0])] {
+            for (i, c) in v.iter().enumerate() {
+                write_f32(
+                    &mut m,
+                    W.wrapping_add(offset).wrapping_add(i as u32 * 4),
+                    *c,
+                );
+            }
+        }
+        let prepared = VehicleMovePrepared {
+            down: [0.0, -1.0, 0.0],
+            wheel_speed: 0.0,
+            driven_normal_force: [1.0, 1.0],
+        };
+        let setup = VehicleMoveForceSetup {
+            linear_force: [0.0; 3],
+            torque: [0.0; 3],
+            limited_motor_force: [0.0, 0.0],
+            local_angular_velocity: [0.0; 3],
+            saved_traction_control: 0,
+            saved_brake_bits: 0,
+        };
+        (m, prepared, setup)
+    }
+
+    #[test]
+    fn dangling_wheel_contributes_no_force_but_clears_transient_flags() {
+        // No contact bit: the wheel is skipped, yet the 0x1b0 clear
+        // is still written back (native writes EDI before testing).
+        let (mut m, prepared, setup) = rig(0x1b0);
+        let out = vehicle_move_wheel_forces(&mut m, V, prepared, setup.clone()).unwrap();
+        assert!(!out.any_contact);
+        assert_eq!(out.drive_force_sum.to_bits(), 0);
+        assert_eq!(out.linear_force, [0.0, 0.0, 0.0]);
+        assert_eq!(m.read_word(W.wrapping_add(0x120)).unwrap(), 0);
+    }
+
+    #[test]
+    fn excluded_contact_wheel_is_skipped_with_flags_masked() {
+        // Contact plus 0x40000000: skipped like a dangling wheel, with
+        // only the transient 0x1b0 bits cleared (native TEST EAX
+        // after the same AND).
+        let (mut m, prepared, setup) = rig(0x40000008 | 0x1b0);
+        let out = vehicle_move_wheel_forces(&mut m, V, prepared, setup.clone()).unwrap();
+        assert!(!out.any_contact);
+        assert_eq!(out.drive_force_sum.to_bits(), 0);
+        assert_eq!(out.linear_force, [0.0, 0.0, 0.0]);
+        assert_eq!(m.read_word(W.wrapping_add(0x120)).unwrap(), 0x40000008);
+    }
+
+    #[test]
+    fn contacting_wheel_runs_the_force_path() {
+        // Positive control: contact without exclusion includes the
+        // wheel (any_contact) and accumulates its lateral force.
+        let (mut m, prepared, setup) = rig(0x8);
+        let out = vehicle_move_wheel_forces(&mut m, V, prepared, setup.clone()).unwrap();
+        assert!(out.any_contact);
+        assert_eq!(out.linear_force[0].to_bits(), 0);
+        assert_eq!(out.linear_force[2].to_bits(), 0);
+        assert!(out.linear_force[1] < 0.0);
+        assert_eq!(m.read_word(W.wrapping_add(0x120)).unwrap(), 0x8);
+    }
+}
