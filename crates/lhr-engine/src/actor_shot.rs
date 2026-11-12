@@ -142,16 +142,16 @@ pub fn apply_shot_record_flags(flags: u32) -> (i32, bool, bool) {
     )
 }
 
-/// C_ShotSkeleton working-name leaves (no new address credit). They live in
-/// this shot module because `lib.rs` is frozen (no new modules) and the
-/// human-owner files are off limits; they describe `C_ShotSkeleton`, not
-/// `C_actor_shot`. Reference mafia-re `fe7e746`,
-/// game/actors/C_ShotSkeleton.h + game/actors/C_ShotSkeleton.cpp. Both
-/// native FUNCTION entries are frozen-ledger-occupied (see
-/// docs/progress.json), and the joint/bone tables are data offsets rather
-/// than code, so every item below is a working name. Frame lookup
-/// (`FindChildFrame`) and the `TestCollision` line trace need the model
-/// owner and stay caller duties.
+// C_ShotSkeleton working-name leaves (no new address credit). They live in
+// this shot module because `lib.rs` is frozen (no new modules) and the
+// human-owner files are off limits; they describe `C_ShotSkeleton`, not
+// `C_actor_shot`. Reference mafia-re `fe7e746`,
+// game/actors/C_ShotSkeleton.h + game/actors/C_ShotSkeleton.cpp. Both
+// native FUNCTION entries are frozen-ledger-occupied (see
+// docs/progress.json), and the joint/bone tables are data offsets rather
+// than code, so every item below is a working name. Frame lookup
+// (`FindChildFrame`) and the `TestCollision` line trace need the model
+// owner and stay caller duties.
 
 /// Working name; number of shot joints (reference mafia-re `fe7e746`,
 /// game/actors/C_ShotSkeleton.h joint table, `SHOT_JOINT_COUNT`).

@@ -20,3 +20,9 @@ incremental = false
 debug = 0
 incremental = false
 strip = "debuginfo"
+
+[workspace.lints.clippy]
+# Ports keep the original function signatures (thiscall/stdcall argument
+# lists) or widen them with explicit native state, which routinely exceeds
+# clippy's seven-argument default.
+too_many_arguments = "allow"

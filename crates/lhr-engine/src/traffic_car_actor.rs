@@ -907,6 +907,7 @@ impl TrafficCarState {
     /// `TRAFFIC_NAME_SIZE` name records. The host clones the admitted
     /// element bytes verbatim; native `strcpy` tail bytes past each NUL are
     /// uninitialized heap garbage and stay untracked.
+    #[allow(dead_code)] // Credited RVA port; production caller (base copy owner) not wired yet.
     pub(crate) fn duplicate_from(&mut self, other: &Self) {
         for offset in [0x21c, 0x224, 0x228, 0x22c] {
             let word = other.word(offset);

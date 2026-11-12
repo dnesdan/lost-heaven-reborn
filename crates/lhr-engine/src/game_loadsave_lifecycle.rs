@@ -753,7 +753,7 @@ pub fn objectives_clear(objectives: &mut Vec<u32>) {
 /// it for the added-objective time. A duplicate changes nothing, including the
 /// display.
 pub fn objectives_add(objectives: &mut Vec<u32>, display: &mut impl MissionHelpDisplay, id: u32) {
-    if objectives.iter().any(|&entry| entry == id) {
+    if objectives.contains(&id) {
         return;
     }
     objectives.push(id);
@@ -1002,10 +1002,10 @@ pub fn garage_results_diff(garage: &LoadSaveGarage) -> GarageResultsDiff {
 /// compares the parameter against `'A'` first.
 pub fn enable_steal(steal_cars: &mut u32, c: u8) {
     let mut bit = 0;
-    if c >= b'A' && c <= b'Z' {
+    if c.is_ascii_uppercase() {
         bit = c - b'A';
     }
-    if c >= b'a' && c <= b'z' {
+    if c.is_ascii_lowercase() {
         bit = c - b'a';
     }
     *steal_cars |= 1 << bit;

@@ -1462,9 +1462,8 @@ fn init_detector_programs_compiles_fresh_detector_sources_through_context() {
         Some(detector)
     );
     assert_eq!(context.init_detector_programs(&mut world), Ok(0));
-    // The context borrows the effects backend; release it before arming the
-    // failure injection below.
-    drop(context);
+    // The context borrows the effects backend; its last use above releases
+    // it before arming the failure injection below.
     // A failing effects backend reports the runtime error yet restores the
     // taken program to its owner (return-on-every-path, mirroring entities):
     // a second fresh detector still needs its first Init when the backend
@@ -1654,7 +1653,6 @@ fn tick_detector_programs_steps_owned_live_state_through_context() {
     assert_eq!(stored.fields.command_time, 3);
     assert!(world.detector(detector).unwrap().program().is_some());
     assert!(world.detector(waiter).unwrap().program().is_some());
-    drop(context);
     // Retire only the failed waiter through its actual owners. Replacing its
     // program with None would leave a detached Ready actor, which now refuses
     // dispatch rather than being a successful skip.
@@ -1833,31 +1831,9 @@ fn detector_erase_colls_succeeds_vacuously_while_create_stays_unavailable() {
 #[test]
 fn frame_switch_applies_arena_store_and_defers_sound_frames() {
     use super::MissionLookupWorld;
-    use crate::actor_world::{
-        ActorCollectionBackend, ActorSource, ActorStorageId, ActorWorld, SourceBacking,
-    };
+    use crate::actor_world::{ActorStorageId, ActorWorld, SourceBacking};
     use crate::model_loading::ModelArena;
     use crate::script_lookup::{FrameSetOnOutcome, LookupWorldBackend};
-
-    struct Heap;
-    impl ActorCollectionBackend for Heap {
-        fn allocate_collection(
-            &mut self,
-            _: &ActorWorld,
-            _: ActorSource,
-            _: u32,
-        ) -> Result<ActorStorageId, String> {
-            Ok(ActorStorageId(2))
-        }
-        fn free_collection(
-            &mut self,
-            _: &ActorWorld,
-            _: ActorSource,
-            _: Option<ActorStorageId>,
-        ) -> Result<(), String> {
-            Ok(())
-        }
-    }
 
     struct NoopDiagnostic;
     impl super::MissionProgramDiagnostic for NoopDiagnostic {

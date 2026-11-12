@@ -461,7 +461,7 @@ pub fn ray_down_tri(tri: &[[f32; 3]; 3], x: f32, z: f32, top_y: f32) -> Option<f
     let inv = 1.0 / det;
     let t = [x - a[0], top_y - a[1], z - a[2]];
     let u = (t[0] * p[0] + t[1] * p[1] + t[2] * p[2]) * inv;
-    if !(0.0 <= u && u <= 1.0) {
+    if !(0.0..=1.0).contains(&u) {
         return None;
     }
     // q = t x e1; v = dir . q * inv = -q[1] * inv for dir=(0,-1,0).
@@ -475,6 +475,8 @@ pub fn ray_down_tri(tri: &[[f32; 3]; 3], x: f32, z: f32, top_y: f32) -> Option<f
         return None;
     }
     let dist = (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]) * inv;
+    // NaN-preserving compare: a NaN distance must reject.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
     if !(dist >= 0.0) {
         return None;
     }
@@ -909,6 +911,8 @@ pub fn trap_penalty(node: [f32; 3], traps: &[[f32; 3]]) -> f32 {
 /// this dimension; the const stays the default.
 pub fn trap_penalty_with_radius(node: [f32; 3], traps: &[[f32; 3]], radius: f32) -> f32 {
     let mut penalty = 0.0f32;
+    // NaN-preserving compare: a NaN radius adds no penalty.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
     if !(radius > 0.0) {
         return penalty;
     }
@@ -941,6 +945,8 @@ pub fn trap_edge_penalty_with_radius(
 ) -> f32 {
     let mut penalty =
         trap_penalty_with_radius(a, traps, radius).max(trap_penalty_with_radius(b, traps, radius));
+    // NaN-preserving compare: a NaN radius adds no penalty.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
     if !(radius > 0.0) {
         return penalty;
     }
@@ -966,12 +972,15 @@ pub fn trap_edge_penalty_with_radius(
     penalty
 }
 
+/// Road-graph edge enumerator: fills `(neighbor, weight)` pairs for a node.
+pub type RoadNeighbors<'a> = &'a dyn Fn(usize, &mut Vec<(usize, f32)>);
+
 /// Full Dijkstra distances from the node nearest `from` over `neighbors`
 /// edge weights. Returns the start node and per-node distances (`INFINITY`
 /// stays unreached). The search itself is an explicit host driver.
 pub fn road_graph_distances(
     node_pos: &dyn Fn(usize) -> Option<[f32; 3]>,
-    neighbors: &dyn Fn(usize, &mut Vec<(usize, f32)>),
+    neighbors: RoadNeighbors<'_>,
     node_count: usize,
     from: [f32; 3],
 ) -> (Option<usize>, Vec<f32>) {
@@ -983,7 +992,7 @@ pub fn road_graph_distances(
 /// previous node on the current best path from the start, if any.
 fn dijkstra_core(
     node_pos: &dyn Fn(usize) -> Option<[f32; 3]>,
-    neighbors: &dyn Fn(usize, &mut Vec<(usize, f32)>),
+    neighbors: RoadNeighbors<'_>,
     node_count: usize,
     from: [f32; 3],
 ) -> (Option<usize>, Vec<f32>, Vec<Option<usize>>) {
@@ -1044,7 +1053,7 @@ fn dijkstra_core(
 /// are real mission data; the search itself is an explicit host driver.
 pub fn pick_road_destination(
     node_pos: &dyn Fn(usize) -> Option<[f32; 3]>,
-    neighbors: &dyn Fn(usize, &mut Vec<(usize, f32)>),
+    neighbors: RoadNeighbors<'_>,
     node_count: usize,
     from: [f32; 3],
     min_dist_m: f32,
@@ -1076,7 +1085,7 @@ pub fn pick_road_destination(
 /// node has a position. The search itself is an explicit host driver.
 pub fn road_graph_path(
     node_pos: &dyn Fn(usize) -> Option<[f32; 3]>,
-    neighbors: &dyn Fn(usize, &mut Vec<(usize, f32)>),
+    neighbors: RoadNeighbors<'_>,
     node_count: usize,
     from: [f32; 3],
     dest: usize,

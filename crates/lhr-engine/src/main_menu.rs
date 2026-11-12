@@ -13,8 +13,8 @@
 //! the menu layout, or any mission selection.
 //!
 //! GM_MainMenu::OnBeforeCreate name-select (Game.exe VA 0x5e0670,
-//! RVA 0x1e0670, 20-byte leaf VA 0x5e0670-0x5e0683 (CALL + TEST + two MOV
-//! + JNZ + MOV + RET); Game.exe SHA-256 as above, base 0x400000).
+//! RVA 0x1e0670, 20-byte leaf VA 0x5e0670-0x5e0683 (CALL + TEST + two MOV +
+//! JNZ + MOV + RET); Game.exe SHA-256 as above, base 0x400000).
 //! Reference sibling mafia-re @ 113b5b6 game/ui/g_m_func.cpp:271-280
 //! (GM_MainMenu::OnBeforeCreate) and game/ui/g_menu.cpp GM_Menu::Create
 //! 0x5ea2e0 chain; cited only, never vendored. REA-observed read-only probe

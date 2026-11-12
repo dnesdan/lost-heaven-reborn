@@ -246,12 +246,9 @@ pub fn compute_needle_corners(
 ) -> NeedleCorners {
     // All native defs have nonzero range; a zero range would divide by zero
     // exactly as the original does, so the caller stages evidenced defs.
-    let mut t = (value - def.min) / def.range;
-    if t < 0.0 {
-        t = 0.0;
-    } else if t > 1.0 {
-        t = 1.0;
-    }
+    // `f32::clamp` with constant bounds runs the same `<`/`>` tests (NaN and
+    // -0.0 pass through unchanged).
+    let t = ((value - def.min) / def.range).clamp(0.0, 1.0);
     let angle = t * def.angle_range + def.angle;
     let (s, c) = angle.sin_cos();
     // Up at 0, clockwise on the screen (`g_indicators.cpp:448`).
@@ -902,14 +899,14 @@ impl IndicatorsState {
     /// `PlayerSetWingmanName` (GAME 0x5f8950, `g_indicators.cpp:1049-1053`):
     /// wingman above `MAX_WINGMEN - 1` is ignored, the name masked with 7.
     pub fn player_set_wingman_name(&mut self, wingman: u32, name: u32) {
-        if (wingman as usize) <= MAX_WINGMEN - 1 {
+        if (wingman as usize) < MAX_WINGMEN {
             self.wingman_names[wingman as usize] = name & 7;
         }
     }
 
     /// `PlayerSetWingmanLives` (GAME 0x5f8970, `g_indicators.cpp:1056-1060`).
     pub fn player_set_wingman_lives(&mut self, wingman: u32, lives: u32) {
-        if (wingman as usize) <= MAX_WINGMEN - 1 {
+        if (wingman as usize) < MAX_WINGMEN {
             self.wingman_lives[wingman as usize] = lives;
         }
     }
@@ -1966,14 +1963,14 @@ mod tests {
     fn overlay_texture_identity_matches_pointer_semantics() {
         let mut state = IndicatorsState::constructed(staged_clock());
         state.set_overlay_texture(Some(b"shot.tga"), true, false);
-        assert_eq!(state.overlay().3, true);
+        assert!(state.overlay().3);
         // Same pointer without reload keeps the texture (native early-out).
         state.set_overlay_texture(Some(b"shot.tga"), false, false);
-        assert_eq!(state.overlay().3, true);
+        assert!(state.overlay().3);
         assert!(state.overlay().4);
         // Reload forces the release path.
         state.set_overlay_texture(Some(b"shot.tga"), false, true);
-        assert_eq!(state.overlay().3, true);
+        assert!(state.overlay().3);
         assert!(!state.overlay().4);
         // NULL clears and forces opaque off.
         state.set_overlay_texture(None, true, false);

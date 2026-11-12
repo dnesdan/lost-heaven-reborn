@@ -4333,10 +4333,10 @@ mod tests {
         frm_act_buff_store_model(&mut buffer, Some(FrameKey(12)), b"plain.i3d");
         assert_eq!(buffer.len(), 2);
         assert_eq!(buffer[1].name, b"plain.i3d".to_vec());
-        assert!(FRM_ACT_BUFF_GET_ACTOR_DEFERRED);
-        assert!(MISSION_OPEN_DEFERRED);
-        assert!(MISSION_CREATE_ACTOR_DEFERRED);
-        assert!(MISSION_TICK_DEFERRED);
+        const { assert!(FRM_ACT_BUFF_GET_ACTOR_DEFERRED) };
+        const { assert!(MISSION_OPEN_DEFERRED) };
+        const { assert!(MISSION_CREATE_ACTOR_DEFERRED) };
+        const { assert!(MISSION_TICK_DEFERRED) };
     }
     #[test]
     fn frm_act_buff_get_model_takes_model_only_entries() {

@@ -506,7 +506,7 @@ impl PoliceGameInitState {
     /// game/ai/C_shvestky.h:159-160, `FreeMyTempActor` linear search shape).
     /// No dedicated native getter exists, so no RVA is claimed.
     pub fn is_temp_car_tracked(&self, car: PoliceActorId) -> bool {
-        self.temp_cars.iter().any(|&tracked| tracked == car)
+        self.temp_cars.contains(&car)
     }
 
     /// Working name (no separate native entry): reports whether any pursuit
@@ -4288,8 +4288,10 @@ mod tests {
     #[test]
     fn rva_9cfd0_car_illegal_path_sets_flag_and_clears_timer() {
         // GAME VA 0x49cfd0 (RVA 0x9cfd0): `CarIllegalPath` outline.
-        let mut state = PoliceGameInitState::default();
-        state.active = true;
+        let mut state = PoliceGameInitState {
+            active: true,
+            ..PoliceGameInitState::default()
+        };
         let mut record = PolicePursuitRecord::new(7);
         record.car = Some(11);
         record.illegal_path_time = 1200;
@@ -6259,8 +6261,10 @@ mod tests {
     #[test]
     fn signal_mark_flag_working_name_reads_bit() {
         // Working name: SHVF_SIGNAL_MARK 0x1000; set by the signal-mark arm.
-        let mut state = PoliceGameInitState::default();
-        state.active = true;
+        let mut state = PoliceGameInitState {
+            active: true,
+            ..PoliceGameInitState::default()
+        };
         state.records.push(PolicePursuitRecord::new(7));
         assert!(!state.records[0].has_signal_mark());
         state.apply_destroy_signal_mark(7);
@@ -7166,8 +7170,10 @@ mod tests {
     #[test]
     fn has_support_level_for_human_reports_nonzero() {
         // Working name: support_level nonzero test; no dedicated getter.
-        let mut state = PoliceGameInitState::default();
-        state.active = true;
+        let mut state = PoliceGameInitState {
+            active: true,
+            ..PoliceGameInitState::default()
+        };
         assert!(!state.has_support_level_for_human(7));
         let mut record = PolicePursuitRecord::new(7);
         state.records.push(record.clone());

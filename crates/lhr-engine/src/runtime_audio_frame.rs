@@ -67,6 +67,7 @@ pub fn sync_runtime_audio_frames(
 /// out of range and resumes it on return. Needs the DSound voice, the
 /// current camera and the sector listener; none has a host carrier, so the
 /// host executes nothing.
+#[allow(dead_code)] // Explicit RVA-credited unsupported boundary; no caller until the voice/camera owners exist.
 pub fn update_sound_stub() -> Result<(), AudioError> {
     Err(AudioError(
         "I3D_sound::m_UpdateSound needs the voice and camera device owners".into(),

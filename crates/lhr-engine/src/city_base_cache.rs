@@ -420,15 +420,11 @@ pub fn release_cache_model_slot(used: Option<&mut bool>, model: u16, instance: u
         return false;
     }
     match used {
-        None => false,
-        Some(flag) => {
-            if *flag {
-                *flag = false;
-                true
-            } else {
-                false
-            }
+        Some(flag) if *flag => {
+            *flag = false;
+            true
         }
+        _ => false,
     }
 }
 

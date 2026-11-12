@@ -811,9 +811,7 @@ impl MenuStack {
     /// the menu has no such component or nothing was staged (the native NULL
     /// in both cases; text-database resolution stays DEFERRED).
     pub fn get_text(&self, id: u32) -> Option<&[u8]> {
-        if self.find_component_by_id(id).is_none() {
-            return None;
-        }
+        self.find_component_by_id(id)?;
         self.staged_texts.get(&id).map(Vec::as_slice)
     }
 

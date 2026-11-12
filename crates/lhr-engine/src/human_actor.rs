@@ -1826,6 +1826,7 @@ impl HumanState {
         self.person_anim_request
     }
     /// Take the pending PersonAnim handoff (future PersonAnim owner consumes it).
+    #[allow(dead_code)] // Handoff for the future PersonAnim owner; no consumer wired yet.
     pub(crate) fn take_person_anim_request(&mut self) -> Option<HumanPersonAnimRequest> {
         self.person_anim_request.take()
     }
@@ -2273,6 +2274,7 @@ impl HumanState {
     /// C_human without a type check; the typed source reference carries that
     /// caller precondition. Current properties, voice, frame targets,
     /// inventory and auxiliary records are preserved.
+    #[allow(dead_code)] // Credited RVA port; production caller not wired yet.
     pub(crate) fn duplicate_from(&mut self, source: &HumanState) {
         self.properties = source.properties.clone();
         self.human_type_mask = source.human_type_mask;
@@ -2295,6 +2297,7 @@ impl HumanState {
     /// reset plus ChangeWeaponModel, PoseValidate, ground snapping,
     /// LightnessAdd, and the loc/blob/cutscene/tick words. AI/Update stay
     /// DEFERRED.
+    #[allow(dead_code)] // RVA-mapped GameInit core; production caller not wired yet.
     pub(crate) fn apply_game_init_prefix(&mut self) {
         self.car = None;
         self.using_car = None;
@@ -2330,6 +2333,7 @@ impl HumanState {
     /// owner), `ChangeWeaponModel`/weapon models (weapon owner),
     /// `shvestky.DriveCar` (police owner) and `HideLegs`. `using_car` is
     /// deliberately untouched: the body writes no such word on this path.
+    #[allow(dead_code)] // RVA-mapped Intern_UseCar core; production caller not wired yet.
     pub(crate) fn apply_intern_use_car(
         &mut self,
         car: ActorReferenceId,
@@ -2365,6 +2369,7 @@ impl HumanState {
     /// /`DropOutItems` (inventory owner), `ChangeWeaponModel`/weapon models
     /// (weapon owner), `StopAnims`/`Reset`/`PersonAnim` (animation owner)
     /// and `HideLegs`.
+    #[allow(dead_code)] // RVA-mapped Intern_FromCar core; production caller not wired yet.
     pub(crate) fn apply_intern_from_car(
         &mut self,
         destination_present: bool,
@@ -2396,6 +2401,7 @@ impl HumanState {
     /// markers, no new owner here: the TestMoveColl move_coll word (0x414),
     /// crouching/weapon/aimed reads inside PersonAnim, and every Movement,
     /// Update and car-function writer of these words.
+    #[allow(dead_code)] // RVA-mapped Do_StopAnim core; production caller not wired yet.
     pub(crate) fn apply_do_stop_anim(&mut self) {
         self.action_state = HUMAN_ACTION_STAND;
         if self.alive {
@@ -3500,6 +3506,7 @@ impl HumanState {
     /// the ground `TestLineV`/room `TestLineH`/`TestSphereB` probes plus the
     /// `DynSetNextCollOwnerMult` plumbing (collision owner), and the
     /// `test_line` `TestColHierarchy` probe (scene owner).
+    #[allow(dead_code)] // Marker-scoped CanEnterToCar guard; production caller not wired yet.
     pub(crate) fn can_enter_to_car_guard(&self) -> bool {
         self.car.is_none()
     }
@@ -3609,6 +3616,7 @@ impl HumanState {
     /// load_source_data's version-6 path. The destructor's StopAnimation(0)
     /// device effect (GAME 0x56f210, C_human.cpp:1275) stays with the frame
     /// owner (ActorWorld/ModelArena): DEFERRED, no new owner filed here.
+    #[allow(dead_code)] // RVA-mapped SaveData encoder; production save path not wired yet.
     pub(crate) fn encode_source_data(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(73);
         bytes.push(6);
@@ -6786,7 +6794,7 @@ mod human_state_flags_tests {
     // game/actors/C_human.cpp:1699): explicit unsupported stub, animation-
     // machine/frame/collision owners; invoking it touches no staged words.
     fn extern_ai_update_rva_170660_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (
             human.action_state(),
             human.next_anim_id(),
@@ -6809,7 +6817,7 @@ mod human_state_flags_tests {
     // claimed 0x57e020 seat-placement overload. Invoking it touches no staged
     // words.
     fn intern_use_car_flag_rva_1716d0_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.car(), human.using_car(), human.action_state());
         HumanState::intern_use_car_flag_unsupported(true);
         HumanState::intern_use_car_flag_unsupported(false);
@@ -6824,7 +6832,7 @@ mod human_state_flags_tests {
     // railway/frame/matrix/collision/camera/police/shadow owners; invoking
     // it touches no staged words.
     fn intern_use_railway_rva_171b90_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.car(), human.using_car(), human.action_state());
         HumanState::intern_use_railway_unsupported(true);
         HumanState::intern_use_railway_unsupported(false);
@@ -6839,7 +6847,7 @@ mod human_state_flags_tests {
     // truck/frame/collision/camera/police/navigation owners; invoking it
     // touches no staged words.
     fn intern_use_car_truck_rva_1721b0_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.car(), human.using_car(), human.seat());
         HumanState::intern_use_car_truck_unsupported();
         assert_eq!((human.car(), human.using_car(), human.seat()), before);
@@ -6850,7 +6858,7 @@ mod human_state_flags_tests {
     // truck/frame/scene/collision/damage owners; invoking it touches no
     // staged words.
     fn throw_from_car_truck_rva_172530_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.car(), human.action_state(), human.velocity());
         HumanState::throw_from_car_truck_unsupported();
         assert_eq!(
@@ -6863,7 +6871,7 @@ mod human_state_flags_tests {
     // game/actors/C_human.cpp:3407): explicit unsupported stub, model/frame/
     // shadow/sound/using-object owners; invoking it touches no staged words.
     fn human_game_done_rva_1757c0_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.action_state(), human.anim_id(), human.next_anim_id());
         HumanState::human_game_done_unsupported();
         assert_eq!(
@@ -6877,7 +6885,7 @@ mod human_state_flags_tests {
     // frame/police/sound/grenade/weapon/light/force-feedback owners;
     // invoking it touches no staged words.
     fn shooting_rva_184620_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.reloading(), human.fire_held(), human.note_fire());
         HumanState::shooting_unsupported();
         assert_eq!(
@@ -6891,7 +6899,7 @@ mod human_state_flags_tests {
     // model/frame/animation-cache owners; invoking it touches no staged
     // words.
     fn recompile_death_pos_rva_18b8d0_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.action_state(), human.anim_id(), human.next_anim_id());
         HumanState::recompile_death_pos_unsupported();
         assert_eq!(
@@ -6904,7 +6912,7 @@ mod human_state_flags_tests {
     // game/actors/C_human.cpp:250): explicit unsupported stub, records/
     // cutscene/model/frame owners; invoking it touches no staged words.
     fn play_step_rva_16b8d0_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.action_state(), human.anim_id(), human.next_anim_id());
         HumanState::play_step_unsupported(100);
         assert_eq!(
@@ -7721,7 +7729,7 @@ pub fn reload_fire_plan(
     if !at_end {
         return None;
     }
-    if weapon_kind <= WEAPON_KIND_FISTS || weapon_kind > WEAPON_KIND_SMG {
+    if weapon_kind == WEAPON_KIND_FISTS || weapon_kind > WEAPON_KIND_SMG {
         return None;
     }
     if spare <= 0 {
