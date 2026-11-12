@@ -1450,6 +1450,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // circling. Latch full lock toward the target side until motion
     // aligns with it, then resume pursuit.
     let mut uturn: Option<f32> = None;
+    // Rail-carry rising edge: per-tick low/high sweep ahead while
+    // rolling; true only on the low-blocked/high-free signature, so
+    // the 8 m/s hold cannot stick on anywhere else.
+    let mut rail_carry_was = false;
     // Geometry-directed escape: when the taxi boxes, sweep the driving
     // collision in 8 headings and pursue a virtual target 40 m along the
     // freest one instead of K-turning blindly into the same walls. The
@@ -1631,6 +1635,67 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
         let align = err.cos().clamp(0.2, 1.0);
         let target_speed = (gap * 0.5 * align).clamp(3.0, 14.0);
         let speed = last.speed.abs();
+        // Rail carry: a low (+0.1 m) blockage with a free +0.4 m line
+        // 12 m ahead while rolling is a rail/beam the pan would
+        // high-center on at crawl speed — probe_pen6k beached exactly
+        // this way at [-1318,153] (reverse 0.0 m, motor screaming) and
+        // then proved the corridor a cut-vertex, so it must be crossed,
+        // not avoided. Hold at least 8 m/s to carry over instead of
+        // slowing onto it; the corner cap still governs everywhere
+        // else. Precedent: the [41,108] node, previously carried
+        // through at speed but hung on furniture when crawled into.
+        // Logged on rising edge only; fail-safes untouched (a beach
+        // still drops speed to ~0 and the box machinery takes over).
+        {
+            let mut carry = false;
+            if !escaping && unstick == 0 && speed_hint > 1.0 {
+                let len = vel[0].hypot(vel[1]);
+                if len > 1e-4 {
+                    let (dx, dz) = (vel[0] / len, vel[1] / len);
+                    if let Some(world) = taxi.driving_collision() {
+                        let mut travelled = |h: f32| {
+                            let request = lhr_engine::collision_query::CollisionLineRequest {
+                                origin: [
+                                    last.position[0] + dx * 2.0,
+                                    last.position[1] + h,
+                                    last.position[2] + dz * 2.0,
+                                ],
+                                delta: [dx * 12.0, 0.0, dz * 12.0],
+                                selector: -1,
+                                reject_mask: 0,
+                            };
+                            let mut outputs = lhr_engine::collision_query::CollisionLineOutputs {
+                                point: None,
+                                normal: None,
+                            };
+                            let mut trav =
+                                lhr_engine::collision_query::CollisionTraversalState::default();
+                            match world.test_line_v(&request, &mut outputs, &mut trav) {
+                                Ok(Some(hit)) => hit.fraction * 12.0,
+                                Ok(None) => 12.0,
+                                Err(_) => 0.0,
+                            }
+                        };
+                        carry = travelled(0.1) < 12.0 && travelled(0.4) >= 11.0;
+                    }
+                }
+            }
+            if carry && !rail_carry_was {
+                println!(
+                    "probe drive: rail carry at [{:.1}, {:.1}, {:.1}] speed={:.1}",
+                    last.position[0], last.position[1], last.position[2], last.speed
+                );
+            }
+            rail_carry_was = carry;
+            if carry {
+                // Hold speed over the rail; never brake into it.
+            }
+        }
+        let target_speed = if rail_carry_was {
+            target_speed.max(8.0)
+        } else {
+            target_speed
+        };
         // Sag-triggered re-lift: while an escape push grinds at ~0 speed,
         // sample the live clutch progress every 12 ticks; below 0.95
         // (0x5dc < 0x3f733333) the native recompute arm has re-trapped it

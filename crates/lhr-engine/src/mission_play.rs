@@ -886,14 +886,13 @@ pub fn mission_end_detector(
 /// native behavior and claims no original function.
 pub const TRAP_RADIUS_M: f32 = 45.0;
 /// A single disc crossing costs at most one full penalty. Raised
-/// 2000 -> 6000 when the [-1318,153] rail crossing persisted: threading
-/// one disc (~2000) stayed cheaper than the full-avoidance detour, so
-/// the penalized route kept crossing a beaching rail no choreography
-/// can unstick (reverse 0.0 m, motor screaming). 6000 makes avoidance
-/// win wherever any alternative corridor exists; the divergence log
-/// decides — a min-distance jump proves avoidance, an unchanged
-/// corridor proves a cut-vertex (graph-level owner next).
-pub const TRAP_PENALTY_M: f32 = 6000.0;
+/// 2000 -> 6000 and reverted: the 6000 detour (probe_pen6k, 14223 m)
+/// kept the identical 19.4 m min-distance crossing as the 7622 m
+/// route, proving the [-1318,153] rail a cut-vertex no finite penalty
+/// routes around — while the doubled route no longer fits the tick
+/// budget. So the rail must be DRIVEN through (rail-carry hold),
+/// not avoided.
+pub const TRAP_PENALTY_M: f32 = 2000.0;
 
 /// Sum of trap penalties for a road-graph node position. Returns `0.0`
 /// with no traps or beyond the radius, so unpenalized routing is the
@@ -1579,9 +1578,8 @@ mod tests {
             .expect("penalized diamond path exists");
         assert_eq!(avoided.0, vec![0, 2, 3]);
         // The 2->3 leg clips the 45 m disc, so it pays a partial segment
-        // penalty — but far less than the full single-disc penalty of
-        // the trapped node.
-        assert!(avoided.1 > 120.0 && avoided.1 < 3.0 * TRAP_PENALTY_M);
+        // penalty — but far less than the +2000 of the trapped node.
+        assert!(avoided.1 > 120.0 && avoided.1 < 1000.0);
     }
 
     #[test]
