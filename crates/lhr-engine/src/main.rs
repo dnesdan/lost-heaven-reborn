@@ -1411,13 +1411,19 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // wheel slipping right now means the open differential feeds a
     // dangling wheel. Runs at every K-turn trigger (not just in escape
     // pushes), so reverse never works from a stale latch — and with no
-    // slip it leaves the latch clear, so reverse stays unbraked.
+    // slip it leaves the latch clear, so reverse stays unbraked. The
+    // grip latch refreshes alongside: a driven wheel in contact without
+    // slip still pulls, and the rear-axle handbrake must not hold it.
     let mut refresh_slip_latch = |taxi: &mut lhr_engine::car_runtime::GuardedCarRuntime,
-                                  slip: &mut bool| {
+                                  slip: &mut bool,
+                                  grip: &mut bool| {
         if let Ok(rows) = taxi.driving_wheel_diagnostics() {
             *slip = rows
                 .iter()
                 .any(|row| row[4] & 0x2 != 0 && row[4] & 0x80 != 0);
+            *grip = rows
+                .iter()
+                .any(|row| row[4] & 0x2 != 0 && row[4] & 0x8 != 0 && row[4] & 0x80 == 0);
         }
     };
     let mut unstick_from = [0.0f32; 3];
@@ -1677,6 +1683,16 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     // spinner and send torque back to the gripping side — the native
     // traction response, as host choreography.
     let mut wheel_slip = false;
+    // Latched grip state alongside the slip latch: a driven wheel in
+    // contact WITHOUT slip is still pulling. The handbrake channel is
+    // rear-axle, so braking while one driven wheel grips brakes the
+    // pulling wheel too — probe_saw sat at 0.0 m with wheel 2 gripping
+    // and wheel 3 slipping while the brake held both rears. Brake only
+    // when a driven wheel slips AND none grips (both spinners wasted);
+    // a gripping wheel pulls unbraked. probe_crash behavior (both
+    // spinning) is unchanged: grip is clear there, the brake still
+    // applies.
+    let mut wheel_grip = false;
     while progress.stage() == Mise01Stage::DrivingToDestination {
         // Geometry-directed escape overrides the staged waypoint until it
         // expires, the taxi arrives within 3 m of the virtual target, or
@@ -2074,10 +2090,10 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                 // slips while the taxi sits at 0.0 m/s), and the refreshed
                 // latch tracks live slip, so with no slip this is
                 // identical to before (handbrake off).
-                (0.0, 1.0, wheel_slip, true)
+                (0.0, 1.0, wheel_slip && !wheel_grip, true)
             } else if unstick >= 40 {
                 steer = 1.0;
-                (0.0, 1.0, wheel_slip, true)
+                (0.0, 1.0, wheel_slip && !wheel_grip, true)
             } else {
                 steer = escape_steer;
                 // Rolling exit: ending the fixed 40-tick pull-out at ~0
@@ -2179,12 +2195,14 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             // handbrake stays slip-gated as before (a foot brake would
             // zero the power channels in SetBrake; the handbrake runs on
             // its own force channel, braking only the free spinner).
+            // Grip-gated: with a driven wheel gripping unslipped, the
+            // rear-axle brake would hold the pulling wheel too.
             let feathered = if drive_ticks % 30 < 20 {
                 1.0 - 0.5 * steer.abs()
             } else {
                 0.05
             };
-            (feathered, 0.0, wheel_slip, false)
+            (feathered, 0.0, wheel_slip && !wheel_grip, false)
         } else if speed > target_speed + 2.0 {
             (0.0, 0.8, false, false)
         } else if speed > target_speed {
@@ -2271,7 +2289,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                             last.position[0],
                             last.position[1],
                             last.position[2],
-                            wheel_slip
+                            wheel_slip && !wheel_grip
                         );
                         for (offset, value) in words {
                             if matches!(
@@ -2323,9 +2341,15 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         // probe_staged2 showed a permanent latch holding the
                         // handbrake on with clutch 1.0, locked wheels and
                         // 0.0-0.4 m per push after the slip was long gone.
+                        // The grip latch refreshes alongside (see decl):
+                        // a gripping driven wheel vetoes the rear-axle
+                        // brake so it can pull unbraked.
                         wheel_slip = rows
                             .iter()
                             .any(|row| row[4] & 0x2 != 0 && row[4] & 0x80 != 0);
+                        wheel_grip = rows.iter().any(|row| {
+                            row[4] & 0x2 != 0 && row[4] & 0x8 != 0 && row[4] & 0x80 == 0
+                        });
                         for (i, row) in rows.iter().enumerate() {
                             let pos = [
                                 f32::from_bits(row[6]),
@@ -2873,7 +2897,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         unstick_from = last.position;
                         uturn = None;
                         unstick_extend = 0;
-                        refresh_slip_latch(&mut taxi, &mut wheel_slip);
+                        refresh_slip_latch(&mut taxi, &mut wheel_slip, &mut wheel_grip);
                         escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
                         escape = None;
                         escape_deg = None;
@@ -2919,7 +2943,9 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         // persists across sag re-lifts within this escape
                         // (no reset at the sag site), so the brake does not
                         // flicker off mid-grind; a new escape re-assesses.
+                        // Grip re-assesses alongside (see decl).
                         wheel_slip = false;
+                        wheel_grip = false;
                         // Static steering latch: velocity steering is
                         // identically zero while standing still, so latch full
                         // lock toward the escape target's side from the
@@ -2952,7 +2978,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     unstick_from = last.position;
                     uturn = None;
                     unstick_extend = 0;
-                    refresh_slip_latch(&mut taxi, &mut wheel_slip);
+                    refresh_slip_latch(&mut taxi, &mut wheel_slip, &mut wheel_grip);
                     escape = None;
                     escape_deg = None;
                     escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
@@ -3050,6 +3076,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         last_sag_lift = drive_ticks;
                         escape_deg = None;
                         wheel_slip = false;
+                        wheel_grip = false;
                         println!(
                             "probe drive: rejoin {rejoins}/5 from [{:.1}, {:.1}, {:.1}]: {} waypoints, {:.0} m by graph",
                             last.position[0], last.position[1], last.position[2],
@@ -3090,7 +3117,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             stall_ticks = 0;
             unstick = 250;
             unstick_extend = 0;
-            refresh_slip_latch(&mut taxi, &mut wheel_slip);
+            refresh_slip_latch(&mut taxi, &mut wheel_slip, &mut wheel_grip);
             escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
             println!(
                 "probe drive: stalled at waypoint {}/{} gap {gap:.1} m, reversing out",
