@@ -1382,6 +1382,19 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
     let mut unstick = 0u32;
     // Pull-out extension rounds used (max 2 per K-turn, see rolling exit).
     let mut unstick_extend = 0u32;
+    // Refresh the slip latch from live wheel diagnostics: any driven
+    // wheel slipping right now means the open differential feeds a
+    // dangling wheel. Runs at every K-turn trigger (not just in escape
+    // pushes), so reverse never works from a stale latch — and with no
+    // slip it leaves the latch clear, so reverse stays unbraked.
+    let mut refresh_slip_latch = |taxi: &mut lhr_engine::car_runtime::GuardedCarRuntime,
+                                  slip: &mut bool| {
+        if let Ok(rows) = taxi.driving_wheel_diagnostics() {
+            *slip = rows
+                .iter()
+                .any(|row| row[4] & 0x2 != 0 && row[4] & 0x80 != 0);
+        }
+    };
     let mut unstick_from = [0.0f32; 3];
     let mut boxed_windows = 0u32;
     // Steering side latched when a wedge triggers the unstick: steer
@@ -1880,10 +1893,15 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             }
             if unstick >= 100 {
                 steer = 0.0;
-                (0.0, 1.0, false, true)
+                // Slip-gated handbrake in reverse too: the open-diff trap
+                // is direction-blind (probe_aimed: right-rear dangles and
+                // slips while the taxi sits at 0.0 m/s), and the refreshed
+                // latch tracks live slip, so with no slip this is
+                // identical to before (handbrake off).
+                (0.0, 1.0, wheel_slip, true)
             } else if unstick >= 40 {
                 steer = 1.0;
-                (0.0, 1.0, false, true)
+                (0.0, 1.0, wheel_slip, true)
             } else {
                 steer = escape_steer;
                 // Rolling exit: ending the fixed 40-tick pull-out at ~0
@@ -2637,6 +2655,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                         unstick_from = last.position;
                         uturn = None;
                         unstick_extend = 0;
+                        refresh_slip_latch(&mut taxi, &mut wheel_slip);
                         escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
                         escape = None;
                         escape_deg = None;
@@ -2710,6 +2729,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                     unstick_from = last.position;
                     uturn = None;
                     unstick_extend = 0;
+                    refresh_slip_latch(&mut taxi, &mut wheel_slip);
                     escape = None;
                     escape_deg = None;
                     escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
@@ -2837,6 +2857,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
             stall_ticks = 0;
             unstick = 250;
             unstick_extend = 0;
+            refresh_slip_latch(&mut taxi, &mut wheel_slip);
             escape_steer = if err >= 0.0 { -1.0 } else { 1.0 };
             println!(
                 "probe drive: stalled at waypoint {}/{} gap {gap:.1} m, reversing out",
