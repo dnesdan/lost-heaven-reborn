@@ -10,7 +10,8 @@ scripts, the 13,857-node navigation graph and the 229-node road network
 with zero retained owners after disposal. Mission execution, GameInit and
 playable control remain open. See [coverage](COVERAGE.md),
 [goals](docs/GOALS.md) and [progress](docs/PROGRESS.md); history lives in
-`git log` on `rust-engine`.
+`git log` on `rust-engine`. Watch the current state in motion (60 s, with
+in-game audio): [menu, intro, on-foot walk and driving](docs/mise01-current-state.mp4).
 
 <!-- rewrite-progress:start -->
 ## Rewrite progress
