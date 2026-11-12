@@ -2115,6 +2115,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                     | 0x59c
                                     | 0x1a4
                                     | 0x5d0
+                                    | 0x56c
                                     | 0x570
                                     | 0x574
                                     | 0x5ac
@@ -2200,6 +2201,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                 | 0x540
                                 | 0x59c
                                 | 0x1a4
+                                | 0x56c
                         ) {
                             match value {
                                 Some(word) => line.push_str(&format!(" {offset:#x}={word:#x}")),
@@ -2262,6 +2264,7 @@ fn mission_play_probe(options: &Options) -> Result<(), String> {
                                     | 0x59c
                                     | 0x1a4
                                     | 0x5d0
+                                    | 0x56c
                                     | 0x570
                                     | 0x574
                                     | 0x5ac
