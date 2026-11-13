@@ -35,8 +35,13 @@ impl MissionLoadSession {
     /// A source prefix is admitted to scripts/Init only after the entire Open
     /// sequence returns Opened, including its final cache read. That outcome
     /// is source loading, not native GameInit, active Close or playable startup.
+    ///
+    /// This is the only source-loading entry: the probe and every composed
+    /// new-mission caller go through it. The caller owns `attempt`, so the
+    /// reached boundary sequence stays observable after any outcome.
     pub fn open_source_in_order<S: DriverSceneScreen, R: SceneRenderBackend>(
         &mut self,
+        attempt: &mut OpenAttempt,
         mission: &str,
         model_directories: &[&[u8]],
         projection: GameCameraProjection,
@@ -59,7 +64,11 @@ impl MissionLoadSession {
         if self.open_mission_opened || self.game_initialized {
             return Err(MissionSourceOpenError::MissionAlreadyOpened);
         }
-        // The legacy Open helpers do not enter load(). Their one-shot owners
+        // A replayed attempt guard is refused before bootstrap effects.
+        if attempt.entered() {
+            return Err(MissionSourceOpenError::Open(OpenRunError::AlreadyEntered));
+        }
+        // The standalone Open helpers do not enter this path. Their one-shot owners
         // and reached effects must not be erased by bootstrap/ClosePrevious.
         // Configuration-only mission name and volume remain caller inputs.
         if !matches!(
@@ -79,8 +88,7 @@ impl MissionLoadSession {
         }
         Self::validate_open_mission_name(mission)
             .map_err(MissionSourceOpenError::InvalidMissionName)?;
-        // This is shared with load(): callbacks and unwind cannot admit a
-        // second source owner through either public entry point.
+        // Callbacks and unwind cannot admit a second source owner.
         self.entered = true;
         Pc24PrecisionState::run_owner(
             self,
@@ -90,7 +98,7 @@ impl MissionLoadSession {
                     session.retain_source_open_failure(cause);
                     return Err(MissionSourceOpenError::BootstrapStopped);
                 }
-                let result = OpenAttempt::default().run(&mut SourceOpen {
+                let result = attempt.run(&mut SourceOpen {
                     session,
                     mission,
                     projection,

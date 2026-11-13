@@ -80,18 +80,33 @@ impl DriverSceneScreen for Screen {
     }
 }
 
-fn request<'a>(directories: &'a [&'a [u8]]) -> MissionLoadRequest<'a> {
-    MissionLoadRequest {
-        world_input: "missions/synthetic/scene.i3d",
-        scene2_path: "missions/synthetic/scene2.bin",
-        model_directories: directories,
-        projection: GameCameraProjection {
-            global_mode: 0,
-            screen_flag_46f4: false,
-        },
+fn projection() -> GameCameraProjection {
+    GameCameraProjection {
+        global_mode: 0,
+        screen_flag_46f4: false,
     }
 }
 
+/// Test view of one ordered source Open (the only source-loading entry):
+/// `Ok` is reserved for `Opened`; a stop keeps its detail in `failure()`.
+#[derive(Debug, PartialEq, Eq)]
+enum LoadStop {
+    Admission(MissionLoadCallError),
+    /// A native early return (`NoMedia`/`OpenBinFailed`), not a host error.
+    NotOpened(crate::mission_open_order::OpenResult),
+    Stopped,
+}
+
+/// Camera-less headless Render: native I3D_driver::Render (LS3DF
+/// 0x10062030) without a current camera clears the device and returns
+/// I3DERR_GENERIC; there is no device here to clear.
+struct NoCameraRender;
+impl crate::scene_projection::SceneRenderBackend for NoCameraRender {
+    fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
+        assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
+        Ok(0x8000_0005)
+    }
+}
 fn frame_prefix(kind: u8, parent: u16, name: &[u8], culling: u8) -> Vec<u8> {
     let mut bytes = vec![kind];
     bytes.extend(parent.to_le_bytes());
@@ -191,11 +206,36 @@ fn pcm_wav() -> Vec<u8> {
     }
     bytes
 }
-fn load(
+fn load(session: &mut MissionLoadSession, directories: &[&[u8]]) -> Result<(), LoadStop> {
+    load_with(session, directories, &mut Screen::default())
+}
+fn load_with(
     session: &mut MissionLoadSession,
     directories: &[&[u8]],
-) -> Result<(), MissionLoadCallError> {
-    session.load(request(directories), &mut Screen::default())
+    screen: &mut Screen,
+) -> Result<(), LoadStop> {
+    use crate::mission_open_order::OpenResult;
+    match session.open_source_in_order(
+        &mut crate::mission_open_order::OpenAttempt::default(),
+        "synthetic",
+        directories,
+        projection(),
+        screen,
+        &mut NoCameraRender,
+    ) {
+        Ok(OpenResult::Opened) => Ok(()),
+        Ok(outcome) => Err(LoadStop::NotOpened(outcome)),
+        Err(MissionSourceOpenError::Admission(error)) => Err(LoadStop::Admission(error)),
+        Err(_) => Err(LoadStop::Stopped),
+    }
+}
+/// Ordered Open sets native `restore_volume` before OpenBin. Consume it with
+/// the first Tick head (skip_frames 0) so a later Init boundary's own write
+/// of the flag is observable in isolation.
+fn consume_open_restore(session: &mut MissionLoadSession) {
+    assert!(session.open_restore_volume());
+    assert_eq!(session.tick_restore_volume_head(), Ok(true));
+    assert!(!session.open_restore_volume());
 }
 fn discard(session: &mut MissionLoadSession) {
     let result = session.discard_terminal();
@@ -223,7 +263,7 @@ fn discard(session: &mut MissionLoadSession) {
 fn missing_world_preserves_real_scene_and_first_error_without_reentry() {
     let fixture = Fixture::new(None, Some(&scene2(&[])), None);
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
     assert_eq!(session.phase(), MissionLoadPhase::World);
     assert_eq!(
         session.world_progress().unwrap().phase(),
@@ -238,7 +278,7 @@ fn missing_world_preserves_real_scene_and_first_error_without_reentry() {
     let before = session.owned_counts().unwrap();
     assert_eq!(
         load(&mut session, &[]),
-        Err(MissionLoadCallError::AlreadyEntered)
+        Err(LoadStop::Admission(MissionLoadCallError::AlreadyEntered))
     );
     assert_eq!(session.owned_counts().unwrap(), before);
     assert_eq!(format!("{:?}", session.failure().unwrap()), error);
@@ -247,7 +287,9 @@ fn missing_world_preserves_real_scene_and_first_error_without_reentry() {
     assert_eq!(format!("{:?}", session.failure().unwrap()), error);
     assert_eq!(
         load(&mut session, &[]),
-        Err(MissionLoadCallError::TerminalDiscardEntered)
+        Err(LoadStop::Admission(
+            MissionLoadCallError::TerminalDiscardEntered
+        ))
     );
     assert_eq!(
         session.discard_terminal(),
@@ -256,24 +298,27 @@ fn missing_world_preserves_real_scene_and_first_error_without_reentry() {
 }
 
 #[test]
-fn missing_scene2_retains_world_transfer_and_actual_name_map_without_camera_creation() {
+fn missing_scene2_retains_world_transfer_without_map_or_camera_creation() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), None, None);
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
-    assert_eq!(session.phase(), MissionLoadPhase::Scene2Input);
+    // Absent scene2.bin is the native nonzero OpenBin return, after the map
+    // was created from the live Scene; no host error is retained.
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(LoadStop::NotOpened(
+            crate::mission_open_order::OpenResult::OpenBinFailed
+        ))
+    );
+    assert!(session.failure().is_none());
     let progress = session.world_progress().unwrap();
     assert_eq!(progress.phase(), CpuSceneWorldPhase::Complete);
     assert_eq!(progress.staging_model(), None);
     assert_eq!(progress.transferred_frames(), 1);
     let frame = progress.frames()[0];
-    let live = session.arena().lookup_reference(frame);
-    assert_eq!(
-        session.load_map().unwrap().map.slot(b"world part"),
-        Some(Some(live))
-    );
-    assert_eq!(session.load_map().unwrap().publications.len(), 4);
-    assert!(session.loader().unwrap().camera.is_none());
-    assert_eq!(session.loader().unwrap().cursor, 0);
+    // C_mission::OpenBin (GAME 0x541030) opens scene2.bin before any map or
+    // camera setup, so its absence leaves neither.
+    assert!(session.load_map().is_none());
+    assert!(session.loader().is_none());
     let scene = session.scene().unwrap().unwrap();
     assert_eq!(session.arena().scene(scene).unwrap().frames(), &[frame]);
     assert_eq!(session.arena().scene_active_camera(scene).unwrap(), None);
@@ -292,7 +337,7 @@ fn malformed_actor_root_is_the_exact_frontier_and_does_not_run_later_objects() {
     );
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
     assert_eq!(session.phase(), MissionLoadPhase::Scene2Prefix);
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong frontier: {:?}", session.failure());
@@ -439,10 +484,7 @@ fn malformed_model_stops_cache_call_and_terminal_discard_preserves_interrupted_r
         Some(b"synthetic invalid 4DS"),
     );
     let mut session = fixture.session();
-    assert_eq!(
-        load(&mut session, &[b"Models"]),
-        Err(MissionLoadCallError::Stopped)
-    );
+    assert_eq!(load(&mut session, &[b"Models"]), Err(LoadStop::Stopped));
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong frontier: {:?}", session.failure());
     };
@@ -486,7 +528,9 @@ fn malformed_model_stops_cache_call_and_terminal_discard_preserves_interrupted_r
     );
     assert_eq!(
         load(&mut session, &[b"Models"]),
-        Err(MissionLoadCallError::TerminalDiscardEntered)
+        Err(LoadStop::Admission(
+            MissionLoadCallError::TerminalDiscardEntered
+        ))
     );
     // Rust Drop now releases this synthetic host storage. It is not reported
     // as a completed original cache destructor or native exception rollback.
@@ -629,7 +673,7 @@ fn failed_world_geometry_uses_actual_staging_disposal_before_scene_release() {
         .arena
         .sector_storage_mut()
         .fail_on_allocation(Some(1));
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
     assert_eq!(session.phase(), MissionLoadPhase::World);
     let progress = session.world_progress().unwrap();
     assert_eq!(progress.phase(), CpuSceneWorldPhase::Geometry);
@@ -661,7 +705,7 @@ fn failed_world_prepare_preserves_scene_ownership_and_the_actual_cleanup_refusal
         .arena
         .sector_storage_mut()
         .fail_on_allocation(Some(3));
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
     assert_eq!(session.phase(), MissionLoadPhase::World);
     assert!(matches!(
         session.failure().unwrap().cause,
@@ -810,6 +854,7 @@ fn game_init_render_borrows_live_scene_once_then_marks_volume_restore() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     load(&mut session, &[]).unwrap();
+    consume_open_restore(&mut session);
     let scene = session.scene().unwrap().unwrap();
     let mut renderer = InitSceneRender {
         calls: Vec::new(),
@@ -838,6 +883,7 @@ fn game_init_render_failure_keeps_muted_prefix_and_does_not_mark_restore() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     load(&mut session, &[]).unwrap();
+    consume_open_restore(&mut session);
     let scene = session.scene().unwrap().unwrap();
     let mut renderer = InitSceneRender {
         calls: Vec::new(),
@@ -908,7 +954,8 @@ fn mission_tick_head_consumes_restore_before_a_refused_audio_write() {
         .unwrap_err()
         .contains("master volume outside host mixer domain"));
     assert!(!session.open_restore_volume());
-    assert_eq!(session.open_restored(), None);
+    // Open's own RestoreAudio recorded 1.0; the refused write keeps it.
+    assert_eq!(session.open_restored(), Some(1.0));
     assert_eq!(session.audio().master_gain().unwrap(), 0.0);
     assert_eq!(session.tick_restore_volume_head(), Ok(false));
     discard(&mut session);
@@ -959,7 +1006,7 @@ fn sound_cache_error_retains_first_scene2_prefix_and_refused_destructor() {
     let fixture = Fixture::new(Some(&world(&[])), Some(&bytes), None);
     std::fs::write(fixture.0.join("Sounds/broken.wav"), b"not PCM WAV").unwrap();
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("expected first Scene2 Sound Open failure");
     };
@@ -998,8 +1045,8 @@ fn early_constructor_failure_is_retained_and_cannot_be_force_destroyed() {
         calls: 0,
     };
     assert_eq!(
-        session.load(request(&[]), &mut screen),
-        Err(MissionLoadCallError::Stopped)
+        load_with(&mut session, &[], &mut screen),
+        Err(LoadStop::Stopped)
     );
     assert_eq!(screen.calls, 1);
     assert!(matches!(
@@ -1284,7 +1331,7 @@ fn scene2_saved_lighting_replacement_uses_current_owner_and_terminal_disposal() 
     ));
     // Drive the actual current scene2 dispatcher over the session's real Scene
     // and model arena. This controlled second input is a synthetic regression,
-    // not another MissionLoadSession::load admission.
+    // not another ordered source Open admission.
     let scene = session.scene().unwrap().unwrap();
     let mut loader =
         MissionSceneLoader::new(&session.arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
@@ -1489,7 +1536,7 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
         None,
     );
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong failure");
     };
@@ -1723,7 +1770,7 @@ fn padded_kind_field_is_closed_before_factory_failure_and_preserves_registered_p
         None,
     );
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong failure");
     };
@@ -1773,7 +1820,7 @@ fn interrupted_program_source_retains_pending_owner_and_does_not_push_or_visit_l
     );
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong failure");
     };
@@ -1858,7 +1905,7 @@ fn failed_derived_load_data_keeps_registration_and_pending_bytes_then_disposes_r
     );
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
     let loader = session.loader().unwrap();
     let actor = loader.content.actors.world.source(ActorSource::Primary)[0].unwrap();
     let frame = loader.load_map.map.slot(b"world part").flatten().unwrap();
@@ -2032,7 +2079,7 @@ fn startup_patch_failure_retains_complete_file_and_record_prefix_before_scene_cr
     );
     write_patch(&fixture, "a4.bin", &patch_rows(b"must not load\0"));
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(MissionLoadCallError::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
     assert_eq!(session.phase(), MissionLoadPhase::StartupPatches);
     assert_eq!(
         session.startup_patches().phase(),
@@ -2054,7 +2101,7 @@ fn startup_patch_failure_retains_complete_file_and_record_prefix_before_scene_cr
     let failure = format!("{:?}", session.failure());
     assert_eq!(
         load(&mut session, &[]),
-        Err(MissionLoadCallError::AlreadyEntered)
+        Err(LoadStop::Admission(MissionLoadCallError::AlreadyEntered))
     );
     assert_eq!(format!("{:?}", session.failure()), failure);
     session.discard_terminal().unwrap();

@@ -138,6 +138,7 @@ pub mod mission_effects;
 pub mod mission_lifecycle;
 pub mod mission_load_session;
 pub mod mission_navigation_input;
+pub mod mission_new_game_order;
 pub mod mission_open_order;
 pub mod mission_options;
 pub mod mission_play;
