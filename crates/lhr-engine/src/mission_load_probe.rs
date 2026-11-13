@@ -551,6 +551,17 @@ pub fn run(
         new_mission.init().entered()
     )
     .unwrap();
+    let collision = session.collision();
+    writeln!(
+        report,
+        "Collision owner (gifCollision): progress={:?}; level installed={}; level_size={}; dynamic grid={}; LoadedLevel={}",
+        collision.load_progress(),
+        collision.level().is_some(),
+        collision.level_size(),
+        collision.dynamic_grid().is_some(),
+        collision.loaded_level()
+    )
+    .unwrap();
     append_load_report(&mut report, &session);
     append_world_completeness_report(&mut report, root, mission, &session);
     append_navigation_report(&mut report, &session);
