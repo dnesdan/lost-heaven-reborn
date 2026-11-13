@@ -321,11 +321,7 @@ pub fn stop_anims(model: Option<u32>, backend: &mut impl SlotStopBackend) {
 ///
 /// Moves both stored track origins by `m`, then refreshes the track basis
 /// from `local` with its translation row cleared.
-pub fn recompile_matrix(
-    machine: &mut AnimationMachine,
-    m: [[f32; 4]; 4],
-    local: [[f32; 4]; 4],
-) {
+pub fn recompile_matrix(machine: &mut AnimationMachine, m: [[f32; 4]; 4], local: [[f32; 4]; 4]) {
     machine.track_pos = transform_point(machine.track_pos, &m);
     machine.prev_track_pos = transform_point(machine.prev_track_pos, &m);
     let mut basis = local;
@@ -484,10 +480,7 @@ pub fn get_mixing_point_of_tck(tracks: &[AnimTrack], name: &str) -> Option<[f32;
     if back <= 0 {
         return None;
     }
-    let index = track
-        .positions
-        .len()
-        .checked_sub(back as usize)?;
+    let index = track.positions.len().checked_sub(back as usize)?;
     track.positions.get(index).copied()
 }
 
@@ -505,10 +498,7 @@ fn rotate_xz(v: [f32; 3], angle: f32) -> [f32; 3] {
 /// rotated by it and the displacement is rotated the same way. `None`
 /// without the track or without keys. Pure lookup; file loading stays with
 /// the caller.
-pub fn get_placement_from_tck(
-    tracks: &[AnimTrack],
-    name: &str,
-) -> Option<([f32; 3], [f32; 3])> {
+pub fn get_placement_from_tck(tracks: &[AnimTrack], name: &str) -> Option<([f32; 3], [f32; 3])> {
     let track = find_track(tracks, name)?;
     let first = *track.positions.first()?;
     let last = *track.positions.last()?;

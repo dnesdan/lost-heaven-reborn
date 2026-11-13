@@ -560,11 +560,7 @@ pub struct SemaphoreEntry {
 /// owner, which calls this only for models; the basename after the last `\`
 /// (case-insensitive) `semafor.i3d` is kept and mapped to its phase by the
 /// model direction, anything else is skipped. Returns the phase where kept.
-pub fn classify_semaphore_phase(
-    file_name: &str,
-    dir_x: f32,
-    dir_z: f32,
-) -> Option<SemaphorePhase> {
+pub fn classify_semaphore_phase(file_name: &str, dir_x: f32, dir_z: f32) -> Option<SemaphorePhase> {
     let base = file_name.rsplit('\\').next().unwrap_or(file_name);
     if !base.eq_ignore_ascii_case("semafor.i3d") {
         return None;
@@ -1193,7 +1189,10 @@ pub fn collect_road_block(node: u16, out: &mut Vec<RoadBlockEntry>) -> bool {
     if node == 0xffff {
         return false;
     }
-    out.push(RoadBlockEntry { node, active: false });
+    out.push(RoadBlockEntry {
+        node,
+        active: false,
+    });
     true
 }
 
@@ -1233,7 +1232,9 @@ const SIGNAL_MARK_MODELS: [&str; 8] = [
 /// `C_game::CreateSignalMarkIDX`): whether a base-cache model-set name is
 /// one of the eight traffic-sign sets.
 pub fn signal_mark_model_matches(name: &str) -> bool {
-    SIGNAL_MARK_MODELS.iter().any(|candidate| candidate.eq_ignore_ascii_case(name))
+    SIGNAL_MARK_MODELS
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(name))
 }
 
 /// FUNCTION: GAME RVA 0x1b7860, VA 0x5b7860 (`game.cpp:3736-3769`,
@@ -1286,8 +1287,8 @@ pub fn del_all_hydrants(hydrants: &mut Vec<HydrantEntry>, backend: &mut impl Hyd
 }
 
 /// STUB: GAME RVA 0x1b6d10, VA 0x5b6d10 (`game.cpp:3634-3639`,
-/// `C_game::IsValidTaxiPassenger`): the native body is unwritten (`StubLog`
-/// + `false`). The taxi-passenger human and the car/seat checks stay with
+/// `C_game::IsValidTaxiPassenger`): the native body is unwritten (`StubLog` +
+/// `false`). The taxi-passenger human and the car/seat checks stay with
 /// the actor owner. Verified: `.text` entry loads the `taxi_passenger`
 /// field at `game.h:347` (`mov eax,[ecx+0x204]`) before the null test.
 pub fn is_valid_taxi_passenger() -> bool {
@@ -2123,19 +2124,10 @@ pub fn game_init_death_fade_time() -> i32 {
 /// Working name; no outline GAME entry is claimed. Reason: pure fragment of
 /// the occupied `Init` body (`game.cpp:292-293`). No function credit is
 /// taken.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CheatKeysState {
     pub keys: [u8; 32],
     pub cheats: u32,
-}
-
-impl Default for CheatKeysState {
-    fn default() -> Self {
-        Self {
-            keys: [0; 32],
-            cheats: 0,
-        }
-    }
 }
 
 /// Working-name fragment of `C_game::Init` (`game.cpp:292-293`):
@@ -2222,11 +2214,7 @@ pub fn is_possible_coll(
     if in_car {
         return None;
     }
-    let step = [
-        human_dir[0] * 0.1,
-        human_dir[1] * 0.1,
-        human_dir[2] * 0.1,
-    ];
+    let step = [human_dir[0] * 0.1, human_dir[1] * 0.1, human_dir[2] * 0.1];
     let center = [human_pos[0], human_pos[1] + 1.0, human_pos[2]];
     let a = [center[0] - pos[0], center[1] - pos[1], center[2] - pos[2]];
     let b = [step[0] - dir[0], step[1] - dir[1], step[2] - dir[2]];
@@ -3231,12 +3219,7 @@ pub fn npc_kill_name_bytes(name: &str) -> [u8; 32] {
 /// `0x400000 + 0x1b06e0` = `0x5b06e0`. The RVA appears in neither
 /// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
 /// validation is claimed.
-pub fn add_npc_kill_event(
-    events: &mut Vec<NpcKillEvent>,
-    program: u32,
-    event: i32,
-    name: &str,
-) {
+pub fn add_npc_kill_event(events: &mut Vec<NpcKillEvent>, program: u32, event: i32, name: &str) {
     events.push(NpcKillEvent {
         program,
         event,
@@ -3258,7 +3241,7 @@ fn npc_name_matches(stored: &[u8; 32], wanted: &str) -> bool {
     stored_slice
         .iter()
         .zip(wanted_bytes.iter())
-        .all(|(&a, &b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
+        .all(|(&a, &b)| a.eq_ignore_ascii_case(&b))
 }
 
 /// FUNCTION: GAME RVA 0x1b0750, VA 0x5b0750 (`game/mission/game.cpp:4562-4576`,
@@ -3399,11 +3382,7 @@ pub struct MoveCollActor {
 /// `0x400000 + 0x1afdb0` = `0x5afdb0`. The RVA appears in neither
 /// `docs/rewrite-overlay.json` nor `docs/progress.json`. No original-runtime
 /// validation is claimed.
-pub fn invalidate_coll(
-    active: &mut [MoveCollActor],
-    inactive: &mut [MoveCollActor],
-    coll: u32,
-) {
+pub fn invalidate_coll(active: &mut [MoveCollActor], inactive: &mut [MoveCollActor], coll: u32) {
     for list in [active, inactive] {
         for entry in list.iter_mut().rev() {
             if entry.is_entity && entry.move_coll == Some(coll) {
@@ -3924,7 +3903,10 @@ mod tests {
             classify_semaphore_phase("semafor.i3d", -3.0, 2.0),
             Some(SemaphorePhase::PhaseX)
         );
-        assert_eq!(classify_semaphore_phase("models\\alarm01.i3d", 5.0, 0.0), None);
+        assert_eq!(
+            classify_semaphore_phase("models\\alarm01.i3d", 5.0, 0.0),
+            None
+        );
         assert_eq!(classify_semaphore_phase("other.i3d", 0.0, 0.0), None);
         // Basename matching is case-insensitive past the last backslash.
         assert_eq!(
@@ -4206,8 +4188,14 @@ mod tests {
     fn rva_1b69d0_load_road_blocks_reset_empties() {
         // C_game::LoadRoadBlocks GAME RVA 0x1b69d0 (VA 0x5b69d0): reset half.
         let mut blocks = vec![
-            RoadBlockEntry { node: 3, active: true },
-            RoadBlockEntry { node: 9, active: false },
+            RoadBlockEntry {
+                node: 3,
+                active: true,
+            },
+            RoadBlockEntry {
+                node: 9,
+                active: false,
+            },
         ];
         load_road_blocks_reset(&mut blocks);
         assert!(blocks.is_empty());
@@ -4221,7 +4209,13 @@ mod tests {
         let mut out = vec![];
         assert!(collect_road_block(0x1234, &mut out));
         assert!(!collect_road_block(0xffff, &mut out));
-        assert_eq!(out, vec![RoadBlockEntry { node: 0x1234, active: false }]);
+        assert_eq!(
+            out,
+            vec![RoadBlockEntry {
+                node: 0x1234,
+                active: false
+            }]
+        );
         assert!(collect_road_block(0, &mut out));
         assert_eq!(out.len(), 2);
     }
@@ -4274,11 +4268,23 @@ mod tests {
     fn rva_1b9ef0_del_all_hydrants_runs_back_to_front_then_clears() {
         // C_game::DelAllHydrants GAME RVA 0x1b9ef0 (VA 0x5b9ef0).
         let mut hydrants = vec![
-            HydrantEntry { particle: 11, frame: Some(1) },
-            HydrantEntry { particle: 22, frame: None },
-            HydrantEntry { particle: 33, frame: Some(3) },
+            HydrantEntry {
+                particle: 11,
+                frame: Some(1),
+            },
+            HydrantEntry {
+                particle: 22,
+                frame: None,
+            },
+            HydrantEntry {
+                particle: 33,
+                frame: Some(3),
+            },
         ];
-        let mut backend = HydrantLog { destroyed: vec![], released: vec![] };
+        let mut backend = HydrantLog {
+            destroyed: vec![],
+            released: vec![],
+        };
         del_all_hydrants(&mut hydrants, &mut backend);
         assert!(hydrants.is_empty());
         assert_eq!(backend.destroyed, vec![33, 22, 11]);
@@ -4408,11 +4414,20 @@ mod tests {
     #[test]
     fn rva_7b6b0_get_score_reads_stored_score() {
         // C_game::GetScore GAME RVA 0x7b6b0 (VA 0x47b6b0).
-        let state = ScoreState { score: -12, score_on: false };
+        let state = ScoreState {
+            score: -12,
+            score_on: false,
+        };
         assert_eq!(state.get_score(), -12);
-        let state = ScoreState { score: 0, score_on: true };
+        let state = ScoreState {
+            score: 0,
+            score_on: true,
+        };
         assert_eq!(state.get_score(), 0);
-        let state = ScoreState { score: i32::MAX, score_on: true };
+        let state = ScoreState {
+            score: i32::MAX,
+            score_on: true,
+        };
         assert_eq!(state.get_score(), i32::MAX);
     }
 
@@ -4420,8 +4435,18 @@ mod tests {
     fn rva_1add70_free_semaphores_lights_all_on_then_clears() {
         // C_game::FreeSemaphores GAME RVA 0x1add70 (VA 0x5add70).
         let mut semaphores = vec![
-            SemaphoreEntry { red: Some(1), orange: None, green: Some(3), use_phase_x: true },
-            SemaphoreEntry { red: None, orange: Some(4), green: None, use_phase_x: false },
+            SemaphoreEntry {
+                red: Some(1),
+                orange: None,
+                green: Some(3),
+                use_phase_x: true,
+            },
+            SemaphoreEntry {
+                red: None,
+                orange: Some(4),
+                green: None,
+                use_phase_x: false,
+            },
         ];
         let mut backend = SemaphoreLog { states: vec![] };
         free_semaphores(&mut semaphores, &mut backend);
@@ -4459,7 +4484,10 @@ mod tests {
     #[test]
     fn rva_147a60_game_drop_stacks_empties_all_three() {
         // ~C_game GAME RVA 0x147a60 (VA 0x547a60).
-        let mut inventory = vec![InventorySnapshot { marker: 1 }, InventorySnapshot { marker: 2 }];
+        let mut inventory = vec![
+            InventorySnapshot { marker: 1 },
+            InventorySnapshot { marker: 2 },
+        ];
         let mut character = vec![3u32, 4u32];
         let mut floats = vec![0.5f32];
         game_drop_stacks(&mut inventory, &mut character, &mut floats);
@@ -4542,7 +4570,9 @@ mod tests {
     }
 
     fn shadow_template(name: Option<&str>) -> ShadowTemplateEntry {
-        ShadowTemplateEntry { name: name.map(str::to_owned) }
+        ShadowTemplateEntry {
+            name: name.map(str::to_owned),
+        }
     }
 
     #[test]
@@ -4661,7 +4691,10 @@ mod tests {
     #[test]
     fn rva_1ba310_clear_death_human_fade_empties_and_clears_blur() {
         // C_game::ClearDeathHumanFade GAME RVA 0x1ba310 (VA 0x5ba310).
-        let mut fades = vec![DeathHumanFadeEntry { marker: 1 }, DeathHumanFadeEntry { marker: 2 }];
+        let mut fades = vec![
+            DeathHumanFadeEntry { marker: 1 },
+            DeathHumanFadeEntry { marker: 2 },
+        ];
         let mut blur = true;
         clear_death_human_fade(&mut fades, &mut blur);
         assert!(fades.is_empty());
@@ -4675,7 +4708,10 @@ mod tests {
 
     impl WeatherLog {
         fn new(on: i32, count: i32) -> Self {
-            Self { writes: vec![], values: [on, count] }
+            Self {
+                writes: vec![],
+                values: [on, count],
+            }
         }
     }
 
@@ -4711,7 +4747,10 @@ mod tests {
     #[test]
     fn rva_1b9540_osefuj_pocasi_read_then_write() {
         // C_game::OsefujPocasi GAME RVA 0x1b9540 (VA 0x5b9540).
-        let mut state = WeatherSwitchState { initialized: true, ..WeatherSwitchState::default() };
+        let mut state = WeatherSwitchState {
+            initialized: true,
+            ..WeatherSwitchState::default()
+        };
         let mut backend = WeatherLog::new(1, 80);
         // Read on-switch, then apply the write pass (effects 0: full count).
         state.game_effects = 2;
@@ -4782,7 +4821,10 @@ mod tests {
             inv_matrices_present: true,
             num: 3,
         };
-        let mut backend = InterCityLog { erased: vec![], released: vec![] };
+        let mut backend = InterCityLog {
+            erased: vec![],
+            released: vec![],
+        };
         inter_city_game_done(&mut boxes, &mut backend);
         // Back first; absent slots skipped.
         assert_eq!(backend.erased, vec![30, 10]);
@@ -4796,7 +4838,10 @@ mod tests {
     fn rva_1bbb20_inter_city_game_done_absent_is_noop() {
         // C_game::InterCity_GameDoneInGameDone GAME RVA 0x1bbb20 (VA 0x5bbb20).
         let mut boxes = InterCityBoxes::default();
-        let mut backend = InterCityLog { erased: vec![], released: vec![] };
+        let mut backend = InterCityLog {
+            erased: vec![],
+            released: vec![],
+        };
         inter_city_game_done(&mut boxes, &mut backend);
         assert!(backend.erased.is_empty() && backend.released.is_empty());
     }
@@ -4982,19 +5027,16 @@ mod tests {
     #[test]
     fn rva_178c60_is_possible_coll_reports_hit_and_miss() {
         // C_human::IsPossibleColl GAME RVA 0x178c60 (VA 0x578c60).
-        assert_eq!(is_possible_coll(true, [0.0; 3], [0.0; 3], [0.0; 3], [0.0; 3], 0.0), None);
+        assert_eq!(
+            is_possible_coll(true, [0.0; 3], [0.0; 3], [0.0; 3], [0.0; 3], 0.0),
+            None
+        );
         let overlap = is_possible_coll(false, [0.0; 3], [0.0; 3], [0.0, 1.0, 0.0], [0.0; 3], 0.0)
             .expect("overlap must report");
         assert_eq!(overlap, (0.0, true));
-        let (dist, hit) = is_possible_coll(
-            false,
-            [0.0; 3],
-            [0.0; 3],
-            [10.0, 1.0, 0.0],
-            [0.0; 3],
-            0.0,
-        )
-        .expect("separated still writes dist");
+        let (dist, hit) =
+            is_possible_coll(false, [0.0; 3], [0.0; 3], [10.0, 1.0, 0.0], [0.0; 3], 0.0)
+                .expect("separated still writes dist");
         assert!(!hit);
         assert_eq!(dist, -1.0);
         let (dist, hit) = is_possible_coll(
@@ -5014,29 +5056,15 @@ mod tests {
     fn rva_178c60_is_possible_coll_retains_negative_discriminant_and_unbounded_hit() {
         // GAME 0x578c60: the negative discriminant is stored as `dist`
         // rather than the `-1.0` used for zero relative motion.
-        let (miss_dist, hit) = is_possible_coll(
-            false,
-            [0.; 3],
-            [0.; 3],
-            [4., 1., 0.],
-            [0., 0., 1.],
-            0.3,
-        )
-        .unwrap();
+        let (miss_dist, hit) =
+            is_possible_coll(false, [0.; 3], [0.; 3], [4., 1., 0.], [0., 0., 1.], 0.3).unwrap();
         assert!(!hit);
         assert!(miss_dist < -1., "negative discriminant: {miss_dist}");
 
         // The native method does not clamp its intersection time to a
         // single simulation step. A tangent at t=2 is still a positive hit.
-        let (dist, hit) = is_possible_coll(
-            false,
-            [0.; 3],
-            [0.; 3],
-            [2., 1., 1.],
-            [-1., 0., 0.],
-            0.3,
-        )
-        .unwrap();
+        let (dist, hit) =
+            is_possible_coll(false, [0.; 3], [0.; 3], [2., 1., 1.], [-1., 0., 0.], 0.3).unwrap();
         assert!(hit);
         assert_eq!(dist, 2.);
     }
@@ -5784,7 +5812,12 @@ mod tests {
         assert_eq!(events[0].event, 4);
         assert_eq!(&events[0].name[..5], b"fred\0");
         assert!(events[0].name[5..].iter().all(|&b| b == 0));
-        add_npc_kill_event(&mut events, 5, 6, "a\\very\\long\\name\\that\\exceeds\\thirty\\one\\chars");
+        add_npc_kill_event(
+            &mut events,
+            5,
+            6,
+            "a\\very\\long\\name\\that\\exceeds\\thirty\\one\\chars",
+        );
         assert_eq!(events.len(), 2);
         assert_eq!(events[1].name[31], 0);
     }
@@ -5858,10 +5891,22 @@ mod tests {
     fn rva_1b1d70_clear_projectors_for_frame_switches_matching_off() {
         // C_game::ClearProjectorsForFrame GAME RVA 0x1b1d70 (VA 0x5b1d70).
         let slots = vec![
-            TrackProjectorSlot { frame: Some(1), hit_frame: Some(9) },
-            TrackProjectorSlot { frame: Some(2), hit_frame: Some(7) },
-            TrackProjectorSlot { frame: Some(3), hit_frame: Some(9) },
-            TrackProjectorSlot { frame: None, hit_frame: Some(9) },
+            TrackProjectorSlot {
+                frame: Some(1),
+                hit_frame: Some(9),
+            },
+            TrackProjectorSlot {
+                frame: Some(2),
+                hit_frame: Some(7),
+            },
+            TrackProjectorSlot {
+                frame: Some(3),
+                hit_frame: Some(9),
+            },
+            TrackProjectorSlot {
+                frame: None,
+                hit_frame: Some(9),
+            },
         ];
         let mut backend = ProjectorLog { off: vec![] };
         clear_projectors_for_frame(&slots, Some(9), &mut backend);
@@ -5878,13 +5923,33 @@ mod tests {
     fn rva_1afdb0_invalidate_coll_clears_matching_entities() {
         // C_game::InvalidateColl GAME RVA 0x1afdb0 (VA 0x5afdb0).
         let mut active = vec![
-            MoveCollActor { actor: 1, is_entity: true, move_coll: Some(77) },
-            MoveCollActor { actor: 2, is_entity: false, move_coll: Some(77) },
-            MoveCollActor { actor: 3, is_entity: true, move_coll: Some(78) },
+            MoveCollActor {
+                actor: 1,
+                is_entity: true,
+                move_coll: Some(77),
+            },
+            MoveCollActor {
+                actor: 2,
+                is_entity: false,
+                move_coll: Some(77),
+            },
+            MoveCollActor {
+                actor: 3,
+                is_entity: true,
+                move_coll: Some(78),
+            },
         ];
         let mut inactive = vec![
-            MoveCollActor { actor: 4, is_entity: true, move_coll: Some(77) },
-            MoveCollActor { actor: 5, is_entity: true, move_coll: None },
+            MoveCollActor {
+                actor: 4,
+                is_entity: true,
+                move_coll: Some(77),
+            },
+            MoveCollActor {
+                actor: 5,
+                is_entity: true,
+                move_coll: None,
+            },
         ];
         invalidate_coll(&mut active, &mut inactive, 77);
         assert_eq!(active[0].move_coll, None);
@@ -5954,7 +6019,12 @@ mod tests {
             &mut backend
         ));
         assert_eq!(camera_human, Some(9));
-        assert!(!set_human(&mut camera_human, None, FollowableActorKind::Player, &mut backend));
+        assert!(!set_human(
+            &mut camera_human,
+            None,
+            FollowableActorKind::Player,
+            &mut backend
+        ));
         assert_eq!(backend.players, vec![7, 9]);
     }
 
@@ -5976,17 +6046,40 @@ mod tests {
     fn rva_1b0a80_del_driver_man_stops_and_removes() {
         // C_game::DelDriverMan GAME RVA 0x1b0a80 (VA 0x5b0a80).
         let mut men = vec![
-            DriverManEntry { model: 1, car: 10, anim: 3, formula: false },
-            DriverManEntry { model: 2, car: 11, anim: 4, formula: true },
-            DriverManEntry { model: 1, car: 12, anim: 5, formula: false },
+            DriverManEntry {
+                model: 1,
+                car: 10,
+                anim: 3,
+                formula: false,
+            },
+            DriverManEntry {
+                model: 2,
+                car: 11,
+                anim: 4,
+                formula: true,
+            },
+            DriverManEntry {
+                model: 1,
+                car: 12,
+                anim: 5,
+                formula: false,
+            },
         ];
-        let mut backend = DriverLog { stopped: vec![], legs: vec![] };
+        let mut backend = DriverLog {
+            stopped: vec![],
+            legs: vec![],
+        };
         assert!(del_driver_man(&mut men, 1, &mut backend));
         assert_eq!(backend.stopped, vec![(1, 5)]);
         assert_eq!(backend.legs, vec![1]);
         assert_eq!(men.len(), 2);
-        assert!(men.iter().all(|entry| !(entry.model == 1 && entry.car == 12)));
-        let mut backend = DriverLog { stopped: vec![], legs: vec![] };
+        assert!(men
+            .iter()
+            .all(|entry| !(entry.model == 1 && entry.car == 12)));
+        let mut backend = DriverLog {
+            stopped: vec![],
+            legs: vec![],
+        };
         assert!(!del_driver_man(&mut men, 99, &mut backend));
         assert!(backend.stopped.is_empty() && backend.legs.is_empty());
         assert_eq!(men.len(), 2);

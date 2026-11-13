@@ -120,5 +120,5 @@ rg -n 'unsafe|asm!|global_asm!|transmute|from_raw|\*const|\*mut' crates --glob '
 rg -n 'sound_virtual|VTableId|native_this|game_init_stack|FRAME_BASE' crates --glob '*.rs'
 ```
 
-See [the parity roadmap](../implementation/parity-roadmap-main.md) for the gameplay
+See [the reconstruction goals](../GOALS.md) for the gameplay
 dependencies that should advance alongside this migration.

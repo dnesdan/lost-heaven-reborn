@@ -506,25 +506,19 @@ mod tests {
         };
         let calls = Cell::new(0u32);
         let fresh = MeshBoundVolume::CONSTRUCTOR;
-        let out: Result<MeshBoundVolume, &'static str> = visual_bound_volume_or_update(
-            0x20000,
-            &stored,
-            || {
+        let out: Result<MeshBoundVolume, &'static str> =
+            visual_bound_volume_or_update(0x20000, &stored, || {
                 calls.set(calls.get() + 1);
                 Ok(fresh)
-            },
-        );
+            });
         assert_eq!(out, Ok(stored));
         assert_eq!(calls.get(), 0);
         // Other validity bits do not satisfy the local gate.
-        let out: Result<MeshBoundVolume, &'static str> = visual_bound_volume_or_update(
-            0x40000,
-            &stored,
-            || {
+        let out: Result<MeshBoundVolume, &'static str> =
+            visual_bound_volume_or_update(0x40000, &stored, || {
                 calls.set(calls.get() + 1);
                 Ok(fresh)
-            },
-        );
+            });
         assert_eq!(out, Ok(fresh));
         assert_eq!(calls.get(), 1);
     }
@@ -539,25 +533,19 @@ mod tests {
         };
         let calls = Cell::new(0u32);
         let fresh = MeshBoundVolume::CONSTRUCTOR;
-        let out: Result<MeshBoundVolume, &'static str> = visual_world_bound_volume_or_update(
-            0x40000,
-            &stored,
-            || {
+        let out: Result<MeshBoundVolume, &'static str> =
+            visual_world_bound_volume_or_update(0x40000, &stored, || {
                 calls.set(calls.get() + 1);
                 Ok(fresh)
-            },
-        );
+            });
         assert_eq!(out, Ok(stored));
         assert_eq!(calls.get(), 0);
         // The local-valid bit does not satisfy the world gate.
-        let out: Result<MeshBoundVolume, &'static str> = visual_world_bound_volume_or_update(
-            0x20000,
-            &stored,
-            || {
+        let out: Result<MeshBoundVolume, &'static str> =
+            visual_world_bound_volume_or_update(0x20000, &stored, || {
                 calls.set(calls.get() + 1);
                 Ok(fresh)
-            },
-        );
+            });
         assert_eq!(out, Ok(fresh));
         assert_eq!(calls.get(), 1);
     }

@@ -8,7 +8,7 @@
 
 use crate::frame_camera::CameraKey;
 use crate::frame_lookup::{
-    ENUM_CANCELED, FrameLookupError, enum_subtree, find_child_callback_slot,
+    enum_subtree, find_child_callback_slot, FrameLookupError, ENUM_CANCELED,
 };
 use crate::frame_transform::{FrameKey, FrameKind, I3dFrameState};
 use crate::model_loading::{ModelArena, ModelError, ModelKey};
@@ -195,6 +195,7 @@ pub fn scene_anim_slot_in_range(index: u32) -> bool {
 /// NaN passes through unchanged because both native comparisons are false
 /// for it (no quieting is evidenced). Exact f32 comparison order; no state
 /// moves.
+#[allow(clippy::manual_clamp)] // Keeps the documented native compare order explicitly.
 pub fn scene_set_anim_blend_clamped(blend: f32) -> f32 {
     if blend < 0.0 {
         0.0
@@ -371,7 +372,7 @@ pub fn scene_anim_slot_count() -> u32 {
 /// caller-owned. Ordered `f32` comparison, so NaN reports out of range like
 /// the native false-false clamp path. No state moves.
 pub fn scene_anim_blend_is_in_range(blend: f32) -> bool {
-    blend >= 0.0 && blend <= 1.0
+    (0.0..=1.0).contains(&blend)
 }
 
 /// Working name for the `SetViewport` half-extent factor (mafia-re
@@ -1961,10 +1962,7 @@ impl ModelArena {
     /// bumps, PC RVA 0x49290/0x49f90/0x4a300 paths, already occupied). The
     /// reference records no LS3DF FUNCTION address for a standalone flag
     /// getter. Reports the live host guard; no state moves.
-    pub fn scene_allocation_incomplete_of(
-        &self,
-        scene: SceneKey,
-    ) -> Result<bool, ModelError> {
+    pub fn scene_allocation_incomplete_of(&self, scene: SceneKey) -> Result<bool, ModelError> {
         Ok(self.scene(scene)?.allocation_incomplete)
     }
     /// Working name for the tick-list membership probe behind the
@@ -2509,7 +2507,9 @@ mod tests {
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
         arena.scene_vfunc_66_noop(scene, 1, 2).unwrap();
-        arena.scene_vfunc_66_noop(scene, u32::MAX, u32::MAX).unwrap();
+        arena
+            .scene_vfunc_66_noop(scene, u32::MAX, u32::MAX)
+            .unwrap();
         assert_eq!(arena.scene_sector_head(scene), Ok(None));
         let sector = arena.create_sector_frame().unwrap();
         arena.sector_add_to_scene_ring(sector, Some(scene)).unwrap();
@@ -2517,7 +2517,9 @@ mod tests {
         assert!(arena
             .scene_sector_head(SceneKey(FrameKey(u32::MAX)))
             .is_err());
-        assert!(arena.scene_vfunc_66_noop(SceneKey(FrameKey(u32::MAX)), 0, 0).is_err());
+        assert!(arena
+            .scene_vfunc_66_noop(SceneKey(FrameKey(u32::MAX)), 0, 0)
+            .is_err());
     }
     #[test]
     fn fog_sector_membership_selects_latest_on_light_and_releases_reciprocals() {
@@ -3407,8 +3409,16 @@ mod tests {
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
         let sector = arena.scene(scene).unwrap().sectors[0];
-        assert_eq!(arena.scene_make_ready_enum_proc(sector.frame(), 0).unwrap(), 0);
-        assert_eq!(arena.scene_make_ready_enum_proc(sector.frame(), 999).unwrap(), 0);
+        assert_eq!(
+            arena.scene_make_ready_enum_proc(sector.frame(), 0).unwrap(),
+            0
+        );
+        assert_eq!(
+            arena
+                .scene_make_ready_enum_proc(sector.frame(), 999)
+                .unwrap(),
+            0
+        );
         let member = dummy(&mut arena, b"not-a-sector");
         assert!(arena.scene_make_ready_enum_proc(member, 0).is_err());
     }
@@ -3484,12 +3494,7 @@ mod tests {
         );
         // Unknown scenes are explicit errors.
         assert_eq!(
-            arena.scene_find_frame(
-                SceneKey(FrameKey(u32::MAX)),
-                Some(b"alpha"),
-                0xffff,
-                64
-            ),
+            arena.scene_find_frame(SceneKey(FrameKey(u32::MAX)), Some(b"alpha"), 0xffff, 64),
             Err(crate::frame_lookup::FrameLookupError::MissingPrimaryRoot)
         );
     }
@@ -3499,7 +3504,7 @@ mod tests {
         // file-static SetSpaceParam (only the setter has RVA 0x4a8d0).
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(arena.scene_world_space(scene).unwrap(), false);
+        assert!(!arena.scene_world_space(scene).unwrap());
         assert!(arena
             .scene_world_space(SceneKey(FrameKey(u32::MAX)))
             .is_err());
@@ -3509,7 +3514,7 @@ mod tests {
         // Working name, no LS3DF FUNCTION: unknown_274 at +0x274.
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(arena.scene_occluder_flag_274(scene).unwrap(), false);
+        assert!(!arena.scene_occluder_flag_274(scene).unwrap());
         assert!(arena
             .scene_occluder_flag_274(SceneKey(FrameKey(u32::MAX)))
             .is_err());
@@ -3519,7 +3524,7 @@ mod tests {
         // Working name, no LS3DF FUNCTION: ipol_set presence at +0x178.
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(arena.scene_has_animation_set(scene).unwrap(), false);
+        assert!(!arena.scene_has_animation_set(scene).unwrap());
         assert!(arena
             .scene_has_animation_set(SceneKey(FrameKey(u32::MAX)))
             .is_err());
@@ -3534,7 +3539,10 @@ mod tests {
         assert_eq!(arena.scene_portal_count_of(scene).unwrap(), 0);
         // Constructor stores the native [1, 10000] backdrop pair.
         assert_eq!(
-            arena.scene_backdrop_range_of(scene).unwrap().map(f32::to_bits),
+            arena
+                .scene_backdrop_range_of(scene)
+                .unwrap()
+                .map(f32::to_bits),
             [1f32.to_bits(), 10000f32.to_bits()]
         );
         let bad = SceneKey(FrameKey(u32::MAX));
@@ -3577,11 +3585,13 @@ mod tests {
         // already occupied) writes it.
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(arena.scene_has_callback(scene).unwrap(), false);
-        arena.scene_set_callback(scene, Some(SceneCallback(0x1234)), 0x7).unwrap();
-        assert_eq!(arena.scene_has_callback(scene).unwrap(), true);
+        assert!(!arena.scene_has_callback(scene).unwrap());
+        arena
+            .scene_set_callback(scene, Some(SceneCallback(0x1234)), 0x7)
+            .unwrap();
+        assert!(arena.scene_has_callback(scene).unwrap());
         arena.scene_set_callback(scene, None, 0x7).unwrap();
-        assert_eq!(arena.scene_has_callback(scene).unwrap(), false);
+        assert!(!arena.scene_has_callback(scene).unwrap());
         let bad = SceneKey(FrameKey(u32::MAX));
         assert!(arena.scene_has_callback(bad).is_err());
     }
@@ -3592,7 +3602,9 @@ mod tests {
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
         assert_eq!(arena.scene_callback_flags_of(scene).unwrap(), 0);
-        arena.scene_set_callback(scene, Some(SceneCallback(0x1234)), 0x7).unwrap();
+        arena
+            .scene_set_callback(scene, Some(SceneCallback(0x1234)), 0x7)
+            .unwrap();
         assert_eq!(arena.scene_callback_flags_of(scene).unwrap(), 0x7);
         arena.scene_set_callback(scene, None, 0x7).unwrap();
         assert_eq!(arena.scene_callback_flags_of(scene).unwrap(), 0);
@@ -3988,7 +4000,9 @@ mod scene_group_bits_and_trivial_rva_tests {
         assert!(arena
             .scene_set_dir_noop(scene, [f32::NAN, f32::INFINITY, 0.0], f32::NEG_INFINITY)
             .is_ok());
-        assert!(arena.scene_set_dir_noop(scene, [0.0, 1.0, 0.0], 0.5).is_ok());
+        assert!(arena
+            .scene_set_dir_noop(scene, [0.0, 1.0, 0.0], 0.5)
+            .is_ok());
     }
 
     #[test]
@@ -3996,7 +4010,10 @@ mod scene_group_bits_and_trivial_rva_tests {
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
         assert_eq!(arena.scene_set_name_ok(scene, None).unwrap(), 0);
-        assert_eq!(arena.scene_set_name_ok(scene, Some(&b"name"[..])).unwrap(), 0);
+        assert_eq!(
+            arena.scene_set_name_ok(scene, Some(&b"name"[..])).unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -4063,7 +4080,7 @@ mod scene_frame_getter_working_name_tests {
         // LS3DF FUNCTION entry exists.
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert_eq!(arena.scene_allocation_incomplete_of(scene).unwrap(), false);
+        assert!(!arena.scene_allocation_incomplete_of(scene).unwrap());
         let bad = SceneKey(FrameKey(u32::MAX));
         assert!(arena.scene_allocation_incomplete_of(bad).is_err());
     }
@@ -4078,9 +4095,9 @@ mod scene_frame_getter_working_name_tests {
         let frame = arena
             .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
             .unwrap();
-        assert_eq!(arena.scene_tick_contains(scene, frame).unwrap(), false);
+        assert!(!arena.scene_tick_contains(scene, frame).unwrap());
         arena.scene_add_tick_frame(scene, frame).unwrap();
-        assert_eq!(arena.scene_tick_contains(scene, frame).unwrap(), true);
+        assert!(arena.scene_tick_contains(scene, frame).unwrap());
         // Duplicate add keeps membership without duplicating the list.
         arena.scene_add_tick_frame(scene, frame).unwrap();
         assert_eq!(arena.scene(scene).unwrap().tick_frames.len(), 1);
@@ -4092,9 +4109,15 @@ mod scene_frame_getter_working_name_tests {
     fn callback_message_gates_match_stage_bits() {
         // Cross-checks the new enum values against the pre-existing stage-bit
         // gates in this module (no new device or owner consulted).
-        assert!(scene_callback_wants_pre_render(1 << scene_callback_message_pre_render_value()));
-        assert!(scene_callback_wants_post_scene(1 << scene_callback_message_post_scene_value()));
-        assert!(scene_callback_wants_post_render(1 << scene_callback_message_post_render_value()));
+        assert!(scene_callback_wants_pre_render(
+            1 << scene_callback_message_pre_render_value()
+        ));
+        assert!(scene_callback_wants_post_scene(
+            1 << scene_callback_message_post_scene_value()
+        ));
+        assert!(scene_callback_wants_post_render(
+            1 << scene_callback_message_post_render_value()
+        ));
         assert!(!scene_callback_wants_pre_render(0));
     }
 
@@ -4109,7 +4132,10 @@ mod scene_frame_getter_working_name_tests {
         for sector in sectors {
             union |= arena.sector(sector).unwrap().sector_flags;
         }
-        assert_eq!(union & scene_retained_sector_mask(), scene_retained_sector_mask());
+        assert_eq!(
+            union & scene_retained_sector_mask(),
+            scene_retained_sector_mask()
+        );
         // FrameKind check keeps this scene-typed: a dummy frame is not a sector.
         let dummy = arena
             .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
@@ -4235,7 +4261,9 @@ mod scene_frame_getter_working_name_tests {
         assert!(!scene_has_active_camera(None));
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert!(!scene_has_active_camera(arena.scene(scene).unwrap().current_camera));
+        assert!(!scene_has_active_camera(
+            arena.scene(scene).unwrap().current_camera
+        ));
     }
     #[test]
     fn backdrop_default_reports_ctor_pair_only() {
@@ -4248,7 +4276,9 @@ mod scene_frame_getter_working_name_tests {
         assert!(!scene_backdrop_range_is_default([1.0, f32::NAN]));
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert!(scene_backdrop_range_is_default(arena.scene(scene).unwrap().backdrop_range));
+        assert!(scene_backdrop_range_is_default(
+            arena.scene(scene).unwrap().backdrop_range
+        ));
     }
     #[test]
     fn bg_color_default_reports_ctor_words_only() {
@@ -4268,7 +4298,9 @@ mod scene_frame_getter_working_name_tests {
         assert!(!scene_portal_version_is_initial(u32::MAX));
         let mut arena = ModelArena::default();
         let scene = arena.construct_scene_owner_prefix().unwrap();
-        assert!(scene_portal_version_is_initial(arena.scene(scene).unwrap().portal_version));
+        assert!(scene_portal_version_is_initial(
+            arena.scene(scene).unwrap().portal_version
+        ));
     }
     #[test]
     fn anim_slot_count_reports_eight_and_matches_range_guard() {
@@ -4298,10 +4330,22 @@ mod scene_frame_getter_working_name_tests {
     fn viewport_half_extent_halves_integer_span() {
         // Working name for the SetViewport half factor (I3d_scene.cpp:703):
         // occupied setter RVA 0x4a9c0, no RVA claimed here.
-        assert_eq!(scene_viewport_half_extent_from_span(800).to_bits(), 400.0f32.to_bits());
-        assert_eq!(scene_viewport_half_extent_from_span(0).to_bits(), 0.0f32.to_bits());
-        assert_eq!(scene_viewport_half_extent_from_span(-800).to_bits(), (-400.0f32).to_bits());
-        assert_eq!(scene_viewport_half_extent_from_span(1).to_bits(), 0.5f32.to_bits());
+        assert_eq!(
+            scene_viewport_half_extent_from_span(800).to_bits(),
+            400.0f32.to_bits()
+        );
+        assert_eq!(
+            scene_viewport_half_extent_from_span(0).to_bits(),
+            0.0f32.to_bits()
+        );
+        assert_eq!(
+            scene_viewport_half_extent_from_span(-800).to_bits(),
+            (-400.0f32).to_bits()
+        );
+        assert_eq!(
+            scene_viewport_half_extent_from_span(1).to_bits(),
+            0.5f32.to_bits()
+        );
     }
     #[test]
     fn tick_and_owned_empty_reports_zero_count_only() {
@@ -4323,11 +4367,15 @@ mod scene_frame_getter_working_name_tests {
         assert!(!scene_global_sector_version_is_initial(1));
         assert!(!scene_global_sector_version_is_initial(u32::MAX));
         let mut arena = ModelArena::default();
-        assert!(scene_global_sector_version_is_initial(arena.global_sector_version()));
+        assert!(scene_global_sector_version_is_initial(
+            arena.global_sector_version()
+        ));
         let scene = arena.construct_scene_owner_prefix().unwrap();
         // Each joined sector bumps the global version (I3d_scene.cpp:105
         // ctor word + ring-join bumps), so a live arena is past initial.
-        assert!(!scene_global_sector_version_is_initial(arena.global_sector_version()));
+        assert!(!scene_global_sector_version_is_initial(
+            arena.global_sector_version()
+        ));
         let _ = scene;
     }
     #[test]
@@ -4350,9 +4398,15 @@ mod scene_frame_getter_working_name_tests {
         assert!(arena.scene_has_mirrors(scene).unwrap());
         arena.scene_add_tick_frame(scene, frame).unwrap();
         assert!(arena.scene_has_tick_frames(scene).unwrap());
-        assert!(arena.scene_has_shadows(SceneKey(FrameKey(u32::MAX))).is_err());
-        assert!(arena.scene_has_mirrors(SceneKey(FrameKey(u32::MAX))).is_err());
-        assert!(arena.scene_has_tick_frames(SceneKey(FrameKey(u32::MAX))).is_err());
+        assert!(arena
+            .scene_has_shadows(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
+        assert!(arena
+            .scene_has_mirrors(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
+        assert!(arena
+            .scene_has_tick_frames(SceneKey(FrameKey(u32::MAX)))
+            .is_err());
     }
     #[test]
     fn backdrop_range_valid_requires_positive_ordered_finite_pair() {
@@ -4381,17 +4435,35 @@ mod scene_frame_getter_working_name_tests {
     fn viewport_center_x_adds_half_extent() {
         // Working name for the SetViewport center[0] word (I3d_scene.cpp:703-706):
         // center[0] = left + half_x. Occupied setter RVA 0x4a9c0, no RVA claimed.
-        assert_eq!(scene_viewport_center_x(10.0, 400.0).to_bits(), 410.0f32.to_bits());
-        assert_eq!(scene_viewport_center_x(0.0, 0.0).to_bits(), 0.0f32.to_bits());
-        assert_eq!(scene_viewport_center_x(-5.0, 5.0).to_bits(), 0.0f32.to_bits());
+        assert_eq!(
+            scene_viewport_center_x(10.0, 400.0).to_bits(),
+            410.0f32.to_bits()
+        );
+        assert_eq!(
+            scene_viewport_center_x(0.0, 0.0).to_bits(),
+            0.0f32.to_bits()
+        );
+        assert_eq!(
+            scene_viewport_center_x(-5.0, 5.0).to_bits(),
+            0.0f32.to_bits()
+        );
     }
     #[test]
     fn viewport_center_y_subtracts_half_extent() {
         // Working name for the SetViewport center[1] word (I3d_scene.cpp:703-706):
         // center[1] = top - half_y, half_y negative. Same occupied status.
-        assert_eq!(scene_viewport_center_y(20.0, -300.0).to_bits(), 320.0f32.to_bits());
-        assert_eq!(scene_viewport_center_y(0.0, 0.0).to_bits(), 0.0f32.to_bits());
-        assert_eq!(scene_viewport_center_y(5.0, 5.0).to_bits(), 0.0f32.to_bits());
+        assert_eq!(
+            scene_viewport_center_y(20.0, -300.0).to_bits(),
+            320.0f32.to_bits()
+        );
+        assert_eq!(
+            scene_viewport_center_y(0.0, 0.0).to_bits(),
+            0.0f32.to_bits()
+        );
+        assert_eq!(
+            scene_viewport_center_y(5.0, 5.0).to_bits(),
+            0.0f32.to_bits()
+        );
     }
     #[test]
     fn anim_first_slot_reports_index_zero_only() {

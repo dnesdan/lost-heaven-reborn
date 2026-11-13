@@ -300,11 +300,7 @@ impl HumanInventory {
 /// from mafia-re 113b5b6 game/g_material.h:203-224 and .cpp:16,40) and the
 /// table lookup live with the material-table owner (DEFERRED); the caller
 /// supplies the looked-up maxima. The using-object word stays untouched.
-pub(crate) fn truncate_item_ammo(
-    item: &mut HumanInventoryItem,
-    ammo_max: u32,
-    spare_max: u32,
-) {
+pub(crate) fn truncate_item_ammo(item: &mut HumanInventoryItem, ammo_max: u32, spare_max: u32) {
     if item.bits[1] > ammo_max {
         item.bits[1] = ammo_max;
     }
@@ -321,11 +317,7 @@ pub(crate) fn truncate_item_ammo(
 /// The caller stages `clip_present` (the FindChildFrame("clip") hit) and
 /// `clip_is_visual` (the FRAME_VISUAL type gate) because the model/frame
 /// owner stays DEFERRED. Returns whether the clip is hidden by this leaf.
-pub fn clip_hidden_without_mag(
-    item_id: i32,
-    clip_present: bool,
-    clip_is_visual: bool,
-) -> bool {
+pub fn clip_hidden_without_mag(item_id: i32, clip_present: bool, clip_is_visual: bool) -> bool {
     (9..=10).contains(&item_id) && clip_present && clip_is_visual
 }
 
@@ -425,18 +417,22 @@ pub fn find_nearby_high_bridge(
     if !in_target_car {
         return None;
     }
-    candidates.iter().enumerate().rev().find_map(|(index, candidate)| {
-        let dx = own_pos[0] - candidate.position[0];
-        let dy = own_pos[1] - candidate.position[1];
-        let dz = own_pos[2] - candidate.position[2];
-        let in_range = dx * dx + dy * dy + dz * dz < HIGH_BRIDGE_RANGE_SQUARED;
-        let kind_ok = (HIGH_BRIDGE_KIND_MIN..=HIGH_BRIDGE_KIND_MAX).contains(&candidate.kind);
-        if in_range && kind_ok {
-            Some(index)
-        } else {
-            None
-        }
-    })
+    candidates
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(index, candidate)| {
+            let dx = own_pos[0] - candidate.position[0];
+            let dy = own_pos[1] - candidate.position[1];
+            let dz = own_pos[2] - candidate.position[2];
+            let in_range = dx * dx + dy * dy + dz * dz < HIGH_BRIDGE_RANGE_SQUARED;
+            let kind_ok = (HIGH_BRIDGE_KIND_MIN..=HIGH_BRIDGE_KIND_MAX).contains(&candidate.kind);
+            if in_range && kind_ok {
+                Some(index)
+            } else {
+                None
+            }
+        })
 }
 
 /// One staged move-animation slot for [`replace_move_anim`]: the table id
@@ -554,11 +550,7 @@ fn normalize_strafe_vector(vector: [f32; 3]) -> [f32; 3] {
         return [0.0, if vector[1] < 0.0 { -1.0 } else { 1.0 }, 0.0];
     }
     let factor = 1.0 / square.sqrt();
-    [
-        vector[0] * factor,
-        vector[1] * factor,
-        vector[2] * factor,
-    ]
+    [vector[0] * factor, vector[1] * factor, vector[2] * factor]
 }
 
 /// Staged S_vector::AngleTo for the Can_SpecialStroke scan (LS3DF native;
@@ -1834,6 +1826,7 @@ impl HumanState {
         self.person_anim_request
     }
     /// Take the pending PersonAnim handoff (future PersonAnim owner consumes it).
+    #[allow(dead_code)] // Handoff for the future PersonAnim owner; no consumer wired yet.
     pub(crate) fn take_person_anim_request(&mut self) -> Option<HumanPersonAnimRequest> {
         self.person_anim_request.take()
     }
@@ -2281,6 +2274,7 @@ impl HumanState {
     /// C_human without a type check; the typed source reference carries that
     /// caller precondition. Current properties, voice, frame targets,
     /// inventory and auxiliary records are preserved.
+    #[allow(dead_code)] // Credited RVA port; production caller not wired yet.
     pub(crate) fn duplicate_from(&mut self, source: &HumanState) {
         self.properties = source.properties.clone();
         self.human_type_mask = source.human_type_mask;
@@ -2303,6 +2297,7 @@ impl HumanState {
     /// reset plus ChangeWeaponModel, PoseValidate, ground snapping,
     /// LightnessAdd, and the loc/blob/cutscene/tick words. AI/Update stay
     /// DEFERRED.
+    #[allow(dead_code)] // RVA-mapped GameInit core; production caller not wired yet.
     pub(crate) fn apply_game_init_prefix(&mut self) {
         self.car = None;
         self.using_car = None;
@@ -2338,6 +2333,7 @@ impl HumanState {
     /// owner), `ChangeWeaponModel`/weapon models (weapon owner),
     /// `shvestky.DriveCar` (police owner) and `HideLegs`. `using_car` is
     /// deliberately untouched: the body writes no such word on this path.
+    #[allow(dead_code)] // RVA-mapped Intern_UseCar core; production caller not wired yet.
     pub(crate) fn apply_intern_use_car(
         &mut self,
         car: ActorReferenceId,
@@ -2373,6 +2369,7 @@ impl HumanState {
     /// /`DropOutItems` (inventory owner), `ChangeWeaponModel`/weapon models
     /// (weapon owner), `StopAnims`/`Reset`/`PersonAnim` (animation owner)
     /// and `HideLegs`.
+    #[allow(dead_code)] // RVA-mapped Intern_FromCar core; production caller not wired yet.
     pub(crate) fn apply_intern_from_car(
         &mut self,
         destination_present: bool,
@@ -2404,6 +2401,7 @@ impl HumanState {
     /// markers, no new owner here: the TestMoveColl move_coll word (0x414),
     /// crouching/weapon/aimed reads inside PersonAnim, and every Movement,
     /// Update and car-function writer of these words.
+    #[allow(dead_code)] // RVA-mapped Do_StopAnim core; production caller not wired yet.
     pub(crate) fn apply_do_stop_anim(&mut self) {
         self.action_state = HUMAN_ACTION_STAND;
         if self.alive {
@@ -2460,8 +2458,7 @@ impl HumanState {
         if self.seated_in_car(car_is_car_actor) {
             return false;
         }
-        let run =
-            run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let run = run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
         self.action_state = HUMAN_ACTION_WALK;
         let base = if run { 5.0 } else { 1.7 };
         let speed = base * self.current_properties.speed_factor();
@@ -2505,8 +2502,7 @@ impl HumanState {
         if self.seated_in_car(car_is_car_actor) {
             return false;
         }
-        let run =
-            run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let run = run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
         self.action_state = HUMAN_ACTION_WALK;
         self.turn_speed = 0.0;
         let base = if run { 3.0 } else { 1.5 };
@@ -2516,11 +2512,7 @@ impl HumanState {
             self.dir[1] * speed,
             self.dir[0] * speed,
         ];
-        self.next_anim_id = if run {
-            ANIM_STRAFRL1
-        } else {
-            ANIM_STRAFL1
-        };
+        self.next_anim_id = if run { ANIM_STRAFRL1 } else { ANIM_STRAFL1 };
         true
     }
     /// GAME 0x57d5a0 (RVA 0x17d5a0) C_human::Go_Right (mafia-re 113b5b6
@@ -2533,8 +2525,7 @@ impl HumanState {
         if self.seated_in_car(car_is_car_actor) {
             return false;
         }
-        let run =
-            run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let run = run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
         self.action_state = HUMAN_ACTION_WALK;
         self.turn_speed = 0.0;
         let base = if run { 3.0 } else { 1.5 };
@@ -2544,11 +2535,7 @@ impl HumanState {
             self.dir[1] * speed,
             -self.dir[0] * speed,
         ];
-        self.next_anim_id = if run {
-            ANIM_STRAFRR1
-        } else {
-            ANIM_STRAFR1
-        };
+        self.next_anim_id = if run { ANIM_STRAFRR1 } else { ANIM_STRAFR1 };
         true
     }
     /// GAME 0x57d670 (RVA 0x17d670) C_human::Go_FrontLeft (mafia-re 113b5b6
@@ -2563,8 +2550,7 @@ impl HumanState {
         if self.seated_in_car(car_is_car_actor) {
             return false;
         }
-        let run =
-            run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let run = run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
         let side = [-self.dir[2], self.dir[1], self.dir[0]];
         self.action_state = HUMAN_ACTION_WALK;
         self.turn_speed = 0.0;
@@ -2589,8 +2575,7 @@ impl HumanState {
         if self.seated_in_car(car_is_car_actor) {
             return false;
         }
-        let run =
-            run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let run = run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
         let side = [self.dir[2], self.dir[1], -self.dir[0]];
         self.action_state = HUMAN_ACTION_WALK;
         self.turn_speed = 0.0;
@@ -2926,17 +2911,39 @@ impl HumanState {
         target_is_angry_focus: bool,
     ) -> bool {
         const CAN_HIT: [[bool; 11]; 11] = [
-            [true, true, true, true, true, true, true, true, true, true, true],
-            [true, false, true, true, true, true, true, true, true, true, true],
-            [true, true, false, true, true, true, true, true, true, true, true],
-            [true, true, true, false, false, true, true, true, true, true, true],
-            [true, true, true, false, false, true, true, true, true, true, true],
-            [true, true, true, true, true, false, true, true, true, true, true],
-            [true, true, true, true, true, true, false, true, true, true, true],
-            [true, true, true, true, true, true, true, true, true, true, true],
-            [true, true, true, true, true, true, true, true, true, true, true],
-            [true, true, true, true, true, true, true, true, true, true, true],
-            [true, true, true, true, true, true, true, true, true, true, true],
+            [
+                true, true, true, true, true, true, true, true, true, true, true,
+            ],
+            [
+                true, false, true, true, true, true, true, true, true, true, true,
+            ],
+            [
+                true, true, false, true, true, true, true, true, true, true, true,
+            ],
+            [
+                true, true, true, false, false, true, true, true, true, true, true,
+            ],
+            [
+                true, true, true, false, false, true, true, true, true, true, true,
+            ],
+            [
+                true, true, true, true, true, false, true, true, true, true, true,
+            ],
+            [
+                true, true, true, true, true, true, false, true, true, true, true,
+            ],
+            [
+                true, true, true, true, true, true, true, true, true, true, true,
+            ],
+            [
+                true, true, true, true, true, true, true, true, true, true, true,
+            ],
+            [
+                true, true, true, true, true, true, true, true, true, true, true,
+            ],
+            [
+                true, true, true, true, true, true, true, true, true, true, true,
+            ],
         ];
         let mut mask = shooter_type;
         if mask == 0 {
@@ -3264,8 +3271,7 @@ impl HumanState {
         if self.weapon_kind == WEAPON_KIND_RIFLE || self.weapon_kind == WEAPON_KIND_FISTS {
             return false;
         }
-        let thompson_standing =
-            !self.crouching && self.right_hand_fire_anim == GUN_ANIM_THOMPSON;
+        let thompson_standing = !self.crouching && self.right_hand_fire_anim == GUN_ANIM_THOMPSON;
         match view {
             CornerView::Corner0 => {
                 self.next_anim_id = if thompson_standing {
@@ -3309,8 +3315,7 @@ impl HumanState {
         if self.weapon_kind == WEAPON_KIND_RIFLE || self.weapon_kind == WEAPON_KIND_FISTS {
             return false;
         }
-        let thompson_standing =
-            !self.crouching && self.right_hand_fire_anim == GUN_ANIM_THOMPSON;
+        let thompson_standing = !self.crouching && self.right_hand_fire_anim == GUN_ANIM_THOMPSON;
         match view {
             CornerView::Corner0 => {
                 self.next_anim_id = if thompson_standing {
@@ -3501,6 +3506,7 @@ impl HumanState {
     /// the ground `TestLineV`/room `TestLineH`/`TestSphereB` probes plus the
     /// `DynSetNextCollOwnerMult` plumbing (collision owner), and the
     /// `test_line` `TestColHierarchy` probe (scene owner).
+    #[allow(dead_code)] // Marker-scoped CanEnterToCar guard; production caller not wired yet.
     pub(crate) fn can_enter_to_car_guard(&self) -> bool {
         self.car.is_none()
     }
@@ -3556,7 +3562,8 @@ impl HumanState {
         if self.ghost_colls.is_empty() {
             return;
         }
-        self.next_coll_owners.reserve(colls.len() + self.ghost_colls.len());
+        self.next_coll_owners
+            .reserve(colls.len() + self.ghost_colls.len());
         for coll in colls.iter().rev() {
             self.next_coll_owners.push(*coll);
         }
@@ -3609,6 +3616,7 @@ impl HumanState {
     /// load_source_data's version-6 path. The destructor's StopAnimation(0)
     /// device effect (GAME 0x56f210, C_human.cpp:1275) stays with the frame
     /// owner (ActorWorld/ModelArena): DEFERRED, no new owner filed here.
+    #[allow(dead_code)] // RVA-mapped SaveData encoder; production save path not wired yet.
     pub(crate) fn encode_source_data(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(73);
         bytes.push(6);
@@ -3716,11 +3724,7 @@ impl HumanState {
     /// select only. DEFERRED with explicit markers, no new owner here: every
     /// `gifCollision.DynErase`/`InvalidateColl` call and the colls array
     /// owner.
-    pub fn apply_deactivate_colls(
-        &mut self,
-        keep_upper: bool,
-        coll_flags: &[u32],
-    ) -> Vec<bool> {
+    pub fn apply_deactivate_colls(&mut self, keep_upper: bool, coll_flags: &[u32]) -> Vec<bool> {
         self.colls_active = false;
         coll_flags
             .iter()
@@ -3767,26 +3771,16 @@ impl HumanState {
     /// caller's (carrying_dead_body latch); the dead_body_human Do_PlayAnim
     /// call and every using-object/scene write stay DEFERRED with their
     /// owners.
-    pub fn dead_body_anim_for_carrier(
-        carrier_next_anim_id: i32,
-    ) -> (&'static str, bool, bool) {
+    pub fn dead_body_anim_for_carrier(carrier_next_anim_id: i32) -> (&'static str, bool, bool) {
         match carrier_next_anim_id & ANIM_BASE {
-            ANIM_WALK1 | ANIM_WALKL1 | ANIM_WALKR1 => {
-                ("NoseniMrtvolyMrtWalk.I3D", false, false)
-            }
-            ANIM_BACK1 | ANIM_BACKL1 | ANIM_BACKR1 => {
-                ("NoseniMrtvolyMrtBack.I3D", false, false)
-            }
+            ANIM_WALK1 | ANIM_WALKL1 | ANIM_WALKR1 => ("NoseniMrtvolyMrtWalk.I3D", false, false),
+            ANIM_BACK1 | ANIM_BACKL1 | ANIM_BACKR1 => ("NoseniMrtvolyMrtBack.I3D", false, false),
             ANIM_LEFT1 => ("NoseniMrtvolyMrtLeft.I3D", false, false),
             ANIM_RIGHT1 => ("NoseniMrtvolyMrtRight.I3D", false, false),
             ANIM_STRAFL1 => ("NoseniMrtvolyMrtStrafL.I3D", false, false),
             ANIM_STRAFR1 => ("NoseniMrtvolyMrtStrafR.I3D", false, false),
-            ANIM_NOSENI_MRTVOLY_TOM_NAHOZENI => {
-                ("NoseniMrtvolyMrtNahozeni.I3D", true, true)
-            }
-            ANIM_NOSENI_MRTVOLY_TOM_SHOZENI => {
-                ("NoseniMrtvolyMrtShozeni.I3D", true, false)
-            }
+            ANIM_NOSENI_MRTVOLY_TOM_NAHOZENI => ("NoseniMrtvolyMrtNahozeni.I3D", true, true),
+            ANIM_NOSENI_MRTVOLY_TOM_SHOZENI => ("NoseniMrtvolyMrtShozeni.I3D", true, false),
             _ => ("NoseniMrtvolyMrtStat.I3D", false, false),
         }
     }
@@ -3825,13 +3819,9 @@ impl HumanState {
         self_position: [f32; 3],
         candidates: &[SpecialStrokeCandidate],
     ) -> Option<usize> {
-        let strength = self
-            .properties
-            .float_component(HUMAN_PROPERTY_STRENGTH);
+        let strength = self.properties.float_component(HUMAN_PROPERTY_STRENGTH);
         candidates.iter().rposition(|candidate| {
-            if candidate.actor_type != ACTOR_PLAYER
-                && candidate.actor_type != ACTOR_ENTITY
-            {
+            if candidate.actor_type != ACTOR_PLAYER && candidate.actor_type != ACTOR_ENTITY {
                 return false;
             }
             if !candidate.active_state || candidate.crouching {
@@ -3857,8 +3847,7 @@ impl HumanState {
             if dist_sq >= 1.0 {
                 return false;
             }
-            vector_angle(delta, self.dir) < 0.3
-                && vector_angle(delta, candidate.facing) > 2.85
+            vector_angle(delta, self.dir) < 0.3 && vector_angle(delta, candidate.facing) > 2.85
         })
     }
     /// GAME 0x58b470 (RVA 0x18b470) C_human::NewScream owned gate slice
@@ -4488,9 +4477,7 @@ impl HumanState {
     /// to pin the address while that owner stays DEFERRED. The native `bool`
     /// answer is preserved in the return type.
     pub fn init_unsupported(&mut self) -> Result<bool, HumanSmallProbeError> {
-        Err(HumanSmallProbeError::Unsupported {
-            entry: INIT_ENTRY,
-        })
+        Err(HumanSmallProbeError::Unsupported { entry: INIT_ENTRY })
     }
     /// GAME 0x56f4e0 (RVA 0x16f4e0, VA 0x56f4e0) C_human::LoadData EXPLICIT
     /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:1377): the
@@ -4552,9 +4539,7 @@ impl HumanState {
     /// exists only to pin the address while those owners stay DEFERRED. The
     /// native `bool` answer is preserved in the return type.
     pub fn hit_unsupported(&mut self) -> Result<bool, HumanSmallProbeError> {
-        Err(HumanSmallProbeError::Unsupported {
-            entry: HIT_ENTRY,
-        })
+        Err(HumanSmallProbeError::Unsupported { entry: HIT_ENTRY })
     }
     /// GAME 0x578290 (RVA 0x178290, VA 0x578290) C_human::HitInCar EXPLICIT
     /// UNSUPPORTED STUB (mafia-re 113b5b6 game/actors/C_human.cpp:4358): the
@@ -5190,10 +5175,7 @@ mod tests {
         assert!(!human.apply_intern_use_car(other, 2, 2));
         assert_eq!(human.car(), Some(car));
         assert_eq!(human.seat(), 0);
-        assert_eq!(
-            human.using_car(),
-            Some(ActorReferenceId::from_existing(23))
-        );
+        assert_eq!(human.using_car(), Some(ActorReferenceId::from_existing(23)));
         // The passenger seat admits over a previous latch.
         assert!(human.apply_intern_use_car(other, 1, 2));
         assert_eq!(human.car(), Some(other));
@@ -5202,10 +5184,7 @@ mod tests {
         // The using_car latch is untouched on this path (the body writes no
         // such word here), across both refusals and admissions; last_car
         // has no owner yet and stays unwritten.
-        assert_eq!(
-            human.using_car(),
-            Some(ActorReferenceId::from_existing(23))
-        );
+        assert_eq!(human.using_car(), Some(ActorReferenceId::from_existing(23)));
     }
     #[test]
     fn intern_from_car_placement_clears_cars_keeps_seat_and_refuses_empty() {
@@ -5225,10 +5204,7 @@ mod tests {
         assert_eq!(human.car(), Some(car));
         assert_eq!(human.action_state(), HUMAN_ACTION_CAR);
         // Refusals leave using_car and seat untouched.
-        assert_eq!(
-            human.using_car(),
-            Some(ActorReferenceId::from_existing(23))
-        );
+        assert_eq!(human.using_car(), Some(ActorReferenceId::from_existing(23)));
         assert_eq!(human.seat(), 1);
         assert!(human.apply_intern_from_car(true, true));
         assert_eq!(human.car(), None);
@@ -5367,10 +5343,7 @@ mod tests {
         human.push_ghost_coll(HumanDynCollId::from_raw(9));
         assert_eq!(
             human.ghost_colls(),
-            &[
-                HumanDynCollId::from_raw(7),
-                HumanDynCollId::from_raw(9)
-            ]
+            &[HumanDynCollId::from_raw(7), HumanDynCollId::from_raw(9)]
         );
         let colls = [
             HumanDynCollId::from_raw(1),
@@ -6811,18 +6784,29 @@ mod human_state_flags_tests {
         human.set_alive(true);
         let before = (human.alive(), human.action_state(), human.anim_id());
         HumanState::death_unsupported();
-        assert_eq!((human.alive(), human.action_state(), human.anim_id()), before);
+        assert_eq!(
+            (human.alive(), human.action_state(), human.anim_id()),
+            before
+        );
     }
     #[test]
     // GAME 0x570660 (RVA 0x170660) C_human::Extern_AI_Update (mafia-re 113b5b6
     // game/actors/C_human.cpp:1699): explicit unsupported stub, animation-
     // machine/frame/collision owners; invoking it touches no staged words.
     fn extern_ai_update_rva_170660_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
-        let before = (human.action_state(), human.next_anim_id(), human.turn_speed());
+        let human = HumanState::construct(seed());
+        let before = (
+            human.action_state(),
+            human.next_anim_id(),
+            human.turn_speed(),
+        );
         HumanState::extern_ai_update_unsupported(16);
         assert_eq!(
-            (human.action_state(), human.next_anim_id(), human.turn_speed()),
+            (
+                human.action_state(),
+                human.next_anim_id(),
+                human.turn_speed()
+            ),
             before
         );
     }
@@ -6833,11 +6817,14 @@ mod human_state_flags_tests {
     // claimed 0x57e020 seat-placement overload. Invoking it touches no staged
     // words.
     fn intern_use_car_flag_rva_1716d0_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.car(), human.using_car(), human.action_state());
         HumanState::intern_use_car_flag_unsupported(true);
         HumanState::intern_use_car_flag_unsupported(false);
-        assert_eq!((human.car(), human.using_car(), human.action_state()), before);
+        assert_eq!(
+            (human.car(), human.using_car(), human.action_state()),
+            before
+        );
     }
     #[test]
     // GAME 0x571b90 (RVA 0x171b90) C_human::Intern_UseRailway (mafia-re
@@ -6845,11 +6832,14 @@ mod human_state_flags_tests {
     // railway/frame/matrix/collision/camera/police/shadow owners; invoking
     // it touches no staged words.
     fn intern_use_railway_rva_171b90_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.car(), human.using_car(), human.action_state());
         HumanState::intern_use_railway_unsupported(true);
         HumanState::intern_use_railway_unsupported(false);
-        assert_eq!((human.car(), human.using_car(), human.action_state()), before);
+        assert_eq!(
+            (human.car(), human.using_car(), human.action_state()),
+            before
+        );
     }
     #[test]
     // GAME 0x5721b0 (RVA 0x1721b0) C_human::_intern_UseCarTruck (mafia-re
@@ -6857,7 +6847,7 @@ mod human_state_flags_tests {
     // truck/frame/collision/camera/police/navigation owners; invoking it
     // touches no staged words.
     fn intern_use_car_truck_rva_1721b0_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.car(), human.using_car(), human.seat());
         HumanState::intern_use_car_truck_unsupported();
         assert_eq!((human.car(), human.using_car(), human.seat()), before);
@@ -6868,20 +6858,26 @@ mod human_state_flags_tests {
     // truck/frame/scene/collision/damage owners; invoking it touches no
     // staged words.
     fn throw_from_car_truck_rva_172530_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.car(), human.action_state(), human.velocity());
         HumanState::throw_from_car_truck_unsupported();
-        assert_eq!((human.car(), human.action_state(), human.velocity()), before);
+        assert_eq!(
+            (human.car(), human.action_state(), human.velocity()),
+            before
+        );
     }
     #[test]
     // GAME 0x5757c0 (RVA 0x1757c0) C_human::GameDone (mafia-re 113b5b6
     // game/actors/C_human.cpp:3407): explicit unsupported stub, model/frame/
     // shadow/sound/using-object owners; invoking it touches no staged words.
     fn human_game_done_rva_1757c0_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.action_state(), human.anim_id(), human.next_anim_id());
         HumanState::human_game_done_unsupported();
-        assert_eq!((human.action_state(), human.anim_id(), human.next_anim_id()), before);
+        assert_eq!(
+            (human.action_state(), human.anim_id(), human.next_anim_id()),
+            before
+        );
     }
     #[test]
     // GAME 0x584620 (RVA 0x184620) C_human::Shooting (mafia-re 113b5b6
@@ -6889,10 +6885,13 @@ mod human_state_flags_tests {
     // frame/police/sound/grenade/weapon/light/force-feedback owners;
     // invoking it touches no staged words.
     fn shooting_rva_184620_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.reloading(), human.fire_held(), human.note_fire());
         HumanState::shooting_unsupported();
-        assert_eq!((human.reloading(), human.fire_held(), human.note_fire()), before);
+        assert_eq!(
+            (human.reloading(), human.fire_held(), human.note_fire()),
+            before
+        );
     }
     #[test]
     // GAME 0x58b8d0 (RVA 0x18b8d0) C_human::RecompileDeathPos (mafia-re
@@ -6900,20 +6899,26 @@ mod human_state_flags_tests {
     // model/frame/animation-cache owners; invoking it touches no staged
     // words.
     fn recompile_death_pos_rva_18b8d0_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.action_state(), human.anim_id(), human.next_anim_id());
         HumanState::recompile_death_pos_unsupported();
-        assert_eq!((human.action_state(), human.anim_id(), human.next_anim_id()), before);
+        assert_eq!(
+            (human.action_state(), human.anim_id(), human.next_anim_id()),
+            before
+        );
     }
     #[test]
     // GAME 0x56b8d0 (RVA 0x16b8d0) C_human::PlayStep (mafia-re 113b5b6
     // game/actors/C_human.cpp:250): explicit unsupported stub, records/
     // cutscene/model/frame owners; invoking it touches no staged words.
     fn play_step_rva_16b8d0_stub_runs_without_state() {
-        let mut human = HumanState::construct(seed());
+        let human = HumanState::construct(seed());
         let before = (human.action_state(), human.anim_id(), human.next_anim_id());
         HumanState::play_step_unsupported(100);
-        assert_eq!((human.action_state(), human.anim_id(), human.next_anim_id()), before);
+        assert_eq!(
+            (human.action_state(), human.anim_id(), human.next_anim_id()),
+            before
+        );
     }
     #[test]
     // GAME 0x56c6e0 (RVA 0x16c6e0) C_human::DumpRecords (mafia-re 113b5b6
@@ -6923,7 +6928,10 @@ mod human_state_flags_tests {
         let human = HumanState::construct(seed());
         let before = (human.action_state(), human.anim_id(), human.next_anim_id());
         HumanState::dump_records_unsupported();
-        assert_eq!((human.action_state(), human.anim_id(), human.next_anim_id()), before);
+        assert_eq!(
+            (human.action_state(), human.anim_id(), human.next_anim_id()),
+            before
+        );
     }
     #[test]
     // GAME 0x5747d0 (RVA 0x1747d0) C_human::ShiftAnimation (mafia-re 113b5b6
@@ -7370,7 +7378,10 @@ mod human_state_flags_tests {
             position: [3.0, 0.0, 4.0],
             kind: 6,
         };
-        assert_eq!(find_nearby_high_bridge([0.0, 0.0, 0.0], false, &[near]), None);
+        assert_eq!(
+            find_nearby_high_bridge([0.0, 0.0, 0.0], false, &[near]),
+            None
+        );
         assert_eq!(
             find_nearby_high_bridge([0.0, 0.0, 0.0], true, &[far, wrong_kind]),
             None
@@ -7389,7 +7400,10 @@ mod human_state_flags_tests {
             position: [100.0, 0.0, 0.0],
             kind: 3,
         };
-        assert_eq!(find_nearby_high_bridge([0.0, 0.0, 0.0], true, &[edge]), None);
+        assert_eq!(
+            find_nearby_high_bridge([0.0, 0.0, 0.0], true, &[edge]),
+            None
+        );
     }
     #[test]
     // GAME 0x57dd00 (RVA 0x17dd00) C_human::ChangeAnim (mafia-re 113b5b6
@@ -7409,7 +7423,13 @@ mod human_state_flags_tests {
             },
         ];
         let mut anim_id = 42;
-        replace_move_anim(&table, &mut slots, "WALK1.I3D", Some("walk2.i3d"), &mut anim_id);
+        replace_move_anim(
+            &table,
+            &mut slots,
+            "WALK1.I3D",
+            Some("walk2.i3d"),
+            &mut anim_id,
+        );
         assert_eq!(anim_id, 0);
         assert_eq!(
             slots,
@@ -7709,7 +7729,7 @@ pub fn reload_fire_plan(
     if !at_end {
         return None;
     }
-    if weapon_kind <= WEAPON_KIND_FISTS || weapon_kind > WEAPON_KIND_SMG {
+    if weapon_kind == WEAPON_KIND_FISTS || weapon_kind > WEAPON_KIND_SMG {
         return None;
     }
     if spare <= 0 {
@@ -7872,7 +7892,11 @@ pub fn change_weapon_fire_select() -> (FireActionTable, i32) {
 /// `dt_ms`; the weapon/animation owners stay DEFERRED.
 pub fn shoot_strike_index_next(prev_index: i32, dt_ms: u32) -> i32 {
     let next = if dt_ms < 1200 { prev_index + 1 } else { 0 };
-    if next > 3 { 0 } else { next }
+    if next > 3 {
+        0
+    } else {
+        next
+    }
 }
 
 /// Working-name backswing-start gate of C_human::Do_Shoot (no RVA claimed:
@@ -8078,11 +8102,7 @@ pub fn holster_model_program(
 /// DropOutItems 0x57faa0, with no standalone FUNCTION copy). Requires both
 /// staged hand frames and at least one staged item; the frame/game-drop
 /// owners stay DEFERRED.
-pub fn drop_out_items_gate(
-    has_right_hand: bool,
-    has_left_hand: bool,
-    item_count: usize,
-) -> bool {
+pub fn drop_out_items_gate(has_right_hand: bool, has_left_hand: bool, item_count: usize) -> bool {
     has_right_hand && has_left_hand && item_count > 0
 }
 
@@ -8183,11 +8203,7 @@ pub enum JumpAnimSelect {
 /// DEFERRED with the collision/animation/device owners; `ff_direction`
 /// stages the shake direction (0.0 run/stance, PI/2 left, 3PI/2 right) for
 /// the deferred effect.
-pub fn jump_anim_select(
-    masked_anim_id: i32,
-    weapon_kind: u32,
-    crouching: bool,
-) -> JumpAnimSelect {
+pub fn jump_anim_select(masked_anim_id: i32, weapon_kind: u32, crouching: bool) -> JumpAnimSelect {
     use core::f32::consts::PI;
     if masked_anim_id == ANIM_RUN1 {
         if crouching {
@@ -8432,11 +8448,7 @@ pub fn side_jump_select(
     } else {
         ANIM_USKOK_FRONT_LEFT
     };
-    let side = distance_to_line_2d(
-        [pos[0], pos[2]],
-        [pos2[0], pos2[2]],
-        [dir[0], dir2[2]],
-    );
+    let side = distance_to_line_2d([pos[0], pos[2]], [pos2[0], pos2[2]], [dir[0], dir2[2]]);
     if side < 0.0 {
         next += 1;
     }
@@ -8606,11 +8618,7 @@ pub fn shoot_entry_gate(carrying_box: bool, carrying_dead_body: bool) -> bool {
 /// DelExtendedAnim/PersonAnim calls, the HOD animation select, the indicator
 /// clear and the game-time stamp stay DEFERRED with the animation/indicator
 /// owners.
-pub fn throw_grenade_throw_dir(
-    is_ready: bool,
-    item_id: i32,
-    dir: [f32; 3],
-) -> Option<[f32; 3]> {
+pub fn throw_grenade_throw_dir(is_ready: bool, item_id: i32, dir: [f32; 3]) -> Option<[f32; 3]> {
     if !is_ready {
         return None;
     }
@@ -9252,33 +9260,89 @@ mod do_small_actions_rva_tests {
     fn side_jump_rva_187040_selects_base_and_side() {
         // GAME 0x587040 (RVA 0x187040).
         assert_eq!(
-            side_jump_select([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, false, false),
+            side_jump_select(
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                0,
+                false,
+                false
+            ),
             Some(ANIM_USKOK_LEFT_BACK)
         );
         assert_eq!(
-            side_jump_select([1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, false, false),
+            side_jump_select(
+                [1.0, 0.0, 0.0],
+                [-1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                0,
+                false,
+                false
+            ),
             Some(ANIM_USKOK_RIGHT_FRONT)
         );
         assert_eq!(
-            side_jump_select([1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, false, false),
+            side_jump_select(
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                0,
+                false,
+                false
+            ),
             Some(ANIM_USKOK_BACK_RIGHT)
         );
         assert_eq!(
-            side_jump_select([1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, false, false),
+            side_jump_select(
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, -1.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                0,
+                false,
+                false
+            ),
             Some(ANIM_USKOK_FRONT_LEFT)
         );
         // Line side below the track bumps the id by one.
         assert_eq!(
-            side_jump_select([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 0.0, 0.0], 0, false, false),
+            side_jump_select(
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, -1.0],
+                [0.0, 0.0, 0.0],
+                0,
+                false,
+                false
+            ),
             Some(ANIM_USKOK_LEFT_BACK + 1)
         );
         // Carry and in-flight ids refuse.
         assert_eq!(
-            side_jump_select([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, true, false),
+            side_jump_select(
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                0,
+                true,
+                false
+            ),
             None
         );
         assert_eq!(
-            side_jump_select([1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 0, false, true),
+            side_jump_select(
+                [1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0],
+                0,
+                false,
+                true
+            ),
             None
         );
         assert_eq!(
@@ -9322,8 +9386,14 @@ mod do_small_actions_rva_tests {
         let dir = [0.0, 1.0, 0.0];
         assert_eq!(throw_grenade_throw_dir(false, GAMEITEM_MOLOTOV, dir), None);
         assert_eq!(throw_grenade_throw_dir(true, 0, dir), None);
-        assert_eq!(throw_grenade_throw_dir(true, GAMEITEM_MOLOTOV, dir), Some(dir));
-        assert_eq!(throw_grenade_throw_dir(true, GAMEITEM_GRENADE, dir), Some(dir));
+        assert_eq!(
+            throw_grenade_throw_dir(true, GAMEITEM_MOLOTOV, dir),
+            Some(dir)
+        );
+        assert_eq!(
+            throw_grenade_throw_dir(true, GAMEITEM_GRENADE, dir),
+            Some(dir)
+        );
     }
 
     #[test]
@@ -9720,10 +9790,7 @@ mod working_name_small_leaves_tests {
     #[test]
     fn change_weapon_fire_select_swaps_to_on_off() {
         // Working name: no RVA claimed (inline swap, C_human.cpp:6017-6019).
-        assert_eq!(
-            change_weapon_fire_select(),
-            (FireActionTable::OnOff, 0)
-        );
+        assert_eq!(change_weapon_fire_select(), (FireActionTable::OnOff, 0));
     }
 
     #[test]
@@ -10064,12 +10131,7 @@ pub struct AiSegStat {
 /// 113b5b6 game/actors/C_human.cpp:1141-1157): refreshes the matching special
 /// (time update plus count increment) or pushes a new count-1 record. The
 /// mission game-time owner stays DEFERRED; the caller stages `game_time`.
-pub fn ai_loc_add_segment(
-    segs: &mut Vec<AiSegStat>,
-    seg_type: u32,
-    special: u32,
-    game_time: u32,
-) {
+pub fn ai_loc_add_segment(segs: &mut Vec<AiSegStat>, seg_type: u32, special: u32, game_time: u32) {
     for seg in segs.iter_mut() {
         if seg.special == special {
             seg.time = game_time;
@@ -10477,13 +10539,13 @@ mod ai_loc_blob_rva_tests {
                 seg_type: 1,
                 time: 1000,
                 count: 2,
-                special: 1
+                special: 1,
             },
             AiSegStat {
                 seg_type: 2,
                 time: 5000,
                 count: 1,
-                special: 2
+                special: 2,
             },
         ];
         ai_loc_seg_list_update(&mut segs, 4999);
@@ -10624,8 +10686,7 @@ mod ai_loc_blob_rva_tests {
     fn read_old_char_struct_rva_16f760_scales_limb_energies() {
         // GAME 0x56f760 (RVA 0x16f760).
         let old = [
-            0.7, 0.5, 100.0, 20.0, 20.0, 20.0, 20.0, 0.7, 1.0, 0.6, 0.8, 0.7, 1.0, 1.0, 0.8,
-            80.0,
+            0.7, 0.5, 100.0, 20.0, 20.0, 20.0, 20.0, 0.7, 1.0, 0.6, 0.8, 0.7, 1.0, 1.0, 0.8, 80.0,
         ];
         let mapped = read_old_char_struct(&old);
         assert_eq!(mapped[0], 0.7);
@@ -10664,8 +10725,7 @@ mod ai_loc_blob_rva_tests {
         let step = process_death_pos(0, 100, 25, [1.0, 2.0, 3.0], [4.0, 0.0, -2.0]).unwrap();
         assert_eq!(step.new_time, 25);
         assert_eq!(step.pos, [2.0, 2.0, 2.5]);
-        let clamped =
-            process_death_pos(90, 100, 50, [0.0, 0.0, 0.0], [10.0, 0.0, 0.0]).unwrap();
+        let clamped = process_death_pos(90, 100, 50, [0.0, 0.0, 0.0], [10.0, 0.0, 0.0]).unwrap();
         assert_eq!(clamped.new_time, 100);
         assert_eq!(clamped.pos, [10.0, 0.0, 0.0]);
     }

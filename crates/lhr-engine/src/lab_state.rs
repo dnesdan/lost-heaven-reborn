@@ -426,8 +426,10 @@ mod tests {
         assert_eq!(pacing.intervals().collect::<Vec<_>>(), vec![16.]);
         assert_eq!(pacing.stats().unwrap().p95_ms, 16.);
         pacing.record(35.);
-        let mut state = State::default();
-        state.frame_pacing = pacing;
+        let mut state = State {
+            frame_pacing: pacing,
+            ..State::default()
+        };
         state.focus_lost();
         assert_eq!(state.frame_pacing.stats(), None);
     }

@@ -269,8 +269,7 @@ pub fn panak2_slide(
         let hit = panak2_static_once_full(static_candidates, dynamic_candidates, &pass_req)?;
         let Some(hit) = hit else {
             let stop = panak2_add(origins[0], delta);
-            let last_distance_squared =
-                last_hit.map(|previous| previous.distance_squared);
+            let last_distance_squared = last_hit.map(|previous| previous.distance_squared);
             return Ok(Panak2SlideOutcome {
                 hit: last_hit.is_some(),
                 stop,
@@ -646,10 +645,7 @@ mod tests {
         let dynamic = [floor_unflagged(7)];
         let mut req = request();
         req.delta = [0., -4., 0.];
-        assert_eq!(
-            panak2_static_once_full(&[], &dynamic, &req),
-            Ok(None)
-        );
+        assert_eq!(panak2_static_once_full(&[], &dynamic, &req), Ok(None));
         req.selector = 0;
         let hit = panak2_static_once_full(&[], &dynamic, &req)
             .unwrap()
@@ -755,9 +751,8 @@ mod tests {
             PANAK2_WORKING_MAX_SLIDES,
         )
         .unwrap();
-        let prefix = crate::human_move_coll::test_move_coll_prefix(
-            true, false, false, from, [0., -4., 0.],
-        );
+        let prefix =
+            crate::human_move_coll::test_move_coll_prefix(true, false, false, from, [0., -4., 0.]);
         let req = Panak2Request::from_prefix(legs, body, head, &prefix, -1);
         let slide = panak2_slide(&candidates, &[], &req, PANAK2_WORKING_MAX_SLIDES).unwrap();
         assert!(slide.hit);
@@ -772,7 +767,17 @@ mod tests {
             slide.stop[1] - crate::human_move_coll::TEST_MOVE_COLL_RESULT_DROP
         );
         let miss_outcome = test_move_coll_slide_result(
-            &candidates, &[], true, false, false, from, [0., 4., 0.], legs, body, head, -1,
+            &candidates,
+            &[],
+            true,
+            false,
+            false,
+            from,
+            [0., 4., 0.],
+            legs,
+            body,
+            head,
+            -1,
             PANAK2_WORKING_MAX_SLIDES,
         )
         .unwrap();

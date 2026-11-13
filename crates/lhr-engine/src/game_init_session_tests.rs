@@ -110,10 +110,7 @@ fn init_stops_at_first_unowned_step_with_live_prefix_preserved() {
     assert_eq!(attempt.last(), Some(InitStep::ResetMissionState));
     // Native stores before the first unowned Scene read are retained. Weather
     // and later sound/AI/UI work must not be silently fabricated.
-    assert_eq!(
-        session.game_init_reset_observation(),
-        (false, 0, None, 0),
-    );
+    assert_eq!(session.game_init_reset_observation(), (false, 0, None, 0),);
     assert_eq!(session.audio().master_gain().unwrap(), 1.0);
     assert_eq!(
         session.reset_game_mission_state_for_init(),

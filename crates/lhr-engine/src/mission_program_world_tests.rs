@@ -1328,9 +1328,7 @@ fn init_detector_programs_compiles_fresh_detector_sources_through_context() {
         BaseActorSeed, DetectorSeed, SourceBacking,
     };
     use crate::model_loading::ModelArena;
-    use crate::original_program::{
-        ProgramAllocation, ProgramBackend, ProgramBuffer, ProgramSeed,
-    };
+    use crate::original_program::{ProgramAllocation, ProgramBackend, ProgramBuffer, ProgramSeed};
 
     struct Heap {
         next: u32,
@@ -1437,7 +1435,9 @@ fn init_detector_programs_compiles_fresh_detector_sources_through_context() {
         .set_source_code(Some(b"dim_act 1\ndetector_setsignal -1, 1"), &mut heap)
         .unwrap();
     program.set_owner(Some(detector)).unwrap();
-    world.return_detector_program(detector, Some(program)).unwrap();
+    world
+        .return_detector_program(detector, Some(program))
+        .unwrap();
     let mut arena = ModelArena::default();
     let mut scene = crate::script_scheduler::FrameReferenceId::from_existing(1);
     let mut effects = Effects::default();
@@ -1452,22 +1452,18 @@ fn init_detector_programs_compiles_fresh_detector_sources_through_context() {
     // The init pass compiles the sourceless-runtime program and leaves
     // initialized programs untouched; the program stays with its owner.
     assert_eq!(context.init_detector_programs(&mut world), Ok(1));
-    assert!(world.detector(detector).unwrap().program().is_some_and(
-        |program| program.runtime().is_some()
-    ));
+    assert!(world
+        .detector(detector)
+        .unwrap()
+        .program()
+        .is_some_and(|program| program.runtime().is_some()));
     assert_eq!(
-        world
-            .detector(detector)
-            .unwrap()
-            .program()
-            .unwrap()
-            .owner(),
+        world.detector(detector).unwrap().program().unwrap().owner(),
         Some(detector)
     );
     assert_eq!(context.init_detector_programs(&mut world), Ok(0));
-    // The context borrows the effects backend; release it before arming the
-    // failure injection below.
-    drop(context);
+    // The context borrows the effects backend; its last use above releases
+    // it before arming the failure injection below.
     // A failing effects backend reports the runtime error yet restores the
     // taken program to its owner (return-on-every-path, mirroring entities):
     // a second fresh detector still needs its first Init when the backend
@@ -1506,9 +1502,7 @@ fn tick_detector_programs_steps_owned_live_state_through_context() {
         BaseActorSeed, DetectorSeed, SourceBacking,
     };
     use crate::model_loading::ModelArena;
-    use crate::original_program::{
-        ProgramAllocation, ProgramBackend, ProgramBuffer, ProgramSeed,
-    };
+    use crate::original_program::{ProgramAllocation, ProgramBackend, ProgramBuffer, ProgramSeed};
 
     struct Heap {
         next: u32,
@@ -1614,7 +1608,9 @@ fn tick_detector_programs_steps_owned_live_state_through_context() {
         .set_source_code(Some(b"program_storage"), &mut heap)
         .unwrap();
     program.set_owner(Some(detector)).unwrap();
-    world.return_detector_program(detector, Some(program)).unwrap();
+    world
+        .return_detector_program(detector, Some(program))
+        .unwrap();
     // A WAITFORUSE arm reaches the unavailable using-object owner: the tick
     // reports the runtime error yet restores the program to its owner
     // (return-on-every-path, mirroring entities).
@@ -1657,7 +1653,6 @@ fn tick_detector_programs_steps_owned_live_state_through_context() {
     assert_eq!(stored.fields.command_time, 3);
     assert!(world.detector(detector).unwrap().program().is_some());
     assert!(world.detector(waiter).unwrap().program().is_some());
-    drop(context);
     // Retire only the failed waiter through its actual owners. Replacing its
     // program with None would leave a detached Ready actor, which now refuses
     // dispatch rather than being a successful skip.
@@ -1836,29 +1831,9 @@ fn detector_erase_colls_succeeds_vacuously_while_create_stays_unavailable() {
 #[test]
 fn frame_switch_applies_arena_store_and_defers_sound_frames() {
     use super::MissionLookupWorld;
-    use crate::actor_world::{ActorCollectionBackend, ActorSource, ActorStorageId, ActorWorld, SourceBacking};
+    use crate::actor_world::{ActorStorageId, ActorWorld, SourceBacking};
     use crate::model_loading::ModelArena;
     use crate::script_lookup::{FrameSetOnOutcome, LookupWorldBackend};
-
-    struct Heap;
-    impl ActorCollectionBackend for Heap {
-        fn allocate_collection(
-            &mut self,
-            _: &ActorWorld,
-            _: ActorSource,
-            _: u32,
-        ) -> Result<ActorStorageId, String> {
-            Ok(ActorStorageId(2))
-        }
-        fn free_collection(
-            &mut self,
-            _: &ActorWorld,
-            _: ActorSource,
-            _: Option<ActorStorageId>,
-        ) -> Result<(), String> {
-            Ok(())
-        }
-    }
 
     struct NoopDiagnostic;
     impl super::MissionProgramDiagnostic for NoopDiagnostic {

@@ -182,7 +182,9 @@ impl TrafficCarState {
     /// game/vehicles/C_trf_c.cpp:88-89).
     pub fn name_record_at(&self, index: usize) -> Option<[u8; TRAFFIC_NAME_SIZE]> {
         let start = index.checked_mul(TRAFFIC_NAME_SIZE)?;
-        let bytes = self.elements.get(start..start.checked_add(TRAFFIC_NAME_SIZE)?)?;
+        let bytes = self
+            .elements
+            .get(start..start.checked_add(TRAFFIC_NAME_SIZE)?)?;
         let mut record = [0u8; TRAFFIC_NAME_SIZE];
         record.copy_from_slice(bytes);
         Some(record)
@@ -507,7 +509,9 @@ pub const SCIPNI_ENTRY: u32 = 0x4aaa00;
 /// Original `C_traffic_car::Scipni` stub: reports the visibility-owner
 /// boundary instead of staging hidden state.
 pub fn scipni(_hide: bool) -> Result<(), TrafficRemovalError> {
-    Err(TrafficRemovalError::Unsupported { entry: SCIPNI_ENTRY })
+    Err(TrafficRemovalError::Unsupported {
+        entry: SCIPNI_ENTRY,
+    })
 }
 
 /// One `C_traffic_car::S_ELEMENT` list slot (mafia-re game/vehicles/C_trf_c.h:56-61
@@ -903,6 +907,7 @@ impl TrafficCarState {
     /// `TRAFFIC_NAME_SIZE` name records. The host clones the admitted
     /// element bytes verbatim; native `strcpy` tail bytes past each NUL are
     /// uninitialized heap garbage and stay untracked.
+    #[allow(dead_code)] // Credited RVA port; production caller (base copy owner) not wired yet.
     pub(crate) fn duplicate_from(&mut self, other: &Self) {
         for offset in [0x21c, 0x224, 0x228, 0x22c] {
             let word = other.word(offset);
@@ -1108,12 +1113,19 @@ mod tests {
         // C_traffic_car::GetParkingCars GAME RVA 0xb8540 (VA 0x4b8540).
         let mut lists = TrafficCarLists::default();
         assert!(get_parking_cars(&lists).is_empty());
-        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 2 });
-        lists.parking_cars_mut().push(TrafficListSlot { frame: 3, car: 4 });
+        lists
+            .parking_cars_mut()
+            .push(TrafficListSlot { frame: 1, car: 2 });
+        lists
+            .parking_cars_mut()
+            .push(TrafficListSlot { frame: 3, car: 4 });
         lists.elems_mut().push(TrafficListSlot { frame: 9, car: 9 });
         assert_eq!(
             get_parking_cars(&lists),
-            &[TrafficListSlot { frame: 1, car: 2 }, TrafficListSlot { frame: 3, car: 4 }]
+            &[
+                TrafficListSlot { frame: 1, car: 2 },
+                TrafficListSlot { frame: 3, car: 4 }
+            ]
         );
     }
 
@@ -1123,7 +1135,9 @@ mod tests {
         let mut lists = TrafficCarLists::default();
         assert!(get_elems(&lists).is_empty());
         lists.elems_mut().push(TrafficListSlot { frame: 7, car: 8 });
-        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 1 });
+        lists
+            .parking_cars_mut()
+            .push(TrafficListSlot { frame: 1, car: 1 });
         assert_eq!(get_elems(&lists), &[TrafficListSlot { frame: 7, car: 8 }]);
     }
 
@@ -1131,7 +1145,9 @@ mod tests {
     fn rva_ab120_vfunc_38_always_false() {
         // C_traffic_car::vfunc_38 GAME RVA 0xab120 (VA 0x4ab120).
         assert!(!traffic_car_vfunc_38([0; 12]));
-        assert!(!traffic_car_vfunc_38([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+        assert!(!traffic_car_vfunc_38([
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+        ]));
         assert!(!traffic_car_vfunc_38([i32::MIN; 12]));
     }
 
@@ -1141,7 +1157,10 @@ mod tests {
         assert_eq!(TRAFFIC_SAVE_GAME_EXTRA, 2);
         assert_eq!(traffic_car_save_game_size(0), 2);
         assert_eq!(traffic_car_save_game_size(41), 43);
-        assert_eq!(traffic_car_save_game_size(i32::MAX), i32::MIN.wrapping_add(1));
+        assert_eq!(
+            traffic_car_save_game_size(i32::MAX),
+            i32::MIN.wrapping_add(1)
+        );
     }
 
     #[test]
@@ -1274,7 +1293,9 @@ mod tests {
         assert_eq!(lists.elems_len(), 0);
         assert!(lists.is_parking_empty());
         assert!(lists.is_elems_empty());
-        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 2 });
+        lists
+            .parking_cars_mut()
+            .push(TrafficListSlot { frame: 1, car: 2 });
         lists.elems_mut().push(TrafficListSlot { frame: 3, car: 4 });
         lists.elems_mut().push(TrafficListSlot { frame: 5, car: 6 });
         assert_eq!(lists.parking_len(), 1);
@@ -1289,7 +1310,9 @@ mod tests {
     fn lists_clear_empties_both_vectors() {
         // Working-name clears: no RVA claimed (direct vector clear).
         let mut lists = TrafficCarLists::default();
-        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 1 });
+        lists
+            .parking_cars_mut()
+            .push(TrafficListSlot { frame: 1, car: 1 });
         lists.elems_mut().push(TrafficListSlot { frame: 2, car: 2 });
         lists.clear_parking();
         assert!(lists.is_parking_empty());
@@ -1362,8 +1385,12 @@ mod tests {
         let mut lists = TrafficCarLists::default();
         assert_eq!(lists.parking_car_at(0), None);
         assert_eq!(lists.elem_car_at(0), None);
-        lists.parking_cars_mut().push(TrafficListSlot { frame: 1, car: 2 });
-        lists.parking_cars_mut().push(TrafficListSlot { frame: 3, car: 4 });
+        lists
+            .parking_cars_mut()
+            .push(TrafficListSlot { frame: 1, car: 2 });
+        lists
+            .parking_cars_mut()
+            .push(TrafficListSlot { frame: 3, car: 4 });
         lists.elems_mut().push(TrafficListSlot { frame: 7, car: 8 });
         assert_eq!(
             lists.parking_car_at(0),
@@ -1474,7 +1501,10 @@ mod tests {
         lists.push_parking_slot(TrafficListSlot { frame: 1, car: 2 });
         lists.push_parking_slot(TrafficListSlot { frame: 3, car: 4 });
         assert_eq!(lists.parking_len(), 2);
-        assert_eq!(lists.parking_car_at(0), Some(&TrafficListSlot { frame: 1, car: 2 }));
+        assert_eq!(
+            lists.parking_car_at(0),
+            Some(&TrafficListSlot { frame: 1, car: 2 })
+        );
         assert_eq!(get_parking_cars(&lists).len(), 2);
     }
 
@@ -1484,7 +1514,10 @@ mod tests {
         let mut lists = TrafficCarLists::default();
         lists.push_elem_slot(TrafficListSlot { frame: 7, car: 8 });
         assert_eq!(lists.elems_len(), 1);
-        assert_eq!(lists.elem_car_at(0), Some(&TrafficListSlot { frame: 7, car: 8 }));
+        assert_eq!(
+            lists.elem_car_at(0),
+            Some(&TrafficListSlot { frame: 7, car: 8 })
+        );
         assert_eq!(get_elems(&lists), &[TrafficListSlot { frame: 7, car: 8 }]);
     }
 
@@ -1495,9 +1528,15 @@ mod tests {
         assert_eq!(lists.pop_parking_slot(), None);
         lists.push_parking_slot(TrafficListSlot { frame: 1, car: 1 });
         lists.push_parking_slot(TrafficListSlot { frame: 2, car: 2 });
-        assert_eq!(lists.pop_parking_slot(), Some(TrafficListSlot { frame: 2, car: 2 }));
+        assert_eq!(
+            lists.pop_parking_slot(),
+            Some(TrafficListSlot { frame: 2, car: 2 })
+        );
         assert_eq!(lists.parking_len(), 1);
-        assert_eq!(lists.pop_parking_slot(), Some(TrafficListSlot { frame: 1, car: 1 }));
+        assert_eq!(
+            lists.pop_parking_slot(),
+            Some(TrafficListSlot { frame: 1, car: 1 })
+        );
         assert!(lists.is_parking_empty());
     }
 
@@ -1507,7 +1546,10 @@ mod tests {
         let mut lists = TrafficCarLists::default();
         assert_eq!(lists.pop_elem_slot(), None);
         lists.push_elem_slot(TrafficListSlot { frame: 5, car: 6 });
-        assert_eq!(lists.pop_elem_slot(), Some(TrafficListSlot { frame: 5, car: 6 }));
+        assert_eq!(
+            lists.pop_elem_slot(),
+            Some(TrafficListSlot { frame: 5, car: 6 })
+        );
         assert!(lists.is_elems_empty());
     }
 
@@ -1540,7 +1582,10 @@ mod tests {
             Some(TrafficListSlot { frame: 8, car: 8 })
         );
         assert_eq!(lists.elems_len(), 1);
-        assert_eq!(lists.elem_car_at(0), Some(&TrafficListSlot { frame: 7, car: 7 }));
+        assert_eq!(
+            lists.elem_car_at(0),
+            Some(&TrafficListSlot { frame: 7, car: 7 })
+        );
     }
 
     #[test]
@@ -1598,10 +1643,22 @@ mod tests {
         lists.push_parking_slot(TrafficListSlot { frame: 1, car: 2 });
         lists.push_parking_slot(TrafficListSlot { frame: 3, car: 4 });
         lists.push_elem_slot(TrafficListSlot { frame: 7, car: 8 });
-        assert_eq!(lists.parking_first(), Some(&TrafficListSlot { frame: 1, car: 2 }));
-        assert_eq!(lists.parking_last(), Some(&TrafficListSlot { frame: 3, car: 4 }));
-        assert_eq!(lists.elem_first(), Some(&TrafficListSlot { frame: 7, car: 8 }));
-        assert_eq!(lists.elem_last(), Some(&TrafficListSlot { frame: 7, car: 8 }));
+        assert_eq!(
+            lists.parking_first(),
+            Some(&TrafficListSlot { frame: 1, car: 2 })
+        );
+        assert_eq!(
+            lists.parking_last(),
+            Some(&TrafficListSlot { frame: 3, car: 4 })
+        );
+        assert_eq!(
+            lists.elem_first(),
+            Some(&TrafficListSlot { frame: 7, car: 8 })
+        );
+        assert_eq!(
+            lists.elem_last(),
+            Some(&TrafficListSlot { frame: 7, car: 8 })
+        );
         assert_eq!(lists.parking_first(), lists.parking_car_at(0));
     }
 
@@ -1634,7 +1691,10 @@ mod tests {
         lists.truncate_elems(0);
         assert_eq!(lists.parking_len(), 1);
         assert_eq!(lists.elems_len(), 0);
-        assert_eq!(lists.parking_first(), Some(&TrafficListSlot { frame: 1, car: 1 }));
+        assert_eq!(
+            lists.parking_first(),
+            Some(&TrafficListSlot { frame: 1, car: 1 })
+        );
         // Truncating past the end keeps the vector intact.
         lists.truncate_parking(8);
         lists.truncate_elems(8);

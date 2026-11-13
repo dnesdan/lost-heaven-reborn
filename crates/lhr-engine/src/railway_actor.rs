@@ -177,6 +177,7 @@ impl RailwayState {
         self.word(0x2ac)
     }
 
+    #[cfg(test)] // Test-only staging writer for the material word.
     pub(crate) fn set_material_word(&mut self, value: u32) {
         self.put_word(0x2ac, value);
     }
@@ -185,6 +186,7 @@ impl RailwayState {
     /// mafia-re game/vehicles/C_railway.cpp:28-34 at pin 113b5b6): runs the
     /// base copy (caller-owned), then copies the two derived words
     /// (+0x1a8/+0x1b4). No other derived word is read.
+    #[allow(dead_code)] // Credited RVA port; production caller (base copy owner) not wired yet.
     pub(crate) fn duplicate_from(&mut self, other: &Self) {
         for offset in [0x1a8, 0x1b4] {
             let word = other.word(offset);
@@ -319,10 +321,7 @@ pub fn railway_get_entry(_actor: u32) -> Result<bool, RailwaySmallStubError> {
 /// 0x4989a0, RVA 0x989a0): the original only logs. The frame owner stays
 /// outside this contract, so the boundary is explicit. The frame identity is
 /// opaque and never dereferenced.
-pub fn railway_set_rain_dummy(
-    _inside: bool,
-    _frame: u32,
-) -> Result<(), RailwaySmallStubError> {
+pub fn railway_set_rain_dummy(_inside: bool, _frame: u32) -> Result<(), RailwaySmallStubError> {
     Err(RailwaySmallStubError::Unsupported {
         entry: RAILWAY_SET_RAIN_DUMMY_ENTRY,
     })

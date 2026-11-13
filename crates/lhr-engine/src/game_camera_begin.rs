@@ -28,9 +28,9 @@
 //! `g_camera.cpp:55-90`; every one of those names is a mafia-re working guess
 //! ("the names are ours", "the name is a guess" for menu-adjacent ones), never an
 //! original symbol. Only the three `G_Camera` function names are evidenced.
-//! `params` words are retained native addresses (entry values = 0x638700 + i*0x44
-//! + 0x8), the same convention as `FIRST_CAMERA_VALUES` 0x638708 in
-//! `game_camera_reset.rs` (entry 0 here resolves to exactly that address).
+//! `params` words are retained native addresses (entry values =
+//! 0x638700 + i*0x44 + 0x8), the same convention as `FIRST_CAMERA_VALUES`
+//! 0x638708 in `game_camera_reset.rs` (entry 0 here resolves to exactly that address).
 //!
 //! Pure integer/pointer words only: no float arithmetic, so no precision policy
 //! beyond bit retention (`0.0f32.to_bits()` is exactly 0).
@@ -134,13 +134,21 @@ struct CameraEntry {
 }
 
 const CAMERA_TABLE: [CameraEntry; NUM_CAMERAS] = [
-    CameraEntry { id: CAMERA_P_BEHIND, next: 0, flags: CAMPF_EYES }, // "P Behind"
+    CameraEntry {
+        id: CAMERA_P_BEHIND,
+        next: 0,
+        flags: CAMPF_EYES,
+    }, // "P Behind"
     CameraEntry {
         id: CAMERA_P_IN,
         next: CAMERA_P_BEHIND,
         flags: CAMPF_EYES,
     }, // "P In"
-    CameraEntry { id: CAMERA_DEATH, next: 0, flags: 0 }, // "P Behind"
+    CameraEntry {
+        id: CAMERA_DEATH,
+        next: 0,
+        flags: 0,
+    }, // "P Behind"
     CameraEntry {
         id: CAMERA_C_BEHIND_HELLBOY_11,
         next: CAMERA_C_OVER,
@@ -166,7 +174,11 @@ const CAMERA_TABLE: [CameraEntry; NUM_CAMERAS] = [
         next: CAMERA_C_IN,
         flags: CAMPF_HIDE_CAR,
     }, // "C Chase"
-    CameraEntry { id: CAMERA_C_IN, next: CAMERA_C_OVER, flags: 0 }, // "C In"
+    CameraEntry {
+        id: CAMERA_C_IN,
+        next: CAMERA_C_OVER,
+        flags: 0,
+    }, // "C In"
     CameraEntry {
         id: CAMERA_C_OVER,
         next: CAMERA_C_BEHIND_HELLBOY,
@@ -439,14 +451,18 @@ pub fn set_mode(
             begin: None,
         });
     }
-    let end_outcome = if begin_flag { Some(end(&*camera)?) } else { None };
+    let end_outcome = if begin_flag {
+        Some(end(&*camera)?)
+    } else {
+        None
+    };
     let mut resolved = requested;
     if resolved == CAMERA_NEXT {
         resolved = word(camera, OFF_NEXT_MODE);
     }
-    let keep = if resolved >= CAMERA_C_FIRST && resolved < CAMERA_C_END {
+    let keep = if (CAMERA_C_FIRST..CAMERA_C_END).contains(&resolved) {
         ProfileKeep::CarCamera(resolved)
-    } else if resolved >= CAMERA_P_FIRST && resolved < CAMERA_P_END {
+    } else if (CAMERA_P_FIRST..CAMERA_P_END).contains(&resolved) {
         ProfileKeep::FootCamera(resolved)
     } else {
         ProfileKeep::None
@@ -660,7 +676,9 @@ pub fn link<S: CameraSettings>(
     let mode = if frame != 0 {
         CAMERA_C_RAILWAY_IN
     } else {
-        settings.foot_camera().map_err(CameraSetterError::Settings)?
+        settings
+            .foot_camera()
+            .map_err(CameraSetterError::Settings)?
     };
     set_mode(camera, need_look_from_eyes, mode, true).map_err(map_owner)
 }
@@ -815,11 +833,7 @@ pub fn enable_free_look(
     }
     camera[OFF_FREE_LOOK] = u8::from(on);
     let mode = word(camera, OFF_MODE);
-    if behind
-        && mode > CAMERA_C_BEHIND_HELLBOY
-        && mode < CAMERA_C_END
-        && mode >= CAMERA_C_CHASE
-    {
+    if behind && mode > CAMERA_C_BEHIND_HELLBOY && (CAMERA_C_CHASE..CAMERA_C_END).contains(&mode) {
         Ok(Some(set_mode(
             camera,
             need_look_from_eyes,
@@ -971,8 +985,7 @@ mod tests {
         bytes[OFF_PLAYER..OFF_PLAYER + 4].copy_from_slice(&player_word.to_le_bytes());
         bytes[OFF_CAR..OFF_CAR + 4].copy_from_slice(&car_word.to_le_bytes());
         bytes[OFF_MODE..OFF_MODE + 4].copy_from_slice(&mode.to_le_bytes());
-        bytes[OFF_NEXT_MODE..OFF_NEXT_MODE + 4]
-            .copy_from_slice(&next_mode.to_le_bytes());
+        bytes[OFF_NEXT_MODE..OFF_NEXT_MODE + 4].copy_from_slice(&next_mode.to_le_bytes());
         bytes
     }
     #[test]
@@ -1228,10 +1241,7 @@ mod tests {
         long[..CAMERA_BYTES].copy_from_slice(&full);
         let mut need_look = 0x5555_5555;
         for short in [0, CAMERA_BYTES - 1] {
-            assert_eq!(
-                end(&full[..short]),
-                Err(CameraBeginError::UnavailableOwner)
-            );
+            assert_eq!(end(&full[..short]), Err(CameraBeginError::UnavailableOwner));
             assert_eq!(
                 begin(&mut long[..short], &mut need_look),
                 Err(CameraBeginError::UnavailableOwner)
@@ -1326,7 +1336,10 @@ mod tests {
         assert_eq!(bytes, before);
         let bytes = camera_with(0x1000, 0x2000, 0x3000, 1, 0, 0xa5);
         assert_eq!(get_car(&bytes), Ok(Some(0x3000)));
-        assert_eq!(get_car(&bytes[..CAMERA_BYTES - 1]), Err(CameraBeginError::UnavailableOwner));
+        assert_eq!(
+            get_car(&bytes[..CAMERA_BYTES - 1]),
+            Err(CameraBeginError::UnavailableOwner)
+        );
     }
     #[test]
     fn set_camera_rva_1ed150_end_old_begin_new() {
@@ -1334,12 +1347,15 @@ mod tests {
         let mut bytes = camera_with(0x1000, 0x2000, 0x3000, 1, 4, 0);
         let mut need_look = 0xdead_beef;
         let outcome = set_camera(&mut bytes, &mut need_look, 0x4000).unwrap();
-        assert_eq!(outcome.end, EndOutcome::Classified(EndApplied {
-            sniper_hud_restore: false,
-            relink_primary: false,
-            car_restore_pending: true,
-            camera_update_pending: true,
-        }));
+        assert_eq!(
+            outcome.end,
+            EndOutcome::Classified(EndApplied {
+                sniper_hud_restore: false,
+                relink_primary: false,
+                car_restore_pending: true,
+                camera_update_pending: true,
+            })
+        );
         match outcome.begin {
             BeginOutcome::Applied(applied) => assert!(applied.matched),
             BeginOutcome::NoCamera => panic!("expected Applied"),
@@ -1444,7 +1460,10 @@ mod tests {
         let mut bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
         let outcome = set_swing(&mut bytes, true, 2.5, 0x6000).unwrap();
         assert_eq!(bytes[OFF_SWING], 1);
-        assert_eq!(word_f32(&bytes, OFF_SWING_AMOUNT).to_bits(), 2.5f32.to_bits());
+        assert_eq!(
+            word_f32(&bytes, OFF_SWING_AMOUNT).to_bits(),
+            2.5f32.to_bits()
+        );
         assert_eq!(word(&bytes, OFF_SWING_FRAME), 0x6000);
         assert!(!outcome.backdrop_restore_pending);
         let outcome = set_swing(&mut bytes, false, 0.0, 0x6000).unwrap();
@@ -1452,7 +1471,10 @@ mod tests {
         assert!(outcome.backdrop_restore_pending);
         let outcome = set_swing(&mut bytes, false, 0.0, 0).unwrap();
         assert!(!outcome.backdrop_restore_pending);
-        assert_eq!(set_swing(&mut bytes[..OFF_SWING], true, 1.0, 0), Err(CameraBeginError::UnavailableOwner));
+        assert_eq!(
+            set_swing(&mut bytes[..OFF_SWING], true, 1.0, 0),
+            Err(CameraBeginError::UnavailableOwner)
+        );
     }
     #[test]
     fn look_around_rva_1ed330_turns_want_and_wraps() {
@@ -1460,34 +1482,61 @@ mod tests {
         let mut bytes = [0u8; CAMERA_BYTES];
         bytes[OFF_LOOK_AROUND..OFF_LOOK_AROUND + 4].copy_from_slice(&0.7f32.to_le_bytes());
         look_around(&mut bytes, LOOK_LEFT).unwrap();
-        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND).to_bits(), (-1.3f32).to_bits());
-        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(), (-0.5f32).to_bits());
+        assert_eq!(
+            word_f32(&bytes, OFF_LOOK_AROUND).to_bits(),
+            (-1.3f32).to_bits()
+        );
+        assert_eq!(
+            word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(),
+            (-0.5f32).to_bits()
+        );
         let mut bytes = [0u8; CAMERA_BYTES];
         bytes[OFF_LOOK_AROUND..OFF_LOOK_AROUND + 4].copy_from_slice(&(-0.7f32).to_le_bytes());
         look_around(&mut bytes, LOOK_RIGHT).unwrap();
-        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND).to_bits(), 1.3f32.to_bits());
-        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(), 0.5f32.to_bits());
+        assert_eq!(
+            word_f32(&bytes, OFF_LOOK_AROUND).to_bits(),
+            1.3f32.to_bits()
+        );
+        assert_eq!(
+            word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(),
+            0.5f32.to_bits()
+        );
         // No wrap past the thresholds; AHEAD only clears the want.
         let mut bytes = [0u8; CAMERA_BYTES];
         bytes[OFF_LOOK_AROUND..OFF_LOOK_AROUND + 4].copy_from_slice(&0.5f32.to_le_bytes());
         look_around(&mut bytes, LOOK_LEFT).unwrap();
-        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND).to_bits(), 0.5f32.to_bits());
+        assert_eq!(
+            word_f32(&bytes, OFF_LOOK_AROUND).to_bits(),
+            0.5f32.to_bits()
+        );
         look_around(&mut bytes, LOOK_AHEAD).unwrap();
-        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(), 0.0f32.to_bits());
+        assert_eq!(
+            word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(),
+            0.0f32.to_bits()
+        );
         // BEHIND follows the side the camera already leans to.
         let mut bytes = [0u8; CAMERA_BYTES];
         bytes[OFF_LOOK_AROUND..OFF_LOOK_AROUND + 4].copy_from_slice(&0.25f32.to_le_bytes());
         look_around(&mut bytes, LOOK_BEHIND).unwrap();
-        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(), 1.0f32.to_bits());
+        assert_eq!(
+            word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(),
+            1.0f32.to_bits()
+        );
         let mut bytes = [0u8; CAMERA_BYTES];
         look_around(&mut bytes, LOOK_BEHIND).unwrap();
-        assert_eq!(word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(), (-1.0f32).to_bits());
+        assert_eq!(
+            word_f32(&bytes, OFF_LOOK_AROUND_WANT).to_bits(),
+            (-1.0f32).to_bits()
+        );
         // Unknown directions are a no-op.
         let mut bytes = [0x3c; CAMERA_BYTES];
         let before = bytes;
         look_around(&mut bytes, 99).unwrap();
         assert_eq!(bytes, before);
-        assert_eq!(look_around(&mut bytes[..4], LOOK_AHEAD), Err(CameraBeginError::UnavailableOwner));
+        assert_eq!(
+            look_around(&mut bytes[..4], LOOK_AHEAD),
+            Err(CameraBeginError::UnavailableOwner)
+        );
     }
     #[test]
     fn look_from_eyes_rva_1ed3e0_positive_float_only() {
@@ -1561,14 +1610,24 @@ mod tests {
             enable_free_look(&mut bytes, &mut need_look, &mut x, &mut z, false, false),
             Ok(None)
         );
-        assert_eq!((x.to_bits(), z.to_bits()), (1.5f32.to_bits(), (-2.5f32).to_bits()));
+        assert_eq!(
+            (x.to_bits(), z.to_bits()),
+            (1.5f32.to_bits(), (-2.5f32).to_bits())
+        );
         assert_eq!(bytes[OFF_FREE_LOOK], 0);
         // Behind rebinds only CHASE..END (12..16); 11 and 16 stay put.
-        for (mode, rebinds) in [(7u32, false), (11, false), (12, true), (15, true), (16, false)] {
+        for (mode, rebinds) in [
+            (7u32, false),
+            (11, false),
+            (12, true),
+            (15, true),
+            (16, false),
+        ] {
             let mut bytes = camera_with(0x1000, 0, 0, mode, 0, 0);
             let mut need_look = 0u32;
             let (mut x, mut z) = (0.0f32, 0.0f32);
-            let outcome = enable_free_look(&mut bytes, &mut need_look, &mut x, &mut z, true, true).unwrap();
+            let outcome =
+                enable_free_look(&mut bytes, &mut need_look, &mut x, &mut z, true, true).unwrap();
             assert_eq!(outcome.is_some(), rebinds, "mode {}", mode);
             if rebinds {
                 let outcome = outcome.unwrap();
@@ -1592,14 +1651,28 @@ mod tests {
     fn unlock_rva_1f3fd0_classifies_pop() {
         // RVA 0x1f3fd0: only CAMERA_C_LOCK defers a pop; no stores either way.
         let bytes = camera_with(0x1000, 0, 0, CAMERA_C_LOCK, 0, 0xa5);
-        assert_eq!(unlock(&bytes, true), Ok(UnlockOutcome::PopPending { clear: true }));
-        assert_eq!(unlock(&bytes, false), Ok(UnlockOutcome::PopPending { clear: false }));
+        assert_eq!(
+            unlock(&bytes, true),
+            Ok(UnlockOutcome::PopPending { clear: true })
+        );
+        assert_eq!(
+            unlock(&bytes, false),
+            Ok(UnlockOutcome::PopPending { clear: false })
+        );
         for mode in [1u32, 7, 12, 19, 23] {
             let bytes = camera_with(0x1000, 0, 0, mode, 0, 0xa5);
-            assert_eq!(unlock(&bytes, true), Ok(UnlockOutcome::Unchanged), "mode {}", mode);
+            assert_eq!(
+                unlock(&bytes, true),
+                Ok(UnlockOutcome::Unchanged),
+                "mode {}",
+                mode
+            );
             assert_eq!(bytes, camera_with(0x1000, 0, 0, mode, 0, 0xa5));
         }
-        assert_eq!(unlock(&bytes[..4], true), Err(CameraBeginError::UnavailableOwner));
+        assert_eq!(
+            unlock(&bytes[..4], true),
+            Err(CameraBeginError::UnavailableOwner)
+        );
     }
     #[test]
     fn is_in_dialog_rva_1f4690_mode_compare() {
@@ -1610,30 +1683,54 @@ mod tests {
         }
         let bytes = camera_with(0x1000, 0, 0, CAMERA_C_DIALOG, 0, 0);
         assert_eq!(is_in_dialog(&bytes), Ok(true));
-        assert_eq!(is_in_dialog(&bytes[..4]), Err(CameraBeginError::UnavailableOwner));
+        assert_eq!(
+            is_in_dialog(&bytes[..4]),
+            Err(CameraBeginError::UnavailableOwner)
+        );
     }
     #[test]
     fn set_sniper_fov_rva_1f4a70_store_and_hud_gate() {
         // RVA 0x1f4a70: the store always runs; HUD applies only in sniper.
         let mut bytes = camera_with(0x1000, 0, 0, CAMERA_CP_SNIPER, 0, 0);
         let outcome = set_sniper_fov(&mut bytes, 0.35).unwrap();
-        assert_eq!(word_f32(&bytes, OFF_SNIPER_FOV).to_bits(), 0.35f32.to_bits());
+        assert_eq!(
+            word_f32(&bytes, OFF_SNIPER_FOV).to_bits(),
+            0.35f32.to_bits()
+        );
         assert!(outcome.hud_apply_pending);
         let mut bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
         let outcome = set_sniper_fov(&mut bytes, 0.35).unwrap();
         assert!(!outcome.hud_apply_pending);
-        assert_eq!(set_sniper_fov(&mut bytes[..OFF_SNIPER_FOV], 0.35), Err(CameraBeginError::UnavailableOwner));
+        assert_eq!(
+            set_sniper_fov(&mut bytes[..OFF_SNIPER_FOV], 0.35),
+            Err(CameraBeginError::UnavailableOwner)
+        );
     }
     #[test]
     fn set_sniper_mode_rva_1f4ab0_dispatch() {
         // RVA 0x1f4ab0: matching requests are a no-op; the rest defers.
         let bytes = camera_with(0x1000, 0, 0, CAMERA_CP_SNIPER, 0, 0);
-        assert_eq!(set_sniper_mode(&bytes, true), Ok(SniperModeOutcome::Unchanged));
-        assert_eq!(set_sniper_mode(&bytes, false), Ok(SniperModeOutcome::ExitSniperPending));
+        assert_eq!(
+            set_sniper_mode(&bytes, true),
+            Ok(SniperModeOutcome::Unchanged)
+        );
+        assert_eq!(
+            set_sniper_mode(&bytes, false),
+            Ok(SniperModeOutcome::ExitSniperPending)
+        );
         let bytes = camera_with(0x1000, 0, 0, 1, 0, 0);
-        assert_eq!(set_sniper_mode(&bytes, true), Ok(SniperModeOutcome::EnterSniperPending));
-        assert_eq!(set_sniper_mode(&bytes, false), Ok(SniperModeOutcome::Unchanged));
-        assert_eq!(set_sniper_mode(&bytes[..4], true), Err(CameraBeginError::UnavailableOwner));
+        assert_eq!(
+            set_sniper_mode(&bytes, true),
+            Ok(SniperModeOutcome::EnterSniperPending)
+        );
+        assert_eq!(
+            set_sniper_mode(&bytes, false),
+            Ok(SniperModeOutcome::Unchanged)
+        );
+        assert_eq!(
+            set_sniper_mode(&bytes[..4], true),
+            Err(CameraBeginError::UnavailableOwner)
+        );
     }
     #[test]
     fn set_look_to_rva_1f4a00_store_and_rebind() {

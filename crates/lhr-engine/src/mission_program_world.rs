@@ -400,7 +400,11 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
             Err(error) => Err(LookupError::Backend(format!("{error:?}"))),
         }
     }
-    fn set_detector_signal(&mut self, actor: ActorReferenceId, on: bool) -> Result<(), LookupError> {
+    fn set_detector_signal(
+        &mut self,
+        actor: ActorReferenceId,
+        on: bool,
+    ) -> Result<(), LookupError> {
         match self.world.set_detector_signal(actor, on) {
             Ok(()) => Ok(()),
             // The native SETSIGNAL type gate stores nothing; only real host
@@ -478,10 +482,7 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
             .actor_dead(actor)
             .map_err(|error| LookupError::Backend(format!("{error:?}")))
     }
-    fn frame_world_position(
-        &mut self,
-        frame: FrameReferenceId,
-    ) -> Result<[f32; 3], LookupError> {
+    fn frame_world_position(&mut self, frame: FrameReferenceId) -> Result<[f32; 3], LookupError> {
         let key = FrameKey(frame.identity());
         if self.arena.lookup_reference(key) != frame {
             return Err(crate::frame_lookup::FrameLookupError::StaleFrame(frame).into());

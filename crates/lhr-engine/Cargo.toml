@@ -17,3 +17,6 @@ egui-winit = { version = "=0.31.1", default-features = false, optional = true }
 [features]
 default = []
 engine-lab = ["dep:egui", "dep:egui-wgpu", "dep:egui-winit"]
+
+[lints]
+workspace = true

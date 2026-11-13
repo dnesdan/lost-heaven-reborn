@@ -1279,7 +1279,8 @@ pub fn sound_range_volume(
         return 1.0;
     }
     if dist <= scaled_mid {
-        return mid_volume + (1.0 - mid_volume) * (1.0 - (dist - scaled_near) / (scaled_mid - scaled_near));
+        return mid_volume
+            + (1.0 - mid_volume) * (1.0 - (dist - scaled_near) / (scaled_mid - scaled_near));
     }
     mid_volume * (1.0 - (dist - scaled_mid) / (scaled_far - scaled_mid))
 }
@@ -6614,16 +6615,16 @@ mod isound_contract_tests {
         assert_eq!(isound_listener_update(&listener, &mut rig), ISOUND_OK);
         assert_eq!(rig.param_calls, vec!["params".to_string()]);
         rig.params_ok = false;
-        assert_eq!(
-            isound_listener_update(&listener, &mut rig),
-            ISOUND_GENERIC
-        );
+        assert_eq!(isound_listener_update(&listener, &mut rig), ISOUND_GENERIC);
     }
 
     #[test]
     fn isound_listener_commit_deferred_0x7b320_ok_and_generic() {
         let mut rig = Rig::default();
-        assert_eq!(isound_listener_commit_deferred_settings(&mut rig), ISOUND_OK);
+        assert_eq!(
+            isound_listener_commit_deferred_settings(&mut rig),
+            ISOUND_OK
+        );
         assert_eq!(rig.param_calls, vec!["commit".to_string()]);
         rig.params_ok = false;
         assert_eq!(
@@ -6680,10 +6681,7 @@ mod isound_contract_tests {
         assert_eq!(isound_source_unlock(&staged, &mut rig), ISOUND_OK);
         assert_eq!(rig.unlocked, vec![(7, 0x5000, 128)]);
         rig.unlock_ok = false;
-        assert_eq!(
-            isound_source_unlock(&staged, &mut rig),
-            ISOUND_GENERIC
-        );
+        assert_eq!(isound_source_unlock(&staged, &mut rig), ISOUND_GENERIC);
     }
 
     #[test]
@@ -6766,10 +6764,7 @@ mod isound_contract_tests {
         assert!(isound_hw_voice_managed(0, 0));
         assert!(!isound_hw_voice_managed(ISNDINIT_NOHWCHANNELS, 0));
         assert!(!isound_hw_voice_managed(0, ISND_SYSMEM));
-        assert!(!isound_hw_voice_managed(
-            ISNDINIT_NOHWCHANNELS,
-            ISND_SYSMEM
-        ));
+        assert!(!isound_hw_voice_managed(ISNDINIT_NOHWCHANNELS, ISND_SYSMEM));
         assert!(isound_hw_voice_managed(ISNDINIT_EAX, ISND_LOOP));
     }
 }

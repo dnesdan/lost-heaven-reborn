@@ -114,7 +114,7 @@ impl AiDriverSubject {
 /// owner holds the subject identity, the live path, the +0x64 snapshot, the
 /// +0x170 cursor and the +0x21C accumulator; later slices extend this struct,
 /// they do not fork it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AiDriverTickState {
     /// Native +0x10 subject pointer (working name, see [`AiDriverSubject`]).
     pub subject: Option<AiDriverSubject>,
@@ -128,18 +128,6 @@ pub struct AiDriverTickState {
     /// Native +0x21C wrapping time accumulator (working name, NOT original;
     /// distinct from the header's `unknown_220` ms-time word at +0x220).
     pub time_accum: u32,
-}
-
-impl Default for AiDriverTickState {
-    fn default() -> Self {
-        Self {
-            subject: None,
-            path: Vec::new(),
-            path_len_snapshot: 0,
-            next_node: 0,
-            time_accum: 0,
-        }
-    }
 }
 
 /// World-effect boundary for the slice. The only external write in
@@ -550,9 +538,7 @@ pub struct AiFreeActorStore {
 impl AiFreeActorStore {
     /// Stage an empty free-actor vector (constructor state).
     pub fn new() -> Self {
-        Self {
-            actors: Vec::new(),
-        }
+        Self { actors: Vec::new() }
     }
 
     /// Staged free actors in push order.
@@ -913,15 +899,12 @@ mod tests {
         );
         assert_eq!(
             store.ghost_coll_snapshot(),
-            vec![
-                HumanDynCollId::from_raw(7),
-                HumanDynCollId::from_raw(9)
-            ]
+            vec![HumanDynCollId::from_raw(7), HumanDynCollId::from_raw(9)]
         );
         store.clear_for_game_init();
         assert!(store.is_empty());
         assert!(store.ghost_coll_snapshot().is_empty());
-        assert!(ENTITY_AI_TICK_DEFERRED);
+        const { assert!(ENTITY_AI_TICK_DEFERRED) };
         assert_eq!(ENTITY_AI_RVA, 0x108150);
     }
 
@@ -1086,10 +1069,8 @@ mod tests {
             AiActionEntry::new(4, 9),
         ]);
         assert_eq!(manager.get_base_job(), Some(&AiActionEntry::new(3, 0)));
-        let parented = AiActionManager::from_parts(vec![
-            AiActionEntry::new(1, 5),
-            AiActionEntry::new(2, 6),
-        ]);
+        let parented =
+            AiActionManager::from_parts(vec![AiActionEntry::new(1, 5), AiActionEntry::new(2, 6)]);
         assert_eq!(parented.get_base_job(), None);
     }
 

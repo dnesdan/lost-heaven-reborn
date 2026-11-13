@@ -35,10 +35,14 @@ pub use lookup::{LookupRuntimeBackend, RuntimeLookupWorld};
 mod act_state_parameters;
 #[path = "program_block_parameters.rs"]
 mod block_parameters;
+#[path = "program_detector_parameters.rs"]
+mod detector_parameters;
 #[path = "program_event_parameters.rs"]
 mod event_parameters;
 #[path = "program_flow_parameters.rs"]
 mod flow_parameters;
+#[path = "program_getactorsdist_parameters.rs"]
+mod getactorsdist_parameters;
 #[path = "program_human_talk_parameters.rs"]
 mod human_talk_parameters;
 #[path = "program_ifflt_parameters.rs"]
@@ -49,10 +53,6 @@ mod mission_parameters;
 mod name_parameters;
 #[path = "program_pair_parameters.rs"]
 mod pair_parameters;
-#[path = "program_detector_parameters.rs"]
-mod detector_parameters;
-#[path = "program_getactorsdist_parameters.rs"]
-mod getactorsdist_parameters;
 #[path = "program_quad_parameters.rs"]
 mod quad_parameters;
 #[path = "program_remaining_parameters.rs"]
@@ -79,6 +79,11 @@ pub use block_parameters::{
     supports_block_opcode, AsciiBlockParameterBackend, BlockDecodeError, BlockParameter,
     BlockParameterBackend, BlockParameterSlot, BLOCK_MODE_DOWN, BLOCK_MODE_NONE, BLOCK_MODE_UP,
 };
+pub use detector_parameters::{
+    supports_detector_signal_opcode, AsciiDetectorSignalParameterBackend, DetectorInRangeParameter,
+    DetectorSignalDecodeError, DetectorSignalParameter, DetectorSignalParameterBackend,
+    DetectorSignalParameterSlot, DetectorWaitForUseParameter,
+};
 pub use event_parameters::{
     decode_event_id, supports_event_opcode, supports_set_event_opcode, AsciiEventParameterBackend,
     AsciiSetEventParameterBackend, EventDecodeError, EventParameter, EventParameterBackend,
@@ -88,6 +93,10 @@ pub use event_parameters::{
 pub use flow_parameters::{
     supports_flow_opcode, AsciiFlowParameterBackend, FlowDecodeError, FlowOperand, FlowParameter,
     FlowParameterBackend, FlowParameterSlot, GotoParameter, IfOp, IfParameter, LetOp, LetParameter,
+};
+pub use getactorsdist_parameters::{
+    supports_getactorsdist_opcode, AsciiGetActorsDistParameterBackend, GetActorsDistDecodeError,
+    GetActorsDistParameter, GetActorsDistParameterBackend, GetActorsDistParameterSlot,
 };
 pub use human_talk_parameters::{
     supports_human_talk_opcode, AsciiHumanTalkParameterBackend, HumanTalkDecodeError,
@@ -108,15 +117,6 @@ pub use name_parameters::{
 pub use pair_parameters::{
     supports_pair_opcode, AsciiPairParameterBackend, PairDecodeError, PairParameter,
     PairParameterBackend, PairParameterSlot,
-};
-pub use detector_parameters::{
-    supports_detector_signal_opcode, AsciiDetectorSignalParameterBackend,
-    DetectorInRangeParameter, DetectorSignalDecodeError, DetectorSignalParameter,
-    DetectorSignalParameterBackend, DetectorSignalParameterSlot, DetectorWaitForUseParameter,
-};
-pub use getactorsdist_parameters::{
-    supports_getactorsdist_opcode, AsciiGetActorsDistParameterBackend, GetActorsDistDecodeError,
-    GetActorsDistParameter, GetActorsDistParameterBackend, GetActorsDistParameterSlot,
 };
 pub use quad_parameters::{
     supports_quad_opcode, AsciiQuadParameterBackend, QuadDecodeError, QuadParameter,
@@ -2657,20 +2657,18 @@ impl CProgram {
                         RuntimeEffect::ReleaseSetEvent(opcode),
                         slot.parameter(),
                     ),
-                    InstructionParameter::DetectorSignal(slot) => {
-                        backend.detector_signal_parameter_effect(
+                    InstructionParameter::DetectorSignal(slot) => backend
+                        .detector_signal_parameter_effect(
                             runtime.fields.view(),
                             RuntimeEffect::ReleaseDetectorSignal(opcode),
                             slot.parameter(),
-                        )
-                    }
-                    InstructionParameter::GetActorsDist(slot) => {
-                        backend.getactorsdist_parameter_effect(
+                        ),
+                    InstructionParameter::GetActorsDist(slot) => backend
+                        .getactorsdist_parameter_effect(
                             runtime.fields.view(),
                             RuntimeEffect::ReleaseGetActorsDist(opcode),
                             slot.parameter(),
-                        )
-                    }
+                        ),
                     InstructionParameter::HumanTalk(slot) => backend.human_talk_parameter_effect(
                         runtime.fields.view(),
                         RuntimeEffect::ReleaseHumanTalk(opcode),
@@ -2762,6 +2760,8 @@ impl CProgram {
         Ok(())
     }
 }
+/// DETECTOR_ISSIGNAL payload: actor register plus the two jump labels.
+type DetectorSignalPayload = (i32, Box<[u8]>, Box<[u8]>);
 struct Process<'a, B> {
     owner: &'a mut Option<ActorReferenceId>,
     /// The owning program's vtable selects derived dispatch: Detector-vtable
@@ -2850,7 +2850,7 @@ impl<B: RuntimeBackend> Process<'_, B> {
     fn detector_signal_payload(
         &self,
         state: &ResetState,
-    ) -> Result<(i32, Box<[u8]>, Box<[u8]>), RuntimeError> {
+    ) -> Result<DetectorSignalPayload, RuntimeError> {
         let parameter = self
             .instructions
             .active()
@@ -2920,9 +2920,7 @@ impl<B: RuntimeBackend> Process<'_, B> {
             .and_then(|instruction| instruction.parameter.as_ref())
             .and_then(|parameter| parameter.ifflt_parameter())
             .cloned()
-            .ok_or(RuntimeError::Domain(
-                "current range parameter unavailable",
-            ))
+            .ok_or(RuntimeError::Domain("current range parameter unavailable"))
     }
     #[allow(dead_code)]
     /// Current HumanTalk payload: actor register, speech id, kind and channel.
@@ -3071,9 +3069,7 @@ impl<B: RuntimeBackend> Process<'_, B> {
             .ok_or(RuntimeError::Domain("current pair parameter unavailable"))?;
         match values {
             [Some(first), Some(second)] => Ok([first, second]),
-            _ => Err(RuntimeError::Domain(
-                "current pair values unavailable",
-            )),
+            _ => Err(RuntimeError::Domain("current pair values unavailable")),
         }
     }
     /// Current Detector-vtable owner, implicit in every C_detector::Process
@@ -3130,7 +3126,9 @@ impl<B: RuntimeBackend> Process<'_, B> {
                     .and_then(|instruction| instruction.parameter.as_ref())
                     .and_then(|parameter| parameter.remaining_parameter())
                     .map(|parameter| parameter.values())
-                    .ok_or(RuntimeError::Domain("current inrange parameter unavailable"))?;
+                    .ok_or(RuntimeError::Domain(
+                        "current inrange parameter unavailable",
+                    ))?;
                 let inrange = DetectorInRangeParameter::from_words(values)
                     .ok_or(RuntimeError::Domain("current inrange words unavailable"))?;
                 let owner = self.detector_owner()?;
@@ -3139,21 +3137,21 @@ impl<B: RuntimeBackend> Process<'_, B> {
                     let bank = self.floats.as_mut().ok_or(RuntimeError::Domain(
                         "float bank unavailable for admitted count",
                     ))?;
-                    let slot = bank
-                        .get_mut(inrange.register as usize)
-                        .ok_or(RuntimeError::Domain(
-                            "float destination outside admitted bank",
-                        ))?;
+                    let slot =
+                        bank.get_mut(inrange.register as usize)
+                            .ok_or(RuntimeError::Domain(
+                                "float destination outside admitted bank",
+                            ))?;
                     *slot = 0.0;
                     // Live scan (C_detector.cpp:212-223): the detector's own
                     // frame, human-type mask and the game active-actor vector
                     // are reread here; each candidate's frame and position are
                     // read live like GETACTORSDIST, never from a snapshot.
                     let world = self.backend.lookup_world().map_err(RuntimeError::Lookup)?;
-                    let human_types =
-                        world.detector_human_types(owner).map_err(RuntimeError::Lookup)?;
-                    let detector_frame =
-                        world.actor_frame(owner).map_err(RuntimeError::Lookup)?;
+                    let human_types = world
+                        .detector_human_types(owner)
+                        .map_err(RuntimeError::Lookup)?;
+                    let detector_frame = world.actor_frame(owner).map_err(RuntimeError::Lookup)?;
                     if let Some(detector_frame) = detector_frame {
                         let detector_pos = world
                             .frame_world_position(detector_frame)
@@ -3220,7 +3218,9 @@ impl<B: RuntimeBackend> Process<'_, B> {
                     .and_then(|instruction| instruction.parameter.as_ref())
                     .and_then(|parameter| parameter.remaining_parameter())
                     .map(|parameter| parameter.values())
-                    .ok_or(RuntimeError::Domain("current waitforuse parameter unavailable"))?;
+                    .ok_or(RuntimeError::Domain(
+                        "current waitforuse parameter unavailable",
+                    ))?;
                 let wait = DetectorWaitForUseParameter::from_words(values)
                     .ok_or(RuntimeError::Domain("current waitforuse words unavailable"))?;
                 let owner = self.detector_owner()?;
@@ -3467,15 +3467,15 @@ impl<B: RuntimeBackend> Process<'_, B> {
     fn dispatch_ifflt_inrange(&mut self, state: &mut ResetState) -> Result<Advance, RuntimeError> {
         let payload = self.ifflt_payload(state)?;
         let (register, min, max, label) = (
-            payload.register().ok_or(RuntimeError::Domain(
-                "current range register unavailable",
+            payload
+                .register()
+                .ok_or(RuntimeError::Domain("current range register unavailable"))?,
+            payload.min().ok_or(RuntimeError::Domain(
+                "current range lower bound unavailable",
             ))?,
-            payload
-                .min()
-                .ok_or(RuntimeError::Domain("current range lower bound unavailable"))?,
-            payload
-                .max()
-                .ok_or(RuntimeError::Domain("current range upper bound unavailable"))?,
+            payload.max().ok_or(RuntimeError::Domain(
+                "current range upper bound unavailable",
+            ))?,
             payload
                 .label()
                 .ok_or(RuntimeError::Domain("current range label unavailable"))?
@@ -4156,7 +4156,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     .and_then(|instruction| instruction.parameter.as_ref())
                     .and_then(|parameter| parameter.pair_parameter())
                     .map(|parameter| parameter.values())
-                    .ok_or(RuntimeError::Domain("current setsignal parameter unavailable"))?;
+                    .ok_or(RuntimeError::Domain(
+                        "current setsignal parameter unavailable",
+                    ))?;
                 let (register, on) = (
                     pair[0].ok_or(RuntimeError::Domain(
                         "current setsignal register unavailable",
@@ -4171,8 +4173,7 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         .map_err(RuntimeError::Lookup)?;
                 }
             }
-            29 | 36 | 45 | 68 | 101 | 102 | 103 | 106 | 122 | 129 | 135 | 136
-            | 181 | 187 | 234 => {
+            29 | 36 | 45 | 68 | 101 | 102 | 103 | 106 | 122 | 129 | 135 | 136 | 181 | 187 | 234 => {
                 // Remaining MISE01 commands: detector_inrange (29),
                 // soundfade (36), recloadfull (45), loaddifferences (68),
                 // compareownerwithex (101), human_setproperty (102), human_getproperty (103),
@@ -4202,7 +4203,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     .and_then(|instruction| instruction.parameter.as_ref())
                     .and_then(|parameter| parameter.getactorsdist_parameter())
                     .map(|parameter| parameter.values())
-                    .ok_or(RuntimeError::Domain("current getactorsdist parameter unavailable"))?;
+                    .ok_or(RuntimeError::Domain(
+                        "current getactorsdist parameter unavailable",
+                    ))?;
                 let (areg_a, areg_b, freg, dead_flag) = (
                     values[0].ok_or(RuntimeError::Domain(
                         "current getactorsdist actor-a unavailable",
@@ -4283,10 +4286,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                             let bank = self.floats.as_mut().ok_or(RuntimeError::Domain(
                                 "float bank unavailable for admitted count",
                             ))?;
-                            let slot =
-                                bank.get_mut(freg as usize).ok_or(RuntimeError::Domain(
-                                    "float destination outside admitted bank",
-                                ))?;
+                            let slot = bank.get_mut(freg as usize).ok_or(RuntimeError::Domain(
+                                "float destination outside admitted bank",
+                            ))?;
                             *slot = value;
                         }
                     }
@@ -4341,10 +4343,7 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             239 => {
                 // INTRO_SUBTITLE_ADD: IntroSubtitlesAdd(p[0], p[1])
                 let [a, b] = self.pair_ints(state)?;
-                self.effect(
-                    state,
-                    RuntimeEffect::IntroSubtitleAdd(a as u32, b as u32),
-                )?;
+                self.effect(state, RuntimeEffect::IntroSubtitleAdd(a as u32, b as u32))?;
             }
             240 => {
                 // SUBTITLE_ADD: IntroSubtitlesAddSimple(*(int *)params)
@@ -4389,11 +4388,11 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     .and_then(|instruction| instruction.parameter.as_ref())
                     .and_then(|parameter| parameter.pair_parameter())
                     .map(|parameter| parameter.values())
-                    .ok_or(RuntimeError::Domain("current getowner parameter unavailable"))?;
+                    .ok_or(RuntimeError::Domain(
+                        "current getowner parameter unavailable",
+                    ))?;
                 let (src, dst) = (
-                    pair[0].ok_or(RuntimeError::Domain(
-                        "current getowner source unavailable",
-                    ))?,
+                    pair[0].ok_or(RuntimeError::Domain("current getowner source unavailable"))?,
                     pair[1].ok_or(RuntimeError::Domain(
                         "current getowner destination unavailable",
                     ))?,
@@ -4418,10 +4417,8 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         let slot = actors.get_mut(dst as usize).ok_or(RuntimeError::Domain(
                             "actor destination outside admitted bank",
                         ))?;
-                        *slot = car.map_or(
-                            RuntimeReferenceSlot::Empty,
-                            RuntimeReferenceSlot::Reference,
-                        );
+                        *slot = car
+                            .map_or(RuntimeReferenceSlot::Empty, RuntimeReferenceSlot::Reference);
                     }
                 }
             }
@@ -4442,7 +4439,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     .and_then(|instruction| instruction.parameter.as_ref())
                     .and_then(|parameter| parameter.pair_parameter())
                     .map(|parameter| parameter.values())
-                    .ok_or(RuntimeError::Domain("current iscarusable parameter unavailable"))?;
+                    .ok_or(RuntimeError::Domain(
+                        "current iscarusable parameter unavailable",
+                    ))?;
                 let (areg, freg) = (
                     pair[0].ok_or(RuntimeError::Domain(
                         "current iscarusable actor unavailable",
@@ -4490,11 +4489,11 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     .and_then(|instruction| instruction.parameter.as_ref())
                     .and_then(|parameter| parameter.pair_parameter())
                     .map(|parameter| parameter.values())
-                    .ok_or(RuntimeError::Domain("current getspeed parameter unavailable"))?;
+                    .ok_or(RuntimeError::Domain(
+                        "current getspeed parameter unavailable",
+                    ))?;
                 let (areg, freg) = (
-                    pair[0].ok_or(RuntimeError::Domain(
-                        "current getspeed actor unavailable",
-                    ))?,
+                    pair[0].ok_or(RuntimeError::Domain("current getspeed actor unavailable"))?,
                     pair[1].ok_or(RuntimeError::Domain(
                         "current getspeed float register unavailable",
                     ))?,
@@ -4558,11 +4557,11 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     .and_then(|instruction| instruction.parameter.as_ref())
                     .and_then(|parameter| parameter.pair_parameter())
                     .map(|parameter| parameter.values())
-                    .ok_or(RuntimeError::Domain("current breakmotor parameter unavailable"))?;
+                    .ok_or(RuntimeError::Domain(
+                        "current breakmotor parameter unavailable",
+                    ))?;
                 let (areg, on) = (
-                    pair[0].ok_or(RuntimeError::Domain(
-                        "current breakmotor actor unavailable",
-                    ))?,
+                    pair[0].ok_or(RuntimeError::Domain("current breakmotor actor unavailable"))?,
                     pair[1].ok_or(RuntimeError::Domain(
                         "current breakmotor switch unavailable",
                     ))?,

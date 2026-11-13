@@ -52,10 +52,7 @@ pub struct AirplaneEngines {
 
 impl AirplaneEngines {
     pub fn new(energy_1: f32, energy_2: f32) -> Self {
-        Self {
-            energy_1,
-            energy_2,
-        }
+        Self { energy_1, energy_2 }
     }
 }
 

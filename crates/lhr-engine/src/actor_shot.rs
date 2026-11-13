@@ -142,16 +142,16 @@ pub fn apply_shot_record_flags(flags: u32) -> (i32, bool, bool) {
     )
 }
 
-/// C_ShotSkeleton working-name leaves (no new address credit). They live in
-/// this shot module because `lib.rs` is frozen (no new modules) and the
-/// human-owner files are off limits; they describe `C_ShotSkeleton`, not
-/// `C_actor_shot`. Reference mafia-re `fe7e746`,
-/// game/actors/C_ShotSkeleton.h + game/actors/C_ShotSkeleton.cpp. Both
-/// native FUNCTION entries are frozen-ledger-occupied (see
-/// docs/progress.json), and the joint/bone tables are data offsets rather
-/// than code, so every item below is a working name. Frame lookup
-/// (`FindChildFrame`) and the `TestCollision` line trace need the model
-/// owner and stay caller duties.
+// C_ShotSkeleton working-name leaves (no new address credit). They live in
+// this shot module because `lib.rs` is frozen (no new modules) and the
+// human-owner files are off limits; they describe `C_ShotSkeleton`, not
+// `C_actor_shot`. Reference mafia-re `fe7e746`,
+// game/actors/C_ShotSkeleton.h + game/actors/C_ShotSkeleton.cpp. Both
+// native FUNCTION entries are frozen-ledger-occupied (see
+// docs/progress.json), and the joint/bone tables are data offsets rather
+// than code, so every item below is a working name. Frame lookup
+// (`FindChildFrame`) and the `TestCollision` line trace need the model
+// owner and stay caller duties.
 
 /// Working name; number of shot joints (reference mafia-re `fe7e746`,
 /// game/actors/C_ShotSkeleton.h joint table, `SHOT_JOINT_COUNT`).
@@ -195,22 +195,8 @@ pub struct ShotBone {
 /// `FindChildFrame` call for a hit index needs the model owner.
 pub fn shot_joint_index(name: &[u8]) -> Option<usize> {
     const JOINTS: [&[u8]; SHOT_JOINT_COUNT] = [
-        b"r_hand",
-        b"r_elbow",
-        b"r_arm",
-        b"r_foot",
-        b"r_shin",
-        b"r_thigh",
-        b"l_hand",
-        b"l_elbow",
-        b"l_arm",
-        b"l_foot",
-        b"l_shin",
-        b"l_thigh",
-        b"base",
-        b"back1",
-        b"back3",
-        b"neck",
+        b"r_hand", b"r_elbow", b"r_arm", b"r_foot", b"r_shin", b"r_thigh", b"l_hand", b"l_elbow",
+        b"l_arm", b"l_foot", b"l_shin", b"l_thigh", b"base", b"back1", b"back3", b"neck",
     ];
     JOINTS.iter().position(|joint| *joint == name)
 }
@@ -337,21 +323,8 @@ mod tests {
     fn skeleton_joint_index_covers_reference_table() {
         assert_eq!(SHOT_JOINT_COUNT, 16);
         let names: [&[u8]; 16] = [
-            b"r_hand",
-            b"r_elbow",
-            b"r_arm",
-            b"r_foot",
-            b"r_shin",
-            b"r_thigh",
-            b"l_hand",
-            b"l_elbow",
-            b"l_arm",
-            b"l_foot",
-            b"l_shin",
-            b"l_thigh",
-            b"base",
-            b"back1",
-            b"back3",
+            b"r_hand", b"r_elbow", b"r_arm", b"r_foot", b"r_shin", b"r_thigh", b"l_hand",
+            b"l_elbow", b"l_arm", b"l_foot", b"l_shin", b"l_thigh", b"base", b"back1", b"back3",
             b"neck",
         ];
         for (index, name) in names.iter().enumerate() {

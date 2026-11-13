@@ -731,10 +731,7 @@ impl VisualResources {
     /// member, read by the game's inline `NumFaces`). The original reads it
     /// with no standalone LS3DF accessor, so no LS3DF FUNCTION address
     /// exists and none is claimed. Reports the stored triangle count.
-    pub fn face_group_num_faces(
-        &self,
-        group: FaceGroupKey,
-    ) -> Result<u32, VisualResourceError> {
+    pub fn face_group_num_faces(&self, group: FaceGroupKey) -> Result<u32, VisualResourceError> {
         Ok(self.face_group(group)?.num_faces)
     }
     /// Working name for the direct `next` member read on `I3D_face_group`
@@ -753,10 +750,7 @@ impl VisualResources {
     /// inline `GetFlags` returns it by reference). The original reads it
     /// with no standalone LS3DF accessor, so no LS3DF FUNCTION address
     /// exists and none is claimed. Reports the stored level flag word.
-    pub fn mesh_level_flags_of(
-        &self,
-        level: MeshLevelKey,
-    ) -> Result<u32, VisualResourceError> {
+    pub fn mesh_level_flags_of(&self, level: MeshLevelKey) -> Result<u32, VisualResourceError> {
         Ok(self.mesh_level(level)?.mesh_flags)
     }
     /// Working name for the direct `num_lods` member read on
@@ -765,10 +759,7 @@ impl VisualResources {
     /// as `mesh_level_flags_of`: no LS3DF FUNCTION address exists and none
     /// is claimed. Reports the stored level count (slots above it keep
     /// their residue and are never implicitly released).
-    pub fn mesh_object_lod_count(
-        &self,
-        mesh: MeshObjectKey,
-    ) -> Result<u32, VisualResourceError> {
+    pub fn mesh_object_lod_count(&self, mesh: MeshObjectKey) -> Result<u32, VisualResourceError> {
         Ok(self.mesh_object(mesh)?.num_lods)
     }
     /// Working name for the direct `num_fgroups` member read on
@@ -776,10 +767,7 @@ impl VisualResources {
     /// inline `NumFGroups` returns it by reference). Same inline-only
     /// status as `mesh_level_flags_of`: no LS3DF FUNCTION address exists
     /// and none is claimed. Reports the stored face-group count.
-    pub fn mesh_level_group_count(
-        &self,
-        level: MeshLevelKey,
-    ) -> Result<u32, VisualResourceError> {
+    pub fn mesh_level_group_count(&self, level: MeshLevelKey) -> Result<u32, VisualResourceError> {
         Ok(self.mesh_level(level)?.num_fgroups)
     }
     /// Driver factory 0x19200 `I3D_driver::CreateMeshLevel` (mafia-re
@@ -3428,9 +3416,7 @@ mod tests {
             resources.face_group_material(group).unwrap(),
             Some(material)
         );
-        resources
-            .set_material(group, None, &mut backend)
-            .unwrap();
+        resources.set_material(group, None, &mut backend).unwrap();
         assert_eq!(resources.face_group_material(group).unwrap(), None);
     }
     #[test]
@@ -6036,7 +6022,10 @@ mod material_flag_getters_rva_tests {
     fn material_alpha_working_name_returns_stored_word() {
         let mut resources = VisualResources::new().unwrap();
         let key = resources.create_material().unwrap();
-        assert_eq!(resources.material_alpha_value(key).unwrap().to_bits(), 1f32.to_bits());
+        assert_eq!(
+            resources.material_alpha_value(key).unwrap().to_bits(),
+            1f32.to_bits()
+        );
         resources.material_mut(key).unwrap().alpha = 0.25;
         assert_eq!(
             resources.material_alpha_value(key).unwrap().to_bits(),

@@ -829,7 +829,7 @@ fn sagged_stall_throttle_sweep_only_coasting_reengages_in_model() {
         b.put(0x574, 0x4170_0000);
         b.put(0x5ac, 0x4031_bd81);
         b.put(0x4cc, 1);
-        b.put(0x488, 0x423a_aab);
+        b.put(0x488, 0x0423_aaab);
         b.put(0x44, 0x3f80_0000);
         // Handbrake released: the unbraked grind. (0x434 doubles as the
         // handbrake force; the wedge tests stage 1.0 there.)
@@ -918,7 +918,7 @@ fn sagged_stall_low_throttle_boundary_follows_power_threshold_arm() {
         b.put(0x574, 0x4170_0000);
         b.put(0x5ac, 0x4031_bd81);
         b.put(0x4cc, 1);
-        b.put(0x488, 0x423a_aab);
+        b.put(0x488, 0x0423_aaab);
         b.put(0x44, 0x3f80_0000);
         b.float(0x434, 0.0);
         // Host fixtures the census does not capture (redline domain;
@@ -1005,7 +1005,7 @@ fn direct_gear_poke_from_sag_stays_trapped_without_shift_cycle() {
     b.put(0x574, 0x4170_0000);
     b.put(0x5ac, 0x4031_bd81);
     b.put(0x4cc, 1);
-    b.put(0x488, 0x423a_aab);
+    b.put(0x488, 0x0423_aaab);
     b.put(0x44, 0x3f80_0000);
     b.float(0x434, 0.0);
     b.float(0x1f9c, 600.0);
