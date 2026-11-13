@@ -22,6 +22,17 @@
 //! - `SaveGame*` (GAME region near `game.h:612`) needs the save-game owner.
 #![forbid(unsafe_code)]
 
+#[path = "game_clock.rs"]
+mod game_clock;
+pub use game_clock::{GameClock, GameClockSource};
+#[path = "game_random.rs"]
+mod game_random;
+pub use game_random::{GameRandom, GameRandomSource};
+
+#[cfg(test)]
+#[path = "game_tick_counters_tests.rs"]
+mod tick_counters_tests;
+
 /// Opaque frame handle. Native `I3D_frame*` identity is the caller's concern.
 pub type FrameId = u32;
 
@@ -741,7 +752,9 @@ pub const RACE6_STATE_END: i32 = 10;
 pub struct GameInlineState {
     player: Option<ActorId>,
     clear_diff_data: bool,
-    game_time: i32,
+    game_time: GameClock,
+    game_frames: i32,
+    random: GameRandom,
     init_frames: u32,
     timeout_program: u32,
     timeout_event: i32,
@@ -875,13 +888,47 @@ impl GameInlineState {
     /// FUNCTION: GAME 0x47b560 (RVA 0x7b560, VA 0x47b560; `game.h:868-873`,
     /// `C_game::GetGameTime`): reads the game's time.
     pub fn get_game_time(&self) -> i32 {
-        self.game_time
+        self.game_time.get()
     }
 
     /// Staging for [`GameInlineState::get_game_time`]; the `Tick` advance
     /// itself stays with the game-tick owner.
     pub fn set_game_time(&mut self, game_time: i32) {
-        self.game_time = game_time;
+        self.game_time.set(game_time);
+    }
+
+    /// Read-only observation of the represented signed PC game-frame counter.
+    pub fn game_frame_count(&self) -> i32 {
+        self.game_frames
+    }
+
+    /// Three consecutive counter writes in C_game::Tick (RVA 0x1a51c0),
+    /// mafia-re fe7e7464 game.cpp. Weather, failure/death handling and deferred
+    /// actor resolution precede this boundary. This fragment does not perform
+    /// those dependencies or a complete Tick and claims no function credit.
+    pub(crate) fn advance_tick_counters(&mut self, delta: u32) -> i32 {
+        let time = self.get_game_time().wrapping_add(delta as i32);
+        self.set_game_time(time);
+        self.game_frames = self.game_frames.wrapping_add(1);
+        self.init_frames = self.init_frames.wrapping_add(1);
+        time
+    }
+
+    /// Non-owning live clock source for programs retained by this game.
+    pub fn game_clock(&self) -> GameClockSource {
+        self.game_time.reader()
+    }
+
+    /// Shared by script programs; other native rand() consumers are not yet
+    /// bound to this stream.
+    pub fn random_source(&self) -> GameRandomSource {
+        self.random.source()
+    }
+
+    /// Call at the original initialization boundary with its observed seed.
+    /// Never seed at program Init or at each Tick.
+    pub fn seed_random(&mut self, seed: u32) {
+        self.random.seed(seed);
     }
 
     /// FUNCTION: GAME 0x47b570 (RVA 0x7b570, VA 0x47b570; `game.h:874-878`,

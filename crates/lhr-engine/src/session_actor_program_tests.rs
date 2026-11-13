@@ -123,6 +123,52 @@ fn finish(session: &mut MissionLoadSession) {
 }
 
 #[test]
+fn entity_and_detector_passes_share_one_session_clock() {
+    let source = b"commandblock 1\ndim_flt 4\ngetgametime 0\ngetgametime 1\ncommandblock 0\ncommandblock 1\ngetgametime 2\ngetgametime 3\ncommandblock 0";
+    let fixture = fixture(Some(source), Some(source));
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let mut diagnostic = Diagnostic::default();
+    session.advance_owned_game_time(99).unwrap();
+    for kind in [ActorProgramKind::Entity, ActorProgramKind::Detector] {
+        assert_eq!(initialize(&mut session, kind, &mut diagnostic), Ok(1));
+    }
+    for phase in 0..2 {
+        let mut budget = DispatchBudget::new(32).unwrap();
+        for kind in [ActorProgramKind::Entity, ActorProgramKind::Detector] {
+            assert_eq!(
+                tick(&mut session, kind, &mut budget, &mut diagnostic),
+                Ok(1)
+            );
+            let bank = program(&session, kind)
+                .runtime()
+                .unwrap()
+                .fields
+                .floats
+                .as_deref()
+                .unwrap();
+            if phase == 0 {
+                assert_eq!(bank, &[99.0, 99.0, 0.0, 0.0]);
+            } else {
+                assert_eq!(bank, &[99.0, 99.0, 120.0, 120.0]);
+            }
+        }
+        assert_eq!(
+            session.game_state().get_game_time(),
+            if phase == 0 { 99 } else { 120 }
+        );
+        if phase == 0 {
+            assert_eq!(session.advance_owned_game_time(21).unwrap(), 120);
+            for kind in [ActorProgramKind::Entity, ActorProgramKind::Detector] {
+                assert_eq!(initialize(&mut session, kind, &mut diagnostic), Ok(0));
+            }
+        }
+    }
+    assert_eq!(diagnostic.calls, 0);
+    finish(&mut session);
+}
+
+#[test]
 fn session_actor_programs_share_game_and_actor_owners_and_restart_cleanly() {
     let fixture = fixture(
         Some(b"commandblock 1\ngame_nightmission 1\nenemy_vidim 1\ncommandblock 0"),
@@ -423,4 +469,36 @@ fn session_actor_unwind_retains_game_prefix_program_and_precision_owner() {
         assert_eq!(diagnostic.calls, 1);
         finish(&mut session);
     }
+}
+
+#[test]
+fn entity_and_detector_passes_consume_the_same_session_random_stream() {
+    let source = b"commandblock 1\ndim_flt 1\nrnd 0,100\ncommandblock 0";
+    let fixture = fixture(Some(source), Some(source));
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    session.seed_owned_game_random(1).unwrap();
+    let mut diagnostic = Diagnostic::default();
+    for kind in [ActorProgramKind::Entity, ActorProgramKind::Detector] {
+        initialize(&mut session, kind, &mut diagnostic).unwrap();
+    }
+    let mut budget = DispatchBudget::new(64).unwrap();
+    for (kind, expected) in [
+        (ActorProgramKind::Entity, 41.0),
+        (ActorProgramKind::Detector, 67.0),
+    ] {
+        tick(&mut session, kind, &mut budget, &mut diagnostic).unwrap();
+        assert_eq!(
+            program(&session, kind)
+                .runtime()
+                .unwrap()
+                .fields
+                .floats
+                .as_ref()
+                .unwrap()[0],
+            expected
+        );
+    }
+    assert_eq!(session.game_state().random_source().next_raw(), Some(6334));
+    finish(&mut session);
 }

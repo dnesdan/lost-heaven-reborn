@@ -41,6 +41,12 @@ impl<'a, B, W> LookupRuntimeBackend<'a, B, W> {
     }
 }
 impl<B: RuntimeBackend, W: RuntimeLookupWorld> RuntimeBackend for LookupRuntimeBackend<'_, B, W> {
+    fn random_source(&self) -> Option<crate::game_housekeeping::GameRandomSource> {
+        self.effects.random_source()
+    }
+    fn game_clock(&self) -> Option<crate::game_housekeeping::GameClockSource> {
+        self.effects.game_clock()
+    }
     fn effect(
         &mut self,
         fields: RuntimeView<'_>,
@@ -188,8 +194,6 @@ impl<B: RuntimeBackend> Process<'_, B> {
                             command_time: self.command_time,
                             event_command_time: self.event_command_time,
                             event_time: self.event_time,
-                            game_time: self.game_time,
-                            rand_state: self.rand_state,
                         },
                         self.owner,
                         -1,

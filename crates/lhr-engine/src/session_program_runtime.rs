@@ -52,6 +52,12 @@ struct NoPedestrians;
 impl crate::traffic_generator::TrafficElementBackend for NoPedestrians {}
 
 impl RuntimeBackend for SessionProgramEffects<'_> {
+    fn random_source(&self) -> Option<crate::game_housekeeping::GameRandomSource> {
+        Some(self.game.random_source())
+    }
+    fn game_clock(&self) -> Option<crate::game_housekeeping::GameClockSource> {
+        Some(self.game.game_clock())
+    }
     fn effect(
         &mut self,
         _fields: RuntimeView<'_>,
@@ -174,6 +180,25 @@ pub struct DetectorScheduleFrontier {
 }
 
 impl MissionLoadSession {
+    /// Explicit host seed boundary. Not automatic native GameInit scheduling.
+    pub fn seed_owned_game_random(&mut self, seed: u32) -> Result<(), SessionActorProgramError> {
+        self.global_program_source_admission()
+            .map_err(SessionActorProgramError::SourceUnavailable)?;
+        self.game_inline.seed_random(seed);
+        Ok(())
+    }
+
+    /// Explicit host clock step, once per caller-selected game tick, never per
+    /// program or actor pass. Both frame counters advance even at zero delta;
+    /// randomness is neither drawn nor reseeded. Native Tick's weather, failure
+    /// and actor-lookup prefix must precede this boundary. This explicit host
+    /// API is not a substitute for that still-unconnected scheduling.
+    pub fn advance_owned_game_time(&mut self, delta: u32) -> Result<i32, SessionActorProgramError> {
+        self.global_program_source_admission()
+            .map_err(SessionActorProgramError::SourceUnavailable)?;
+        Ok(self.game_inline.advance_tick_counters(delta))
+    }
+
     /// Read the authoritative represented game fields. This is a borrow, not
     /// an inspector copy used as a replacement gameplay owner.
     pub fn game_state(&self) -> &GameInlineState {
