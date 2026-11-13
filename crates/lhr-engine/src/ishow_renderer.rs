@@ -273,11 +273,7 @@ fn find_show(shows: &[CGameIshowEntry], id: i32) -> Option<usize> {
 /// removal mirrors the evidenced per-row teardown of DestroyIShowAll
 /// (mafia-re game/mission/game.cpp:3515-3528). Order-preserving `remove` is a
 /// host choice, disclosed: the single-row native order is stub-covered.
-fn destroy_entry(
-    list: &mut CGameVideolist,
-    backend: &mut impl CGameVideolistBackend,
-    id: i32,
-) {
+fn destroy_entry(list: &mut CGameVideolist, backend: &mut impl CGameVideolistBackend, id: i32) {
     if let Some(pos) = find_show(&list.shows, id) {
         let entry = list.shows.remove(pos);
         backend.destroy_ishow_device(entry.id, entry.show);
@@ -447,7 +443,9 @@ pub fn cgame_ishow_set_volume(
 /// `GetType() == FRAME_AREA` check; the byte length stands in for `strlen`
 /// (enumeration names carry no NUL on the host).
 pub fn cgame_cb_city_music(is_area: bool, name: &[u8]) -> bool {
-    is_area && name.len() > 12 && name[..CITY_MUSIC_AREA_PREFIX.len()].eq_ignore_ascii_case(CITY_MUSIC_AREA_PREFIX)
+    is_area
+        && name.len() > 12
+        && name[..CITY_MUSIC_AREA_PREFIX.len()].eq_ignore_ascii_case(CITY_MUSIC_AREA_PREFIX)
 }
 
 /// GAME 0x5adee0. C_game::LoadCityMusicAreas (mafia-re game/mission/game.cpp:
@@ -485,9 +483,7 @@ pub fn cgame_tick_city_music(
     disable_sound: bool,
 ) {
     if list.city_music_time >= 0 {
-        list.city_music_time = list
-            .city_music_time
-            .wrapping_sub(time_ms as i32);
+        list.city_music_time = list.city_music_time.wrapping_sub(time_ms as i32);
         return;
     }
     list.city_music_time = CITY_MUSIC_RECHECK_MS;
@@ -564,10 +560,7 @@ pub fn cgame_tick_city_music(
 /// 3029): forgets the area, destroys the fading-out music, fades the playing
 /// music out from its device volume over 5 s without looping, and clears the
 /// id. The fade creation itself stays behind ishow_fade (GAME 0x5b6710 stub).
-pub fn cgame_city_music_off(
-    list: &mut CGameVideolist,
-    backend: &mut impl CGameVideolistBackend,
-) {
+pub fn cgame_city_music_off(list: &mut CGameVideolist, backend: &mut impl CGameVideolistBackend) {
     list.city_music_area = None;
     if list.city_music_old > -1 {
         let doomed = list.city_music_old;
@@ -755,11 +748,17 @@ mod cgame_videolist_tests {
     fn create_guards_sound_and_consumes_ids_only_past_the_gate() {
         let mut list = CGameVideolist::fresh();
         let mut backend = Fake::new();
-        assert_eq!(cgame_create_ishow(&mut list, &mut backend, 2, true, 0.7), -1);
+        assert_eq!(
+            cgame_create_ishow(&mut list, &mut backend, 2, true, 0.7),
+            -1
+        );
         assert_eq!(list.next_id, 0);
         assert!(list.shows.is_empty());
         assert!(backend.volumes.is_empty());
-        assert_eq!(cgame_create_ishow(&mut list, &mut backend, 2, false, 0.7), 0);
+        assert_eq!(
+            cgame_create_ishow(&mut list, &mut backend, 2, false, 0.7),
+            0
+        );
         assert_eq!(list.next_id, 1);
         assert_eq!(list.shows[0].show, 11);
         assert_eq!(list.shows[0].volume.to_bits(), 1.0f32.to_bits());
@@ -767,7 +766,10 @@ mod cgame_videolist_tests {
         assert_eq!(backend.volumes[0].0, 11);
         assert_eq!(backend.volumes[0].1.to_bits(), 0.7f32.to_bits());
         backend.create_null = true;
-        assert_eq!(cgame_create_ishow(&mut list, &mut backend, 0, false, 0.7), -1);
+        assert_eq!(
+            cgame_create_ishow(&mut list, &mut backend, 0, false, 0.7),
+            -1
+        );
         assert_eq!(list.next_id, 2);
         assert_eq!(list.shows.len(), 1);
     }
@@ -777,13 +779,28 @@ mod cgame_videolist_tests {
         let mut list = CGameVideolist::fresh();
         let mut backend = Fake::new();
         assert!(!cgame_open_ishow(&mut list, &mut backend, None, 0));
-        assert!(!cgame_open_ishow(&mut list, &mut backend, Some(b"x.ogg"), 99));
+        assert!(!cgame_open_ishow(
+            &mut list,
+            &mut backend,
+            Some(b"x.ogg"),
+            99
+        ));
         assert!(backend.opened.is_empty());
         let first = cgame_create_ishow(&mut list, &mut backend, 0, false, 1.0);
-        assert!(cgame_open_ishow(&mut list, &mut backend, Some(b"Song.OGG"), first));
+        assert!(cgame_open_ishow(
+            &mut list,
+            &mut backend,
+            Some(b"Song.OGG"),
+            first
+        ));
         assert_eq!(backend.opened, vec![b"Song.OGG".to_vec()]);
         let second = cgame_create_ishow(&mut list, &mut backend, 0, false, 1.0);
-        assert!(cgame_open_ishow(&mut list, &mut backend, Some(b"song.ogg"), second));
+        assert!(cgame_open_ishow(
+            &mut list,
+            &mut backend,
+            Some(b"song.ogg"),
+            second
+        ));
         assert_eq!(backend.destroyed, vec![(first, 11)]);
         assert_eq!(list.shows.len(), 1);
         assert_eq!(list.shows[0].name, Some(b"song.ogg".to_vec()));
@@ -802,18 +819,33 @@ mod cgame_videolist_tests {
         let mut list = CGameVideolist::fresh();
         let mut backend = Fake::new();
         let id = cgame_create_ishow(&mut list, &mut backend, 0, false, 1.0);
-        assert!(cgame_open_ishow(&mut list, &mut backend, Some(b"a.ogg.ogg"), id));
+        assert!(cgame_open_ishow(
+            &mut list,
+            &mut backend,
+            Some(b"a.ogg.ogg"),
+            id
+        ));
         assert_eq!(
             backend.opened,
             vec![b"a.ogg.ogg".to_vec(), b"a.mp3.ogg".to_vec()]
         );
         backend.opened.clear();
         backend.next_open = Some(0x8000_0005u32 as i32);
-        assert!(cgame_open_ishow(&mut list, &mut backend, Some(b"q.ogg"), id));
+        assert!(cgame_open_ishow(
+            &mut list,
+            &mut backend,
+            Some(b"q.ogg"),
+            id
+        ));
         assert_eq!(backend.opened, vec![b"q.ogg".to_vec()]);
         backend.opened.clear();
         backend.next_open = Some(0);
-        assert!(cgame_open_ishow(&mut list, &mut backend, Some(b"UP.OGG"), id));
+        assert!(cgame_open_ishow(
+            &mut list,
+            &mut backend,
+            Some(b"UP.OGG"),
+            id
+        ));
         assert_eq!(backend.opened, vec![b"UP.OGG".to_vec()]);
     }
 
@@ -1120,10 +1152,7 @@ pub const STREAM_DESTROY_ALL_ENTRY: u32 = 0x5ae3d0;
 /// stays deferred and the row is kept. Callers of the deferred sequence:
 /// CityMusicOff (game.cpp:3016-3029) and the per-row teardown of
 /// DestroyIShowAll (game.cpp:3515-3529).
-pub fn cgame_destroy_ishow(
-    _list: &CGameVideolist,
-    _id: i32,
-) -> Result<(), CGameIshowStubError> {
+pub fn cgame_destroy_ishow(_list: &CGameVideolist, _id: i32) -> Result<(), CGameIshowStubError> {
     Err(CGameIshowStubError::Unsupported {
         entry: DESTROY_ISHOW_ENTRY,
     })
@@ -1190,9 +1219,7 @@ pub fn cgame_get_film_music(
 /// game/mission/game.cpp:3050-3054): native body is an empty StubLog stub,
 /// so this stream teardown returns explicit Unsupported; the film-music
 /// stream tokens are kept and the device teardown stays deferred.
-pub fn cgame_stream_destroy_all(
-    _list: &CGameVideolist,
-) -> Result<(), CGameIshowStubError> {
+pub fn cgame_stream_destroy_all(_list: &CGameVideolist) -> Result<(), CGameIshowStubError> {
     Err(CGameIshowStubError::Unsupported {
         entry: STREAM_DESTROY_ALL_ENTRY,
     })
@@ -1294,4 +1321,3 @@ mod cgame_ishow_stub_tests {
         assert_eq!(list, before);
     }
 }
-

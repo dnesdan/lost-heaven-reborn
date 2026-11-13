@@ -18,9 +18,9 @@ pub mod script_vm;
 pub mod startup_archives;
 mod tga;
 pub use menu::{
-    FontGlyph, FontMetrics, LanguageFontMap, MenuDefinition, MenuItem, RawTextDb, RawTextDbEntry,
-    TextDb, TextDbEntry, MAX_MENU_NAME_LEN, UPUP_TAG, parse_font_metrics, parse_language_font_map,
-    parse_menu_definition, parse_raw_text_db, parse_text_db,
+    FontGlyph, FontMetrics, LanguageFontMap, MAX_MENU_NAME_LEN, MenuDefinition, MenuItem,
+    RawTextDb, RawTextDbEntry, TextDb, TextDbEntry, UPUP_TAG, parse_font_metrics,
+    parse_language_font_map, parse_menu_definition, parse_raw_text_db, parse_text_db,
 };
 pub use scene::{Scene, SceneActor, SceneObject, SceneScript, parse_scene2};
 pub use tga::decode_tga;

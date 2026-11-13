@@ -420,11 +420,7 @@ impl GameControls {
     /// list with CONTROLS_PRESSED. `None` while that list is empty (the
     /// native -1); otherwise the slice and its length.
     pub fn get_values(&self, pressed: bool) -> Option<&[f32]> {
-        let list = if pressed {
-            &self.pressed
-        } else {
-            &self.values
-        };
+        let list = if pressed { &self.pressed } else { &self.values };
         if list.is_empty() {
             None
         } else {
@@ -441,11 +437,7 @@ impl GameControls {
         if index < 0 {
             return 0.0;
         }
-        let list = if pressed {
-            &self.pressed
-        } else {
-            &self.values
-        };
+        let list = if pressed { &self.pressed } else { &self.values };
         list.get(index as usize).copied().unwrap_or(0.0)
     }
 
@@ -1314,10 +1306,7 @@ mod tests {
             fail_at: None,
         };
         controls.save_joy_states(&mut saver).unwrap();
-        assert_eq!(
-            saver.calls,
-            [ControlJoystick(20), ControlJoystick(10)]
-        );
+        assert_eq!(saver.calls, [ControlJoystick(20), ControlJoystick(10)]);
         assert_eq!(controls.joysticks()[0].changes, [10; JOYSTICK_STATE_BYTES]);
         assert_eq!(controls.joysticks()[1].changes, [20; JOYSTICK_STATE_BYTES]);
 
@@ -1337,10 +1326,7 @@ mod tests {
             failed.save_joy_states(&mut failing),
             Err(ControlFailure::Backend("joystick unavailable"))
         );
-        assert_eq!(
-            failing.calls,
-            [ControlJoystick(20), ControlJoystick(10)]
-        );
+        assert_eq!(failing.calls, [ControlJoystick(20), ControlJoystick(10)]);
         assert_eq!(failed.joysticks()[1].changes, [20; JOYSTICK_STATE_BYTES]);
         assert_eq!(failed.joysticks()[0].changes, [0; JOYSTICK_STATE_BYTES]);
         assert!(failed.interrupted());

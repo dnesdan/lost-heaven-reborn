@@ -62,13 +62,11 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
         match effect {
             SetNightMission(value) => self.game.set_night_mission(value),
             DisableAnimPreload => self.game.set_anim_preload(false),
-            UseLightCache => match crate::mission_effects::collect_session_lights(&self.lights) {
-                Ok(collected) => {
-                    self.game.light_cache = Some(collected);
-                    self.game.set_light_cache_time(-1);
-                }
-                Err(error) => return Err(error),
-            },
+            UseLightCache => {
+                let collected = crate::mission_effects::collect_session_lights(&self.lights)?;
+                self.game.light_cache = Some(collected);
+                self.game.set_light_cache_time(-1);
+            }
             SetCityTrafficVisible(_) => {
                 return Err("session city-traffic visibility owner unavailable".into());
             }
@@ -77,10 +75,9 @@ impl RuntimeBackend for SessionProgramEffects<'_> {
                 // C_traffic_generator::ZrusVsechnyMavajici over the live
                 // pedestrians; the set is empty (see NoPedestrians), so
                 // this only runs the native early-out shape.
-                if let Err(error) = crate::traffic_generator::zrus_vsechny_mavajici(
-                    &[],
-                    &mut NoPedestrians,
-                ) {
+                if let Err(error) =
+                    crate::traffic_generator::zrus_vsechny_mavajici(&[], &mut NoPedestrians)
+                {
                     return Err(format!("timer traffic wave-cancel: {error}"));
                 }
             }

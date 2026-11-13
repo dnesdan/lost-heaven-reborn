@@ -136,10 +136,7 @@ impl DetectorSignalParameterSlot {
         let first_length = c_length(&source[first..]).map_err(DetectorSignalDecodeError::Parser)?;
         parameter.register = Some(
             backend
-                .convert_detector_signal_register(
-                    &source[first..first + first_length],
-                    parameter,
-                )
+                .convert_detector_signal_register(&source[first..first + first_length], parameter)
                 .map_err(DetectorSignalDecodeError::RegisterConversion)?,
         );
         parameter.label1 = Some(

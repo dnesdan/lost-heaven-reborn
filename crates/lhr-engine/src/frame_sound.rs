@@ -251,11 +251,7 @@ impl ModelArena {
     /// Explicit Unsupported stub: the handle is validated read-only, no
     /// state changes, and every known handle reports the missing device
     /// backend. Tier contract (boundary, not a behavioral port).
-    pub fn sound_set_on_single_arg(
-        &self,
-        key: SoundKey,
-        _on: bool,
-    ) -> Result<(), ModelError> {
+    pub fn sound_set_on_single_arg(&self, key: SoundKey, _on: bool) -> Result<(), ModelError> {
         self.sound(key)?;
         Err(SoundError::BackendUnavailable.into())
     }

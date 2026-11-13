@@ -419,7 +419,9 @@ mod tests {
     #[test]
     fn radian_lane_fold_stays_within_one_ulp_of_two_op_reference() {
         fn ulps(a: f32, b: f32) -> u32 {
-            (a.to_bits() as i32).wrapping_sub(b.to_bits() as i32).abs() as u32
+            (a.to_bits() as i32)
+                .wrapping_sub(b.to_bits() as i32)
+                .unsigned_abs()
         }
         for &degrees in &[
             0.0f32, 0.5, 1.0, 30.0, 45.0, 90.0, 135.0, 180.0, 270.0, -45.0,
@@ -429,6 +431,8 @@ mod tests {
             put_float(&mut source, 4, degrees);
             let row = convert_tyre_payload(7, &source).unwrap();
             assert_eq!(float(&row, 4), 2500.0);
+            // Reference-source `3.14159f` literal, not std PI (bits differ).
+            #[allow(clippy::approx_constant)]
             let reference = ((degrees as f64) * (3.14159f32 as f64) / 180.0) as f32;
             assert!(
                 ulps(float(&row, 8), reference) <= 1,

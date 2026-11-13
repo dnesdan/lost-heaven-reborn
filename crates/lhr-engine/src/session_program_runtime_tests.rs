@@ -140,35 +140,34 @@ fn owned_program_updates_live_game_flags_and_resolves_the_retained_actor() {
 
 #[test]
 fn missing_game_owners_stop_at_the_reached_effect_and_keep_the_prefix() {
-    for (unsupported, detail) in [(
+    let (unsupported, detail) = (
         "setcitytrafficvisible 1",
         "session city-traffic visibility owner unavailable",
-    )] {
-        let source = format!(
-            "commandblock 1\ngame_nightmission 1\n{unsupported}\ngame_nightmission 0\ncommandblock 0"
-        );
-        let fixture = fixture(source.as_bytes());
-        let mut session = fixture.session();
-        load(&mut session, &[]).unwrap();
-        session.initialize_owned_global_programs().unwrap();
-        let error = run(&mut session).unwrap_err();
-        assert_eq!(
-            error,
-            MissionGlobalProgramError::Runtime(RuntimeError::Scheduler(format!(
-                "Backend(Effect({detail:?}))"
-            ),))
-        );
-        assert!(session.game_state().night_mission());
-        assert_eq!(
-            session.loader().unwrap().content.programs()[0]
-                .runtime()
-                .unwrap()
-                .fields
-                .program_counter(),
-            2
-        );
-        finish(&mut session);
-    }
+    );
+    let source = format!(
+        "commandblock 1\ngame_nightmission 1\n{unsupported}\ngame_nightmission 0\ncommandblock 0"
+    );
+    let fixture = fixture(source.as_bytes());
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    session.initialize_owned_global_programs().unwrap();
+    let error = run(&mut session).unwrap_err();
+    assert_eq!(
+        error,
+        MissionGlobalProgramError::Runtime(RuntimeError::Scheduler(format!(
+            "Backend(Effect({detail:?}))"
+        ),))
+    );
+    assert!(session.game_state().night_mission());
+    assert_eq!(
+        session.loader().unwrap().content.programs()[0]
+            .runtime()
+            .unwrap()
+            .fields
+            .program_counter(),
+        2
+    );
+    finish(&mut session);
 }
 
 #[test]
@@ -224,7 +223,8 @@ fn timeron_stages_request_and_clears_no_waving_pedestrians() {
 }
 
 #[test]
-fn use_lightcache_collects_empty_prefix_on_a_sceneless_session() {    // The fixture session selects no scene, so the collector has nothing to
+fn use_lightcache_collects_empty_prefix_on_a_sceneless_session() {
+    // The fixture session selects no scene, so the collector has nothing to
     // walk yet the opcode itself is owned: it succeeds with an empty cache
     // instead of stopping at the reached effect.
     let fixture = fixture(b"commandblock 1\nuse_lightcache\ncommandblock 0");
@@ -290,7 +290,8 @@ fn mission_objectives_stage_ids_and_help_calls_in_order() {
 
 #[test]
 fn mission_subtitles_stage_ids_in_call_order() {
-    let fixture = fixture(b"commandblock 1\nintro_subtitle_add 6,7\nsubtitle_add 9\ncommandblock 0");
+    let fixture =
+        fixture(b"commandblock 1\nintro_subtitle_add 6,7\nsubtitle_add 9\ncommandblock 0");
     let mut session = fixture.session();
     load(&mut session, &[]).unwrap();
     session.initialize_owned_global_programs().unwrap();

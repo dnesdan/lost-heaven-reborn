@@ -1160,9 +1160,11 @@ mod tests {
         assert!(log.calls.is_empty());
 
         // TickElements 0x44ef70: hidden state returns early, timers/dist untouched.
-        let mut hidden = TrafficTickState::default();
-        hidden.t_horn = 500;
-        hidden.try_do_rici = 7;
+        let mut hidden = TrafficTickState {
+            t_horn: 500,
+            try_do_rici: 7,
+            ..TrafficTickState::default()
+        };
         let mut elems = [element(true, false, false, false, true, None, 1.0, 2.0)];
         let mut log = Log::default();
         let outcome = hidden
@@ -1208,11 +1210,9 @@ mod tests {
         // A failed Tick keeps the already-written distance.
         log.fail_at = Some(log.calls.len());
         let before = ticking.t_horn();
-        assert!(
-            ticking
-                .tick_elements_prefix(10, 4.0, 0.0, &mut elems, false, false, &mut log)
-                .is_err()
-        );
+        assert!(ticking
+            .tick_elements_prefix(10, 4.0, 0.0, &mut elems, false, false, &mut log)
+            .is_err());
         assert_eq!(elems[0].dist, 9.0);
         assert_eq!(ticking.t_horn(), before);
 

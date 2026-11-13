@@ -16,7 +16,7 @@
 use crate::{
     joint_state::{I3dJointState, SinglemeshInvalidationState},
     native_matrix::{checked_f32_add, checked_f32_mul},
-    native_transform::{SMatrix, SQuat, vector_set_normalized},
+    native_transform::{vector_set_normalized, SMatrix, SQuat},
     singlemesh_binding::{DBuildBindingOutcome, I3dSinglemeshBinding},
     singlemesh_bounds::{
         calculate_singlemesh_bounds, SinglemeshBoundVolume, SinglemeshBoundingBox,
@@ -469,7 +469,9 @@ pub fn duplicate_orig_name_offset(
     src_orig: usize,
     dst_name_base: usize,
 ) -> usize {
-    src_orig.wrapping_sub(src_name_base).wrapping_add(dst_name_base)
+    src_orig
+        .wrapping_sub(src_name_base)
+        .wrapping_add(dst_name_base)
 }
 /// Working name for the `I3D_frame::GetData` word read (mafia-re
 /// ls3df/I3D/I3D.h:595-600; `m_UserData` at +0x08, I3D.h:660, Insanity3D's
@@ -1581,10 +1583,7 @@ pub fn link_supported_flags_mask() -> u32 {
 /// `docs/rewrite-overlay.json`, so no RVA is claimed here. Compares C-string
 /// content truncated at the first NUL; `None` equals only `None`. Pure helper,
 /// no allocation or registration moves.
-pub fn frame_set_name_is_content_equal(
-    stored: Option<&[u8]>,
-    incoming: Option<&[u8]>,
-) -> bool {
+pub fn frame_set_name_is_content_equal(stored: Option<&[u8]>, incoming: Option<&[u8]>) -> bool {
     match (stored, incoming) {
         (None, None) => true,
         (Some(a), Some(b)) => {
@@ -2198,7 +2197,11 @@ impl I3dFrameGraph {
     /// game build performs (the game copy, Game.exe 0x43bce0, is covered by
     /// `assign_rotation`). Flag store clears HR_BOUND_W/WMAT/MAT/ROT and
     /// sets UPDATE/QUAT_VALID, like the game copy but without normalizing.
-    pub fn store_frame_rotation(&mut self, key: FrameKey, rotation: SQuat) -> Result<(), FrameError> {
+    pub fn store_frame_rotation(
+        &mut self,
+        key: FrameKey,
+        rotation: SQuat,
+    ) -> Result<(), FrameError> {
         let state = &mut self.node_mut(key)?.state;
         state.rotation = rotation;
         state.flags = (state.flags & 0xfffffecb) | 0x40000008;
@@ -4498,7 +4501,9 @@ mod tests {
         // keeps the SetDir3 shape (UPDATE|MAT_VALID, rotation validity gone).
         let mut graph = I3dFrameGraph::default();
         let key = graph.insert(I3dFrameState::model()).unwrap();
-        graph.set_frame_dir1(key, [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]).unwrap();
+        graph
+            .set_frame_dir1(key, [0.0, 0.0, 1.0], [0.0, 1.0, 0.0])
+            .unwrap();
         let local = graph.state(key).unwrap().local;
         assert_eq!(
             [
@@ -4516,7 +4521,9 @@ mod tests {
         );
         assert_eq!(graph.state(key).unwrap().flags, 0x4000_0011);
         // X-forward against Y-up keeps the right-handed permutation basis.
-        graph.set_frame_dir1(key, [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]).unwrap();
+        graph
+            .set_frame_dir1(key, [1.0, 0.0, 0.0], [0.0, 1.0, 0.0])
+            .unwrap();
         let local = graph.state(key).unwrap().local;
         assert_eq!(
             [
@@ -4553,15 +4560,22 @@ mod tests {
         // the Game branch normalization that `assign_rotation` performs.
         let mut graph = I3dFrameGraph::default();
         let key = graph.insert(I3dFrameState::model()).unwrap();
-        let rotation = SQuat { wxyz: [0.5, 0.5, 0.5, 0.5] };
+        let rotation = SQuat {
+            wxyz: [0.5, 0.5, 0.5, 0.5],
+        };
         graph.assign_rotation_ls3df(key, rotation).unwrap();
         assert_eq!(graph.state(key).unwrap().rotation, rotation);
         assert_eq!(graph.state(key).unwrap().flags, 0x4000_0009);
         // Non-finite components pass through exactly as the native store;
         // the checked Game-branch entry would refuse them.
-        let wild = SQuat { wxyz: [f32::INFINITY, 0.0, 0.0, f32::NAN] };
+        let wild = SQuat {
+            wxyz: [f32::INFINITY, 0.0, 0.0, f32::NAN],
+        };
         graph.assign_rotation_ls3df(key, wild).unwrap();
-        assert_eq!(graph.state(key).unwrap().rotation.wxyz[0].to_bits(), f32::INFINITY.to_bits());
+        assert_eq!(
+            graph.state(key).unwrap().rotation.wxyz[0].to_bits(),
+            f32::INFINITY.to_bits()
+        );
         assert!(graph.state(key).unwrap().rotation.wxyz[3].is_nan());
         assert_eq!(
             graph.assign_rotation_ls3df(FrameKey(u32::MAX), rotation),
@@ -4584,7 +4598,11 @@ mod tests {
         let inv = graph.visual_inv_matrix(local).unwrap();
         let world = graph.world_matrix(local).unwrap();
         let round_trip = inv.try_mul_affine(&world).unwrap();
-        for (got, want) in round_trip.elements.iter().zip(SMatrix::identity().elements.iter()) {
+        for (got, want) in round_trip
+            .elements
+            .iter()
+            .zip(SMatrix::identity().elements.iter())
+        {
             assert!((got - want).abs() < 1e-5, "{got:?} vs {want:?}");
         }
         assert_eq!(
@@ -4756,24 +4774,25 @@ mod tests {
         let mut graph = I3dFrameGraph::default();
         let key = graph.insert(I3dFrameState::model()).unwrap();
         graph
-            .store_frame_rotation(key, SQuat { wxyz: [2., 0., 0., 0.] })
+            .store_frame_rotation(
+                key,
+                SQuat {
+                    wxyz: [2., 0., 0., 0.],
+                },
+            )
             .unwrap();
-        assert_eq!(
-            graph.state(key).unwrap().rotation.wxyz,
-            [2., 0., 0., 0.]
-        );
-        assert_eq!(
-            graph.state(key).unwrap().flags & 0x40000008,
-            0x40000008
-        );
+        assert_eq!(graph.state(key).unwrap().rotation.wxyz, [2., 0., 0., 0.]);
+        assert_eq!(graph.state(key).unwrap().flags & 0x40000008, 0x40000008);
         assert_eq!(graph.state(key).unwrap().flags & 0x134, 0);
         graph
-            .assign_rotation(key, SQuat { wxyz: [2., 0., 0., 0.] })
+            .assign_rotation(
+                key,
+                SQuat {
+                    wxyz: [2., 0., 0., 0.],
+                },
+            )
             .unwrap();
-        assert_eq!(
-            graph.state(key).unwrap().rotation.wxyz,
-            [1., 0., 0., 0.]
-        );
+        assert_eq!(graph.state(key).unwrap().rotation.wxyz, [1., 0., 0., 0.]);
     }
     #[test]
     fn set_direction_from_up_writes_dir3_rows_and_mat_flags() {
@@ -4789,10 +4808,7 @@ mod tests {
             [local.elements[8], local.elements[9], local.elements[10]],
             [0., 0., 1.]
         );
-        assert_eq!(
-            graph.state(key).unwrap().flags & 0x40000010,
-            0x40000010
-        );
+        assert_eq!(graph.state(key).unwrap().flags & 0x40000010, 0x40000010);
         assert_eq!(graph.state(key).unwrap().flags & 0x12c, 0);
         assert_eq!(
             graph.set_direction_from_up(key, [0., 0., 1.], [0., 0., 2.]),
@@ -4808,14 +4824,13 @@ mod tests {
             .insert(I3dFrameState::source_mesh(
                 [0., 0., 0.],
                 [1., 1., 1.],
-                SQuat { wxyz: [1., 0., 0., 0.] },
+                SQuat {
+                    wxyz: [1., 0., 0., 0.],
+                },
             ))
             .unwrap();
         assert_eq!(graph.state(stale).unwrap().flags & 0x10, 0);
-        assert_eq!(
-            graph.frame_local_direction(stale).unwrap(),
-            [0., 0., 1.]
-        );
+        assert_eq!(graph.frame_local_direction(stale).unwrap(), [0., 0., 1.]);
         assert_eq!(graph.state(stale).unwrap().flags & 0x10, 0x10);
         let key = graph.insert(I3dFrameState::model()).unwrap();
         assert_eq!(graph.frame_local_direction(key).unwrap(), [0., 0., 1.]);
@@ -4857,10 +4872,7 @@ mod tests {
         let rotation = graph.frame_world_rotation(key).unwrap();
         assert_eq!(rotation.wxyz, [1., 0., 0., 0.]);
         assert_eq!(graph.state(key).unwrap().flags, before);
-        assert_eq!(
-            graph.state(key).unwrap().rotation.wxyz,
-            [1., 0., 0., 0.]
-        );
+        assert_eq!(graph.state(key).unwrap().rotation.wxyz, [1., 0., 0., 0.]);
     }
     #[test]
     fn visual_void_counts_are_constant_zero() {
@@ -6615,7 +6627,10 @@ mod tests {
             frame_flags_after_set_rot(0xffff_ffff),
             (0xffff_ffff & !(0x100 | 0x20 | 0x10 | 0x04)) | 0x4000_0000 | 0x08
         );
-        assert_eq!(frame_flags_after_set_rot(0x100 | 0x20 | 0x10 | 0x04), 0x4000_0000 | 0x08);
+        assert_eq!(
+            frame_flags_after_set_rot(0x100 | 0x20 | 0x10 | 0x04),
+            0x4000_0000 | 0x08
+        );
     }
     #[test]
     fn frame_flags_after_set_pos_locks_and_clears_world_caches() {
@@ -6642,7 +6657,10 @@ mod tests {
         // old-chain hierarchy clearing (505-528): the body lives at the
         // occupied PC RVA 0x1b9d0, so no RVA is claimed here.
         assert_eq!(frame_flags_after_link_keep_world_first(0), 0x4000_0008);
-        assert_eq!(frame_flags_after_link_keep_world_first(0x134 | 0x51), 0x4000_0049);
+        assert_eq!(
+            frame_flags_after_link_keep_world_first(0x134 | 0x51),
+            0x4000_0049
+        );
         assert_eq!(
             frame_flags_after_link_keep_world_first(0xffff_ffff),
             (0xffff_ffff & !0x134) | 0x4000_0000 | 0x08
@@ -6668,10 +6686,24 @@ mod tests {
         assert!(!frame_update_clears_visual_bound(false, false, 0x4000_0000));
         assert!(!frame_update_clears_visual_bound(true, false, 0));
         assert!(!frame_update_clears_visual_bound(true, false, 0x1));
-        assert!(frame_update_children_clears_visual_bound(true, false, 0x4000_0000));
-        assert!(frame_update_children_clears_visual_bound(true, false, 0x2000));
-        assert!(!frame_update_children_clears_visual_bound(true, true, 0x4000_0000));
-        assert!(!frame_update_children_clears_visual_bound(false, false, 0x4000_0000));
+        assert!(frame_update_children_clears_visual_bound(
+            true,
+            false,
+            0x4000_0000
+        ));
+        assert!(frame_update_children_clears_visual_bound(
+            true, false, 0x2000
+        ));
+        assert!(!frame_update_children_clears_visual_bound(
+            true,
+            true,
+            0x4000_0000
+        ));
+        assert!(!frame_update_children_clears_visual_bound(
+            false,
+            false,
+            0x4000_0000
+        ));
         assert!(!frame_update_children_clears_visual_bound(true, false, 0));
     }
     #[test]
@@ -6694,7 +6726,10 @@ mod tests {
         // (932-934): occupied bodies 0x1cc50/0x1cf90/0x1cc00, unclaimed.
         assert_eq!(frame_flags_after_update_hr_bound_vol_sector(0), 0x40);
         assert_eq!(frame_flags_after_update_hr_bound_vol_sector(0x1100), 0x1140);
-        assert_eq!(frame_flags_after_update_hr_bound_vol_sector(0xffff_ffff), 0xffff_ffff);
+        assert_eq!(
+            frame_flags_after_update_hr_bound_vol_sector(0xffff_ffff),
+            0xffff_ffff
+        );
         assert!(frame_hr_bound_w_needs_local_refresh(0));
         assert!(!frame_hr_bound_w_needs_local_refresh(0x40));
         assert!(frame_hr_bound_w_needs_local_refresh(0xffff_ffff & !0x40));
@@ -6711,8 +6746,7 @@ mod tests {
         let mut graph = I3dFrameGraph::default();
         let parent = graph.insert(I3dFrameState::model()).unwrap();
         let child = graph.insert(I3dFrameState::model()).unwrap();
-        graph.node_mut(parent).unwrap().state.local.elements[12..15]
-            .copy_from_slice(&[1., 2., 3.]);
+        graph.node_mut(parent).unwrap().state.local.elements[12..15].copy_from_slice(&[1., 2., 3.]);
         graph.node_mut(parent).unwrap().state.scale = [2., 3., 4.];
         assert_eq!(graph.frame_local_pos_of(parent).unwrap(), [1., 2., 3.]);
         assert_eq!(graph.frame_world_pos_of(parent).unwrap(), [0., 0., 0.]);
@@ -6723,8 +6757,7 @@ mod tests {
         assert_eq!(graph.frame_parent_of(child).unwrap(), Some(parent));
         assert_eq!(graph.frame_num_children_of(parent).unwrap(), 1);
         // The world reader follows the refreshed world cache, not the local row.
-        graph.node_mut(child).unwrap().state.world.elements[12..15]
-            .copy_from_slice(&[7., 8., 9.]);
+        graph.node_mut(child).unwrap().state.world.elements[12..15].copy_from_slice(&[7., 8., 9.]);
         assert_eq!(graph.frame_world_pos_of(child).unwrap(), [7., 8., 9.]);
         assert_eq!(
             graph.frame_local_pos_of(FrameKey(u32::MAX)),
@@ -6775,13 +6808,27 @@ mod tests {
             [5., 6., 7.]
         );
         assert_eq!(graph.state(key).unwrap().flags, 0x4000_0015);
-        assert!(graph.store_frame_local_matrix(FrameKey(u32::MAX), matrix).is_err());
+        assert!(graph
+            .store_frame_local_matrix(FrameKey(u32::MAX), matrix)
+            .is_err());
         let bad = SMatrix {
             elements: [
-                f32::NAN, 0., 0., 0., //
-                0., 1., 0., 0., //
-                0., 0., 1., 0., //
-                0., 0., 0., 1.,
+                f32::NAN,
+                0.,
+                0.,
+                0., //
+                0.,
+                1.,
+                0.,
+                0., //
+                0.,
+                0.,
+                1.,
+                0., //
+                0.,
+                0.,
+                0.,
+                1.,
             ],
         };
         assert!(graph.store_frame_local_matrix(key, bad).is_err());
@@ -6869,9 +6916,13 @@ mod tests {
         assert_eq!(I3DLINK_DISCARD_BOUND, 0x2);
         assert_eq!(I3DLINK_UPDATE, 0x4);
         assert!(link_keeps_world_matrix(I3DLINK_UPDMATRIX));
-        assert!(link_keeps_world_matrix(I3DLINK_UPDMATRIX | I3DLINK_DISCARD_BOUND));
+        assert!(link_keeps_world_matrix(
+            I3DLINK_UPDMATRIX | I3DLINK_DISCARD_BOUND
+        ));
         assert!(!link_keeps_world_matrix(0));
-        assert!(!link_keeps_world_matrix(I3DLINK_DISCARD_BOUND | I3DLINK_UPDATE));
+        assert!(!link_keeps_world_matrix(
+            I3DLINK_DISCARD_BOUND | I3DLINK_UPDATE
+        ));
         assert!(!link_keeps_world_matrix(u32::MAX & !I3DLINK_UPDMATRIX));
         assert!(link_discards_bounds(I3DLINK_DISCARD_BOUND));
         assert!(!link_discards_bounds(0));
@@ -6972,7 +7023,10 @@ mod tests {
         // 0x1b3c0 already occupied, not claimed here.
         assert_eq!(frame_flags_after_set_callback(0, true, 0x1e00), 0x1e00);
         assert_eq!(frame_flags_after_set_callback(0xffff, true, 0x200), 0xffff);
-        assert_eq!(frame_flags_after_set_callback(0xffff, false, 0x200), 0xffff & !0x200);
+        assert_eq!(
+            frame_flags_after_set_callback(0xffff, false, 0x200),
+            0xffff & !0x200
+        );
         assert_eq!(frame_flags_after_set_callback(0x1e00, false, 0x1e00), 0);
         // Bits outside 0x1e00 never pass the mask.
         assert_eq!(frame_flags_after_set_callback(0, true, 0x8), 0);
@@ -7019,7 +7073,10 @@ mod tests {
             frame_duplicate_preserved_bits(0x40_0000 | 0x8000 | 0x4000),
             0x40_0000 | 0x8000 | 0x4000
         );
-        assert_eq!(frame_duplicate_preserved_bits(u32::MAX), 0x40_0000 | 0x8000 | 0x4000);
+        assert_eq!(
+            frame_duplicate_preserved_bits(u32::MAX),
+            0x40_0000 | 0x8000 | 0x4000
+        );
         assert_eq!(frame_hr_hierarchy_bits(0), 0);
         assert_eq!(
             frame_hr_hierarchy_bits(0x8_0000 | 0x10_0000 | 0x4_0000),
@@ -7036,13 +7093,16 @@ mod tests {
         // Working names for AddChild/RemoveChild (RVAs 0x1bea0/0x1bf20) and
         // LinkTo no-keep path (RVA 0x1b9d0): all occupied, none claimed.
         assert_eq!(frame_flags_after_child_list_change(0x100 | 0x40), 0);
-        assert_eq!(frame_flags_after_child_list_change(u32::MAX), u32::MAX & !(0x100 | 0x40));
-        assert_eq!(frame_flags_after_child_list_change(0x4000_0000), 0x4000_0000);
-        assert_eq!(frame_flags_after_link_no_keep(0x20), 0x4000_0000);
         assert_eq!(
-            frame_flags_after_link_no_keep(0),
+            frame_flags_after_child_list_change(u32::MAX),
+            u32::MAX & !(0x100 | 0x40)
+        );
+        assert_eq!(
+            frame_flags_after_child_list_change(0x4000_0000),
             0x4000_0000
         );
+        assert_eq!(frame_flags_after_link_no_keep(0x20), 0x4000_0000);
+        assert_eq!(frame_flags_after_link_no_keep(0), 0x4000_0000);
         assert_eq!(
             frame_flags_after_link_no_keep(u32::MAX),
             (u32::MAX & !0x20) | 0x4000_0000
@@ -7059,23 +7119,17 @@ mod tests {
             (u32::MAX & !0x100) | 0x40
         );
         assert_eq!(frame_flags_after_update(0x4000_0000 | 0x2000), 0);
-        assert_eq!(frame_flags_after_update(u32::MAX), u32::MAX & !(0x4000_0000 | 0x2000));
         assert_eq!(
-            frame_child_flags_after_parent_change(0x100 | 0x20),
-            0x2000
+            frame_flags_after_update(u32::MAX),
+            u32::MAX & !(0x4000_0000 | 0x2000)
         );
-        assert_eq!(
-            frame_child_flags_after_parent_change(0),
-            0x2000
-        );
+        assert_eq!(frame_child_flags_after_parent_change(0x100 | 0x20), 0x2000);
+        assert_eq!(frame_child_flags_after_parent_change(0), 0x2000);
         assert_eq!(
             frame_flags_after_update_children_parent(0x100 | 0x40),
             0x2000
         );
-        assert_eq!(
-            frame_flags_after_update_children_parent(0),
-            0x2000
-        );
+        assert_eq!(frame_flags_after_update_children_parent(0), 0x2000);
     }
     #[test]
     fn frame_world_dir_and_world_space_words_match_native_stores() {
@@ -7492,11 +7546,26 @@ mod tests {
         // Working name for the LinkTo old-chain clearing (I3d_frame.cpp:508-528):
         // no LS3DF FUNCTION address exists for a standalone reader (ledger
         // RVA 0x1b9d0 is occupied, not claimed here).
-        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Sector), 0x40000 | 0x100000);
-        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Occluder), 0x40000 | 0x80000);
-        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Area), 0x80000 | 0x100000);
-        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Model), 0x40000 | 0x80000 | 0x100000);
-        assert_eq!(link_to_old_chain_clear_mask(FrameKind::Dummy), 0x40000 | 0x80000 | 0x100000);
+        assert_eq!(
+            link_to_old_chain_clear_mask(FrameKind::Sector),
+            0x40000 | 0x100000
+        );
+        assert_eq!(
+            link_to_old_chain_clear_mask(FrameKind::Occluder),
+            0x40000 | 0x80000
+        );
+        assert_eq!(
+            link_to_old_chain_clear_mask(FrameKind::Area),
+            0x80000 | 0x100000
+        );
+        assert_eq!(
+            link_to_old_chain_clear_mask(FrameKind::Model),
+            0x40000 | 0x80000 | 0x100000
+        );
+        assert_eq!(
+            link_to_old_chain_clear_mask(FrameKind::Dummy),
+            0x40000 | 0x80000 | 0x100000
+        );
     }
     #[test]
     fn link_follow_up_prefers_update_over_discard() {
@@ -7505,7 +7574,10 @@ mod tests {
         // RVA 0x1b9d0 is occupied, not claimed here).
         assert_eq!(link_to_follow_up(0), LinkToFollowUp::None);
         assert_eq!(link_to_follow_up(I3DLINK_UPDMATRIX), LinkToFollowUp::None);
-        assert_eq!(link_to_follow_up(I3DLINK_DISCARD_BOUND), LinkToFollowUp::DiscardBoundVolume);
+        assert_eq!(
+            link_to_follow_up(I3DLINK_DISCARD_BOUND),
+            LinkToFollowUp::DiscardBoundVolume
+        );
         assert_eq!(link_to_follow_up(I3DLINK_UPDATE), LinkToFollowUp::Update);
         assert_eq!(
             link_to_follow_up(I3DLINK_UPDATE | I3DLINK_DISCARD_BOUND),
@@ -7519,7 +7591,10 @@ mod tests {
         // (I3d_frame.cpp:586-600): no LS3DF FUNCTION address exists for a
         // standalone reader (ledger RVA 0x1bf20 is occupied, not claimed here).
         assert_eq!(frame_remove_child_case(true, true), RemoveChildCase::Middle);
-        assert_eq!(frame_remove_child_case(true, false), RemoveChildCase::Middle);
+        assert_eq!(
+            frame_remove_child_case(true, false),
+            RemoveChildCase::Middle
+        );
         assert_eq!(frame_remove_child_case(false, true), RemoveChildCase::First);
         assert_eq!(frame_remove_child_case(false, false), RemoveChildCase::Only);
     }
@@ -7675,7 +7750,10 @@ mod tests {
         graph.add_child(parent, child).unwrap();
         assert!(graph.frame_has_child(parent).unwrap());
         assert!(graph.frame_has_parent(child).unwrap());
-        assert_eq!(graph.frame_has_next_sibling(parent), graph.frame_has_prev_sibling(parent));
+        assert_eq!(
+            graph.frame_has_next_sibling(parent),
+            graph.frame_has_prev_sibling(parent)
+        );
         assert_eq!(
             graph.frame_has_parent(FrameKey(u32::MAX)).unwrap_err(),
             FrameError::UnknownFrame(FrameKey(u32::MAX))

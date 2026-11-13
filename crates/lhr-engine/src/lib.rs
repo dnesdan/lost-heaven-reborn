@@ -1,4 +1,7 @@
 //! Reusable engine components for the Rust rewrite.
+// Tests build exact native flag words as all-ones masks (`u32::MAX & !FLAG`)
+// so each cleared bit stays visible; production code keeps the lint.
+#![cfg_attr(test, allow(clippy::identity_op))]
 
 pub mod actor_animation;
 pub mod actor_frames;

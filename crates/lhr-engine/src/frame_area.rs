@@ -1120,10 +1120,7 @@ mod tests {
         // vertex words nv*12, face halfwords nf*6, planes nf*16. The occupied
         // body at PC RVA 0x5880 is not claimed here.
         assert_eq!(AreaFrame::area_build_alloc_layout(0, 0), Some((0, 0, 0)));
-        assert_eq!(
-            AreaFrame::area_build_alloc_layout(3, 1),
-            Some((36, 6, 16))
-        );
+        assert_eq!(AreaFrame::area_build_alloc_layout(3, 1), Some((36, 6, 16)));
         assert_eq!(AreaFrame::area_build_alloc_layout(usize::MAX, 1), None);
         assert_eq!(AreaFrame::area_build_alloc_layout(1, usize::MAX), None);
         assert!(AreaFrame::area_duplicate_copies_geometry(true));
@@ -1275,7 +1272,6 @@ mod tests {
 
 #[cfg(test)]
 mod area_switch_fade_time_rva_0x5280_tests {
-    use super::*;
     use crate::model_loading::ModelArena;
 
     #[test]

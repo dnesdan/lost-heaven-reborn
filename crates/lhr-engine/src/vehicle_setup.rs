@@ -535,7 +535,7 @@ pub struct WheelCamState {
 pub fn get_wheel_cam_pos(wheels: &[WheelCamState], wheel: usize, offset: [f32; 3]) -> [f32; 3] {
     let base = wheels[wheel];
     let mut x = offset[0];
-    if wheel % 2 == 0 {
+    if wheel.is_multiple_of(2) {
         x = -x;
         x -= base.cam_offset;
     } else {

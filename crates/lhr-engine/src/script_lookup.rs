@@ -176,10 +176,7 @@ pub trait LookupWorldBackend {
     /// S_vector::Magnitude for GETACTORSDIST, mafia-re 113b5b6
     /// game/mission/C_program.cpp:3631) for a resolved frame. The default
     /// refuses; a world with arena ownership serves the live frame.
-    fn frame_world_position(
-        &mut self,
-        frame: FrameReferenceId,
-    ) -> Result<[f32; 3], LookupError> {
+    fn frame_world_position(&mut self, frame: FrameReferenceId) -> Result<[f32; 3], LookupError> {
         let _ = frame;
         Err(LookupError::UnsupportedWorldBackend)
     }

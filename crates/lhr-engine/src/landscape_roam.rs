@@ -1030,7 +1030,10 @@ impl Landscape {
             .checked_mul(MAP_SIDE)
             .and_then(|base| base.checked_add(x))
             .ok_or(LandError::BadDimensions)?;
-        self.heights.get(index).copied().ok_or(LandError::BadDimensions)
+        self.heights
+            .get(index)
+            .copied()
+            .ok_or(LandError::BadDimensions)
     }
 }
 

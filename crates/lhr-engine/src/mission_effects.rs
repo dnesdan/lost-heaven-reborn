@@ -255,10 +255,7 @@ pub fn effects_mission_start(
 /// use first (as `ClearEmitters` does), clears the particle number, releases
 /// the static emitters and every free pool entry, and marks unstarted.
 /// Returns whether the teardown ran.
-pub fn effects_mission_done(
-    state: &mut EffectsState,
-    pools: &mut EffectsFreePools,
-) -> bool {
+pub fn effects_mission_done(state: &mut EffectsState, pools: &mut EffectsFreePools) -> bool {
     if !state.started {
         return false;
     }
@@ -1312,7 +1309,7 @@ mod tests {
         SessionLightGraph {
             scene: Some(SceneId(7)),
             root: Some(LightFrameId(1)),
-            views: views.iter().map(|(id, view)| (*id, view.clone())).collect(),
+            views: views.iter().map(|(id, view)| (*id, *view)).collect(),
         }
     }
 

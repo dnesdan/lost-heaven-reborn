@@ -420,15 +420,11 @@ pub fn release_cache_model_slot(used: Option<&mut bool>, model: u16, instance: u
         return false;
     }
     match used {
-        None => false,
-        Some(flag) => {
-            if *flag {
-                *flag = false;
-                true
-            } else {
-                false
-            }
+        Some(flag) if *flag => {
+            *flag = false;
+            true
         }
+        _ => false,
     }
 }
 
@@ -539,7 +535,11 @@ pub fn advance_tick_set(tick_set: usize, len: usize) -> usize {
         return tick_set;
     }
     let next = tick_set.wrapping_add(1);
-    if next >= len { 0 } else { next }
+    if next >= len {
+        0
+    } else {
+        next
+    }
 }
 
 #[cfg(test)]

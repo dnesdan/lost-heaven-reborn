@@ -709,6 +709,21 @@ pub fn load_projector_image_contract() -> Result<(), ProjectorError> {
     Err(ProjectorError::UnresolvedBoundary)
 }
 
+/// LS3DF RVA 0x464d0 (`VA 0x100464d0`) `I3D_projector::AddFGroups` (mafia-re
+/// `ls3df/I3D/visuals/I3d_projector.cpp:269-290`): queues the opaque
+/// receivers' faces (`num_faces`, farthest-first sort word
+/// `PRIM_SORT_ALPHA | PRIM_SORT_DIST_MASK`) and the transparent receivers'
+/// faces (`num_faces_t`, view-distance sort word scaled by 100 from the
+/// camera frustum plane) into the shared `AddFGHlpStruct` face-group queue
+/// with the projector/world texture select. The face-group, vertex-buffer and
+/// camera-frustum owners live in the projector visual / `Y3` frame state
+/// (`frame_projector.rs`, owned by another workstream and untouched here),
+/// so this entry stays an explicit `UnresolvedBoundary` contract like its
+/// `m_AddFGroups` neighbor above.
+pub fn projector_add_fgroups_visual_contract() -> Result<(), ProjectorError> {
+    Err(ProjectorError::UnresolvedBoundary)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1065,19 +1080,4 @@ mod tests {
             Err(ProjectorError::UnresolvedBoundary)
         );
     }
-}
-
-/// LS3DF RVA 0x464d0 (`VA 0x100464d0`) `I3D_projector::AddFGroups` (mafia-re
-/// `ls3df/I3D/visuals/I3d_projector.cpp:269-290`): queues the opaque
-/// receivers' faces (`num_faces`, farthest-first sort word
-/// `PRIM_SORT_ALPHA | PRIM_SORT_DIST_MASK`) and the transparent receivers'
-/// faces (`num_faces_t`, view-distance sort word scaled by 100 from the
-/// camera frustum plane) into the shared `AddFGHlpStruct` face-group queue
-/// with the projector/world texture select. The face-group, vertex-buffer and
-/// camera-frustum owners live in the projector visual / `Y3` frame state
-/// (`frame_projector.rs`, owned by another workstream and untouched here),
-/// so this entry stays an explicit `UnresolvedBoundary` contract like its
-/// `m_AddFGroups` neighbor above.
-pub fn projector_add_fgroups_visual_contract() -> Result<(), ProjectorError> {
-    Err(ProjectorError::UnresolvedBoundary)
 }

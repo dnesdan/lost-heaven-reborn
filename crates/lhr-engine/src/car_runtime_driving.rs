@@ -32,7 +32,7 @@ pub struct CarDrivingState {
 /// forced. The returned gear runs the evidenced `C_vehicle::SetGear`
 /// owner; a gate denial there is a native no-op retried on later ticks.
 fn reverse_gear_target(engaged_reverse: bool, request_reverse: bool) -> Option<i32> {
-    (engaged_reverse != request_reverse).then(|| if request_reverse { -1 } else { 1 })
+    (engaged_reverse != request_reverse).then_some(if request_reverse { -1 } else { 1 })
 }
 
 /// Applies one direction-transition gear request to live controls.
@@ -88,6 +88,10 @@ pub(super) struct DrivingSession {
     /// gears are never forced back to first.
     pub in_reverse_gear: bool,
 }
+/// Probe readout of [`CarRuntime::driving_staged_intents`]: (lamp breaks,
+/// part detaches, crash-AI intents, impact occupants, material callbacks,
+/// latest crash-AI intent (actor, entry)).
+pub type DrivingStagedIntents = (usize, usize, usize, usize, usize, Option<(u32, u32)>);
 impl CarRuntime {
     pub(super) fn cleanup_driving_actors_inner(&mut self) -> Result<(), String> {
         let Some(session) = self.driving.as_mut() else {
@@ -556,9 +560,7 @@ impl CarRuntime {
     /// if any. A grind that keeps staging crash intents is stuck on
     /// knockable props whose knock-away has no owner yet — not on
     /// static geometry.
-    pub fn driving_staged_intents(
-        &self,
-    ) -> Result<(usize, usize, usize, usize, usize, Option<(u32, u32)>), String> {
+    pub fn driving_staged_intents(&self) -> Result<DrivingStagedIntents, String> {
         let sim = &self
             .driving
             .as_ref()

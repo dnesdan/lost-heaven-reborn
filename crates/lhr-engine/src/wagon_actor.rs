@@ -91,7 +91,10 @@ mod tests {
         state.unknown_a8.push(7);
         state.unknown_a8.push(8);
         assert_eq!(state.save_game_size(10), 10 + 95 + 8 + 12);
-        assert_eq!(state.save_game_size(i32::MAX), i32::MAX.wrapping_add(95 + 8 + 12));
+        assert_eq!(
+            state.save_game_size(i32::MAX),
+            i32::MAX.wrapping_add(95 + 8 + 12)
+        );
     }
 
     #[test]

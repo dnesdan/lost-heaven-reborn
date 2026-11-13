@@ -1312,6 +1312,7 @@ pub fn tev_version_ok(version: i32) -> bool {
 /// `sprintf` writes, including the double space before `client`.
 /// `scratch` must hold 128 bytes like the native stack buffer (the longest
 /// `i32` pair fits with room to spare); the filled prefix is returned.
+#[cfg(test)] // Only the tests read the text; the dialog stays caller-side.
 fn tev_mismatch_text(client_version: i32, scratch: &mut [u8; 128]) -> &[u8] {
     let text = format!(
         "Bad version - engine:{}  client:{}",
@@ -1597,10 +1598,12 @@ mod igraph_global_tests {
 
     #[test]
     fn global_singletons_roundtrip_minted_handles() {
-        let mut system = SystemState::default();
-        system.graph = Some(SystemHandle(11));
-        system.driver = Some(SystemHandle(22));
-        system.sound = Some(SystemHandle(33));
+        let system = SystemState {
+            graph: Some(SystemHandle(11)),
+            driver: Some(SystemHandle(22)),
+            sound: Some(SystemHandle(33)),
+            ..SystemState::default()
+        };
         assert_eq!(igraph_handle(&system), Some(SystemHandle(11)));
         assert_eq!(i3d_driver_handle(&system), Some(SystemHandle(22)));
         assert_eq!(sound_driver_handle(&system), Some(SystemHandle(33)));
@@ -1615,9 +1618,11 @@ mod igraph_global_tests {
 
     #[test]
     fn window_handles_roundtrip_stored_handles() {
-        let mut state = GraphWindowState::default();
-        state.main = Some(SystemHandle(5));
-        state.child = Some(SystemHandle(6));
+        let state = GraphWindowState {
+            main: Some(SystemHandle(5)),
+            child: Some(SystemHandle(6)),
+            ..GraphWindowState::default()
+        };
         assert_eq!(state.main_window(), Some(SystemHandle(5)));
         assert_eq!(state.child_window(), Some(SystemHandle(6)));
     }
@@ -1629,7 +1634,9 @@ mod igraph_global_tests {
 
     #[test]
     fn set_app_name_pins_rva_0x6c820_change_and_noop() {
-        let mut backend = EffectFixture { effects: Vec::new() };
+        let mut backend = EffectFixture {
+            effects: Vec::new(),
+        };
         let mut state = GraphWindowState::default();
         assert_eq!(
             state.set_app_name(SystemHandle(9), b"LS3D", &mut backend),

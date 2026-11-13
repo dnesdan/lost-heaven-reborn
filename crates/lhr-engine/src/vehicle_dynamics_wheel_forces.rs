@@ -813,7 +813,7 @@ mod wheel_loop_head_gate_tests {
         let mut m = VehicleFrameMemory::default();
         m.map_bytes(V, &vec![0; 0x1000]).unwrap();
         m.map_bytes(W, &vec![0; 0x400]).unwrap();
-        m.map_bytes(T, &vec![0; 0x10]).unwrap();
+        m.map_bytes(T, &[0; 0x10]).unwrap();
         m.write_word(V.wrapping_add(0x4c4), 1).unwrap();
         m.write_word(V.wrapping_add(0xc38), T).unwrap();
         m.write_word(T, W).unwrap();
@@ -853,7 +853,7 @@ mod wheel_loop_head_gate_tests {
         // No contact bit: the wheel is skipped, yet the 0x1b0 clear
         // is still written back (native writes EDI before testing).
         let (mut m, prepared, setup) = rig(0x1b0);
-        let out = vehicle_move_wheel_forces(&mut m, V, prepared, setup.clone()).unwrap();
+        let out = vehicle_move_wheel_forces(&mut m, V, prepared, setup).unwrap();
         assert!(!out.any_contact);
         assert_eq!(out.drive_force_sum.to_bits(), 0);
         assert_eq!(out.linear_force, [0.0, 0.0, 0.0]);
@@ -866,7 +866,7 @@ mod wheel_loop_head_gate_tests {
         // only the transient 0x1b0 bits cleared (native TEST EAX
         // after the same AND).
         let (mut m, prepared, setup) = rig(0x40000008 | 0x1b0);
-        let out = vehicle_move_wheel_forces(&mut m, V, prepared, setup.clone()).unwrap();
+        let out = vehicle_move_wheel_forces(&mut m, V, prepared, setup).unwrap();
         assert!(!out.any_contact);
         assert_eq!(out.drive_force_sum.to_bits(), 0);
         assert_eq!(out.linear_force, [0.0, 0.0, 0.0]);
@@ -878,7 +878,7 @@ mod wheel_loop_head_gate_tests {
         // Positive control: contact without exclusion includes the
         // wheel (any_contact) and accumulates its lateral force.
         let (mut m, prepared, setup) = rig(0x8);
-        let out = vehicle_move_wheel_forces(&mut m, V, prepared, setup.clone()).unwrap();
+        let out = vehicle_move_wheel_forces(&mut m, V, prepared, setup).unwrap();
         assert!(out.any_contact);
         assert_eq!(out.linear_force[0].to_bits(), 0);
         assert_eq!(out.linear_force[2].to_bits(), 0);

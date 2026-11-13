@@ -1261,7 +1261,8 @@ mod collision_scene_tests {
     #[test]
     fn colf_readers_cover_all_thirteen_bits() {
         // Each reader reports exactly its own bit and nothing else.
-        let cases: [(u32, fn(u32) -> bool); 13] = [
+        type ColfReader = (u32, fn(u32) -> bool);
+        let cases: [ColfReader; 13] = [
             (COLF_BOX, colf_box_hit),
             (COLF_ACCEPT_ANY, colf_accept_any),
             (COLF_COLORKEY, colf_tests_texels),

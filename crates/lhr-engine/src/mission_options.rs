@@ -114,6 +114,8 @@ impl MissionOptions {
     /// `game/mission/Mission.cpp:1770-1778`): store first, then the lower
     /// bound branch returns at once and the upper bound compares the
     /// parameter (kept as the `if`/`else if` shape).
+    // Mirrors the native store-then-branch shape documented above.
+    #[allow(clippy::manual_clamp)]
     pub fn set_level_of_detail(&mut self, level: f32) {
         self.level_of_detail = level;
         if level < LEVEL_OF_DETAIL_MIN {
@@ -126,6 +128,8 @@ impl MissionOptions {
     /// Clamp 0.3..=1.0 (GAME 0x545b60, mafia-re
     /// `game/mission/Mission.cpp:1780-1788`): two separate bounds checks
     /// reading the member back.
+    // Mirrors the native member re-read shape documented above.
+    #[allow(clippy::manual_clamp)]
     pub fn set_draw_distance(&mut self, distance: f32) {
         self.draw_distance = distance;
         if self.draw_distance < DRAW_DISTANCE_MIN {
@@ -139,38 +143,20 @@ impl MissionOptions {
     /// Clamp `OPTION_LOW..=OPTION_HIGH` (GAME 0x545ba0, mafia-re
     /// `game/mission/Mission.cpp:1790-1798`).
     pub fn set_game_effects(&mut self, level: i32) {
-        self.game_effects = level;
-        if self.game_effects < OPTION_LOW {
-            self.game_effects = OPTION_LOW;
-        }
-        if self.game_effects > OPTION_HIGH {
-            self.game_effects = OPTION_HIGH;
-        }
+        self.game_effects = level.clamp(OPTION_LOW, OPTION_HIGH);
     }
 
     /// Clamp `OPTION_LOW..=OPTION_HIGH`, same shape as `SetGameEffects`
     /// (GAME 0x545bd0, mafia-re `game/mission/Mission.cpp:1800-1808`).
     pub fn set_game_sounds(&mut self, level: i32) {
-        self.game_sounds = level;
-        if self.game_sounds < OPTION_LOW {
-            self.game_sounds = OPTION_LOW;
-        }
-        if self.game_sounds > OPTION_HIGH {
-            self.game_sounds = OPTION_HIGH;
-        }
+        self.game_sounds = level.clamp(OPTION_LOW, OPTION_HIGH);
     }
 
     /// Store the shadow level for menu index 0..=5 (GAME 0x545c00, mafia-re
     /// `game/mission/Mission.cpp:1810-1820`): clamp the index, then map
     /// through `{0, 1, 3, 6, 9, 15}`.
     pub fn set_shadows(&mut self, index: i32) {
-        self.shadows = index;
-        if self.shadows < SHADOWS_VERY_LOW {
-            self.shadows = SHADOWS_VERY_LOW;
-        }
-        if self.shadows > SHADOWS_HIGHEST {
-            self.shadows = SHADOWS_HIGHEST;
-        }
+        self.shadows = index.clamp(SHADOWS_VERY_LOW, SHADOWS_HIGHEST);
         self.shadows = SHADOW_LEVELS[self.shadows as usize];
     }
 
@@ -188,13 +174,7 @@ impl MissionOptions {
     /// Clamp `OPTION_LOW..=OPTION_HIGH` (GAME 0x545cb0, mafia-re
     /// `game/mission/Mission.cpp:1834-1842`).
     pub fn set_particles(&mut self, level: i32) {
-        self.particles = level;
-        if self.particles < OPTION_LOW {
-            self.particles = OPTION_LOW;
-        }
-        if self.particles > OPTION_HIGH {
-            self.particles = OPTION_HIGH;
-        }
+        self.particles = level.clamp(OPTION_LOW, OPTION_HIGH);
     }
 
     /// FUNCTION: GAME RVA 0x7ae30, VA 0x47ae30 (mafia-re
@@ -493,7 +473,9 @@ mod tests {
             ranges: Vec::new(),
             updates: 0,
         };
-        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut driver = FakeDriver {
+            lod_bits: Vec::new(),
+        };
         let mut weather = FakeWeather { calls: Vec::new() };
         options.update_settings(true, Some(&mut camera), &mut driver, &mut weather);
         assert_eq!(camera.ranges, vec![[0.05, 125.0]]);
@@ -514,7 +496,9 @@ mod tests {
             ranges: Vec::new(),
             updates: 0,
         };
-        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut driver = FakeDriver {
+            lod_bits: Vec::new(),
+        };
         let mut weather = FakeWeather { calls: Vec::new() };
         options.update_settings(false, Some(&mut camera), &mut driver, &mut weather);
         assert_eq!(camera.ranges, vec![[0.05, 250.0]]);
@@ -529,7 +513,9 @@ mod tests {
             level_of_detail: 1.5,
             ..MissionOptions::new()
         };
-        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut driver = FakeDriver {
+            lod_bits: Vec::new(),
+        };
         let mut weather = FakeWeather { calls: Vec::new() };
         let camera: Option<&mut FakeCamera> = None;
         options.update_settings(false, camera, &mut driver, &mut weather);
@@ -548,7 +534,9 @@ mod tests {
             ranges: Vec::new(),
             updates: 0,
         };
-        let mut driver = FakeDriver { lod_bits: Vec::new() };
+        let mut driver = FakeDriver {
+            lod_bits: Vec::new(),
+        };
         options.restore_settings(Some(&mut camera), &mut driver);
         assert_eq!(camera.ranges, vec![[0.05, 250.0]]);
         assert_eq!(camera.updates, 1);
