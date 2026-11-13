@@ -10,13 +10,15 @@ use lhr_engine::{
         GameGlobalProgramWorldRunner, MissionContentOwner, MissionProgramDiagnostic,
         MissionProgramWorldContext, NamedGlobalProgramOutcome, ProgramWorldLocales,
     },
-    mission_load_session::{
-        DetectorScheduleFrontier, MissionLoadCause, MissionLoadRequest, MissionLoadSession,
-    },
+    mission_load_session::{DetectorScheduleFrontier, MissionLoadCause, MissionLoadSession},
+    mission_new_game_order::{NewMissionAttempt, NewMissionRequest, NewMissionRunError},
+    mission_open_order::{OpenAttempt, OpenResult},
     mission_world_completeness,
-    model_loading::ModelArena,
+    model_loading::{ModelArena, ModelError},
     native_precision::Pc24PrecisionState,
     original_program::{RuntimeBackend, RuntimeView},
+    scene_ownership::SceneKey,
+    scene_projection::SceneRenderBackend,
     script_lookup::LookupError,
     script_scheduler::{ActorReferenceId, DispatchBudget, FrameReferenceId},
 };
@@ -30,6 +32,37 @@ const PROBE_RENDER_SIZE: [u32; 2] = [PROBE_SIZE[0] as u32, PROBE_SIZE[1] as u32]
 /// always terminates within it or reports budget exhaustion; nothing here
 /// depends on the exact count, only on its finiteness.
 const PROBE_DISPATCH_BUDGET: usize = 100_000;
+
+/// Headless `I3D_scene::Render` boundary for the `C_mission::Open`
+/// mute+render step. Native `I3D_driver::Render` (LS3DF 0x10062030, mafia-re
+/// ls3df/I3D/render/render.cpp) with no current camera bumps the scene render
+/// number, clears the D3D target to the scene background and returns
+/// I3DERR_GENERIC. This probe has no device, so only that camera-less return
+/// is answered; the Open caller ignores it. A camera Render is refused as an
+/// unavailable device instead of being reported as drawn.
+#[derive(Default)]
+struct ProbeOpenRender {
+    calls: usize,
+}
+
+const I3DERR_GENERIC: u32 = 0x8000_0005;
+
+impl SceneRenderBackend for ProbeOpenRender {
+    fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
+        self.calls += 1;
+        match arena.scene_active_camera(scene)? {
+            None => Ok(I3DERR_GENERIC),
+            Some(_) => Err(ModelError::Asset(
+                "headless probe has no I3D device for a camera Render".into(),
+            )),
+        }
+    }
+}
+
+const PROBE_PROJECTION: GameCameraProjection = GameCameraProjection {
+    global_mode: 0,
+    screen_flag_46f4: false,
+};
 
 /// Headless diagnostic: counts message beeps without a listener to beep
 /// through. A nonzero count stays visible in the report instead of masking
@@ -384,27 +417,23 @@ pub fn staged_script_content(
     let installation = lhr_assets::Installation::open(root).map_err(|error| error.to_string())?;
     let mut session = MissionLoadSession::new(installation, Pc24PrecisionState::new(false))
         .map_err(|error| format!("Mission probe initialization failed: {error:?}"))?;
-    let world_input = format!("missions/{mission}/scene.i3d");
-    let scene2_path = format!("missions/{mission}/scene2.bin");
-    let directories: Vec<&[u8]> = Vec::new();
     let mut screen = InspectionScreen {
         size: PROBE_SIZE,
         viewport: [0, 0, PROBE_SIZE[0], PROBE_SIZE[1]],
     };
-    session
-        .load(
-            MissionLoadRequest {
-                world_input: &world_input,
-                scene2_path: &scene2_path,
-                model_directories: &directories,
-                projection: GameCameraProjection {
-                    global_mode: 0,
-                    screen_flag_46f4: false,
-                },
-            },
+    let opened = session
+        .open_source_in_order(
+            &mut OpenAttempt::default(),
+            mission,
+            &[],
+            PROBE_PROJECTION,
             &mut screen,
+            &mut ProbeOpenRender::default(),
         )
         .map_err(|error| format!("{error:?}"))?;
+    if opened != OpenResult::Opened {
+        return Err(format!("C_mission::Open returned {opened:?}"));
+    }
     session
         .run_game_init_prefix()
         .map_err(|error| format!("{error:?}"))?;
@@ -450,18 +479,28 @@ pub fn run(
         size: PROBE_SIZE,
         viewport: [0, 0, PROBE_SIZE[0], PROBE_SIZE[1]],
     };
-    let load = session.load(
-        MissionLoadRequest {
-            world_input: &world_input,
-            scene2_path: &scene2_path,
+    // Mission start on a fresh session (Main.cpp:385-396; the intro leg
+    // Main.cpp:373-384 is not composed): outer Close, the single ordered
+    // C_mission::Open, then LoadCollision, ResetMissionNumbers,
+    // SaveGameNewGame and game->Init, stopping at the first unavailable owner.
+    let mut render = ProbeOpenRender::default();
+    let mut new_mission = NewMissionAttempt::default();
+    let new_mission_result = session.start_new_game_mission(
+        &mut new_mission,
+        NewMissionRequest {
+            mission,
             model_directories: &directories,
-            projection: GameCameraProjection {
-                global_mode: 0,
-                screen_flag_46f4: false,
-            },
+            projection: PROBE_PROJECTION,
         },
         &mut screen,
+        &mut render,
     );
+    // The source-loading gate for every later diagnostic: Open returned
+    // Opened, independent of where the post-Open composition stopped.
+    let load: Result<(), ()> = match new_mission.open_result() {
+        Some(OpenResult::Opened) => Ok(()),
+        _ => Err(()),
+    };
 
     // Build the evidence before terminal disposal makes frame identities
     // historical. Always attempt genuine disposal before emitting the report;
@@ -482,6 +521,34 @@ pub fn run(
     writeln!(
         report,
         "An empty list installs no implicit model search directory."
+    )
+    .unwrap();
+    writeln!(
+        report,
+        "Mission Open (C_mission::Open order): result={:?}; last={:?}; steps={}; Render calls={}; cache progress={}; restore_volume={}; opened={}",
+        new_mission.open_result(),
+        new_mission.open().last(),
+        new_mission.open().reached().len(),
+        render.calls,
+        session.open_cache_progress(),
+        session.open_restore_volume(),
+        session.open_mission_opened()
+    )
+    .unwrap();
+    let new_mission_status = match &new_mission_result {
+        Ok(result) => format!("{result:?}"),
+        Err(NewMissionRunError::Callback(failure)) => {
+            format!("stopped at {:?}: {:?}", failure.step, failure.error)
+        }
+        Err(NewMissionRunError::AlreadyEntered) => "unexpected repeated attempt".into(),
+    };
+    writeln!(
+        report,
+        "Mission start on a fresh session (Main.cpp:385-396 order; intro leg Main.cpp:373-384 not composed, scope={:?}): {new_mission_status}; reached={:?}; mission numbers (next, current)={:?}; composed GameInit entered={}",
+        new_mission.scope(),
+        new_mission.reached(),
+        session.mission_numbers(),
+        new_mission.init().entered()
     )
     .unwrap();
     append_load_report(&mut report, &session);
@@ -616,7 +683,7 @@ pub fn run(
     // whether an otherwise complete source-load probe exits successfully.
     let mut init_capture = None;
     let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
-    if load.is_ok() {
+    if load.is_ok() && !new_mission.init().entered() {
         let mut attempt = InitAttempt::default();
         let result = if let Some(path) = capture {
             attempt.run_with_presentation(
@@ -657,6 +724,13 @@ pub fn run(
             "GameInit ordered inspection (independent, after script diagnostic): {status}; last={:?}; mission_passed={passed} car_sounds={car_sounds} weather={weather:?} weather_buffer={buffer} PCM_gain={:?}",
             attempt.last(),
             session.audio().master_gain()
+        )
+        .unwrap();
+    } else if new_mission.init().entered() {
+        writeln!(
+            report,
+            "GameInit ordered inspection: composed new-game start already entered Init; last={:?}",
+            new_mission.init().last()
         )
         .unwrap();
     } else {
@@ -737,7 +811,7 @@ pub fn run(
         session.owned_counts()
     )
     .unwrap();
-    writeln!(report, "Gameplay acceptance: NOT EVALUATED. This probe installs the reached actor/program sources, but does not execute complete MissionOpen, later GameInit, mission scheduling, objectives or mission completion.").unwrap();
+    writeln!(report, "Gameplay acceptance: NOT EVALUATED. This probe runs the ordered C_mission::Open source intake and reports where the new-game start stops, but does not execute later GameInit, mission scheduling, objectives or mission completion.").unwrap();
     {
         use std::io::Write as _;
         std::io::stdout()

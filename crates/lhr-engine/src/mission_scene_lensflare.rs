@@ -21,7 +21,10 @@ impl MissionSceneLoader {
         }
         self.object_fields.flags |= 0x400;
         input.enter_current().map_err(|e| (0x543e86, e))?;
-        while let Some(field) = input.next_chunk().map_err(|e| (0x543ec7, e))? {
+        while let Some(field) = input
+            .next_chunk_ascend_unchecked()
+            .map_err(|e| (0x543ec7, e))?
+        {
             let (parameter, read_entry, close_entry, store_entry) = match field.kind {
                 0xb112 => (LensflareParameter::Size, 0x543f3f, 0x543f48, 0x543f4d),
                 0xb113 => (LensflareParameter::Intensity, 0x543f6d, 0x543f76, 0x543f7b),

@@ -42,19 +42,6 @@ use std::convert::Infallible;
 mod sector_groups;
 pub use sector_groups::fill_primary_sector_groups;
 
-/// Explicit probe inputs. Projection and model directories are supplied by
-/// the caller; this host adapter does not infer original GameInit.
-pub struct MissionLoadRequest<'a> {
-    /// Original ModelOpen input, such as `missions/example/scene.i3d`.
-    /// The existing adapter performs the evidenced extension rewrite to 4DS.
-    pub world_input: &'a str,
-    pub scene2_path: &'a str,
-    /// Exact AddDir inputs in caller order. Empty means genuinely no directory;
-    /// it does not silently install a `Models` search path.
-    pub model_directories: &'a [&'a [u8]],
-    pub projection: GameCameraProjection,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionLoadPhase {
     NotStarted,
@@ -120,13 +107,12 @@ pub struct MissionLoadFailure {
     pub cause: MissionLoadCause,
 }
 
-/// `Stopped` refers to the retained detailed failure returned by `failure()`.
-/// Admission failures never replace the first load error or replay its effects.
+/// Source-Open admission refusals. They never replace the first retained
+/// load error (`failure()`) or replay its effects.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionLoadCallError {
     AlreadyEntered,
     TerminalDiscardEntered,
-    Stopped,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -425,6 +411,8 @@ pub struct MissionLoadSession {
     /// this owner by construction.
     open_muted: bool,
     open_restored: Option<f32>,
+    /// Native OPENBIN_CORRUPTED detail from the ordered Open, if any.
+    open_bin_corruption: Option<crate::mission_scene_loading::MissionSceneLoadError>,
     precision: Pc24PrecisionState,
     phase: MissionLoadPhase,
     entered: bool,
@@ -490,6 +478,7 @@ impl MissionLoadSession {
             open_configured_volume: 1.0,
             open_muted: false,
             open_restored: None,
+            open_bin_corruption: None,
             precision,
             phase: MissionLoadPhase::NotStarted,
             entered: false,
@@ -897,6 +886,14 @@ impl MissionLoadSession {
         self.open_muted
     }
 
+    /// The scene2 header read that made native OpenBin return
+    /// OPENBIN_CORRUPTED during the ordered Open, if one did.
+    pub fn open_bin_corruption(
+        &self,
+    ) -> Option<&crate::mission_scene_loading::MissionSceneLoadError> {
+        self.open_bin_corruption.as_ref()
+    }
+
     /// Volume restored over the live audio owner, if any.
     pub fn open_restored(&self) -> Option<f32> {
         self.open_restored
@@ -957,6 +954,76 @@ impl MissionLoadSession {
         }
         self.open_configured_volume = volume;
         Ok(())
+    }
+
+    /// Outer `act_mission->Close()` before the mission `Open` (mafia-re
+    /// game/Main.cpp:385, `C_mission::Close` Mission.cpp:510-545). Natively
+    /// the intro mission (Main.cpp:373-384) is open here and this is a full
+    /// Close; that intro leg is not composed, so this step requires a fresh
+    /// session, where the native `!opened` early return applies. An opened
+    /// mission's full Close (game Done, DelActors, programs, scene Close) has
+    /// no owner in this session and stops instead.
+    pub fn close_before_new_mission(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if self.open_mission_opened {
+            return Err("full C_mission::Close of an opened mission has no live owner".into());
+        }
+        Ok(())
+    }
+
+    /// `gifCollision.LoadCollision("missions\<name>\tree.klz", true)`
+    /// (GAME 0x5c2b70, mafia-re game/collision/g_c_glob.cpp:124) after a
+    /// successful Open. Native first clears `step_actor` and runs
+    /// `DeleteCollsLevel`, so even an absent file has effects on the
+    /// collision owner. That owner (frame binding by FindFrameFast, visual
+    /// SetSpace, LOD0 vertex locks, level arrays and the dynamic grid) is not
+    /// part of this session: the source is read and structurally parsed with
+    /// the lhr-assets KLZ reader for evidence, then the step stops with that
+    /// boundary instead of claiming an installed level.
+    pub fn load_collision_for_new_mission(&mut self, mission: &str) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        Self::validate_open_mission_name(mission)?;
+        if !self.open_mission_opened {
+            return Err("collision intake requires a completed Open".into());
+        }
+        let path = format!("missions/{mission}/tree.klz");
+        let source = match self
+            .installation
+            .read_optional(&path)
+            .map_err(|error| format!("{path}: {error}"))?
+        {
+            None => format!("{path} absent"),
+            Some(bytes) => match lhr_assets::klz::Klz::parse(&bytes) {
+                Ok(klz) => format!(
+                    "{path} parsed: bytes={} links={} cells={}x{}",
+                    bytes.len(),
+                    klz.links.len(),
+                    klz.grid.width,
+                    klz.grid.length
+                ),
+                Err(error) => return Err(format!("{path}: {error}")),
+            },
+        };
+        Err(format!(
+            "{source}; no live g_collision owner for DeleteCollsLevel, frame binding and level install"
+        ))
+    }
+
+    /// Inline `C_mission::ResetMissionNumbers` (Mission.h:290-294) over the
+    /// live counter owner, as main runs it after LoadCollision.
+    pub fn reset_mission_numbers_for_new_mission(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        self.mission_counters.reset_mission_numbers();
+        Ok(())
+    }
+
+    /// Live pending and current mission numbers (`next_mission_number`,
+    /// `mission_number`).
+    pub fn mission_numbers(&self) -> (i32, i32) {
+        (
+            self.mission_counters.next_mission_number(),
+            self.mission_counters.get_mission_number(),
+        )
     }
 
     /// `ResetGame` prefix over the live open state. This resets the host
@@ -1032,7 +1099,7 @@ impl MissionLoadSession {
     }
 
     /// `OpenWorld` presence over the live installation owner. Full
-    /// `scene.i3d` intake remains in the `World` phase of `load`; this step
+    /// `scene.i3d` intake is the ordered `open_source_in_order`; this step
     /// verifies the required world input is present without duplicating it.
     /// The original `scene.i3d` name rewrites to `scene.4ds`; either spelling
     /// satisfies presence here.
@@ -1058,15 +1125,15 @@ impl MissionLoadSession {
         Ok(())
     }
 
-    /// `ResetWeather` marker. Full weather reset remains in the `World`
-    /// phase of `load` over the live scene owner.
+    /// `ResetWeather` marker of the standalone presence Open. The real reset
+    /// runs in `open_source_in_order` over the live scene owner.
     pub fn reset_weather_for_open(&self) -> Result<(), String> {
         self.open_terminal_guard()?;
         Ok(())
     }
 
-    /// `FillSectorBits` marker. Full sector-group fill remains in the
-    /// `World` phase of `load` over the live arena owner.
+    /// `FillSectorBits` marker of the standalone presence Open. The real
+    /// fill runs in `open_source_in_order` over the live arena owner.
     pub fn fill_sector_bits_for_open(&self) -> Result<(), String> {
         self.open_terminal_guard()?;
         Ok(())
@@ -1156,7 +1223,7 @@ impl MissionLoadSession {
     /// live installation owner. `Ok(false)` is the native nonzero result
     /// (`NOFILE`/`CORRUPTED`) and becomes `OpenBinFailed` with completed
     /// effects preserved; `Err` is a distinct host interruption. Full actor
-    /// and program intake remains in the `Scene2Prefix` phase of `load`.
+    /// and program intake is the `OpenBin` step of `open_source_in_order`.
     pub fn open_bin_probe_for_open(&self, mission: &str) -> Result<bool, String> {
         self.open_terminal_guard()?;
         Self::validate_open_mission_name(mission)?;
@@ -1455,90 +1522,6 @@ impl MissionLoadSession {
             Some(&self.roads),
             Some(&self.base_cache),
         )
-    }
-
-    pub fn load<S: DriverSceneScreen>(
-        &mut self,
-        request: MissionLoadRequest<'_>,
-        screen: &mut S,
-    ) -> Result<(), MissionLoadCallError>
-    where
-        S::Error: std::fmt::Debug,
-    {
-        if self.discard.phase != MissionDiscardPhase::NotStarted {
-            return Err(MissionLoadCallError::TerminalDiscardEntered);
-        }
-        if self.entered {
-            return Err(MissionLoadCallError::AlreadyEntered);
-        }
-        self.entered = true;
-        let result = Pc24PrecisionState::run_owner(
-            self,
-            |session| &mut session.precision,
-            |session| session.load_inner(request, screen),
-        );
-        if let Err(cause) = result {
-            self.failure = Some(MissionLoadFailure {
-                phase: self.phase,
-                cause,
-            });
-            return Err(MissionLoadCallError::Stopped);
-        }
-        self.phase = MissionLoadPhase::PrefixComplete;
-        Ok(())
-    }
-
-    fn load_inner<S: DriverSceneScreen>(
-        &mut self,
-        request: MissionLoadRequest<'_>,
-        screen: &mut S,
-    ) -> Result<(), MissionLoadCause>
-    where
-        S::Error: std::fmt::Debug,
-    {
-        let scene = self.bootstrap_source(request.model_directories, screen)?;
-        self.load_world_source(scene, request.world_input)?;
-        self.prepare_source_weather(scene)?;
-        self.fill_source_sector_groups(scene)?;
-
-        // `C_mission::Open` loads `check.bin` after sector-group fill and
-        // before roads/`OpenBin`. Absent files skip like `ROpen`-failed.
-        self.phase = MissionLoadPhase::Navigation;
-        let check_path = match request.scene2_path.rsplit_once('/') {
-            Some((dir, _)) => format!("{dir}/check.bin"),
-            None => "check.bin".into(),
-        };
-        self.navigation
-            .load(&self.installation, &check_path)
-            .map_err(MissionLoadCause::Navigation)?;
-
-        // `C_mission::Open` loads `road.bin` after `check.bin`. Same
-        // absence rule; the network format is established by REA (see
-        // `road_network.rs`).
-        self.phase = MissionLoadPhase::Roads;
-        let road_path = match request.scene2_path.rsplit_once('/') {
-            Some((dir, _)) => format!("{dir}/road.bin"),
-            None => "road.bin".into(),
-        };
-        self.roads
-            .load(&self.installation, &road_path)
-            .map_err(MissionLoadCause::Roads)?;
-
-        // Keep the legacy source-loader order: its name map precedes the
-        // required input read. Ordered Open uses the same helpers in its own
-        // evidenced file-open-before-map order.
-        self.initialize_source_map(scene, request.scene2_path)?;
-        self.phase = MissionLoadPhase::Scene2Input;
-        self.scene2_bytes = Some(
-            self.installation
-                .read_original_path(request.scene2_path)
-                .map_err(|error| MissionLoadCause::Scene2Input {
-                    path: request.scene2_path.into(),
-                    detail: error.to_string(),
-                })?,
-        );
-
-        self.load_source_scene2_prefix(request.projection, screen)
     }
 
     fn bootstrap_source<S: DriverSceneScreen>(

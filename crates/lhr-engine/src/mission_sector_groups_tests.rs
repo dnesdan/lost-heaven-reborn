@@ -2,9 +2,10 @@
 use super::*;
 use crate::frame_transform::I3dFrameState;
 use crate::mission_load_session::{
-    MissionDiscardPhase, MissionLoadCallError, MissionLoadPhase, MissionLoadRequest,
-    MissionLoadSession, MissionOwnedCounts,
+    MissionDiscardPhase, MissionLoadCallError, MissionLoadPhase, MissionLoadSession,
+    MissionOwnedCounts, MissionSourceOpenError,
 };
+use crate::mission_open_order::{OpenAttempt, OpenResult, OpenRunError, OpenStep};
 use crate::native_precision::Pc24PrecisionState;
 
 fn dummy(arena: &mut ModelArena) -> FrameKey {
@@ -249,18 +250,26 @@ impl crate::driver_scene::DriverSceneScreen for Screen {
         Ok([0, 0, 800, 600])
     }
 }
-fn load(session: &mut MissionLoadSession) -> Result<(), MissionLoadCallError> {
-    session.load(
-        MissionLoadRequest {
-            world_input: "missions/synthetic/scene.i3d",
-            scene2_path: "missions/synthetic/scene2.bin",
-            model_directories: &[],
-            projection: crate::game_camera_projection::GameCameraProjection {
-                global_mode: 0,
-                screen_flag_46f4: false,
-            },
+/// Camera-less Render before OpenBin: native I3D_driver::Render (LS3DF
+/// 0x10062030) returns I3DERR_GENERIC; there is no device to clear here.
+struct NoCameraRender;
+impl crate::scene_projection::SceneRenderBackend for NoCameraRender {
+    fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
+        assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
+        Ok(0x8000_0005)
+    }
+}
+fn load(session: &mut MissionLoadSession) -> Result<OpenResult, MissionSourceOpenError> {
+    session.open_source_in_order(
+        &mut OpenAttempt::default(),
+        "synthetic",
+        &[],
+        crate::game_camera_projection::GameCameraProjection {
+            global_mode: 0,
+            screen_flag_46f4: false,
         },
         &mut Screen,
+        &mut NoCameraRender,
     )
 }
 fn discard(session: &mut MissionLoadSession) {
@@ -285,7 +294,12 @@ fn actual_session_fills_world_sectors_before_scene2_and_preserves_normal_disposa
     let fixture = Fixture::new(true);
     fixture.scene2();
     let mut session = fixture.session();
-    assert_eq!(load(&mut session), Ok(()), "{:?}", session.failure());
+    assert_eq!(
+        load(&mut session),
+        Ok(OpenResult::Opened),
+        "{:?}",
+        session.failure()
+    );
     assert_eq!(session.phase(), MissionLoadPhase::PrefixComplete);
     let scene = session.scene().unwrap().unwrap();
     let sectors = session.arena().scene(scene).unwrap().sectors;
@@ -302,11 +316,16 @@ fn actual_session_fills_world_sectors_before_scene2_and_preserves_normal_disposa
 }
 
 #[test]
-fn later_scene2_failure_keeps_group_changes_and_does_not_repeat_invalidation() {
+fn absent_scene2_keeps_group_changes_and_does_not_repeat_invalidation() {
     let fixture = Fixture::new(true);
     let mut session = fixture.session();
-    assert_eq!(load(&mut session), Err(MissionLoadCallError::Stopped));
-    assert_eq!(session.phase(), MissionLoadPhase::Scene2Input);
+    // Absent scene2.bin is the native OpenBin failure return: audio is
+    // restored and progress advanced, then Open returns without a host error.
+    assert_eq!(load(&mut session), Ok(OpenResult::OpenBinFailed));
+    assert_eq!(
+        session.phase(),
+        MissionLoadPhase::OpenStep(OpenStep::AdvanceCacheProgress)
+    );
     let scene = session.scene().unwrap().unwrap();
     let primary = session.arena().scene(scene).unwrap().sectors[0];
     let loaded = SectorKey(session.world_progress().unwrap().frames()[0]);
@@ -318,7 +337,9 @@ fn later_scene2_failure_keeps_group_changes_and_does_not_repeat_invalidation() {
     assert_eq!(before, [1, 1]);
     assert_eq!(
         load(&mut session),
-        Err(MissionLoadCallError::AlreadyEntered)
+        Err(MissionSourceOpenError::Admission(
+            MissionLoadCallError::AlreadyEntered
+        ))
     );
     assert_eq!(
         [
@@ -335,7 +356,11 @@ fn failed_world_never_enters_group_initialization() {
     let fixture = Fixture::new(false);
     fixture.scene2();
     let mut session = fixture.session();
-    assert_eq!(load(&mut session), Err(MissionLoadCallError::Stopped));
+    assert!(matches!(
+        load(&mut session),
+        Err(MissionSourceOpenError::Open(OpenRunError::Callback(failure)))
+            if failure.step == OpenStep::OpenWorld
+    ));
     assert_eq!(session.phase(), MissionLoadPhase::World);
     let primary = session
         .arena()

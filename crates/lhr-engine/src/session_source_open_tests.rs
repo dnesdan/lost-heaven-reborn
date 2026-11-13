@@ -1,7 +1,7 @@
 //! Actual source intake at the ordered Open boundaries, using public fixtures.
 use super::*;
 use crate::actor_world::ActorSource;
-use crate::mission_open_order::{OpenResult, OpenRunError, OpenStep};
+use crate::mission_open_order::{OpenAttempt, OpenResult, OpenRunError, OpenStep};
 use crate::native_precision::current_precision;
 use crate::scene_projection::{SceneRenderBackend, NOT_INITIALIZED};
 
@@ -37,9 +37,10 @@ fn open(
     renderer: &mut impl SceneRenderBackend,
 ) -> Result<OpenResult, MissionSourceOpenError> {
     session.open_source_in_order(
+        &mut OpenAttempt::default(),
         "synthetic",
         &[],
-        request(&[]).projection,
+        projection(),
         &mut Screen::default(),
         renderer,
     )
@@ -65,7 +66,7 @@ fn assert_blocked(session: &mut MissionLoadSession) {
     );
     assert_eq!(
         load(session, &[]),
-        Err(MissionLoadCallError::AlreadyEntered)
+        Err(LoadStop::Admission(MissionLoadCallError::AlreadyEntered))
     );
     assert_eq!(render.calls, 0);
     assert!(session.guard_game_init_for_init().is_err());
@@ -127,9 +128,10 @@ fn assert_nonfresh_preserved(session: &mut MissionLoadSession) {
     for _ in 0..2 {
         assert_eq!(
             session.open_source_in_order(
+                &mut OpenAttempt::default(),
                 "synthetic",
                 &[],
-                request(&[]).projection,
+                projection(),
                 &mut screen,
                 &mut render,
             ),
@@ -450,8 +452,12 @@ fn ordered_source_open_missing_scene2_restores_audio_without_map_or_camera() {
     discard(&mut session);
 }
 
+/// Host validation stops, not native RAscend failures: a wrong root kind
+/// natively skips to OPENBIN_OK, and the malformed actor root is decoded by a
+/// nested reader with no native corruption mapping. Both stay host errors at
+/// OpenBin, so the post-OpenBin restore and progress steps are not reached.
 #[test]
-fn ordered_source_open_corruption_retains_actual_map_camera_and_first_error() {
+fn ordered_source_open_host_scene2_validation_stop_retains_map_camera_and_first_error() {
     for bytes in [
         b"invalid root".to_vec(),
         scene2(&chunk(0xae20, &[1, 2, 3, 4])),
@@ -476,6 +482,64 @@ fn ordered_source_open_corruption_retains_actual_map_camera_and_first_error() {
         assert_eq!(session.open_restored(), None);
         assert!(session.open_restore_volume());
         assert!(!session.open_mission_opened());
+        assert_blocked(&mut session);
+        discard(&mut session);
+    }
+}
+
+/// Native OPENBIN_CORRUPTED (mafia-re Mission.cpp:901-908 and `fail:`
+/// 1685-1694): a header read at end of file fails RAscend after the map and
+/// camera exist. C_mission::Open (Mission.cpp:670-677) then restores the
+/// volume and advances the progress mode before returning failure.
+#[test]
+fn ordered_source_open_short_scene2_header_is_native_open_bin_failure() {
+    let truncated_child = scene2(&[1, 2, 3]);
+    for bytes in [Vec::new(), vec![0x53, 0x4c, 9], truncated_child] {
+        let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
+        std::fs::write(
+            fixture.0.join("missions/synthetic/cache.bin"),
+            cache_source(),
+        )
+        .unwrap();
+        let mut session = fixture.session();
+        session.set_open_configured_volume(0.25).unwrap();
+        let mut attempt = OpenAttempt::default();
+        let mut render = renderer();
+        assert_eq!(
+            session.open_source_in_order(
+                &mut attempt,
+                "synthetic",
+                &[],
+                projection(),
+                &mut Screen::default(),
+                &mut render,
+            ),
+            Ok(OpenResult::OpenBinFailed),
+            "{bytes:?}"
+        );
+        let through_progress = OPENED_WITH_AUDIO
+            .iter()
+            .position(|step| *step == OpenStep::AdvanceCacheProgress)
+            .unwrap();
+        assert_eq!(attempt.reached(), &OPENED_WITH_AUDIO[..=through_progress]);
+        assert_eq!(render.calls, 1);
+        assert_eq!(session.audio().master_gain().unwrap(), 0.25);
+        assert_eq!(session.open_restored(), Some(0.25));
+        assert_eq!(session.open_cache_progress(), 2);
+        assert!(session.open_restore_volume());
+        assert!(!session.open_mission_opened());
+        assert!(!session.base_cache().is_open());
+        assert!(session.failure().is_none());
+        assert!(
+            session
+                .open_bin_corruption()
+                .unwrap()
+                .native_open_bin_corrupted
+        );
+        assert_eq!(session.scene2_byte_count(), Some(bytes.len()));
+        let loader = session.loader().unwrap();
+        assert!(loader.load_map.map.slot(b"world part").flatten().is_some());
+        assert!(loader.camera.is_some());
         assert_blocked(&mut session);
         discard(&mut session);
     }
@@ -665,7 +729,9 @@ fn ordered_source_open_navigation_or_roads_failure_precedes_render_and_scene2() 
             );
             assert_eq!(
                 load(&mut session, &[]),
-                Err(MissionLoadCallError::TerminalDiscardEntered)
+                Err(LoadStop::Admission(
+                    MissionLoadCallError::TerminalDiscardEntered
+                ))
             );
             assert_eq!(session.owned_counts().unwrap(), before);
             assert_eq!(
@@ -725,9 +791,10 @@ fn ordered_source_open_constructor_failure_retains_original_cleanup_boundary() {
     let mut render = renderer();
     assert_eq!(
         session.open_source_in_order(
+            &mut OpenAttempt::default(),
             "synthetic",
             &[],
-            request(&[]).projection,
+            projection(),
             &mut screen,
             &mut render
         ),
@@ -751,4 +818,207 @@ fn ordered_source_open_constructor_failure_retains_original_cleanup_boundary() {
     assert_eq!(session.owned_counts().unwrap(), before);
     assert!(!session.discard_progress().scene_release_executed);
     assert_eq!(current_precision(), None);
+}
+
+/// Native C_mission::Open (GAME 0x5409d0, mafia-re Mission.cpp:623-687) with
+/// a live audio owner: both cache.bin opens are attempted whether or not the
+/// file exists, so presence changes owner state, never the boundary order.
+const OPENED_WITH_AUDIO: &[OpenStep] = &[
+    OpenStep::ResetGame,
+    OpenStep::ClosePrevious,
+    OpenStep::ResetPostClose,
+    OpenStep::WaitForMedia,
+    OpenStep::BindVehicleScene,
+    OpenStep::CopyMissionName,
+    OpenStep::PrepareProgress,
+    OpenStep::OpenWorld,
+    OpenStep::ResetWeather,
+    OpenStep::FillSectorBits,
+    OpenStep::LoadNavigation,
+    OpenStep::LoadRoads,
+    OpenStep::ProbeCache,
+    OpenStep::MuteAudioAndRender,
+    OpenStep::MarkRestoreVolume,
+    OpenStep::OpenBin,
+    OpenStep::RestoreAudio,
+    OpenStep::AdvanceCacheProgress,
+    OpenStep::MarkMissionOpened,
+    OpenStep::OpenCache,
+    OpenStep::FinishProgress,
+];
+
+fn open_recorded(session: &mut MissionLoadSession) -> (OpenAttempt, usize) {
+    let mut attempt = OpenAttempt::default();
+    let mut render = renderer();
+    assert_eq!(
+        session.open_source_in_order(
+            &mut attempt,
+            "synthetic",
+            &[],
+            projection(),
+            &mut Screen::default(),
+            &mut render,
+        ),
+        Ok(OpenResult::Opened)
+    );
+    (attempt, render.calls)
+}
+
+#[test]
+fn ordered_source_open_step_sequence_with_cache_bin_present() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    std::fs::write(
+        fixture.0.join("missions/synthetic/cache.bin"),
+        cache_source(),
+    )
+    .unwrap();
+    let mut session = fixture.session();
+    let (attempt, renders) = open_recorded(&mut session);
+    assert_eq!(attempt.reached(), OPENED_WITH_AUDIO);
+    assert_eq!(attempt.last(), Some(OpenStep::FinishProgress));
+    assert_eq!(renders, 1);
+    // ProbeCache found the file (mode 1), AdvanceCacheProgress made it 2,
+    // and OpenCache consumed it through base_cache.Open.
+    assert_eq!(session.open_cache_progress(), 2);
+    assert!(session.base_cache().is_open());
+    assert_eq!(session.base_cache().blocks().len(), 1);
+    assert!(session.open_restore_volume());
+    assert!(session.open_mission_opened());
+    discard(&mut session);
+}
+
+#[test]
+fn ordered_source_open_step_sequence_with_cache_bin_absent() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    let (attempt, renders) = open_recorded(&mut session);
+    assert_eq!(attempt.reached(), OPENED_WITH_AUDIO);
+    assert_eq!(attempt.last(), Some(OpenStep::FinishProgress));
+    assert_eq!(renders, 1);
+    // Mode stays 0 (only 1 advances); the final open's absence is the empty
+    // native branch, not a missing backend.
+    assert_eq!(session.open_cache_progress(), 0);
+    assert!(!session.base_cache().is_open());
+    assert!(session.base_cache().blocks().is_empty());
+    assert!(session.open_restore_volume());
+    assert!(session.open_mission_opened());
+    discard(&mut session);
+}
+
+#[test]
+fn ordered_source_open_refuses_a_replayed_attempt_before_bootstrap() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut first = fixture.session();
+    let (mut attempt, _) = open_recorded(&mut first);
+    let mut second = fixture.session();
+    let mut screen = Screen::default();
+    let mut render = renderer();
+    assert_eq!(
+        second.open_source_in_order(
+            &mut attempt,
+            "synthetic",
+            &[],
+            projection(),
+            &mut screen,
+            &mut render,
+        ),
+        Err(MissionSourceOpenError::Open(OpenRunError::AlreadyEntered))
+    );
+    assert_eq!((screen.calls, render.calls), (0, 0));
+    assert_eq!(second.phase(), MissionLoadPhase::NotStarted);
+    assert!(second.scene().unwrap().is_none());
+    assert_eq!(attempt.reached(), OPENED_WITH_AUDIO);
+    discard(&mut first);
+}
+
+fn seed_mission_numbers(session: &mut MissionLoadSession) {
+    // current 3 (via KeepMissionNumber), pending 7.
+    session.mission_counters.set_mission_number(3);
+    session.mission_counters.keep_mission_number();
+    session.mission_counters.set_mission_number(7);
+    assert_eq!(session.mission_numbers(), (7, 3));
+}
+
+#[test]
+fn new_game_start_opens_in_order_then_stops_at_the_unowned_collision_level() {
+    use crate::mission_new_game_order::{
+        NewMissionAttempt, NewMissionError, NewMissionFailure, NewMissionRequest,
+        NewMissionRunError, NewMissionStep,
+    };
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    seed_mission_numbers(&mut session);
+    let mut attempt = NewMissionAttempt::default();
+    let mut render = renderer();
+    let result = session.start_new_game_mission(
+        &mut attempt,
+        NewMissionRequest {
+            mission: "synthetic",
+            model_directories: &[],
+            projection: projection(),
+        },
+        &mut Screen::default(),
+        &mut render,
+    );
+    let Err(NewMissionRunError::Callback(NewMissionFailure {
+        step: NewMissionStep::LoadCollision,
+        error: NewMissionError::Step(detail),
+    })) = result
+    else {
+        panic!("unexpected new-game result: {result:?}");
+    };
+    assert!(
+        detail.starts_with("LoadCollision: missions/synthetic/tree.klz absent;"),
+        "{detail}"
+    );
+    assert!(detail.contains("no live g_collision owner"), "{detail}");
+    assert_eq!(
+        attempt.reached(),
+        &[
+            NewMissionStep::ClosePrevious,
+            NewMissionStep::Open,
+            NewMissionStep::LoadCollision
+        ]
+    );
+    assert_eq!(attempt.open_result(), Some(OpenResult::Opened));
+    assert_eq!(attempt.open().reached(), OPENED_WITH_AUDIO);
+    assert_eq!(render.calls, 1);
+    // Nothing after the stop ran: the seeded numbers survive, Init never
+    // entered.
+    assert_eq!(session.mission_numbers(), (7, 3));
+    assert!(!attempt.init().entered());
+    assert!(session.guard_game_init_for_init().is_ok());
+    // A present but malformed tree.klz stops with the reader's error.
+    std::fs::write(fixture.0.join("missions/synthetic/tree.klz"), b"bad").unwrap();
+    let error = session
+        .load_collision_for_new_mission("synthetic")
+        .unwrap_err();
+    assert!(
+        error.starts_with("missions/synthetic/tree.klz: KLZ"),
+        "{error}"
+    );
+    discard(&mut session);
+}
+
+#[test]
+fn new_game_close_is_a_native_no_op_only_before_open() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    assert_eq!(session.close_before_new_mission(), Ok(()));
+    assert_eq!(
+        session.load_collision_for_new_mission("synthetic"),
+        Err("collision intake requires a completed Open".into())
+    );
+    seed_mission_numbers(&mut session);
+    open_recorded(&mut session);
+    assert!(session
+        .close_before_new_mission()
+        .unwrap_err()
+        .contains("no live owner"));
+    // Open and the refused Close leave the numbers; the explicit inline
+    // ResetMissionNumbers clears both pending and current.
+    assert_eq!(session.mission_numbers(), (7, 3));
+    assert_eq!(session.reset_mission_numbers_for_new_mission(), Ok(()));
+    assert_eq!(session.mission_numbers(), (0, 0));
+    discard(&mut session);
 }

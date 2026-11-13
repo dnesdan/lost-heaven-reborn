@@ -94,11 +94,24 @@ pub enum OpenRunError<E> {
 pub struct OpenAttempt {
     entered: bool,
     last: Option<OpenStep>,
+    /// Every boundary entered, in order, including the WaitForMedia and
+    /// OpenBin reads. Skipped audio branches never appear here.
+    reached: Vec<OpenStep>,
 }
 
 impl OpenAttempt {
     pub fn last(&self) -> Option<OpenStep> {
         self.last
+    }
+
+    /// Entered boundaries in invocation order; the final entry is `last`.
+    pub fn reached(&self) -> &[OpenStep] {
+        &self.reached
+    }
+
+    fn enter(&mut self, step: OpenStep) {
+        self.last = Some(step);
+        self.reached.push(step);
     }
 
     pub fn entered(&self) -> bool {
@@ -116,7 +129,7 @@ impl OpenAttempt {
         self.entered = true;
         macro_rules! step {
             ($step:expr) => {{
-                self.last = Some($step);
+                self.enter($step);
                 ops.execute($step)
                     .map_err(|error| OpenRunError::Callback(OpenFailure { step: $step, error }))?;
             }};
@@ -124,7 +137,7 @@ impl OpenAttempt {
         step!(OpenStep::ResetGame);
         step!(OpenStep::ClosePrevious);
         step!(OpenStep::ResetPostClose);
-        self.last = Some(OpenStep::WaitForMedia);
+        self.enter(OpenStep::WaitForMedia);
         if !ops.media_ready().map_err(|error| {
             OpenRunError::Callback(OpenFailure {
                 step: OpenStep::WaitForMedia,
@@ -146,7 +159,7 @@ impl OpenAttempt {
             step!(OpenStep::MuteAudioAndRender);
         }
         step!(OpenStep::MarkRestoreVolume);
-        self.last = Some(OpenStep::OpenBin);
+        self.enter(OpenStep::OpenBin);
         // Host Err is terminal, not a native return code or a cleanup request.
         let opened = ops.open_bin().map_err(|error| {
             OpenRunError::Callback(OpenFailure {
@@ -208,9 +221,10 @@ fn session_mission_name(
 /// verifies the retained copy. Steps without a live owner in this unit are
 /// explicit host markers documented at the session method; VM, player,
 /// camera and HUD intake stays out of scope and never becomes a silent
-/// success. Full `scene.i3d`/`scene2.bin` actor and program intake remains
-/// in `MissionLoadSession::load`; `OpenBin`/`OpenWorld` here probe presence
-/// and root validity over the live installation owner. This completes the
+/// success. Full `scene.i3d`/`scene2.bin` actor and program intake is the
+/// `SourceOpen` backend behind `MissionLoadSession::open_source_in_order`,
+/// which delegates its marker steps here; `OpenBin`/`OpenWorld` in this
+/// standalone impl only probe presence over the live installation owner. This completes the
 /// ordered boundaries without claiming gameplay.
 impl OpenOperations for crate::mission_load_session::MissionLoadSession {
     type Error = SessionOpenError;

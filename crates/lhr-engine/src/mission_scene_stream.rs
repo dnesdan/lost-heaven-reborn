@@ -6,12 +6,16 @@ use lhr_assets::scene_actor_stream::{scene2_root, Chunk, Chunks};
 struct Level<'a> {
     chunks: Chunks<'a>,
     end: usize,
+    /// Absolute offset of this level's next unread header.
+    next_header: usize,
 }
 pub struct MissionSceneInput<'a> {
     levels: Vec<Level<'a>>,
     current: Option<Chunk<'a>>,
     cursor: usize,
     decode_error: Option<String>,
+    total: usize,
+    native_header_eof: bool,
 }
 impl<'a> MissionSceneInput<'a> {
     pub fn new(bytes: &'a [u8]) -> Result<Self, String> {
@@ -20,11 +24,37 @@ impl<'a> MissionSceneInput<'a> {
             levels: vec![Level {
                 chunks: root.children(),
                 end: root.raw.len(),
+                next_header: 6,
             }],
             current: None,
             cursor: 6,
             decode_error: None,
+            total: bytes.len(),
+            native_header_eof: false,
         })
+    }
+    /// Native `C_chunk::RAscend` (GAME 0x44b4d0, mafia-re game/C_chunk.h:162)
+    /// fails only when fewer than six header bytes remain in the file. For the
+    /// LS root that is an input shorter than one header, including empty.
+    pub fn root_header_at_eof(bytes: &[u8]) -> bool {
+        bytes.len() < 6
+    }
+    /// `next_chunk` for the native loops that ignore RAscend's result (sector
+    /// sound data and lensflare fields, mafia-re Mission.cpp:1224, 1244,
+    /// 1278): a failed header read there has no `goto fail`, so it is never
+    /// OPENBIN_CORRUPTED and stays a host decode stop.
+    pub fn next_chunk_ascend_unchecked(&mut self) -> Result<Option<Chunk<'a>>, String> {
+        let result = self.next_chunk();
+        if result.is_err() {
+            self.native_header_eof = false;
+        }
+        result
+    }
+    /// Whether the sticky decode error is a header read that native RAscend
+    /// also fails (end of file). Extent checks and a header truncated only
+    /// by its container are host validation: native reads on across them.
+    pub fn native_header_eof(&self) -> bool {
+        self.native_header_eof
     }
     /// Absolute original input position, including consumed chunk headers.
     pub fn cursor(&self) -> usize {
@@ -48,11 +78,13 @@ impl<'a> MissionSceneInput<'a> {
         let level = self.levels.last_mut().ok_or("no open scene container")?;
         match level.chunks.next() {
             Some(Ok(chunk)) => {
+                level.next_header = chunk.offset + chunk.raw.len();
                 self.cursor = chunk.offset + 6;
                 self.current = Some(chunk);
                 Ok(Some(chunk))
             }
             Some(Err(error)) => {
+                self.native_header_eof = self.total - level.next_header < 6;
                 let error = error.to_string();
                 self.decode_error = Some(error.clone());
                 Err(error)
@@ -72,6 +104,7 @@ impl<'a> MissionSceneInput<'a> {
         self.levels.push(Level {
             chunks: chunk.children(),
             end: chunk.offset + chunk.raw.len(),
+            next_header: chunk.offset + 6,
         });
         Ok(())
     }

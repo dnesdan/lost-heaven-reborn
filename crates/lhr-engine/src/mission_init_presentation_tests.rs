@@ -48,6 +48,7 @@ fn failed_presentation_retains_muted_prefix_without_restore_or_retry() {
     let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     load(&mut session, &[]).unwrap();
+    consume_open_restore(&mut session);
     let mut attempt = InitAttempt::default();
     let mut sequence = SceneSnapshotSequence::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| {
@@ -74,6 +75,7 @@ fn unavailable_snapshot_never_calls_presenter_or_skips_the_reached_prefix() {
     let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     load(&mut session, &[]).unwrap();
+    consume_open_restore(&mut session);
     let mut sequence = SceneSnapshotSequence::default();
     let result =
         InitAttempt::default().run_with_presentation(&mut session, [0, 64], &mut sequence, |_| {
@@ -113,6 +115,7 @@ fn presentation_unwind_keeps_one_shot_guards_and_actual_owners() {
     let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     load(&mut session, &[]).unwrap();
+    consume_open_restore(&mut session);
     let before = session.owned_counts().unwrap();
     let mut sequence = SceneSnapshotSequence::default();
     let mut attempt = InitAttempt::default();
