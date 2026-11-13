@@ -1001,7 +1001,11 @@ fn new_game_start_passes_absent_collision_then_stops_at_the_unowned_load_save() 
     std::fs::write(&path, crate::game_collision::tests::fixture(2.0)).unwrap();
     assert_eq!(session.load_collision_for_new_mission("synthetic"), Ok(()));
     let level = session.collision().level().unwrap();
-    assert_eq!(level.frames, [None, None]);
+    assert_eq!(level.volumes[0].frame, None);
+    assert_eq!(
+        level.phase(),
+        crate::game_collision::CollisionLevelPhase::Coherent
+    );
     assert_eq!(session.collision().load_progress().links_visited, 2);
     let counts = session.owned_counts().unwrap();
     assert_eq!(

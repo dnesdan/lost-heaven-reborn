@@ -486,7 +486,9 @@ class RewriteProgressTests(unittest.TestCase):
         # 76-insn REA walk + DoDamage lamp-arm walk + pinning tests;
         # record/flag writes in sim backend, virtuals staged for the
         # future component owner).
-        self.assertEqual(game["ported"], 149 + 1011)
+        # +2 gifCollision owner contracts (DeleteCollsLevel 0x1c28d0,
+        # LoadCollision 0x1c2b70; synthetic pin tests, live MISE01 stop).
+        self.assertEqual(game["ported"], 149 + 1013)
         self.assertEqual(game["verified"], 149 + 517)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

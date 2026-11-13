@@ -505,7 +505,7 @@ impl crate::game_collision::CollisionLevelScene for SessionCollisionScene<'_> {
     fn lock_lod0_vertices(
         &mut self,
         _frame: crate::frame_transform::FrameKey,
-    ) -> Result<Option<Vec<[f32; 3]>>, String> {
+    ) -> Result<Option<crate::game_collision::LodVertexBuffer>, String> {
         Err("mesh GetLOD(0)->LockVertices(1) has no live session owner".into())
     }
 }
