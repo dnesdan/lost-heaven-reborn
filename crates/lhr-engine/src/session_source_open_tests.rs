@@ -940,7 +940,7 @@ fn seed_mission_numbers(session: &mut MissionLoadSession) {
 }
 
 #[test]
-fn new_game_start_opens_in_order_then_stops_at_the_unowned_collision_level() {
+fn new_game_start_passes_absent_collision_then_stops_at_the_unowned_load_save() {
     use crate::mission_new_game_order::{
         NewMissionAttempt, NewMissionError, NewMissionFailure, NewMissionRequest,
         NewMissionRunError, NewMissionStep,
@@ -960,44 +960,57 @@ fn new_game_start_opens_in_order_then_stops_at_the_unowned_collision_level() {
         &mut Screen::default(),
         &mut render,
     );
+    // An absent tree.klz is the native dtaOpen early return: no level, and
+    // Main continues to ResetMissionNumbers and SaveGameNewGame.
     let Err(NewMissionRunError::Callback(NewMissionFailure {
-        step: NewMissionStep::LoadCollision,
+        step: NewMissionStep::SaveGameNewGame,
         error: NewMissionError::Step(detail),
     })) = result
     else {
         panic!("unexpected new-game result: {result:?}");
     };
-    assert!(
-        detail.starts_with("LoadCollision: missions/synthetic/tree.klz absent;"),
-        "{detail}"
-    );
-    assert!(detail.contains("no live g_collision owner"), "{detail}");
+    assert!(detail.contains("no live G_LoadSaveClass owner"), "{detail}");
     assert_eq!(
         attempt.reached(),
         &[
             NewMissionStep::ClosePrevious,
             NewMissionStep::Open,
-            NewMissionStep::LoadCollision
+            NewMissionStep::LoadCollision,
+            NewMissionStep::ResetMissionNumbers,
+            NewMissionStep::SaveGameNewGame
         ]
     );
     assert_eq!(attempt.open_result(), Some(OpenResult::Opened));
     assert_eq!(attempt.open().reached(), OPENED_WITH_AUDIO);
     assert_eq!(render.calls, 1);
-    // Nothing after the stop ran: the seeded numbers survive, Init never
-    // entered.
-    assert_eq!(session.mission_numbers(), (7, 3));
+    assert_eq!(session.collision().counts(), Default::default());
+    assert!(!session.collision().loaded_level());
+    // ResetMissionNumbers ran; Init never entered.
+    assert_eq!(session.mission_numbers(), (0, 0));
     assert!(!attempt.init().entered());
     assert!(session.guard_game_init_for_init().is_ok());
-    // A present but malformed tree.klz stops with the reader's error.
-    std::fs::write(fixture.0.join("missions/synthetic/tree.klz"), b"bad").unwrap();
-    let error = session
-        .load_collision_for_new_mission("synthetic")
-        .unwrap_err();
-    assert!(
-        error.starts_with("missions/synthetic/tree.klz: KLZ"),
-        "{error}"
+    // A present file shorter than the header stops as a host error.
+    let path = fixture.0.join("missions/synthetic/tree.klz");
+    std::fs::write(&path, b"bad").unwrap();
+    assert_eq!(
+        session.load_collision_for_new_mission("synthetic"),
+        Err("missions/synthetic/tree.klz: TruncatedHeader; links visited 0/0 resolved=0 SetSpace calls=0".into())
     );
+    // Links the Scene does not name stay null, so neither SetSpace nor a
+    // LOD0 lock is reached and the level is installed into the owner.
+    std::fs::write(&path, crate::game_collision::tests::fixture(2.0)).unwrap();
+    assert_eq!(session.load_collision_for_new_mission("synthetic"), Ok(()));
+    let level = session.collision().level().unwrap();
+    assert_eq!(level.frames, [None, None]);
+    assert_eq!(session.collision().load_progress().links_visited, 2);
+    let counts = session.owned_counts().unwrap();
+    assert_eq!(
+        (counts.collision_levels, counts.collision_dynamic_grids),
+        (1, 1)
+    );
+    // Terminal disposal clears the owner before Scene release.
     discard(&mut session);
+    assert_eq!(session.collision().counts(), Default::default());
 }
 
 #[test]

@@ -120,6 +120,7 @@ pub enum MissionDiscardPhase {
     NotStarted,
     PendingVisual,
     WorldStaging,
+    Collision,
     Navigation,
     Roads,
     Cache(MissionCacheKind),
@@ -204,6 +205,9 @@ pub struct MissionOwnedCounts {
     /// Session-owned base cache: open blocks and model sets.
     pub base_blocks: usize,
     pub base_model_sets: usize,
+    /// Session-owned `gifCollision`: installed level and dynamic grid.
+    pub collision_levels: usize,
+    pub collision_dynamic_grids: usize,
 }
 
 #[derive(Debug)]
@@ -260,7 +264,9 @@ impl MissionOwnedCounts {
         navigation: Option<&SessionNavigation>,
         roads: Option<&SessionRoads>,
         base_cache: Option<&CityBaseCache>,
+        collision: Option<&crate::game_collision::GameCollision>,
     ) -> Result<Self, MissionOwnerDiagnosticsError> {
+        let collision_counts = collision.map(|owner| owner.counts()).unwrap_or_default();
         let visual = arena.loaded_visual_resources();
         let visual_backend = visual.map(|owner| owner.backend());
         let sound_backend = driver.host_sound_backend();
@@ -336,6 +342,8 @@ impl MissionOwnedCounts {
             road_links: roads.map_or(0, |roads| roads.link_count()),
             base_blocks: base_cache.map_or(0, |cache| cache.blocks().len()),
             base_model_sets: base_cache.map_or(0, |cache| cache.model_sets().len()),
+            collision_levels: collision_counts.levels,
+            collision_dynamic_grids: collision_counts.dynamic_grids,
         })
     }
 }
@@ -378,6 +386,9 @@ pub struct MissionLoadSession {
     /// The existing C_mission counter owner also supplies the skip_frames
     /// gate read by the first effect in C_mission::Tick (GAME 0x5407e0).
     mission_counters: crate::mission_actor_lists::MissionCounterState,
+    /// `gifCollision` (GAME 0x647f48), installed by the new-game
+    /// `LoadCollision` step and cleared before the Scene is released.
+    collision: crate::game_collision::GameCollision,
     /// Authoritative represented C_game scalar fields used by source-grounded
     /// inlines. C_game itself and the rest of Init still require live owners.
     game_inline: crate::game_housekeeping::GameInlineState,
@@ -429,6 +440,76 @@ pub struct MissionLoadSession {
     startup_patches: ProgramPatchStartup,
 }
 
+/// `LoadCollision`'s calls into the live mission Scene: the driver's
+/// FindFrameFast over the arena's fast tree and the frame type word. The
+/// visual `SetSpace(true)` vertex bake and the LOD0 `LockVertices` have no
+/// session owner and stop the load where reached.
+struct SessionCollisionScene<'a> {
+    installation: &'a lhr_assets::Installation,
+    arena: &'a ModelArena,
+    scene: Option<SceneKey>,
+}
+
+impl crate::game_collision::CollisionLevelScene for SessionCollisionScene<'_> {
+    type Error = String;
+
+    fn read_source(&mut self, name: &str) -> Result<Option<Vec<u8>>, String> {
+        self.installation
+            .read_optional(name)
+            .map_err(|error| error.to_string())
+    }
+
+    fn find_frame_fast(
+        &mut self,
+        name: &[u8],
+    ) -> Result<Option<crate::frame_transform::FrameKey>, String> {
+        let scene = self.scene.ok_or("no mission Scene for FindFrameFast")?;
+        self.arena
+            .find_frame_fast(scene, name)
+            .map_err(|error| format!("{error:?}"))
+    }
+
+    /// The type word as the existing frame-field adapters project it.
+    fn frame_type(&mut self, frame: crate::frame_transform::FrameKey) -> Result<u32, String> {
+        use crate::frame_transform::FrameKind;
+        let state = self
+            .arena
+            .state(frame)
+            .map_err(|error| format!("{error:?}"))?;
+        Ok(match state.kind {
+            FrameKind::Mesh
+            | FrameKind::Singlemesh
+            | FrameKind::Projector
+            | FrameKind::Lensflare => 1,
+            FrameKind::Light => 2,
+            FrameKind::Camera => 3,
+            FrameKind::Sound => 4,
+            FrameKind::Sector => 5,
+            FrameKind::Dummy => 6,
+            FrameKind::Target => 7,
+            FrameKind::Model => 9,
+            FrameKind::Joint => 10,
+            FrameKind::Occluder => 12,
+            FrameKind::Area => 14,
+            FrameKind::Scene => return Err("a Scene frame has no type word here".into()),
+        })
+    }
+
+    fn set_visual_space_world(
+        &mut self,
+        _frame: crate::frame_transform::FrameKey,
+    ) -> Result<(), String> {
+        Err("I3D_visual::SetSpace(true) world-space vertex bake has no live session owner".into())
+    }
+
+    fn lock_lod0_vertices(
+        &mut self,
+        _frame: crate::frame_transform::FrameKey,
+    ) -> Result<Option<Vec<[f32; 3]>>, String> {
+        Err("mesh GetLOD(0)->LockVertices(1) has no live session owner".into())
+    }
+}
+
 #[path = "session_source_open.rs"]
 mod owned_source_open;
 pub use owned_source_open::MissionSourceOpenError;
@@ -449,7 +530,15 @@ impl MissionLoadSession {
             startup_patches: ProgramPatchStartup::default(),
             audio: RuntimeAudio::default(),
             driver: DriverSceneOwner::default(),
-            arena: ModelArena::default(),
+            // The I3D_driver constructor sets RS_FAST_FIND (mafia-re
+            // ls3df/I3D/I3d_driver.cpp:218) and Game's driver init sets it
+            // again (game/Main.cpp:749), so every named frame enters the
+            // fast-find tree that LoadCollision's FindFrameFast walks.
+            arena: {
+                let mut arena = ModelArena::default();
+                arena.set_fast_find_enabled(true);
+                arena
+            },
             resources: SceneResources::default(),
             textures: TextureResources::new().map_err(MissionLoadInitError::Textures)?,
             texture_storage: CpuTextureStorage::default(),
@@ -466,6 +555,7 @@ impl MissionLoadSession {
             police_init: PoliceGameInitState::default(),
             traffic_flags: TrafficGameFlags::default(),
             mission_counters: crate::mission_actor_lists::MissionCounterState::default(),
+            collision: crate::game_collision::GameCollision::default(),
             game_inline: crate::game_housekeeping::GameInlineState::default(),
             game_init_car_sounds: 0,
             game_init_weather: None,
@@ -972,14 +1062,13 @@ impl MissionLoadSession {
     }
 
     /// `gifCollision.LoadCollision("missions\<name>\tree.klz", true)`
-    /// (GAME 0x5c2b70, mafia-re game/collision/g_c_glob.cpp:124) after a
-    /// successful Open. Native first clears `step_actor` and runs
-    /// `DeleteCollsLevel`, so even an absent file has effects on the
-    /// collision owner. That owner (frame binding by FindFrameFast, visual
-    /// SetSpace, LOD0 vertex locks, level arrays and the dynamic grid) is not
-    /// part of this session: the source is read and structurally parsed with
-    /// the lhr-assets KLZ reader for evidence, then the step stops with that
-    /// boundary instead of claiming an installed level.
+    /// (GAME 0x5c2b70, mafia-re game/collision/g_c_glob.cpp:123) after a
+    /// successful Open, over the session's `GameCollision` owner and the
+    /// live mission Scene. Frame lookup and the frame type are the arena's.
+    /// `SetSpace(true)` of a resolved visual link and the LOD0 vertex lock
+    /// have no live session owner yet; reaching either stops the step with
+    /// the owner left as native leaves it at that point (previous level
+    /// deleted, `level_size` stored, no level published).
     pub fn load_collision_for_new_mission(&mut self, mission: &str) -> Result<(), String> {
         self.open_terminal_guard()?;
         Self::validate_open_mission_name(mission)?;
@@ -987,26 +1076,32 @@ impl MissionLoadSession {
             return Err("collision intake requires a completed Open".into());
         }
         let path = format!("missions/{mission}/tree.klz");
-        let source = match self
-            .installation
-            .read_optional(&path)
-            .map_err(|error| format!("{path}: {error}"))?
-        {
-            None => format!("{path} absent"),
-            Some(bytes) => match lhr_assets::klz::Klz::parse(&bytes) {
-                Ok(klz) => format!(
-                    "{path} parsed: bytes={} links={} cells={}x{}",
-                    bytes.len(),
-                    klz.links.len(),
-                    klz.grid.width,
-                    klz.grid.length
-                ),
-                Err(error) => return Err(format!("{path}: {error}")),
-            },
+        let scene = self
+            .scene()
+            .map_err(|error| format!("mission Scene owner: {error:?}"))?;
+        let mut live = SessionCollisionScene {
+            installation: &self.installation,
+            arena: &self.arena,
+            scene,
         };
-        Err(format!(
-            "{source}; no live g_collision owner for DeleteCollsLevel, frame binding and level install"
-        ))
+        let result = self.collision.load_collision(&path, true, &mut live);
+        let progress = self.collision.load_progress();
+        // A native early return (absent file, foreign magic) leaves no level
+        // and Main continues; only a host stop is an error.
+        result.map(|_| ()).map_err(|error| {
+            format!(
+                "{path}: {error:?}; links visited {}/{} resolved={} SetSpace calls={}",
+                progress.links_visited,
+                progress.links,
+                progress.links_resolved,
+                progress.set_space_calls
+            )
+        })
+    }
+
+    /// The session's `gifCollision` owner.
+    pub fn collision(&self) -> &crate::game_collision::GameCollision {
+        &self.collision
     }
 
     /// Inline `C_mission::ResetMissionNumbers` (Mission.h:290-294) over the
@@ -1521,6 +1616,7 @@ impl MissionLoadSession {
             Some(&self.navigation),
             Some(&self.roads),
             Some(&self.base_cache),
+            Some(&self.collision),
         )
     }
 
@@ -1734,6 +1830,11 @@ impl MissionLoadSession {
                 .discard_scene_world_staging_cpu(&mut self.arena, &self.resources, progress)
                 .map_err(MissionDiscardCause::WorldStaging)?;
         }
+        // Native `C_game::Done` clears the level through
+        // `gifCollision.GameDone()` (mafia-re game/mission/game.cpp:1379)
+        // before the scene closes; the level names that Scene's frames.
+        self.discard.phase = MissionDiscardPhase::Collision;
+        self.collision.game_done();
         self.discard.phase = MissionDiscardPhase::Navigation;
         self.navigation
             .destroy()
