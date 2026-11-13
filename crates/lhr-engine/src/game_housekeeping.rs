@@ -920,11 +920,15 @@ impl GameInlineState {
     }
 
     /// Shared with scripts and other consumers of the represented game stream.
-    pub fn random_source(&self) -> GameRandomSource { self.random.source() }
+    pub fn random_source(&self) -> GameRandomSource {
+        self.random.source()
+    }
 
     /// Call at the original initialization boundary with its observed seed.
     /// Never seed at program Init or at each Tick.
-    pub fn seed_random(&mut self, seed: u32) { self.random.seed(seed); }
+    pub fn seed_random(&mut self, seed: u32) {
+        self.random.seed(seed);
+    }
 
     /// FUNCTION: GAME 0x47b570 (RVA 0x7b570, VA 0x47b570; `game.h:874-878`,
     /// `C_game::GetInitFrames`): reads the frames counted since `Init`.

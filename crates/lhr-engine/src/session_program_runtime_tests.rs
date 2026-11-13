@@ -317,7 +317,16 @@ fn session_programs_read_the_retained_clock_without_advancing_it() {
     assert_eq!(session.advance_owned_game_time(5).unwrap(), 12);
     run(&mut session).unwrap();
     assert_eq!(session.game_state().get_game_time(), 12);
-    assert_eq!(session.loader().unwrap().content.programs()[0].runtime().unwrap().fields.floats.as_deref().unwrap(), &[7.0, 7.0, 12.0, 12.0]);
+    assert_eq!(
+        session.loader().unwrap().content.programs()[0]
+            .runtime()
+            .unwrap()
+            .fields
+            .floats
+            .as_deref()
+            .unwrap(),
+        &[7.0, 7.0, 12.0, 12.0]
+    );
     let clock = session.game_state().game_clock();
     finish(&mut session);
     assert!(session.advance_owned_game_time(1).is_err());
@@ -335,17 +344,24 @@ fn owned_session_program_uses_shared_random_without_reseeding_at_init() {
     assert_eq!(session.game_state().random_source().next_raw(), Some(41));
     session.initialize_owned_global_programs().unwrap();
     run(&mut session).unwrap();
-    assert_eq!(session.loader().unwrap().content.programs()[0]
-        .runtime().unwrap().fields.floats.as_ref().unwrap()[0], 67.0);
+    assert_eq!(
+        session.loader().unwrap().content.programs()[0]
+            .runtime()
+            .unwrap()
+            .fields
+            .floats
+            .as_ref()
+            .unwrap()[0],
+        67.0
+    );
     finish(&mut session);
     assert!(session.seed_owned_game_random(1).is_err());
 }
 
 #[test]
 fn explicit_tick_step_counts_once_not_once_per_program_instruction() {
-    let fixture = fixture(
-        b"commandblock 1\ndim_flt 2\ngetgametime 0\ngetgametime 1\ncommandblock 0",
-    );
+    let fixture =
+        fixture(b"commandblock 1\ndim_flt 2\ngetgametime 0\ngetgametime 1\ncommandblock 0");
     let mut session = fixture.session();
     assert!(session.advance_owned_game_time(7).is_err());
     assert_eq!(session.game_state().game_frame_count(), 0);
