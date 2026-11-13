@@ -95,11 +95,17 @@ struct BlockAllocation {
     base: u32,
     count: u32,
 }
+/// One CPU graphics allocation's bytes as a shared, in-place-mutated owner.
+pub(crate) type SharedGraphicsBytes = std::rc::Rc<std::cell::RefCell<Vec<u8>>>;
 #[derive(Debug)]
 struct CpuGraphics {
     kind: BufferKind,
     fvf: Option<u32>,
-    bytes: Vec<u8>,
+    /// The allocation's bytes, shared with live views that the original
+    /// keeps as raw locked pointers (LoadCollision's LOD0 vertex pointers,
+    /// [`crate::game_collision::LodVertexBuffer`]). Writes go in place; the
+    /// `Rc` is never replaced, so every view keeps reading this allocation.
+    bytes: SharedGraphicsBytes,
     lock: Option<LockedDataKey>,
     /// Host write generation for rebuilding derived saved-lighting geometry.
     revision: u64,
@@ -148,7 +154,7 @@ impl CpuVisualStorage {
         Ok(())
     }
     pub fn graphics_bytes(&self) -> usize {
-        self.graphics.values().map(|g| g.bytes.len()).sum()
+        self.graphics.values().map(|g| g.bytes.borrow().len()).sum()
     }
     pub fn live_graphics(&self) -> usize {
         self.graphics.len()
@@ -209,6 +215,7 @@ impl CpuVisualStorage {
             .checked_add(data.len())
             .ok_or(LoadedVisualError::InvalidGeometry)?;
         x.bytes
+            .borrow_mut()
             .get_mut(offset..end)
             .ok_or(LoadedVisualError::InvalidGeometry)?
             .copy_from_slice(data);
@@ -347,7 +354,7 @@ impl BufferBackend for CpuVisualStorage {
             CpuGraphics {
                 kind: r.kind,
                 fvf: r.fvf,
-                bytes: storage,
+                bytes: std::rc::Rc::new(std::cell::RefCell::new(storage)),
                 lock: None,
                 revision: 0,
             },
@@ -2098,7 +2105,7 @@ mod tests {
         storage.write_graphics(graphics, 2, &[4, 5, 6]).unwrap();
         assert!(storage.release_graphics(graphics).is_err());
         assert_eq!(
-            storage.get_graphics_mut(graphics).unwrap().bytes,
+            *storage.get_graphics_mut(graphics).unwrap().bytes.borrow(),
             [0, 0, 4, 5, 6, 0, 0, 0]
         );
         storage.unlock(graphics).unwrap();

@@ -760,6 +760,7 @@ mod tests {
                 f32::from_le_bytes(view.vertex_bytes[32..36].try_into().unwrap()),
                 0.8
             );
+            drop(view);
             arena.close(model).unwrap();
             arena.reclaim_unused_visual_buffers().unwrap();
             assert_eq!(

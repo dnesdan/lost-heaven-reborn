@@ -198,6 +198,7 @@ impl LoadedVisualResources {
                 )
             }
         };
+        drop(original);
         if replace_vertices {
             if let Err(error) = self
                 .objects

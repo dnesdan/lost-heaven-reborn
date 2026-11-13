@@ -7,7 +7,7 @@ use crate::i3d_object::{LodState, ObjectCleanupPhase};
 use crate::visual_resources::I3dMaterial;
 
 pub struct CpuInspectionGroup<'a> {
-    pub index_bytes: &'a [u8],
+    pub index_bytes: std::cell::Ref<'a, [u8]>,
     pub material: Option<&'a I3dMaterial>,
     pub material_key: Option<crate::visual_resources::MaterialKey>,
     pub texture: Option<&'a lhr_assets::Texture>,
@@ -20,7 +20,7 @@ pub struct CpuInspectionMesh<'a> {
     /// Borrowed validated source/private manager bytes. The selected FVF
     /// determines stride and UV/diffuse offsets; callers never reinterpret a
     /// source normal as constructed diffuse or use source indices for lit IB.
-    pub vertex_bytes: &'a [u8],
+    pub vertex_bytes: std::cell::Ref<'a, [u8]>,
     pub vertex_stride: usize,
     pub color_byte_offset: Option<usize>,
     pub lightmap_uv_byte_offset: Option<usize>,
@@ -51,7 +51,7 @@ impl LoadedVisualResources {
         offset: usize,
         bytes: usize,
         expected_fvf: Option<u32>,
-    ) -> Result<&[u8]> {
+    ) -> Result<std::cell::Ref<'_, [u8]>> {
         let buffer = self
             .backend
             .graphics
@@ -74,15 +74,11 @@ impl LoadedVisualResources {
                 "inspection UV-only or unknown vertex layout",
             ));
         }
-        buffer
-            .bytes
-            .get(
-                offset
-                    ..offset
-                        .checked_add(bytes)
-                        .ok_or(LoadedVisualError::InvalidGeometry)?,
-            )
-            .ok_or(LoadedVisualError::InvalidGeometry)
+        let end = offset
+            .checked_add(bytes)
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        std::cell::Ref::filter_map(buffer.bytes.borrow(), |all| all.get(offset..end))
+            .map_err(|_| LoadedVisualError::InvalidGeometry)
     }
     /// Resolves live object/mesh/LOD/material identities each call. A plain
     /// object's private LOD buffer overrides the shared mesh vertex buffer.
@@ -469,8 +465,9 @@ mod tests {
         assert!(owner.inspection_mesh(object, 0).is_err());
         let view = owner.inspection_mesh(object, 1).unwrap().unwrap();
         assert_eq!(&view.vertex_bytes[..4], &42f32.to_bits().to_le_bytes());
-        assert_eq!(view.groups[0].index_bytes, &[0, 0, 1, 0, 2, 0]);
+        assert_eq!(*view.groups[0].index_bytes, [0, 0, 1, 0, 2, 0]);
         assert_eq!(view.vertex_count, 3);
+        drop(view);
         owner
             .objects
             .set_lod(mesh, Some(level), 1, &mut owner.backend)
@@ -548,6 +545,7 @@ mod tests {
             .unwrap();
         let view = owner.inspection_mesh_at_lod(object, 2, 1).unwrap().unwrap();
         assert_eq!(&view.vertex_bytes[..4], &42f32.to_le_bytes());
+        drop(view);
         // Same FVF does not imply the byte stride. A fresh exclusive64
         // allocation must be rejected using retained manager configuration.
         owner
@@ -661,6 +659,7 @@ mod tests {
                 let view = result.unwrap().unwrap();
                 assert_eq!(view.vertex_bytes.len(), 96);
                 assert_eq!(view.uv_byte_offset, 16);
+                drop(view);
             } else {
                 assert!(matches!(
                     result,
@@ -668,6 +667,7 @@ mod tests {
                         "inspection UV-only or unknown vertex layout"
                     ))
                 ));
+                drop(result);
             }
             owner.destroy_object(object).unwrap();
             assert!(owner.objects.lod(lod).is_err());

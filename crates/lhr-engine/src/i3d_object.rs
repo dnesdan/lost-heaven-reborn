@@ -1691,6 +1691,33 @@ impl ObjectResources {
             .mesh = Some(fresh);
         Ok(true)
     }
+    /// The tail of `DetachMesh` (PC RVA 0x36a70) after a successful mesh
+    /// Duplicate run by the CPU storage owner (see `LoadedVisualResources::
+    /// game_detach_object_mesh`): `mesh->Release()` of the object's own
+    /// reference, then `mesh = m` with the fresh mesh's creation reference.
+    /// As in `detach_object_mesh_to_unique`, a failed release keeps the old
+    /// mesh stored and releases the fresh one.
+    pub(crate) fn replace_detached_object_mesh<B: ManagedVisualBackend + ?Sized>(
+        &mut self,
+        object: ObjectResourceKey,
+        fresh: MeshObjectKey,
+        backend: &mut B,
+    ) -> Result<(), ObjectOperationError<B::Error>> {
+        self.available()?;
+        let old = self
+            .object(object)?
+            .mesh
+            .ok_or(ObjectError::UnknownObject(object))?;
+        managed_result(self.managed.release_mesh_object(old, backend)).inspect_err(|_| {
+            let _ = self.managed.release_mesh_object(fresh, backend);
+        })?;
+        let slot = self.index(object.arena, object.slot)?;
+        self.objects[slot]
+            .as_mut()
+            .ok_or(ObjectError::UnknownObject(object))?
+            .mesh = Some(fresh);
+        Ok(())
+    }
     /// Original Duplicate object-field prefix, PC RVA 0x36b10 (differential:
     /// Ghidra body 346 B, 100 insn/27 BB; mafia-re I3d_object.cpp:112-153).
     /// Copies lightness/transparency/fade bitwise, visual flags masked with

@@ -5,6 +5,14 @@ use crate::visual_resources::{
     CompleteVertexBuffer, FaceGroupKey, MeshObjectKey, VertexBufferPointer,
 };
 
+/// A resolved mesh level vertex window (see `game_level_vertex_window`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LevelVertexWindow {
+    graphics: GraphicsBuffer,
+    base: usize,
+    stride: usize,
+}
+
 impl LoadedVisualResources {
     pub fn game_unlock_frame_buffers(&mut self) -> Result<()> {
         self.objects.unlock_all_vertices(&mut self.backend)?;
@@ -49,6 +57,159 @@ impl LoadedVisualResources {
             state.num_vertices as usize * stride,
         ))
     }
+    /// The live window of a mesh level's vertices: its CPU graphics
+    /// allocation, first byte and stride (32, `I3D_vertex`). Resolved once
+    /// per caller pass; reads and writes still go through the allocation.
+    pub(crate) fn game_level_vertex_window(
+        &self,
+        level: MeshLevelKey,
+    ) -> Result<LevelVertexWindow> {
+        let (buffer, stride, _) = self.game_level_buffer(level)?;
+        Ok(LevelVertexWindow {
+            graphics: GraphicsBuffer::Vertex(
+                buffer.graphics.ok_or(LoadedVisualError::InvalidGeometry)?,
+            ),
+            base: buffer.base as usize * stride,
+            stride,
+        })
+    }
+    /// The pointer `I3D_mesh_level::LockVertices` returns, as a live view of
+    /// the locked allocation (taken after the lock). The view shares the
+    /// allocation's bytes, so later in-place writes are what it reads.
+    pub(crate) fn game_level_vertex_view(
+        &self,
+        level: MeshLevelKey,
+    ) -> Result<crate::game_collision::LodVertexBuffer> {
+        let window = self.game_level_vertex_window(level)?;
+        let count = self.game_level_word(level, 8)? as usize;
+        let allocation = self
+            .backend
+            .graphics
+            .get(&CpuVisualStorage::graphics_id(window.graphics))
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        if allocation.lock.is_none() {
+            return Err(LoadedVisualError::Backend("view of unlocked mesh vertices"));
+        }
+        crate::game_collision::LodVertexBuffer::live(
+            allocation.bytes.clone(),
+            window.base,
+            window.stride,
+            count,
+        )
+        .ok_or(LoadedVisualError::InvalidGeometry)
+    }
+    /// One locked vertex's position and normal (`I3D_vertex` +0x0, +0xc).
+    pub(crate) fn game_vertex_position_normal(
+        &self,
+        window: LevelVertexWindow,
+        index: usize,
+    ) -> Result<[[f32; 3]; 2]> {
+        let allocation = self
+            .backend
+            .graphics
+            .get(&CpuVisualStorage::graphics_id(window.graphics))
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        if allocation.lock.is_none() {
+            return Err(LoadedVisualError::Backend(
+                "read through unlocked mesh vertices",
+            ));
+        }
+        let at = index
+            .checked_mul(window.stride)
+            .and_then(|n| n.checked_add(window.base))
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        let bytes = allocation.bytes.borrow();
+        let word = |i: usize| -> Result<f32> {
+            bytes
+                .get(at + 4 * i..at + 4 * i + 4)
+                .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+                .ok_or(LoadedVisualError::InvalidGeometry)
+        };
+        Ok([
+            [word(0)?, word(1)?, word(2)?],
+            [word(3)?, word(4)?, word(5)?],
+        ])
+    }
+    /// In-place store of a locked vertex's position and normal.
+    pub(crate) fn game_write_vertex_position_normal(
+        &mut self,
+        window: LevelVertexWindow,
+        index: usize,
+        values: [[f32; 3]; 2],
+    ) -> Result<()> {
+        let at = index
+            .checked_mul(window.stride)
+            .and_then(|n| n.checked_add(window.base))
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        let mut data = [0u8; 24];
+        for (slot, value) in data
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(values.into_iter().flatten())
+        {
+            *slot = value.to_le_bytes();
+        }
+        self.backend.write_graphics(window.graphics, at, &data)
+    }
+    /// `I3D_object::DetachMesh` (LS3DF 0x36a70, mafia-re
+    /// I3d_object.cpp:89-108) over this CPU owner, in the order of
+    /// `ObjectResources::detach_object_mesh_to_unique`: a mesh with fewer
+    /// than two references is kept; otherwise `CreateMesh`, `Duplicate`
+    /// (0x315e0) run by this owner's `deform_duplicate_mesh`, which copies
+    /// the vertex and index bytes into fresh storage as the native level
+    /// Duplicate's `SetVertexMesh(LockVertices(0))` does, then the old mesh's
+    /// release and the store. A failed Duplicate releases the fresh mesh and
+    /// keeps the old one. True when the mesh was replaced.
+    pub(crate) fn game_detach_object_mesh(&mut self, object: ObjectResourceKey) -> Result<bool> {
+        let Some(mesh) = self.objects.object(object)?.mesh else {
+            return Ok(false);
+        };
+        let references = self
+            .objects
+            .managed()
+            .resources()
+            .mesh_object(mesh)
+            .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?
+            .references;
+        if references < 2 {
+            return Ok(false);
+        }
+        let fresh = self.objects.create_mesh_object()?;
+        if let Err(error) = self.deform_duplicate_mesh(fresh, Some(mesh)) {
+            let _ = self.objects.release_mesh_object(fresh, &mut self.backend);
+            return Err(error);
+        }
+        self.objects
+            .replace_detached_object_mesh(object, fresh, &mut self.backend)?;
+        Ok(true)
+    }
+    /// The object's virtual `UpdateVertices(index)` (vtable +0x78): the
+    /// plain object's (LS3DF 0x36a50) or the lit object's (0x21790), as the
+    /// two vtables (0x1009c348, 0x1009bd70) hold them.
+    pub(crate) fn game_update_object_lod_vertices(
+        &mut self,
+        object: ObjectResourceKey,
+        index: u32,
+    ) -> Result<()> {
+        use crate::i3d_object::ObjectVisualType;
+        match self.objects.object(object)?.visual_type() {
+            ObjectVisualType::Plain => self.objects.update_object_vertices(object, index)?,
+            ObjectVisualType::LitUnconstructed => {
+                self.objects
+                    .update_lit_lod_vertices(object, index as usize)?;
+            }
+            _ => return Err(ObjectError::UnsupportedVisualSubtype.into()),
+        }
+        Ok(())
+    }
+    /// The world-space record word of the object's own `SetSpace` arm.
+    pub(crate) fn game_mark_object_world_space(&mut self, object: ObjectResourceKey) -> Result<()> {
+        self.objects
+            .set_object_space(object, true)
+            .map_err(|_| LoadedVisualError::Backend("object world-space record"))?;
+        Ok(())
+    }
     pub(crate) fn game_lock_level_vertices(
         &mut self,
         level: MeshLevelKey,
@@ -82,6 +243,7 @@ impl LoadedVisualResources {
         }
         allocation
             .bytes
+            .borrow()
             .get(buffer.base as usize * stride + offset)
             .copied()
             .ok_or(LoadedVisualError::InvalidGeometry)
@@ -155,15 +317,13 @@ impl LoadedVisualResources {
             return Err(LoadedVisualError::InvalidGeometry);
         }
         if locked && count != 0 {
+            // The level's window is resolved once; each position is still
+            // read from the locked allocation in vertex, then axis order.
+            let window = self.game_level_vertex_window(level)?;
             for index in 0..count as usize {
+                let [position, _] = self.game_vertex_position_normal(window, index)?;
                 for axis in [0usize, 1, 2] {
-                    let offset = index * 32 + axis * 4;
-                    let value = f32::from_le_bytes([
-                        self.game_vertex_byte(level, offset)?,
-                        self.game_vertex_byte(level, offset + 1)?,
-                        self.game_vertex_byte(level, offset + 2)?,
-                        self.game_vertex_byte(level, offset + 3)?,
-                    ]);
+                    let value = position[axis];
                     if index == 0 {
                         bbox[0][axis] = value;
                         bbox[1][axis] = value;
