@@ -1,4 +1,5 @@
-//! One retained random stream for serialized game execution.
+//! One retained random stream for script programs. Other native rand()
+//! consumers (lights, glass, vehicle audio) still keep private sequences.
 //! Reuses the VM's MSVC sequence; ownership wiring, not new function credit.
 //! Reference: mafia-re fe7e7464, C_actor.cpp rnd overloads (RVA 0x8450/0x8470).
 #![forbid(unsafe_code)]
