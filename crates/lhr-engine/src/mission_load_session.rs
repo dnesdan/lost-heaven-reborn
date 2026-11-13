@@ -411,6 +411,8 @@ pub struct MissionLoadSession {
     /// this owner by construction.
     open_muted: bool,
     open_restored: Option<f32>,
+    /// Native OPENBIN_CORRUPTED detail from the ordered Open, if any.
+    open_bin_corruption: Option<crate::mission_scene_loading::MissionSceneLoadError>,
     precision: Pc24PrecisionState,
     phase: MissionLoadPhase,
     entered: bool,
@@ -476,6 +478,7 @@ impl MissionLoadSession {
             open_configured_volume: 1.0,
             open_muted: false,
             open_restored: None,
+            open_bin_corruption: None,
             precision,
             phase: MissionLoadPhase::NotStarted,
             entered: false,
@@ -881,6 +884,14 @@ impl MissionLoadSession {
     /// Whether the mute boundary ran over a live audio owner.
     pub fn open_muted(&self) -> bool {
         self.open_muted
+    }
+
+    /// The scene2 header read that made native OpenBin return
+    /// OPENBIN_CORRUPTED during the ordered Open, if one did.
+    pub fn open_bin_corruption(
+        &self,
+    ) -> Option<&crate::mission_scene_loading::MissionSceneLoadError> {
+        self.open_bin_corruption.as_ref()
     }
 
     /// Volume restored over the live audio owner, if any.

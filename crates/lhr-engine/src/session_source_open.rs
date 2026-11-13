@@ -258,10 +258,20 @@ where
         self.session
             .initialize_source_map(scene, &path)
             .map_err(|cause| self.source_error(step, cause))?;
-        self.session
+        match self
+            .session
             .load_source_scene2_prefix(self.projection, self.screen)
-            .map_err(|cause| self.source_error(step, cause))?;
-        Ok(true)
+        {
+            Ok(()) => Ok(true),
+            // A failed RAscend is OPENBIN_CORRUPTED: the map and camera stay,
+            // and Open still restores audio and advances progress before it
+            // returns failure. It is retained as data, not a host failure.
+            Err(MissionLoadCause::Scene2Prefix(error)) if error.native_open_bin_corrupted => {
+                self.session.open_bin_corruption = Some(error);
+                Ok(false)
+            }
+            Err(cause) => Err(self.source_error(step, cause)),
+        }
     }
 
     fn audio_present(&self) -> bool {

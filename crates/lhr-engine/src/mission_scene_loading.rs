@@ -633,6 +633,11 @@ pub struct MissionSceneLoadError {
     /// Reached original instruction, not a standalone reconstructed function.
     pub entry: u32,
     pub detail: String,
+    /// A header read that native `RAscend` also fails, which makes
+    /// `C_mission::OpenBin` return OPENBIN_CORRUPTED (mafia-re
+    /// Mission.cpp:901-908, `fail:` 1685-1694). Every other error is a host
+    /// validation or unavailable-operation stop, not a native result.
+    pub native_open_bin_corrupted: bool,
 }
 /// Raw scratch fields staged by this original object record. Option marks
 /// an unwritten native stack value, not a fabricated zero initializer.
@@ -794,6 +799,7 @@ impl MissionSceneLoader {
             cursor: self.cursor,
             entry,
             detail: detail.into(),
+            native_open_bin_corrupted: false,
         }
     }
     /// Terminal host shutdown: dispose source actor/program owners and release
@@ -1009,7 +1015,11 @@ impl MissionSceneLoader {
             .validate_scene_domain(arena, resources, self.scene)
             .map_err(|e| self.error(0x5414fa, format!("{e:?}")))?;
         self.prepare_camera(driver, arena, resources, screen, projection)?;
-        let mut input = MissionSceneInput::new(bytes).map_err(|e| self.error(0x54163b, e))?;
+        let mut input = MissionSceneInput::new(bytes).map_err(|e| {
+            let mut error = self.error(0x54163b, e);
+            error.native_open_bin_corrupted = MissionSceneInput::root_header_at_eof(bytes);
+            error
+        })?;
         self.cursor = input.cursor();
         let result = self.read_root(
             driver,
@@ -1023,7 +1033,11 @@ impl MissionSceneLoader {
             car_installation,
         );
         self.cursor = input.cursor();
-        result.map_err(|(entry, detail)| self.error(entry, detail))
+        result.map_err(|(entry, detail)| {
+            let mut error = self.error(entry, detail);
+            error.native_open_bin_corrupted = input.native_header_eof();
+            error
+        })
     }
     fn prepare_camera<S: SceneScreen>(
         &mut self,
