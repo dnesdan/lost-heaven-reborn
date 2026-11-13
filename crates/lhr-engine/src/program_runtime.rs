@@ -129,7 +129,9 @@ pub use remaining_parameters::{
 };
 
 fn read_game_clock(clock: &Option<GameClockSource>) -> Result<u32, RuntimeError> {
-    clock.as_ref().and_then(GameClockSource::read)
+    clock
+        .as_ref()
+        .and_then(GameClockSource::read)
         .map(|time| time as u32)
         .ok_or(RuntimeError::Domain("game clock owner unavailable"))
 }
@@ -1078,11 +1080,15 @@ impl RuntimeFields {
 }
 pub trait RuntimeBackend {
     /// A retained shared stream; absent owners fail only when RND reaches a draw.
-    fn random_source(&self) -> Option<GameRandomSource> { None }
+    fn random_source(&self) -> Option<GameRandomSource> {
+        None
+    }
 
     /// Bind a live game clock at Init. Allocation-only backends may omit it;
     /// reached time operations refuse rather than invent program-local time.
-    fn game_clock(&self) -> Option<GameClockSource> { None }
+    fn game_clock(&self) -> Option<GameClockSource> {
+        None
+    }
     fn effect(
         &mut self,
         fields: RuntimeView<'_>,
@@ -3608,10 +3614,6 @@ enum Advance {
     DetectorNext,
 }
 
-/// Original MSVC rand() used by RND: linear congruential step 214013/2531011
-/// with the high 15 bits out. RAND_MAX is 0x7fff.
-
-
 /// Original `1.0f / RAND_MAX` multiplier, evaluated once as in the C
 /// translation unit.
 const RAND_MAX_RECIPROCAL: f32 = 1.0 / 32767.0;
@@ -3840,9 +3842,9 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     *self.command_time = 0;
                     state.program_counter = target;
                     if is_event && back_in_time && !self.leave_compact_block(state, false) {
-                        *self.command_time = self
-                            .event_command_time
-                            .wrapping_add(read_game_clock(self.game_clock)?.wrapping_sub(*self.event_time));
+                        *self.command_time = self.event_command_time.wrapping_add(
+                            read_game_clock(self.game_clock)?.wrapping_sub(*self.event_time),
+                        );
                     }
                     if self.flags.stop_at_return {
                         self.flags.stop_at_return = false;
@@ -3991,7 +3993,10 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                     // The original calls rnd(range) for range > 1 and the
                     // float rnd() otherwise; rnd(int) itself guards n < 1,
                     // which the range check already excludes here.
-                    let raw = self.random_source.as_ref().cloned()
+                    let raw = self
+                        .random_source
+                        .as_ref()
+                        .cloned()
                         .and_then(|mut source| source.next_raw())
                         .ok_or(RuntimeError::Domain("game random owner unavailable"))?;
                     let sample = if range > 1 {

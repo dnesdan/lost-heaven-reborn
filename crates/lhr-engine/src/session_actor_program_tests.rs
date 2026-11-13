@@ -136,15 +136,27 @@ fn entity_and_detector_passes_share_one_session_clock() {
     for phase in 0..2 {
         let mut budget = DispatchBudget::new(32).unwrap();
         for kind in [ActorProgramKind::Entity, ActorProgramKind::Detector] {
-            assert_eq!(tick(&mut session, kind, &mut budget, &mut diagnostic), Ok(1));
-            let bank = program(&session, kind).runtime().unwrap().fields.floats.as_deref().unwrap();
+            assert_eq!(
+                tick(&mut session, kind, &mut budget, &mut diagnostic),
+                Ok(1)
+            );
+            let bank = program(&session, kind)
+                .runtime()
+                .unwrap()
+                .fields
+                .floats
+                .as_deref()
+                .unwrap();
             if phase == 0 {
                 assert_eq!(bank, &[99.0, 99.0, 0.0, 0.0]);
             } else {
                 assert_eq!(bank, &[99.0, 99.0, 120.0, 120.0]);
             }
         }
-        assert_eq!(session.game_state().get_game_time(), if phase == 0 { 99 } else { 120 });
+        assert_eq!(
+            session.game_state().get_game_time(),
+            if phase == 0 { 99 } else { 120 }
+        );
         if phase == 0 {
             assert_eq!(session.advance_owned_game_time(21).unwrap(), 120);
             for kind in [ActorProgramKind::Entity, ActorProgramKind::Detector] {
@@ -471,10 +483,21 @@ fn entity_and_detector_passes_consume_the_same_session_random_stream() {
         initialize(&mut session, kind, &mut diagnostic).unwrap();
     }
     let mut budget = DispatchBudget::new(64).unwrap();
-    for (kind, expected) in [(ActorProgramKind::Entity, 41.0), (ActorProgramKind::Detector, 67.0)] {
+    for (kind, expected) in [
+        (ActorProgramKind::Entity, 41.0),
+        (ActorProgramKind::Detector, 67.0),
+    ] {
         tick(&mut session, kind, &mut budget, &mut diagnostic).unwrap();
-        assert_eq!(program(&session, kind).runtime().unwrap().fields
-            .floats.as_ref().unwrap()[0], expected);
+        assert_eq!(
+            program(&session, kind)
+                .runtime()
+                .unwrap()
+                .fields
+                .floats
+                .as_ref()
+                .unwrap()[0],
+            expected
+        );
     }
     assert_eq!(session.game_state().random_source().next_raw(), Some(6334));
     finish(&mut session);
