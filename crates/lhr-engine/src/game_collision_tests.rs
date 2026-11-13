@@ -338,6 +338,19 @@ fn absent_or_foreign_source_returns_with_the_previous_level_deleted() {
         owner.load_collision("d", true, &mut scene),
         Err(LoadCollisionError::TruncatedHeader)
     );
+    // A short file still gets the native magic compare on its real bytes.
+    let mut scene = Scene::with(b"GifDxxxx".to_vec());
+    assert_eq!(
+        owner.load_collision("e", true, &mut scene),
+        Ok(LoadCollisionOutcome::MagicMismatch)
+    );
+    let mut short = fixture(2.0);
+    short.truncate(8);
+    let mut scene = Scene::with(short);
+    assert_eq!(
+        owner.load_collision("f", true, &mut scene),
+        Err(LoadCollisionError::TruncatedHeader)
+    );
 }
 
 #[test]

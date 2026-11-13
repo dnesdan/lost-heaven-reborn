@@ -697,13 +697,16 @@ impl GameCollision {
         else {
             return Ok(LoadCollisionOutcome::SourceAbsent);
         };
+        // dtaRead(0x18) keeps the bytes that exist, so the magic compare at
+        // 0x5c2bc0 sees a short file's real first word; only a matching
+        // magic goes on to need the whole header.
+        if bytes.len() >= 4 && u32::from_le_bytes(bytes[..4].try_into().unwrap()) != KLZ_MAGIC {
+            return Ok(LoadCollisionOutcome::MagicMismatch);
+        }
         if bytes.len() < HEADER_BYTES {
             return Err(LoadCollisionError::TruncatedHeader);
         }
         let word = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
-        if word(0) != KLZ_MAGIC {
-            return Ok(LoadCollisionOutcome::MagicMismatch);
-        }
         let data_offset = word(8) as usize;
         let link_count = word(12) as usize;
         if data_offset > bytes.len() {

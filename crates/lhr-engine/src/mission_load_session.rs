@@ -534,6 +534,9 @@ impl MissionLoadSession {
             // ls3df/I3D/I3d_driver.cpp:218) and Game's driver init sets it
             // again (game/Main.cpp:749), so every named frame enters the
             // fast-find tree that LoadCollision's FindFrameFast walks.
+            // C_game::Init saves RS_FAST_FIND, clears it and restores it
+            // (game.cpp:361-362, 940); an Init owner must toggle this flag
+            // the same way so frames created during Init stay out of it.
             arena: {
                 let mut arena = ModelArena::default();
                 arena.set_fast_find_enabled(true);
@@ -1067,8 +1070,10 @@ impl MissionLoadSession {
     /// live mission Scene. Frame lookup and the frame type are the arena's.
     /// `SetSpace(true)` of a resolved visual link and the LOD0 vertex lock
     /// have no live session owner yet; reaching either stops the step with
-    /// the owner left as native leaves it at that point (previous level
-    /// deleted, `level_size` stored, no level published).
+    /// the owner left as native leaves it at that point. A `SetSpace` stop
+    /// is in the link loop: previous level deleted, `level_size` stored, no
+    /// level published. A LOD0-lock stop comes after the publish at
+    /// g_c_glob.cpp:164: the level is installed with phase `VolumesBound`.
     pub fn load_collision_for_new_mission(&mut self, mission: &str) -> Result<(), String> {
         self.open_terminal_guard()?;
         Self::validate_open_mission_name(mission)?;
