@@ -104,7 +104,7 @@ fn squared_distance(a: [f32; 3], b: [f32; 3]) -> Result<f32, CollisionPreparatio
     )
 }
 
-fn load_triangle(
+pub(crate) fn load_triangle(
     properties: u32,
     vertices: [[f32; 3]; 3],
     stored_plane: [f32; 4],

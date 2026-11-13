@@ -102,6 +102,7 @@ pub mod game_camera_begin;
 pub mod game_camera_projection;
 pub mod game_camera_reset;
 pub mod game_camera_tick_prologue;
+pub mod game_collision;
 pub mod game_controls;
 pub mod game_crash_registry;
 pub mod game_definition_tables;

@@ -17572,6 +17572,24 @@
       "symbol": "lhr_engine::vehicle_damage::vehicle_breakage_dispatch",
       "tier": "differential",
       "evidence": "REA complete 76-insn walk (entry ev_f0711b3024, null-JNZ ev_5d97ebeb2b, div-magic ev_0ff51ca352, found-JZ ev_6aa22da91e, JL-epilogue ev_495067415b, AND-mask ev_8119cd7e35, bit0-JZ ev_b7e20746fb, bit1-JZ ev_aa297afec3, slot70 ev_affd15bcb, slot18 ev_7735767a13, slot5c+1.0f ev_c13701cd50, slot18 ev_96e31ff811, RET ev_f057bb380f) + DoDamage lamp arm (FLD ev_31f40b1525, index/side pushes ev_749cf1c4f9/ev_4e50e96d13/ev_8d8e8d2b70, CALL ev_1723b9e1be); pinning tests (null/empty/no-match/AND-mask/source-select/first-record); breakage virtuals staged via session queue (unknown receiver classes), exact record/flag writes in sim backend; live MISE01 lamp event drives through"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c28d0",
+      "va": "0x5c28d0",
+      "name": "g_collision::DeleteCollsLevel",
+      "symbol": "lhr_engine::game_collision::GameCollision::delete_colls_level",
+      "tier": "contract",
+      "evidence": "mafia-re fe7e746 game/collision/g_c_glob.cpp:23-41 (PS2 name); typed session owner frees level and dyn grid, keeps level_size/step_actor/LoadedLevel; pin tests game_collision 6 pass"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1c2b70",
+      "va": "0x5c2b70",
+      "name": "g_collision::LoadCollision",
+      "symbol": "lhr_engine::game_collision::GameCollision::load_collision",
+      "tier": "contract",
+      "evidence": "REA ev_f037ca6372 complete 0x5c2b70..0x5c3561 walk (step_actor clear, DeleteCollsLevel call, magic JNZ 0x5c2bc8, level_size store 0x5c2c4e before links, vtable+0x84 FindFrameFast, +0x110 type gate, vtable+0x50 SetSpace(1) 0x5c2d04, LoadedLevel 0x5c2d0f, LOD0 GetLOD(0)/LockVertices(1) 0x5c2f34/0x5c2f3c, disable 0x20 0x5c322a, ftol dyn grid + unsigned raise 0x5c343e, GrantCoherence 0x5c3554) + mafia-re g_c_glob.cpp:123-317; synthetic KLZ pin tests (call order, early returns, SetSpace stop, dyn grid); live MISE01 stops at SetSpace link 5993"
     }
   ],
   "vm": {
