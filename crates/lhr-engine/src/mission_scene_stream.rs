@@ -39,6 +39,17 @@ impl<'a> MissionSceneInput<'a> {
     pub fn root_header_at_eof(bytes: &[u8]) -> bool {
         bytes.len() < 6
     }
+    /// `next_chunk` for the native loops that ignore RAscend's result (sector
+    /// sound data and lensflare fields, mafia-re Mission.cpp:1224, 1244,
+    /// 1278): a failed header read there has no `goto fail`, so it is never
+    /// OPENBIN_CORRUPTED and stays a host decode stop.
+    pub fn next_chunk_ascend_unchecked(&mut self) -> Result<Option<Chunk<'a>>, String> {
+        let result = self.next_chunk();
+        if result.is_err() {
+            self.native_header_eof = false;
+        }
+        result
+    }
     /// Whether the sticky decode error is a header read that native RAscend
     /// also fails (end of file). Extent checks and a header truncated only
     /// by its container are host validation: native reads on across them.

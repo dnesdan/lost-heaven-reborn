@@ -1,4 +1,12 @@
-//! Ordered main-menu new-game mission start, not a substitute for the owners.
+//! Ordered mission start on a fresh session, not a substitute for the owners.
+//!
+//! Scope: the intro leg (game/Main.cpp:373-384: Close, Open("intro"),
+//! LoadCollision, ResetMissionNumbers, Init, GameLoopSingle) is NOT composed.
+//! Natively the Close at Main.cpp:385 therefore runs with the intro mission
+//! opened and is a full `C_mission::Close` (Mission.cpp:510-545). Here it runs
+//! on a fresh session, where the native `!opened` early return applies. That
+//! precondition is recorded as [`NewMissionScope`] on every attempt, so a
+//! returned Init is never reported as the complete native new-game path.
 //!
 //! Reference: mafia-re `113b5b6`, game/Main.cpp:385-396, the
 //! `MAINMENU_NEW_GAME` continuation after the intro:
@@ -26,10 +34,21 @@ use crate::game_init_order::{InitAttempt, InitRunError, SessionInitError};
 use crate::mission_load_session::{MissionLoadSession, MissionSourceOpenError};
 use crate::mission_open_order::{OpenAttempt, OpenResult};
 
+/// What this composition covers of the native `MAINMENU_NEW_GAME` case.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NewMissionScope {
+    /// Main.cpp:385-396 on a fresh session. The intro leg (Main.cpp:373-384)
+    /// was not composed, so the native full Close of the open intro mission
+    /// is replaced by the not-opened early return.
+    FreshSessionIntroNotComposed,
+}
+
 /// Descriptive call boundaries of the Main.cpp new-game block.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NewMissionStep {
-    /// Outer `act_mission->Close()`: native returns at once when not opened.
+    /// Outer `act_mission->Close()`. Natively the intro mission is open here
+    /// (full Close); on the fresh session this composition requires, only
+    /// the `!opened` early return is reachable.
     ClosePrevious,
     /// `act_mission->Open(name, false, -1, true)`; a nonzero result leaves
     /// through `CloseSystem` without any later step.
@@ -59,8 +78,9 @@ impl NewMissionStep {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NewMissionResult {
-    /// `game->Init()` returned. `GameLoopSingle` was not entered; this is
-    /// not playable startup.
+    /// `game->Init()` returned within [`NewMissionScope`]: the intro leg was
+    /// not composed and `GameLoopSingle` was not entered. This is not the
+    /// complete native new-game path and not playable startup.
     InitReturned,
     /// Open returned nonzero; native leaves through `CloseSystem`.
     OpenFailed(OpenResult),
@@ -103,6 +123,13 @@ pub struct NewMissionAttempt {
 }
 
 impl NewMissionAttempt {
+    /// The recorded composition precondition; constant for every attempt.
+    pub const SCOPE: NewMissionScope = NewMissionScope::FreshSessionIntroNotComposed;
+
+    pub fn scope(&self) -> NewMissionScope {
+        Self::SCOPE
+    }
+
     pub fn entered(&self) -> bool {
         self.entered
     }

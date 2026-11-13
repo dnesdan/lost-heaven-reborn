@@ -2608,7 +2608,10 @@ impl MissionSceneLoader {
             return Ok(());
         }
         input.enter_current().map_err(|e| (0x54432b, e))?;
-        while let Some(field) = input.next_chunk().map_err(|e| (0x544378, e))? {
+        while let Some(field) = input
+            .next_chunk_ascend_unchecked()
+            .map_err(|e| (0x544378, e))?
+        {
             let data = if matches!(field.kind, 20 | 21) {
                 {
                     let data = input.read(12).map_err(|e| (0x54443b, e))?;
@@ -2781,6 +2784,55 @@ mod tests {
             );
             arena.release(destination.root()).unwrap();
             arena.release(model.root()).unwrap();
+        });
+    }
+    /// A child header cut off at end of file inside a loop whose native
+    /// RAscend result is ignored (Mission.cpp:1278) is a host decode stop,
+    /// never OPENBIN_CORRUPTED; the same bytes through the checked reader are.
+    #[test]
+    fn lensflare_header_eof_is_not_native_open_bin_corruption() {
+        with_scene(|_, arena, _, _, scene| {
+            let (model, key) = lensflare_fixture(arena);
+            let mut loader =
+                MissionSceneLoader::new(arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
+            loader.version[0] = Some(5);
+            loader.current_frame = Some(arena.lookup_reference(key));
+            let mut children = chunk(0xb112, &7f32.to_le_bytes());
+            children.extend([1, 2, 3]);
+            let bytes = chunk(0x4c53, &chunk(0xb110, &children));
+            let mut input = MissionSceneInput::new(&bytes).unwrap();
+            input.next_chunk().unwrap();
+            let (entry, _) = loader
+                .read_lensflare_parameters(arena, &mut input)
+                .unwrap_err();
+            assert_eq!(entry, 0x543ec7);
+            assert!(!input.native_header_eof());
+            let mut checked = MissionSceneInput::new(&bytes).unwrap();
+            checked.next_chunk().unwrap();
+            checked.enter_current().unwrap();
+            checked.next_chunk().unwrap();
+            checked.close_current().unwrap();
+            assert!(checked.next_chunk().is_err());
+            assert!(checked.native_header_eof());
+            arena.release(model.root()).unwrap();
+        });
+    }
+    /// The sector sound-data loops ignore RAscend's result natively
+    /// (Mission.cpp:1224, 1244), so a header cut off at end of file stays a
+    /// host decode stop.
+    #[test]
+    fn sector_sound_header_eof_is_not_native_open_bin_corruption() {
+        with_scene(|_, arena, _, _, scene| {
+            let primary = arena.scene(scene).unwrap().sectors[0];
+            let mut loader =
+                MissionSceneLoader::new(arena, scene).unwrap_or_else(|e| panic!("{}", e.detail));
+            loader.current_frame = Some(arena.lookup_reference(primary.0));
+            let bytes = chunk(0x4c53, &chunk(0xb200, &[1, 2, 3]));
+            let mut input = MissionSceneInput::new(&bytes).unwrap();
+            input.next_chunk().unwrap();
+            let (entry, _) = loader.read_sector_sound(arena, &mut input).unwrap_err();
+            assert_eq!(entry, 0x544378);
+            assert!(!input.native_header_eof());
         });
     }
     #[test]

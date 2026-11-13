@@ -956,11 +956,13 @@ impl MissionLoadSession {
         Ok(())
     }
 
-    /// Outer `act_mission->Close()` before a new-game `Open` (mafia-re
-    /// game/Main.cpp:385, `C_mission::Close` Mission.cpp:510-545). Native
-    /// returns at once when `opened` is clear, which is the only state this
-    /// session can admit; an opened mission's full Close (game Done,
-    /// DelActors, programs, scene Close) has no owner in this session.
+    /// Outer `act_mission->Close()` before the mission `Open` (mafia-re
+    /// game/Main.cpp:385, `C_mission::Close` Mission.cpp:510-545). Natively
+    /// the intro mission (Main.cpp:373-384) is open here and this is a full
+    /// Close; that intro leg is not composed, so this step requires a fresh
+    /// session, where the native `!opened` early return applies. An opened
+    /// mission's full Close (game Done, DelActors, programs, scene Close) has
+    /// no owner in this session and stops instead.
     pub fn close_before_new_mission(&mut self) -> Result<(), String> {
         self.open_terminal_guard()?;
         if self.open_mission_opened {

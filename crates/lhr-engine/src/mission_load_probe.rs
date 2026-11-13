@@ -479,7 +479,8 @@ pub fn run(
         size: PROBE_SIZE,
         viewport: [0, 0, PROBE_SIZE[0], PROBE_SIZE[1]],
     };
-    // Main.cpp new-game composition: outer Close, the single ordered
+    // Mission start on a fresh session (Main.cpp:385-396; the intro leg
+    // Main.cpp:373-384 is not composed): outer Close, the single ordered
     // C_mission::Open, then LoadCollision, ResetMissionNumbers,
     // SaveGameNewGame and game->Init, stopping at the first unavailable owner.
     let mut render = ProbeOpenRender::default();
@@ -543,7 +544,8 @@ pub fn run(
     };
     writeln!(
         report,
-        "New-game mission start (Main.cpp order): {new_mission_status}; reached={:?}; mission numbers (next, current)={:?}; composed GameInit entered={}",
+        "Mission start on a fresh session (Main.cpp:385-396 order; intro leg Main.cpp:373-384 not composed, scope={:?}): {new_mission_status}; reached={:?}; mission numbers (next, current)={:?}; composed GameInit entered={}",
+        new_mission.scope(),
         new_mission.reached(),
         session.mission_numbers(),
         new_mission.init().entered()

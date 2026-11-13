@@ -90,6 +90,11 @@ fn opened_mission_runs_main_new_game_order_through_init() {
     assert_eq!(ops.calls, expected_calls(NewMissionStep::ORDER));
     assert_eq!(attempt.open_result(), Some(OpenResult::Opened));
     assert_eq!(attempt.last(), Some(NewMissionStep::GameInit));
+    // Even a returned Init stays scoped: the intro leg was not composed.
+    assert_eq!(
+        attempt.scope(),
+        NewMissionScope::FreshSessionIntroNotComposed
+    );
 }
 
 #[test]

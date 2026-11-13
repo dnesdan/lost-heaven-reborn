@@ -408,7 +408,12 @@ fn session_vm_admission_preserves_not_started_stopped_and_terminal_owners() {
     let missing = Fixture::new(None, Some(&bytes), None);
     let mut before_load = fixture.session();
     let mut stopped = missing.session();
-    assert_eq!(load(&mut stopped, &[]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut stopped, &[]),
+        Err(LoadStop::Step(
+            crate::mission_open_order::OpenStep::OpenWorld
+        ))
+    );
     let first_failure = format!("{:?}", stopped.failure());
     let mut terminal = loaded(&fixture);
     discard(&mut terminal);

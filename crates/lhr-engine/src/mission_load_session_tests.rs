@@ -13,6 +13,7 @@ mod program_disposal;
 #[path = "mission_load_session_program_tests.rs"]
 mod program_world;
 use crate::frame_transform::FrameKey;
+use crate::mission_open_order::OpenStep;
 use crate::mission_resources::ModelCachePhase;
 use crate::model_loading::{CpuSceneWorldPhase, ModelKey};
 use crate::scene_resources::SceneScreen;
@@ -94,7 +95,14 @@ enum LoadStop {
     Admission(MissionLoadCallError),
     /// A native early return (`NoMedia`/`OpenBinFailed`), not a host error.
     NotOpened(crate::mission_open_order::OpenResult),
-    Stopped,
+    /// Startup/cache/sound/Scene construction stopped before the driver.
+    Bootstrap,
+    /// The ordered driver's callback stopped at this boundary.
+    Step(crate::mission_open_order::OpenStep),
+    SessionNotFresh,
+    MissionAlreadyOpened,
+    InvalidMissionName,
+    AttemptReplayed,
 }
 
 /// Camera-less headless Render: native I3D_driver::Render (LS3DF
@@ -214,7 +222,7 @@ fn load_with(
     directories: &[&[u8]],
     screen: &mut Screen,
 ) -> Result<(), LoadStop> {
-    use crate::mission_open_order::OpenResult;
+    use crate::mission_open_order::{OpenResult, OpenRunError};
     match session.open_source_in_order(
         &mut crate::mission_open_order::OpenAttempt::default(),
         "synthetic",
@@ -226,7 +234,16 @@ fn load_with(
         Ok(OpenResult::Opened) => Ok(()),
         Ok(outcome) => Err(LoadStop::NotOpened(outcome)),
         Err(MissionSourceOpenError::Admission(error)) => Err(LoadStop::Admission(error)),
-        Err(_) => Err(LoadStop::Stopped),
+        Err(MissionSourceOpenError::BootstrapStopped) => Err(LoadStop::Bootstrap),
+        Err(MissionSourceOpenError::Open(OpenRunError::Callback(failure))) => {
+            Err(LoadStop::Step(failure.step))
+        }
+        Err(MissionSourceOpenError::Open(OpenRunError::AlreadyEntered)) => {
+            Err(LoadStop::AttemptReplayed)
+        }
+        Err(MissionSourceOpenError::SessionNotFresh) => Err(LoadStop::SessionNotFresh),
+        Err(MissionSourceOpenError::MissionAlreadyOpened) => Err(LoadStop::MissionAlreadyOpened),
+        Err(MissionSourceOpenError::InvalidMissionName(_)) => Err(LoadStop::InvalidMissionName),
     }
 }
 /// Ordered Open sets native `restore_volume` before OpenBin. Consume it with
@@ -263,7 +280,10 @@ fn discard(session: &mut MissionLoadSession) {
 fn missing_world_preserves_real_scene_and_first_error_without_reentry() {
     let fixture = Fixture::new(None, Some(&scene2(&[])), None);
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(LoadStop::Step(OpenStep::OpenWorld))
+    );
     assert_eq!(session.phase(), MissionLoadPhase::World);
     assert_eq!(
         session.world_progress().unwrap().phase(),
@@ -301,8 +321,8 @@ fn missing_world_preserves_real_scene_and_first_error_without_reentry() {
 fn missing_scene2_retains_world_transfer_without_map_or_camera_creation() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), None, None);
     let mut session = fixture.session();
-    // Absent scene2.bin is the native nonzero OpenBin return, after the map
-    // was created from the live Scene; no host error is retained.
+    // Absent scene2.bin is the native nonzero OpenBin (OPENBIN_NOFILE)
+    // return before any map or camera setup; no host error is retained.
     assert_eq!(
         load(&mut session, &[]),
         Err(LoadStop::NotOpened(
@@ -337,7 +357,10 @@ fn malformed_actor_root_is_the_exact_frontier_and_does_not_run_later_objects() {
     );
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(LoadStop::Step(OpenStep::OpenBin))
+    );
     assert_eq!(session.phase(), MissionLoadPhase::Scene2Prefix);
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong frontier: {:?}", session.failure());
@@ -484,7 +507,10 @@ fn malformed_model_stops_cache_call_and_terminal_discard_preserves_interrupted_r
         Some(b"synthetic invalid 4DS"),
     );
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[b"Models"]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut session, &[b"Models"]),
+        Err(LoadStop::Step(OpenStep::OpenBin))
+    );
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong frontier: {:?}", session.failure());
     };
@@ -673,7 +699,10 @@ fn failed_world_geometry_uses_actual_staging_disposal_before_scene_release() {
         .arena
         .sector_storage_mut()
         .fail_on_allocation(Some(1));
-    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(LoadStop::Step(OpenStep::OpenWorld))
+    );
     assert_eq!(session.phase(), MissionLoadPhase::World);
     let progress = session.world_progress().unwrap();
     assert_eq!(progress.phase(), CpuSceneWorldPhase::Geometry);
@@ -705,7 +734,10 @@ fn failed_world_prepare_preserves_scene_ownership_and_the_actual_cleanup_refusal
         .arena
         .sector_storage_mut()
         .fail_on_allocation(Some(3));
-    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(LoadStop::Step(OpenStep::OpenWorld))
+    );
     assert_eq!(session.phase(), MissionLoadPhase::World);
     assert!(matches!(
         session.failure().unwrap().cause,
@@ -1006,7 +1038,10 @@ fn sound_cache_error_retains_first_scene2_prefix_and_refused_destructor() {
     let fixture = Fixture::new(Some(&world(&[])), Some(&bytes), None);
     std::fs::write(fixture.0.join("Sounds/broken.wav"), b"not PCM WAV").unwrap();
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(LoadStop::Step(OpenStep::OpenBin))
+    );
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("expected first Scene2 Sound Open failure");
     };
@@ -1046,7 +1081,7 @@ fn early_constructor_failure_is_retained_and_cannot_be_force_destroyed() {
     };
     assert_eq!(
         load_with(&mut session, &[], &mut screen),
-        Err(LoadStop::Stopped)
+        Err(LoadStop::Bootstrap)
     );
     assert_eq!(screen.calls, 1);
     assert!(matches!(
@@ -1536,7 +1571,10 @@ fn unsupported_named_actor_stops_at_kind_read_and_preserves_prior_program_and_ac
         None,
     );
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(LoadStop::Step(OpenStep::OpenBin))
+    );
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong failure");
     };
@@ -1770,7 +1808,10 @@ fn padded_kind_field_is_closed_before_factory_failure_and_preserves_registered_p
         None,
     );
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(LoadStop::Step(OpenStep::OpenBin))
+    );
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong failure");
     };
@@ -1820,7 +1861,10 @@ fn interrupted_program_source_retains_pending_owner_and_does_not_push_or_visit_l
     );
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(LoadStop::Step(OpenStep::OpenBin))
+    );
     let MissionLoadCause::Scene2Prefix(error) = &session.failure().unwrap().cause else {
         panic!("wrong failure");
     };
@@ -1905,7 +1949,10 @@ fn failed_derived_load_data_keeps_registration_and_pending_bytes_then_disposes_r
     );
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"world part")])), Some(&bytes), None);
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
+    assert_eq!(
+        load(&mut session, &[]),
+        Err(LoadStop::Step(OpenStep::OpenBin))
+    );
     let loader = session.loader().unwrap();
     let actor = loader.content.actors.world.source(ActorSource::Primary)[0].unwrap();
     let frame = loader.load_map.map.slot(b"world part").flatten().unwrap();
@@ -2079,7 +2126,7 @@ fn startup_patch_failure_retains_complete_file_and_record_prefix_before_scene_cr
     );
     write_patch(&fixture, "a4.bin", &patch_rows(b"must not load\0"));
     let mut session = fixture.session();
-    assert_eq!(load(&mut session, &[]), Err(LoadStop::Stopped));
+    assert_eq!(load(&mut session, &[]), Err(LoadStop::Bootstrap));
     assert_eq!(session.phase(), MissionLoadPhase::StartupPatches);
     assert_eq!(
         session.startup_patches().phase(),
