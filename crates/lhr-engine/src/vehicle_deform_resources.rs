@@ -129,6 +129,7 @@ impl LoadedVisualResources {
             .backend
             .get_graphics_mut(graphics)?
             .bytes
+            .borrow()
             .get(offset..end)
             .ok_or(LoadedVisualError::InvalidGeometry)
             .map(<[u8]>::to_vec);

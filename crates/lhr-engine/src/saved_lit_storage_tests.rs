@@ -250,7 +250,8 @@ fn selected_vertex_lods_use_actual_typed_manager_layout_and_live_bytes() {
             .backend
             .get_graphics_mut(GraphicsBuffer::Vertex(descriptor.graphics.unwrap()))
             .unwrap();
-        actual.bytes[descriptor.base as usize * 24 + 12..descriptor.base as usize * 24 + 16]
+        actual.bytes.borrow_mut()
+            [descriptor.base as usize * 24 + 12..descriptor.base as usize * 24 + 16]
             .copy_from_slice(&0x00f10203u32.to_le_bytes());
         let view = owner
             .inspection_mesh_at_lod(object, 0, 10)
@@ -263,6 +264,7 @@ fn selected_vertex_lods_use_actual_typed_manager_layout_and_live_bytes() {
             panic!()
         };
         assert_eq!(colors[0], near[0]); // No decoded-payload fallback hides the live manager change.
+        drop(view);
         f.close();
     }
 }
@@ -285,11 +287,12 @@ fn expanded_lightmap_geometry_indices_and_uvs_come_from_the_managed_lod() {
         ),
         (32, 4, Some(16))
     );
-    assert_eq!(view.groups[0].index_bytes, [1, 0, 2, 0, 0, 0]);
+    assert_eq!(*view.groups[0].index_bytes, [1, 0, 2, 0, 0, 0]);
     assert_eq!(
         f32::from_le_bytes(view.vertex_bytes[4..8].try_into().unwrap()),
         2.
     );
+    drop(view);
     let key = lod_key(owner, object, 0, 0);
     let storage = owner.objects.lit_lod_storage(key).unwrap();
     let ib = storage.index_buffer;
@@ -298,13 +301,15 @@ fn expanded_lightmap_geometry_indices_and_uvs_come_from_the_managed_lod() {
         .backend
         .get_graphics_mut(GraphicsBuffer::Index(ib.graphics.unwrap()))
         .unwrap()
-        .bytes[ib.base as usize * 2..ib.base as usize * 2 + 2]
+        .bytes
+        .borrow_mut()[ib.base as usize * 2..ib.base as usize * 2 + 2]
         .copy_from_slice(&3u16.to_le_bytes());
     owner
         .backend
         .get_graphics_mut(GraphicsBuffer::Vertex(vb.graphics.unwrap()))
         .unwrap()
-        .bytes[vb.base as usize * 32 + 16..vb.base as usize * 32 + 20]
+        .bytes
+        .borrow_mut()[vb.base as usize * 32 + 16..vb.base as usize * 32 + 20]
         .copy_from_slice(&0.125f32.to_le_bytes());
     let model = f.model;
     let snapshot = crate::car_inspection::snapshot_arena_tree(&mut f.arena, model.root()).unwrap();
@@ -347,6 +352,7 @@ fn source_vertex_writes_rebuild_the_selected_vb_and_retain_its_actual_ib() {
         f32::from_le_bytes(view.vertex_bytes[32..36].try_into().unwrap()),
         3.
     );
+    drop(view);
     let counts = owner.objects.lit_storage_counts();
     assert_eq!(
         (
@@ -507,7 +513,7 @@ fn reused_incompatible_vb_layout_is_refused_before_writing_any_shared_block() {
         .get_graphics_mut(GraphicsBuffer::Vertex(descriptor.graphics.unwrap()))
         .unwrap();
     assert_eq!(
-        &actual.bytes[descriptor.base as usize * 32..descriptor.base as usize * 32 + 96],
+        &actual.bytes.borrow()[descriptor.base as usize * 32..descriptor.base as usize * 32 + 96],
         &[0xa5; 96]
     );
     assert!(owner.incomplete);
@@ -685,7 +691,8 @@ fn actual_managed_saved_buffers_feed_gpu_vertex_and_dual_uv_lightmap_draws() {
                     .unwrap();
                 for i in 0..3 {
                     let at = (descriptor.base as usize + i) * 24 + 12;
-                    graphics.bytes[at..at + 4].copy_from_slice(&0x00ff2060u32.to_le_bytes());
+                    graphics.bytes.borrow_mut()[at..at + 4]
+                        .copy_from_slice(&0x00ff2060u32.to_le_bytes());
                 }
                 let snapshot =
                     crate::car_inspection::snapshot_arena_tree(&mut f.arena, model.root()).unwrap();

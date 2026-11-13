@@ -117,6 +117,7 @@ fn lit_constructor_private_geometry_class_witness_and_close_use_one_owner() {
         f32::from_le_bytes(view.vertex_bytes[20..24].try_into().unwrap()),
         0.75
     );
+    drop(view);
     arena.close(model).unwrap();
     let resources = arena.loaded_visual_resources().unwrap();
     assert!(resources.objects().object(object).is_err());

@@ -554,8 +554,8 @@ mod tests {
         assert_eq!(materials.material(old_key).unwrap().references, 1);
         assert_eq!(materials.material(replacement_key).unwrap().references, 2);
         let view = resources.inspection_mesh(object, 1).unwrap().unwrap();
-        assert_eq!(view.vertex_bytes, before.0);
-        assert_eq!(view.groups[0].index_bytes, before.1);
+        assert_eq!(*view.vertex_bytes, before.0);
+        assert_eq!(*view.groups[0].index_bytes, before.1);
         assert_eq!(view.groups[0].texture_identity, Some(texture));
         assert_eq!(view.groups[0].texture.unwrap().rgba, [21, 21, 21, 255]);
         assert_eq!(
@@ -569,6 +569,7 @@ mod tests {
             ),
             (before.2, before.3)
         );
+        drop(view);
         // Repeating SetMaterial with the same sole/group identity is a no-op.
         backend.game_virtual(group, 0, &[replacement]).unwrap();
         assert_eq!(

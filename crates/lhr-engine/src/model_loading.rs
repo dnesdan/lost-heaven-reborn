@@ -25,6 +25,8 @@ mod crash_duplicate;
 mod glass;
 #[path = "model_morph.rs"]
 mod morph;
+#[path = "model_object_space.rs"]
+mod object_space;
 /// Re-exported morph word helpers so the rewrite-overlay symbol paths
 /// (`model_loading::morph_ctor_fields`, …) resolve literally and not only
 /// through the validator's `#[path]` fallback.
@@ -33,6 +35,7 @@ pub use morph::{
     morph_set_mesh_tail, morph_teardown_order, MorphCtorFields, MorphDefCtorError, MorphDefFields,
     MorphDefRelease, MORPH_BBOX_MAX_WORD, MORPH_BBOX_MIN_WORD, MORPH_MAGIC,
 };
+pub use object_space::ObjectSpaceWorld;
 
 use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
 use crate::joint_state::{I3dJointState, SinglemeshInvalidationState};
@@ -251,6 +254,22 @@ pub enum ModelError {
     OwnershipCycle,
     NestedDestructionUnavailable(FrameKey),
     UnknownActorDataRecord(crate::actor_frames::ActorDataRecordId),
+    /// `SetSpace(true)` reached a visual whose override has no owner here
+    /// (only the plain and lit objects' `I3D_object::SetSpace` is supported).
+    SetSpaceUnsupportedVisual(FrameKey),
+    /// A `SetSpace` bake value left the guarded PC24 arithmetic domain.
+    SetSpaceNumeric(FrameKey),
+    /// `LockVertices` returned null for a level with vertices to transform,
+    /// which native would dereference.
+    VertexLockUnavailable {
+        frame: FrameKey,
+        index: u32,
+    },
+    /// `GetLOD(index)` returned null where native calls through it.
+    MeshLodUnavailable {
+        frame: FrameKey,
+        index: u32,
+    },
 }
 impl From<FrameError> for ModelError {
     fn from(e: FrameError) -> Self {

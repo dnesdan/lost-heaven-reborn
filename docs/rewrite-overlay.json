@@ -2611,9 +2611,9 @@
       "rva": "0x378b0",
       "va": "0x100378b0",
       "name": "I3D_object::SetSpace (upstream working name)",
-      "symbol": "lhr_engine::i3d_object::ObjectResources::set_object_space",
+      "symbol": "lhr_engine::model_loading::ModelArena::set_object_space_world",
       "tier": "contract",
-      "evidence": "Ghidra formed no body; entry/mid probes (TEST 0x40, clear-then-mesh-guard order, OR 0x100000 word) + mafia-re I3d_object.cpp:453-507 + flag/arm tests; bake stays caller backend contract; tier contract per the unresolved-boundary rule"
+      "evidence": "Ghidra formed no body; capstone linear walk 0x378b0..0x37d3f of LS3DF.dll e211c850 (vtable +0x50 of 0x1009c348 plain and 0x1009bd70 lit both 0x378b0): world arm 0x37b09 = WBOUND 0x40000 test -> UpdateWBoundProc 0x5a510, null mesh -> flags (&~0x40000)|0x40, DetachMesh vt+0x74 0x36a70, 0x20-gated UpdateWMatrixProc 0x1c7d0 matrix copy, per-LOD num_lods reread, GetLOD vt+4 0x313f0 null skip, LockVertices(0) vt+4 0x30e80 never released, num_vertices after lock, pos*=m 0x2e920, RotateByMatrix 0x2ea10, inlined Normalize (|len2-1|<f64 0x1009b4c8, len2<1e-8 f32 0x1009b308 sign path x,z,y, else 1/sqrt), UpdateVertices vt+0x78 (0x36a50 plain / 0x21790 lit), UpdateBBox vt+0x28 0x30a50, mesh UpdateBoundVolume vt+0x14 0x31400, final (&~0x40000)|0x40; repeat returns at the first 0x40 test; x87 PC24 with extended exponent, f32 at stores; + mafia-re I3d_object.cpp:453-507; synthetic tests (bake order, live shared buffer, no repeat, shared-mesh detach with byte copy, meshless, unsupported visual, PC24 tiny squares) + MISE01 LoadCollision 613 SetSpace calls installing the level; local arm stays the ObjectResources::set_object_space flag machine (bake unported, unreached); tier contract (no formed body)"
     },
     {
       "binary": "LS3DF.dll",
@@ -17589,7 +17589,7 @@
       "name": "g_collision::LoadCollision",
       "symbol": "lhr_engine::game_collision::GameCollision::load_collision",
       "tier": "contract",
-      "evidence": "REA ev_f037ca6372 complete 0x5c2b70..0x5c3561 walk (step_actor clear, DeleteCollsLevel call, magic JNZ 0x5c2bc8, level_size store 0x5c2c4e before links, vtable+0x84 FindFrameFast, +0x110 type gate, vtable+0x50 SetSpace(1) 0x5c2d04, LoadedLevel 0x5c2d0f, LOD0 GetLOD(0)/LockVertices(1) 0x5c2f34/0x5c2f3c, disable 0x20 0x5c322a, ftol dyn grid + unsigned raise 0x5c343e, GrantCoherence 0x5c3554) + mafia-re g_c_glob.cpp:123-317; per-phase source reads (no up-front audit parse), level published right after LoadedLevel (g_c_glob.cpp:164) and kept with its completed phases on a later stop, LOD0 locks kept as the live shared buffer; synthetic KLZ pin tests (call order, early returns, SetSpace/LOD-lock/coherence/cell-table stops, live-buffer mutation between locks, shared link records, inputs the audit reader rejects, dyn grid); live MISE01 stops at SetSpace link 5993"
+      "evidence": "REA ev_f037ca6372 complete 0x5c2b70..0x5c3561 walk (step_actor clear, DeleteCollsLevel call, magic JNZ 0x5c2bc8, level_size store 0x5c2c4e before links, vtable+0x84 FindFrameFast, +0x110 type gate, vtable+0x50 SetSpace(1) 0x5c2d04, LoadedLevel 0x5c2d0f, LOD0 GetLOD(0)/LockVertices(1) 0x5c2f34/0x5c2f3c, disable 0x20 0x5c322a, ftol dyn grid + unsigned raise 0x5c343e, GrantCoherence 0x5c3554) + mafia-re g_c_glob.cpp:123-317; per-phase source reads (no up-front audit parse), level published right after LoadedLevel (g_c_glob.cpp:164) and kept with its completed phases on a later stop, LOD0 locks kept as the live shared buffer; synthetic KLZ pin tests (call order, early returns, SetSpace/LOD-lock/coherence/cell-table stops, live-buffer mutation between locks, shared link records, inputs the audit reader rejects, dyn grid); live MISE01 installs the level over the session owners (5999 links, 1632 resolved, 613 SetSpace bakes, LOD0 locks as live vertex views, dyn grid)"
     }
   ],
   "vm": {

@@ -441,12 +441,13 @@ pub struct MissionLoadSession {
 }
 
 /// `LoadCollision`'s calls into the live mission Scene: the driver's
-/// FindFrameFast over the arena's fast tree and the frame type word. The
-/// visual `SetSpace(true)` vertex bake and the LOD0 `LockVertices` have no
-/// session owner and stop the load where reached.
+/// FindFrameFast over the arena's fast tree, the frame type word, the
+/// visual's `SetSpace(true)` vertex bake and the LOD0 `LockVertices`, all on
+/// the arena's live frame, object, mesh and vertex owners. Visuals whose
+/// `SetSpace` override has no owner here stop the load where reached.
 struct SessionCollisionScene<'a> {
     installation: &'a lhr_assets::Installation,
-    arena: &'a ModelArena,
+    arena: &'a mut ModelArena,
     scene: Option<SceneKey>,
 }
 
@@ -495,18 +496,26 @@ impl crate::game_collision::CollisionLevelScene for SessionCollisionScene<'_> {
         })
     }
 
+    /// `I3D_object::SetSpace(true)` (LS3DF 0x378b0) on the arena's owners.
     fn set_visual_space_world(
         &mut self,
-        _frame: crate::frame_transform::FrameKey,
+        frame: crate::frame_transform::FrameKey,
     ) -> Result<(), String> {
-        Err("I3D_visual::SetSpace(true) world-space vertex bake has no live session owner".into())
+        self.arena
+            .set_object_space_world(frame)
+            .map(|_| ())
+            .map_err(|error| format!("I3D_visual::SetSpace(true): {error:?}"))
     }
 
+    /// `GetMesh()->GetLOD(0)->LockVertices(1)`: a live view of the level's
+    /// vertex storage, which the bound faces keep.
     fn lock_lod0_vertices(
         &mut self,
-        _frame: crate::frame_transform::FrameKey,
+        frame: crate::frame_transform::FrameKey,
     ) -> Result<Option<crate::game_collision::LodVertexBuffer>, String> {
-        Err("mesh GetLOD(0)->LockVertices(1) has no live session owner".into())
+        self.arena
+            .lock_visual_lod0_vertices(frame)
+            .map_err(|error| format!("mesh GetLOD(0)->LockVertices(1): {error:?}"))
     }
 }
 
@@ -1067,13 +1076,13 @@ impl MissionLoadSession {
     /// `gifCollision.LoadCollision("missions\<name>\tree.klz", true)`
     /// (GAME 0x5c2b70, mafia-re game/collision/g_c_glob.cpp:123) after a
     /// successful Open, over the session's `GameCollision` owner and the
-    /// live mission Scene. Frame lookup and the frame type are the arena's.
-    /// `SetSpace(true)` of a resolved visual link and the LOD0 vertex lock
-    /// have no live session owner yet; reaching either stops the step with
-    /// the owner left as native leaves it at that point. A `SetSpace` stop
-    /// is in the link loop: previous level deleted, `level_size` stored, no
-    /// level published. A LOD0-lock stop comes after the publish at
-    /// g_c_glob.cpp:164: the level is installed with phase `VolumesBound`.
+    /// live mission Scene. Frame lookup, the frame type, a visual link's
+    /// `SetSpace(true)` bake and the LOD0 vertex lock are the arena's. A
+    /// visual without an owner for its `SetSpace` or lock stops the step
+    /// with the owner left as native leaves it at that point: a `SetSpace`
+    /// stop is in the link loop (previous level deleted, `level_size`
+    /// stored, no level published); a LOD0-lock stop comes after the publish
+    /// at g_c_glob.cpp:164, with the level installed at phase `VolumesBound`.
     pub fn load_collision_for_new_mission(&mut self, mission: &str) -> Result<(), String> {
         self.open_terminal_guard()?;
         Self::validate_open_mission_name(mission)?;
@@ -1086,7 +1095,7 @@ impl MissionLoadSession {
             .map_err(|error| format!("mission Scene owner: {error:?}"))?;
         let mut live = SessionCollisionScene {
             installation: &self.installation,
-            arena: &self.arena,
+            arena: &mut self.arena,
             scene,
         };
         let result = self.collision.load_collision(&path, true, &mut live);
