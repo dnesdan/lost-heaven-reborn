@@ -2146,6 +2146,11 @@ impl CProgram {
             Some(runtime) => runtime,
             None => return Ok(SetEventOutcome::NoEvent),
         };
+        // Native Done clears the instruction list, so a later SetEvent finds
+        // no EVENT and reports none; only interrupted runtimes are refused.
+        if runtime.stage == RuntimeStage::Done {
+            return Ok(SetEventOutcome::NoEvent);
+        }
         if runtime.stage != RuntimeStage::Ready {
             return Err("runtime not ready for event".into());
         }

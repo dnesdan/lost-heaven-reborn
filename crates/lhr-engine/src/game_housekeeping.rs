@@ -919,7 +919,8 @@ impl GameInlineState {
         self.game_time.reader()
     }
 
-    /// Shared with scripts and other consumers of the represented game stream.
+    /// Shared by script programs; other native rand() consumers are not yet
+    /// bound to this stream.
     pub fn random_source(&self) -> GameRandomSource {
         self.random.source()
     }

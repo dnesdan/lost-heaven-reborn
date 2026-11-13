@@ -132,6 +132,16 @@ fn replaced_clock_cannot_silently_rebind_a_retained_program() {
     assert_eq!(p.runtime().unwrap().stage, RuntimeStage::ProcessInterrupted);
 }
 #[test]
+fn event_after_done_finds_no_event_like_the_cleared_native_list() {
+    let mut memory = Memory::default();
+    let mut p = program(b"event 60001\nreturn", &mut memory);
+    p.init_fresh_runtime(&mut memory).unwrap();
+    p.done_fresh_runtime(&mut memory).unwrap();
+    assert_eq!(p.runtime().unwrap().stage, RuntimeStage::Done);
+    assert_eq!(p.try_set_event(60001).unwrap(), SetEventOutcome::NoEvent);
+    assert!(p.runtime().unwrap().fields.gosub_stack.is_empty());
+}
+#[test]
 fn absent_event_skips_clock_and_failed_event_retains_its_prefix() {
     let mut memory = Memory::default();
     let mut p = program(b"event 60001", &mut memory);
