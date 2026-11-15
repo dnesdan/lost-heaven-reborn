@@ -254,7 +254,9 @@ where
 }
 
 /// Production wiring of the driver over the live session owners. Owned:
-/// the `Init` guard (live initialized flag + open prefix), police init,
+/// the `Init` guard (live initialized flag + open prefix), the reached
+/// `ResetMissionState` span (weather reads, mute/render, list clears, score
+/// with the installed HUD, flag stores), police init,
 /// traffic flags, the base-cache `IsOpen` read, and the `MarkInitialized`
 /// flag write. Every other boundary returns `Err` with its step prefix and
 /// preserves the reached live prefix: the driver stops at the first
@@ -272,9 +274,10 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::ResetMissionState => self
                 .reset_game_mission_state_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::PoliceBeginShift => {
-                Err(SessionInitError::unavailable(step, "police shift begin"))
-            }
+            InitStep::PoliceBeginShift => Err(SessionInitError::unavailable(
+                step,
+                "police shift begin (AIManager.police.ZacatekSmeny, GAME 0x53ba50; no AIManager field on this session yet)",
+            )),
             InitStep::PlayerNavi => Err(SessionInitError::unavailable(step, "player navipoint")),
             InitStep::VehicleSectors => Err(SessionInitError::unavailable(step, "vehicle sectors")),
             InitStep::PhysicsClear => Err(SessionInitError::unavailable(step, "physics clear")),

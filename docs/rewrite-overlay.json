@@ -10451,8 +10451,8 @@
       "va": "0x5b9fa0",
       "name": "C_game::ScoreSetOn",
       "symbol": "lhr_engine::game_housekeeping::score_set_on",
-      "tier": "contract",
-      "evidence": "Wrong-address remediation: reference FUNCTION GAME 0x5b9fa0 (was misfiled as 0x5f9a0). Score flag store (GAME 0x5b9fa0). Marker-only contract; tests green on this tree."
+      "tier": "differential",
+      "evidence": "REA ev_b077936296 + Ghidra body 11 insns/3 bbs (score_on byte store at +0x363e before the branch, tail JMP to BonusSetCount 0x5fb010 on mafiaIndicators 0x6bf980 with score or 0x7fffffff); reached from C_game::Init call 0x5a094f after the direct store 0x5a0949. Wrong-address remediation: was misfiled as 0x5f9a0. Pin tests score + presented Init reset span"
     },
     {
       "binary": "Game.exe",

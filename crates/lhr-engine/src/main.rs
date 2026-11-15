@@ -9,6 +9,7 @@ mod engine_lab;
 #[cfg(not(feature = "engine-lab"))]
 #[path = "engine_lab_disabled.rs"]
 mod engine_lab;
+mod host_local_time;
 mod lab_app;
 mod lab_camera;
 mod lab_catalog;

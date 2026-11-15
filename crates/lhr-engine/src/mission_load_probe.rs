@@ -457,6 +457,26 @@ pub fn staged_script_content(
     Ok((objectives, subtitles, note))
 }
 
+/// Reached `ResetMissionState` stores after the render block, read live.
+fn reset_flags_observation(session: &MissionLoadSession) -> String {
+    let game = session.game_state();
+    let lists = session.game_lists();
+    format!(
+        "score={:?} HUD bonus={:?} camera_rot_repair={} heal_cheat={} stacks_clear={} death_fade_time={} actor_lightness={} lists(stop_sounds, paused_i_shows, free_shadow_names, unknown_140)=({}, {}, {}, {})",
+        game.score(),
+        session.indicators().map(|hud| hud.bonus_count()),
+        game.camera_rot_repair(),
+        game.heal_cheat(),
+        game.stacks_clear(),
+        game.death_fade_time(),
+        game.actor_lightness(),
+        lists.stop_sounds.len(),
+        lists.paused_i_shows.len(),
+        lists.free_shadow_names.len(),
+        lists.unknown_140.len()
+    )
+}
+
 pub fn run(
     root: &Path,
     mission: &str,
@@ -469,6 +489,12 @@ pub fn run(
     let installation = lhr_assets::Installation::open(root).map_err(|error| error.to_string())?;
     let mut session = MissionLoadSession::new(installation, Pc24PrecisionState::new(false))
         .map_err(|error| format!("Mission probe initialization failed: {error:?}"))?;
+    // The `mafiaIndicators` global exists before any mission natively; the
+    // probe constructs it with the host's local wall clock (GetLocalTime's
+    // stand-in, daylight saving included) before the first Open.
+    let clock = crate::host_local_time::local_timer_clock()
+        .map_err(|error| format!("Mission probe HUD clock: {error}"))?;
+    session.install_indicators(lhr_engine::indicators::IndicatorsState::constructed(clock))?;
     let world_input = format!("missions/{mission}/scene.i3d");
     let scene2_path = format!("missions/{mission}/scene2.bin");
     let directories: Vec<&[u8]> = model_directories
@@ -771,9 +797,10 @@ pub fn run(
         let (passed, car_sounds, weather, buffer) = session.game_init_reset_observation();
         writeln!(
             report,
-            "GameInit ordered inspection (independent, after script diagnostic): {status}; last={:?}; mission_passed={passed} car_sounds={car_sounds} weather={weather:?} weather_buffer={buffer} PCM_gain={:?}",
+            "GameInit ordered inspection (independent, after script diagnostic): {status}; last={:?}; mission_passed={passed} car_sounds={car_sounds} weather={weather:?} weather_buffer={buffer} PCM_gain={:?}; {}",
             attempt.last(),
-            session.audio().master_gain()
+            session.audio().master_gain(),
+            reset_flags_observation(&session)
         )
         .unwrap();
     } else if new_mission.init().entered() {
@@ -782,9 +809,10 @@ pub fn run(
         let (passed, car_sounds, weather, buffer) = session.game_init_reset_observation();
         writeln!(
             report,
-            "GameInit ordered inspection: composed new-game start already entered Init; last={:?}; mission_passed={passed} car_sounds={car_sounds} weather={weather:?} weather_buffer={buffer} PCM_gain={:?}",
+            "GameInit ordered inspection: composed new-game start already entered Init; last={:?}; mission_passed={passed} car_sounds={car_sounds} weather={weather:?} weather_buffer={buffer} PCM_gain={:?}; {}",
             new_mission.init().last(),
-            session.audio().master_gain()
+            session.audio().master_gain(),
+            reset_flags_observation(&session)
         )
         .unwrap();
     } else {
