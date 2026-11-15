@@ -218,6 +218,32 @@ pub(crate) fn record_wide_pc24_mul(a: f64, b: f64, result: f64) {
         }
     });
 }
+/// x87 `fdiv`/`fdivr` under PC24 with the register's extended exponent: the
+/// quotient is exact iff `a == b * result` in exact dyadic arithmetic.
+pub(crate) fn record_wide_pc24_div(a: f64, b: f64, result: f64) {
+    record(|| {
+        match (
+            wide_pc24_value(a),
+            wide_pc24_value(b),
+            wide_pc24_value(result),
+        ) {
+            (Some(a), Some(b), Some(r)) if b.significand != 0 => equal(a, product(b, r)),
+            _ => false,
+        }
+    });
+}
+/// x87 `fsqrt` under PC24: exact iff `a == result * result`.
+pub(crate) fn record_wide_pc24_sqrt(a: f64, result: f64) {
+    record(|| match (wide_pc24_value(a), wide_pc24_value(result)) {
+        (Some(a), Some(r)) if !a.negative || a.significand == 0 => equal(a, product(r, r)),
+        _ => false,
+    });
+}
+/// `fstp dword` of a register value: rounding to binary32 (including a
+/// subnormal or zero result losing bits) raises precision.
+pub(crate) fn record_binary32_store(value: f64, stored: f32) {
+    record_precision(f64::from(stored) != value);
+}
 fn record(exact: impl FnOnce() -> bool) {
     if current_precision() == Some(false) && !exact() {
         record_precision(true);

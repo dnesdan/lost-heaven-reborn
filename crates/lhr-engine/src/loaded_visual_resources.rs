@@ -159,6 +159,23 @@ impl CpuVisualStorage {
     pub fn live_graphics(&self) -> usize {
         self.graphics.len()
     }
+    /// The allocation's host write generation (derived-data invalidation).
+    #[cfg(test)]
+    pub(crate) fn graphics_revision(&self, graphics: GraphicsBuffer) -> Option<u64> {
+        self.graphics
+            .get(&Self::graphics_id(graphics))
+            .map(|g| g.revision)
+    }
+    /// A clone of the allocation's shared bytes (tests hold borrows on it).
+    #[cfg(test)]
+    pub(crate) fn graphics_shared_bytes(
+        &self,
+        graphics: GraphicsBuffer,
+    ) -> Option<SharedGraphicsBytes> {
+        self.graphics
+            .get(&Self::graphics_id(graphics))
+            .map(|g| g.bytes.clone())
+    }
     /// Native Close unloads only managed pools. CPU immediate textures do not
     /// participate; managed requests must be rejected by a scene adapter.
     pub fn managed_texture_count(&self) -> usize {
@@ -214,8 +231,12 @@ impl CpuVisualStorage {
         let end = offset
             .checked_add(data.len())
             .ok_or(LoadedVisualError::InvalidGeometry)?;
+        // Live views (LoadCollision's LOD0 pointers, inspection borrows) only
+        // read; a write while any of them holds a borrow is refused before
+        // any byte or the revision changes.
         x.bytes
-            .borrow_mut()
+            .try_borrow_mut()
+            .map_err(|_| LoadedVisualError::Backend("CPU graphics bytes borrowed by a live view"))?
             .get_mut(offset..end)
             .ok_or(LoadedVisualError::InvalidGeometry)?
             .copy_from_slice(data);

@@ -1083,7 +1083,18 @@ impl MissionLoadSession {
     /// stop is in the link loop (previous level deleted, `level_size`
     /// stored, no level published); a LOD0-lock stop comes after the publish
     /// at g_c_glob.cpp:164, with the level installed at phase `VolumesBound`.
+    /// The step runs in the session's PC24 precision scope, so the sticky
+    /// precision state its arithmetic raises (the `SetSpace` bake, the dyn
+    /// grid) persists for later steps, as the one x87 status word does.
     pub fn load_collision_for_new_mission(&mut self, mission: &str) -> Result<(), String> {
+        Pc24PrecisionState::run_owner(
+            self,
+            |session| &mut session.precision,
+            |session| session.load_collision_for_new_mission_inner(mission),
+        )
+    }
+
+    fn load_collision_for_new_mission_inner(&mut self, mission: &str) -> Result<(), String> {
         self.open_terminal_guard()?;
         Self::validate_open_mission_name(mission)?;
         if !self.open_mission_opened {

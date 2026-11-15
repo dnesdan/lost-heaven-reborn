@@ -130,37 +130,261 @@ impl LoadedVisualResources {
             [word(3)?, word(4)?, word(5)?],
         ])
     }
-    /// In-place store of a locked vertex's position and normal.
-    pub(crate) fn game_write_vertex_position_normal(
+    /// One `fstp dword`/`mov dword` store into a locked vertex: `I3D_vertex`
+    /// word `word` (0..2 position, 3..5 normal), through the allocation's
+    /// owner, which refuses an unlocked or borrowed allocation and advances
+    /// its revision.
+    pub(crate) fn game_write_vertex_word(
         &mut self,
         window: LevelVertexWindow,
         index: usize,
-        values: [[f32; 3]; 2],
+        word: usize,
+        value: f32,
     ) -> Result<()> {
+        if word >= window.stride / 4 {
+            return Err(LoadedVisualError::InvalidGeometry);
+        }
         let at = index
             .checked_mul(window.stride)
             .and_then(|n| n.checked_add(window.base))
+            .and_then(|n| n.checked_add(4 * word))
             .ok_or(LoadedVisualError::InvalidGeometry)?;
-        let mut data = [0u8; 24];
-        for (slot, value) in data
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(values.into_iter().flatten())
-        {
-            *slot = value.to_le_bytes();
+        self.backend
+            .write_graphics(window.graphics, at, &value.to_le_bytes())
+    }
+    #[cfg(test)]
+    pub(crate) fn game_window_graphics(window: LevelVertexWindow) -> GraphicsBuffer {
+        window.graphics
+    }
+    #[cfg(test)]
+    pub(crate) fn game_lock_group_indices_for_test(&mut self, group: FaceGroupKey) -> Result<bool> {
+        self.objects
+            .lock_face_group_indices(group, &mut self.backend)
+            .map_err(Into::into)
+    }
+    /// A copy of `size` bytes at `offset` of a locked allocation, read the
+    /// way a `memcpy` from the native lock pointer reads them.
+    fn game_locked_bytes(
+        &self,
+        graphics: GraphicsBuffer,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<u8>> {
+        let allocation = self
+            .backend
+            .graphics
+            .get(&CpuVisualStorage::graphics_id(graphics))
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        if allocation.lock.is_none() {
+            return Err(LoadedVisualError::Backend("copy from unlocked graphics"));
         }
-        self.backend.write_graphics(window.graphics, at, &data)
+        let end = offset
+            .checked_add(size)
+            .ok_or(LoadedVisualError::InvalidGeometry)?;
+        let bytes = allocation
+            .bytes
+            .try_borrow()
+            .map_err(|_| LoadedVisualError::Backend("CPU graphics bytes being written"))?;
+        bytes
+            .get(offset..end)
+            .map(<[u8]>::to_vec)
+            .ok_or(LoadedVisualError::InvalidGeometry)
+    }
+    /// `I3D_face_group::Duplicate`, LS3DF 0x30800 (mafia-re
+    /// I3d_mesh.cpp:86-93): `CreateFaces(n)` (0x30610: allocate, then
+    /// `GetFaces` 0x30690 locks the fresh block), the source's `GetFaces`
+    /// lock, the byte copy, `num_faces` and `SetMaterial`. Both locks stay.
+    /// An empty source group (`CreateFaces(0)`, an `m_Alloc` of zero
+    /// indices) has no owner here and stops.
+    fn game_duplicate_face_group(
+        &mut self,
+        destination: FaceGroupKey,
+        source: FaceGroupKey,
+    ) -> Result<()> {
+        let object = |e: crate::visual_resources::VisualResourceError| {
+            LoadedVisualError::Object(ObjectError::Managed(e.into()))
+        };
+        let (faces, indices, material) = {
+            let g = self
+                .objects
+                .managed()
+                .resources()
+                .face_group(source)
+                .map_err(object)?;
+            (g.num_faces, g.index_buffer, g.material)
+        };
+        if faces == 0 {
+            return Err(LoadedVisualError::Backend(
+                "face group Duplicate of an empty group: CreateFaces(0) has no owner",
+            ));
+        }
+        if !self
+            .objects
+            .allocate_group_indices(destination, faces, 0, &mut self.backend)?
+        {
+            return Err(LoadedVisualError::Backend(
+                "face group Duplicate index allocation rejected",
+            ));
+        }
+        let output = self
+            .objects
+            .managed()
+            .resources()
+            .face_group(destination)
+            .map_err(object)?
+            .index_buffer;
+        if !self
+            .objects
+            .lock_face_group_indices(destination, &mut self.backend)?
+            || !self
+                .objects
+                .lock_face_group_indices(source, &mut self.backend)?
+        {
+            return Err(LoadedVisualError::Backend(
+                "face group Duplicate without index storage",
+            ));
+        }
+        let data = self.game_locked_bytes(
+            GraphicsBuffer::Index(indices.graphics.ok_or(LoadedVisualError::InvalidGeometry)?),
+            indices.base as usize * 2,
+            faces as usize * 6,
+        )?;
+        self.backend.write_graphics(
+            GraphicsBuffer::Index(output.graphics.ok_or(LoadedVisualError::InvalidGeometry)?),
+            output.base as usize * 2,
+            &data,
+        )?;
+        self.objects
+            .set_material(destination, material, &mut self.backend)?;
+        Ok(())
+    }
+    /// `I3D_mesh_level::Duplicate`, LS3DF 0x31000 (mafia-re
+    /// I3d_mesh.cpp:264-300), into a fresh level: the scalars;
+    /// `SetVertexMesh(source->LockVertices(0), num)` (0x30b40: allocate,
+    /// `Lock` the fresh block with flags 0, copy, `UpdateBBox` 0x30a50 with
+    /// its own `LockVertices(0)`); each face group duplicated and appended
+    /// last; then the source's box. Every lock taken stays, as natively.
+    fn game_duplicate_mesh_level(
+        &mut self,
+        destination: MeshLevelKey,
+        source: MeshLevelKey,
+    ) -> Result<()> {
+        let object = |e: crate::visual_resources::VisualResourceError| {
+            LoadedVisualError::Object(ObjectError::Managed(e.into()))
+        };
+        self.objects
+            .copy_mesh_level_scalar_fields(destination, source)?;
+        let source_locked = self.game_lock_level_vertices(source, 0)?;
+        let vertices = self.game_level_word(source, 8)?;
+        if source_locked {
+            if vertices == 0 {
+                return Err(LoadedVisualError::Backend(
+                    "SetVertexMesh of a locked level with no vertices has no owner",
+                ));
+            }
+            let window = self.game_level_vertex_window(source)?;
+            let request = VertexRequest {
+                fvf: 0x112,
+                usage: 0x10,
+                stride: 32,
+                count: vertices,
+                format: 6,
+                exclusive: false,
+            };
+            if !self.objects.allocate_level_vertices(
+                destination,
+                vertices,
+                request,
+                None,
+                &mut self.backend,
+            )? {
+                return Err(LoadedVisualError::Backend(
+                    "SetVertexMesh vertex allocation rejected",
+                ));
+            }
+            if !self.game_lock_level_vertices(destination, 0)? {
+                return Err(LoadedVisualError::Backend(
+                    "SetVertexMesh without vertex storage",
+                ));
+            }
+            let data = self.game_locked_bytes(
+                window.graphics,
+                window.base,
+                vertices as usize * window.stride,
+            )?;
+            let output = self.game_level_vertex_window(destination)?;
+            self.backend
+                .write_graphics(output.graphics, output.base, &data)?;
+            self.game_update_level_bbox(destination)?;
+        }
+        let (bbox, mut next) = {
+            let level = self
+                .objects
+                .managed()
+                .resources()
+                .mesh_level(source)
+                .map_err(object)?;
+            (level.bbox, level.fgroups)
+        };
+        while let Some(group) = next {
+            let following = self
+                .objects
+                .managed()
+                .resources()
+                .face_group(group)
+                .map_err(object)?
+                .next;
+            let fresh = self.objects.create_face_group()?;
+            self.game_duplicate_face_group(fresh, group)?;
+            self.objects.append_duplicate_group(destination, fresh)?;
+            next = following;
+        }
+        self.objects.install_mesh_level_bbox(destination, bbox)?;
+        Ok(())
+    }
+    /// `I3D_mesh_object::Duplicate`, LS3DF 0x315e0 (mafia-re
+    /// I3d_mesh.cpp:471-505), from `source` into the fresh `destination`:
+    /// per source slot `CreateMeshLevel`, level Duplicate, `SetLOD`, then the
+    /// level's `Release`. Unlike the vehicle-deform copy it leaves every
+    /// buffer lock as the native level and face-group Duplicates leave them
+    /// and never unlocks other buffers.
+    fn game_duplicate_mesh(
+        &mut self,
+        destination: MeshObjectKey,
+        source: MeshObjectKey,
+    ) -> Result<()> {
+        if self.incomplete {
+            return Err(LoadedVisualError::IncompleteAdmission);
+        }
+        self.objects
+            .clear_duplicate_mesh(destination, &mut self.backend)?;
+        for index in 0..10 {
+            let level = self
+                .objects
+                .managed()
+                .resources()
+                .mesh_object(source)
+                .map_err(|e| LoadedVisualError::Object(ObjectError::Managed(e.into())))?
+                .levels[index];
+            if let Some(level) = level {
+                let copy = self.objects.create_mesh_level()?;
+                self.game_duplicate_mesh_level(copy, level)?;
+                self.objects
+                    .set_lod(destination, Some(copy), index as u32, &mut self.backend)?;
+                self.objects.release_mesh_level(copy, &mut self.backend)?;
+            }
+        }
+        Ok(())
     }
     /// `I3D_object::DetachMesh` (LS3DF 0x36a70, mafia-re
     /// I3d_object.cpp:89-108) over this CPU owner, in the order of
     /// `ObjectResources::detach_object_mesh_to_unique`: a mesh with fewer
-    /// than two references is kept; otherwise `CreateMesh`, `Duplicate`
-    /// (0x315e0) run by this owner's `deform_duplicate_mesh`, which copies
-    /// the vertex and index bytes into fresh storage as the native level
-    /// Duplicate's `SetVertexMesh(LockVertices(0))` does, then the old mesh's
-    /// release and the store. A failed Duplicate releases the fresh mesh and
-    /// keeps the old one. True when the mesh was replaced.
+    /// than two references is kept; otherwise `CreateMesh`, mesh `Duplicate`
+    /// (0x315e0, [`Self::game_duplicate_mesh`]), then the old mesh's
+    /// release and the store. The copy takes the native locks and releases
+    /// none; locks on other buffers are untouched. A failed Duplicate
+    /// releases the fresh mesh and keeps the old one. True when the mesh was
+    /// replaced.
     pub(crate) fn game_detach_object_mesh(&mut self, object: ObjectResourceKey) -> Result<bool> {
         let Some(mesh) = self.objects.object(object)?.mesh else {
             return Ok(false);
@@ -176,7 +400,7 @@ impl LoadedVisualResources {
             return Ok(false);
         }
         let fresh = self.objects.create_mesh_object()?;
-        if let Err(error) = self.deform_duplicate_mesh(fresh, Some(mesh)) {
+        if let Err(error) = self.game_duplicate_mesh(fresh, mesh) {
             let _ = self.objects.release_mesh_object(fresh, &mut self.backend);
             return Err(error);
         }

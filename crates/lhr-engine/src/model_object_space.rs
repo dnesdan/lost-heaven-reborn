@@ -44,10 +44,25 @@
 //! with [`ModelError::SetSpaceNumeric`], keeping the vertices already
 //! written.
 //!
-//! The arena keeps no `vis_bound_w` cache: `UpdateWBoundProc`'s computation
-//! runs (and can stop the bake) but its result is not stored, and the final
-//! flag store leaves the native cache invalid in any case. Visuals other than
-//! the plain and lit objects stop with [`ModelError::SetSpaceUnsupportedVisual`].
+//! `UpdateWBoundProc` is the frame's real operation
+//! ([`ModelArena::update_visual_wbound_proc`]): it sets 0x40000, refills the
+//! `vis_bound_w` cache and, through `UpdateBoundProc` 0x5a4f0, sets
+//! `VISF_BOUND_VALID` 0x20000, which the final store keeps; a baked visual
+//! leaves `0x20040` set. Visuals other than the plain and lit objects stop
+//! with [`ModelError::SetSpaceUnsupportedVisual`].
+//!
+//! Store order (linear walk): `pos *= m` stores z, x, y (0x2e96f..0x2e976);
+//! the rotated normal is copied word by word from the stack temporary
+//! (0x37bce..0x37bdd); Normalize reloads it and stores x, y, z
+//! (0x37cc9..0x37cd5). The bake writes each word through the vertex owner in
+//! that order, so a host stop keeps exactly the stores before it. A visual
+//! whose bake stopped is marked and every later `SetSpace(true)` on it is
+//! refused ([`ModelError::SetSpaceInterrupted`]) before any effect, since the
+//! stored vertices are partly world space already.
+//!
+//! Every x87 operation and `fstp dword` store records the sticky precision
+//! exception in the active [`crate::native_precision::Pc24PrecisionState`]
+//! scope (the mission session's, across LoadCollision).
 use super::*;
 use crate::game_collision::LodVertexBuffer;
 use crate::i3d_object::ObjectVisualType;
@@ -95,28 +110,52 @@ fn pc24(value: f64) -> Result<f64, ()> {
     Ok(f64::from_bits(retained << 29))
 }
 /// `fld dword`: exact, a finite f32 only (the bake has no evidence for
-/// infinities or NaNs reaching it).
+/// infinities or NaNs reaching it). Loading never raises precision.
 fn load(value: f32) -> Result<f64, ()> {
     value.is_finite().then_some(f64::from(value)).ok_or(())
 }
 /// `fstp dword`: the register value rounded once to binary32 (gradual
-/// underflow included); an overflow stops.
+/// underflow included), raising precision when that rounds; an overflow
+/// stops before the store.
 fn store(value: f64) -> Result<f32, ()> {
     let stored = value as f32;
-    stored.is_finite().then_some(stored).ok_or(())
+    if !stored.is_finite() {
+        return Err(());
+    }
+    crate::native_precision::record_binary32_store(value, stored);
+    Ok(stored)
 }
 fn fmul(a: f64, b: f64) -> Result<f64, ()> {
-    pc24(a * b)
+    let result = pc24(a * b)?;
+    crate::native_precision::record_wide_pc24_mul(a, b, result);
+    Ok(result)
 }
 fn fadd(a: f64, b: f64) -> Result<f64, ()> {
-    pc24(a + b)
+    let result = pc24(a + b)?;
+    crate::native_precision::record_wide_pc24_add(a, b, result);
+    Ok(result)
+}
+fn fsub(a: f64, b: f64) -> Result<f64, ()> {
+    let result = pc24(a - b)?;
+    crate::native_precision::record_wide_pc24_sub(a, b, result);
+    Ok(result)
+}
+fn fsqrt(a: f64) -> Result<f64, ()> {
+    let result = pc24(a.sqrt())?;
+    crate::native_precision::record_wide_pc24_sqrt(a, result);
+    Ok(result)
+}
+fn fdiv(a: f64, b: f64) -> Result<f64, ()> {
+    let result = pc24(a / b)?;
+    crate::native_precision::record_wide_pc24_div(a, b, result);
+    Ok(result)
 }
 
-/// `S_vector::operator*=(const S_matrix &)`, LS3DF 0x2e920: in registers,
+/// `S_vector::operator*=(const S_matrix &)`, LS3DF 0x2e920, register half:
 /// x' = ((m[2][0]*z + m[1][0]*y) + m[0][0]*x) + m[3][0] and, for y and z,
 /// ((m[2][a]*z + m[0][a]*x) + m[1][a]*y) + m[3][a]; every input is loaded
-/// before the three stores.
-fn transform_position(p: [f32; 3], m: &[f32; 16]) -> Result<[f32; 3], ()> {
+/// before the stores, which are z (+8), x (+0), y (+4) (0x2e96f..0x2e976).
+fn transform_position(p: [f32; 3], m: &[f32; 16]) -> Result<[f64; 3], ()> {
     let [x, y, z] = [load(p[0])?, load(p[1])?, load(p[2])?];
     let e = |i: usize| load(m[i]);
     let x_axis = fadd(
@@ -132,12 +171,14 @@ fn transform_position(p: [f32; 3], m: &[f32; 16]) -> Result<[f32; 3], ()> {
             e(12 + a)?,
         )
     };
-    Ok([store(x_axis)?, store(axis(1)?)?, store(axis(2)?)?])
+    let y_axis = axis(1)?;
+    Ok([x_axis, y_axis, axis(2)?])
 }
 
 /// `S_vector::RotateByMatrix(const S_matrix &)`, LS3DF 0x2ea10: each axis
 /// `(x*m[0][a] + y*m[1][a]) + z*m[2][a]` in registers, stored to a stack
-/// temporary; no translation.
+/// temporary in x, y, z order; no translation. `SetSpace` then copies the
+/// temporary into the vertex normal with integer moves (0x37bce..0x37bdd).
 fn rotate_normal(n: [f32; 3], m: &[f32; 16]) -> Result<[f32; 3], ()> {
     let [x, y, z] = [load(n[0])?, load(n[1])?, load(n[2])?];
     let mut out = [0.0; 3];
@@ -150,43 +191,85 @@ fn rotate_normal(n: [f32; 3], m: &[f32; 16]) -> Result<[f32; 3], ()> {
     Ok(out)
 }
 
-/// The `S_vector::Normalize` inlined in `SetSpace` (see the module notes).
-fn normalize_normal(n: [f32; 3]) -> Result<[f32; 3], ()> {
-    let [x, y, z] = [load(n[0])?, load(n[1])?, load(n[2])?];
-    let len2 = store(fadd(fadd(fmul(x, x)?, fmul(y, y)?)?, fmul(z, z)?)?)?;
+/// The `S_vector::Normalize` inlined in `SetSpace` (see the module notes)
+/// over the normal just stored, issuing its stores through `put` in native
+/// order (each store before the next product).
+fn normalize_normal_into<E>(
+    n: [f32; 3],
+    put: &mut impl FnMut(usize, f32) -> Result<(), VertexBakeStop<E>>,
+) -> Result<(), VertexBakeStop<E>> {
+    let numeric = |()| VertexBakeStop::Numeric;
+    let [x, y, z] = [load(n[0]), load(n[1]), load(n[2])].map(|v| v.map_err(numeric));
+    let [x, y, z] = [x?, y?, z?];
+    let len2 =
+        (|| store(fadd(fadd(fmul(x, x)?, fmul(y, y)?)?, fmul(z, z)?)?))().map_err(numeric)?;
     let len2_wide = f64::from(len2);
-    if fadd(len2_wide, -1.0)?.abs() < f64::from(NORMALIZE_EPSILON) {
-        return Ok(n);
+    if fsub(len2_wide, 1.0).map_err(numeric)?.abs() < f64::from(NORMALIZE_EPSILON) {
+        return Ok(());
     }
     let sign = |v: f32| if v < 0.0 { -1.0 } else { 1.0 };
     if len2 < NORMALIZE_EPSILON {
-        let mut out = n;
-        if n[0] != 0.0 {
-            out[0] = sign(n[0]);
+        return if n[0] != 0.0 {
+            put(0, sign(n[0]))
         } else if n[2] != 0.0 {
-            out[2] = sign(n[2]);
+            put(2, sign(n[2]))
         } else {
-            out[1] = sign(n[1]);
-        }
-        return Ok(out);
+            put(1, sign(n[1]))
+        };
     }
-    let reciprocal = pc24(1.0 / pc24(len2_wide.sqrt())?)?;
-    Ok([
-        store(fmul(reciprocal, x)?)?,
-        store(fmul(reciprocal, y)?)?,
-        store(fmul(reciprocal, z)?)?,
-    ])
+    let reciprocal = (|| fdiv(1.0, fsqrt(len2_wide)?))().map_err(numeric)?;
+    for (word, value) in [x, y, z].into_iter().enumerate() {
+        put(
+            word,
+            (|| store(fmul(reciprocal, value)?))().map_err(numeric)?,
+        )?;
+    }
+    Ok(())
 }
 
-/// One vertex of the bake loop: position, then normal.
-pub(crate) fn bake_world_vertex(
+#[cfg(test)]
+fn normalize_normal(n: [f32; 3]) -> Result<[f32; 3], ()> {
+    let mut out = n;
+    normalize_normal_into::<()>(n, &mut |word, value| {
+        out[word] = value;
+        Ok(())
+    })
+    .map_err(|_| ())?;
+    Ok(out)
+}
+
+/// Why one vertex of the bake stopped.
+#[derive(Debug, PartialEq)]
+pub(crate) enum VertexBakeStop<E> {
+    /// A value left the guarded PC24 domain; the stores before it stand.
+    Numeric,
+    /// The owner refused a store.
+    Store(E),
+}
+
+/// One vertex of the bake loop, as its stores reach the vertex: the position
+/// words z, x, y (0x2e920); the rotated normal x, y, z copied from the stack
+/// temporary; then the inlined Normalize's stores, which read the normal
+/// just stored. `write(word, value)` stores `I3D_vertex` word 0..2
+/// (position) or 3..5 (normal). A stop keeps every earlier store, as the
+/// original has no failure path between them.
+pub(crate) fn bake_world_vertex<E>(
     position: [f32; 3],
     normal: [f32; 3],
     matrix: &SMatrix,
-) -> Result<[[f32; 3]; 2], ()> {
-    let position = transform_position(position, &matrix.elements)?;
-    let normal = normalize_normal(rotate_normal(normal, &matrix.elements)?)?;
-    Ok([position, normal])
+    mut write: impl FnMut(usize, f32) -> Result<(), E>,
+) -> Result<(), VertexBakeStop<E>> {
+    let numeric = |()| VertexBakeStop::Numeric;
+    let mut put = |word: usize, value: f32| write(word, value).map_err(VertexBakeStop::Store);
+    let [x, y, z] = transform_position(position, &matrix.elements).map_err(numeric)?;
+    put(2, store(z).map_err(numeric)?)?;
+    put(0, store(x).map_err(numeric)?)?;
+    put(1, store(y).map_err(numeric)?)?;
+    let rotated = rotate_normal(normal, &matrix.elements).map_err(numeric)?;
+    for (axis, value) in rotated.into_iter().enumerate() {
+        put(3 + axis, value)?;
+    }
+    normalize_normal_into(rotated, &mut |word, value| put(3 + word, value))
 }
 
 impl ModelArena {
@@ -214,11 +297,17 @@ impl ModelArena {
     /// frame's `vis_flags` word carries `VISF_WORLD_SPACE`, which
     /// `GetRenderMatrix` (0x2ad00) and `UpdateV` read; the object record's
     /// world-space word is set with it. A host stop keeps every effect
-    /// before it, as native has no failure path.
+    /// before it, as native has no failure path, and marks the visual: a
+    /// later call is refused before any effect instead of transforming the
+    /// already written vertices again.
     pub fn set_object_space_world(
         &mut self,
         key: FrameKey,
     ) -> Result<ObjectSpaceWorld, ModelError> {
+        let fi = self.frame_index(key)?;
+        if self.frames[fi].world_space_bake_interrupted.is_some() {
+            return Err(ModelError::SetSpaceInterrupted(key));
+        }
         let (object, visual) = self.space_visual_object(key)?;
         if !matches!(
             visual,
@@ -226,12 +315,23 @@ impl ModelArena {
         ) {
             return Err(ModelError::SetSpaceUnsupportedVisual(key));
         }
-        let flags = self.state(key)?.visual_flags;
-        if flags & VISF_WORLD_SPACE != 0 {
+        if self.state(key)?.visual_flags & VISF_WORLD_SPACE != 0 {
             return Ok(ObjectSpaceWorld::AlreadyWorld);
         }
-        if flags & VISF_WBOUND_VALID == 0 {
-            self.visual_world_bounds(key)?;
+        let result = self.object_space_world_arm(key, object);
+        if let Err(error) = &result {
+            self.frames[fi].world_space_bake_interrupted = Some(error.clone());
+        }
+        result
+    }
+
+    fn object_space_world_arm(
+        &mut self,
+        key: FrameKey,
+        object: crate::i3d_object::ObjectResourceKey,
+    ) -> Result<ObjectSpaceWorld, ModelError> {
+        if self.state(key)?.visual_flags & VISF_WBOUND_VALID == 0 {
+            self.update_visual_wbound_proc(key)?;
         }
         let loaded = ModelError::LoadedVisual;
         fn resources(
@@ -281,11 +381,13 @@ impl ModelArena {
                             let [position, normal] = owner
                                 .game_vertex_position_normal(window, vertex)
                                 .map_err(loaded)?;
-                            let baked = bake_world_vertex(position, normal, &matrix)
-                                .map_err(|()| ModelError::SetSpaceNumeric(key))?;
-                            owner
-                                .game_write_vertex_position_normal(window, vertex, baked)
-                                .map_err(loaded)?;
+                            bake_world_vertex(position, normal, &matrix, |word, value| {
+                                owner.game_write_vertex_word(window, vertex, word, value)
+                            })
+                            .map_err(|stop| match stop {
+                                VertexBakeStop::Numeric => ModelError::SetSpaceNumeric(key),
+                                VertexBakeStop::Store(error) => loaded(error),
+                            })?;
                             vertices += 1;
                         }
                     }

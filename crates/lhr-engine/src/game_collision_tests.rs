@@ -124,7 +124,7 @@ struct Scene {
     fail_set_space: bool,
     fail_lock: Option<FrameKey>,
     /// A write the owner makes into a buffer while `frame` is locked.
-    on_lock: Option<(FrameKey, LodVertexBuffer, u16, [f32; 3])>,
+    on_lock: Option<(FrameKey, StandaloneLodVertices, u16, [f32; 3])>,
     calls: Vec<String>,
 }
 
@@ -135,7 +135,7 @@ impl Scene {
             frames: vec![(b"vis", VIS, FRAME_VISUAL), (b"dummy", DUMMY, 6)],
             lod0: vec![(
                 VIS,
-                LodVertexBuffer::new(vec![[0., 0., 0.], [4., 0., 0.], [0., 0., 4.]]),
+                StandaloneLodVertices::new(vec![[0., 0., 0.], [4., 0., 0.], [0., 0., 4.]]).view(),
             )],
             ..Self::default()
         }
@@ -182,7 +182,7 @@ impl CollisionLevelScene for Scene {
             return Err("no LOD owner");
         }
         if let Some((_, buffer, index, position)) =
-            self.on_lock.as_ref().filter(|(key, ..)| *key == frame)
+            self.on_lock.as_mut().filter(|(key, ..)| *key == frame)
         {
             assert!(buffer.set_position(*index, *position));
         }
@@ -414,9 +414,10 @@ fn locked_lod_buffers_stay_live_across_later_locks_and_after_install() {
     scene.frames[1].2 = FRAME_VISUAL;
     // `dummy`'s buffer has coincident corners 0 and 1 when it is locked
     // (first, backwards); locking `vis` afterwards moves corner 1 away.
-    let shared = LodVertexBuffer::new(vec![[0., 0., 0.], [0., 0., 0.], [0., 0., 4.]]);
+    let storage = StandaloneLodVertices::new(vec![[0., 0., 0.], [0., 0., 0.], [0., 0., 4.]]);
+    let shared = storage.view();
     scene.lod0.push((DUMMY, shared.clone()));
-    scene.on_lock = Some((VIS, shared.clone(), 1, [4., 0., 0.]));
+    scene.on_lock = Some((VIS, storage, 1, [4., 0., 0.]));
     let vis_buffer = scene.lod0[0].1.clone();
     let mut owner = GameCollision::default();
     assert_eq!(
@@ -453,7 +454,8 @@ fn locked_lod_buffers_stay_live_across_later_locks_and_after_install() {
         other => panic!("face 3 bound to {other:?}"),
     }
     // The installed level keeps reading the owner's buffer.
-    shared.set_position(1, [9., 0., 0.]);
+    let (_, storage, ..) = scene.on_lock.as_mut().unwrap();
+    assert!(storage.set_position(1, [9., 0., 0.]));
     assert_eq!(
         level.triangle_positions(3),
         Some([[0., 0., 0.], [9., 0., 0.], [0., 0., 4.]])

@@ -90,6 +90,16 @@ pub struct LoadedFrame {
     pub(crate) emitor: Option<crate::frame_emitor::I3dEmitorState>,
     pub(crate) hr_bounds_error: Option<ModelError>,
     pub(crate) hr_world_bounds_error: Option<ModelError>,
+    /// `I3D_visual::vis_bound_w` (+0x184), the cache `UpdateWBoundProc`
+    /// (LS3DF 0x5a510) fills; `VISF_WBOUND_VALID` (0x40000) says whether it
+    /// is current. A host stop inside the update keeps the stores before it
+    /// and records the error, so the flag never vouches for a stale box.
+    pub(crate) visual_world_bound_cache: crate::mesh_bounds::MeshBoundVolume,
+    pub(crate) visual_world_bound_error: Option<ModelError>,
+    /// A `SetSpace(true)` bake that stopped after its first effect. The
+    /// stored vertices are partly world space; replaying it would transform
+    /// them again, so any further call is refused before any write.
+    pub(crate) world_space_bake_interrupted: Option<ModelError>,
     /// Immutable host backing, independent of model membership. This is not a
     /// native mesh/LOD resource allocation or filename reference count.
     pub source: Option<Arc<Model>>,
@@ -259,6 +269,9 @@ pub enum ModelError {
     SetSpaceUnsupportedVisual(FrameKey),
     /// A `SetSpace` bake value left the guarded PC24 arithmetic domain.
     SetSpaceNumeric(FrameKey),
+    /// A previous `SetSpace(true)` on this visual stopped after its first
+    /// effect; replaying it would re-transform the stored vertices.
+    SetSpaceInterrupted(FrameKey),
     /// `LockVertices` returned null for a level with vertices to transform,
     /// which native would dereference.
     VertexLockUnavailable {
@@ -554,6 +567,9 @@ impl ModelArena {
             emitor: None,
             hr_bounds_error: None,
             hr_world_bounds_error: None,
+            visual_world_bound_cache: crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR,
+            visual_world_bound_error: None,
+            world_space_bake_interrupted: None,
             source: None,
             user_data: crate::actor_frames::FrameUserData::Null,
             alive: true,

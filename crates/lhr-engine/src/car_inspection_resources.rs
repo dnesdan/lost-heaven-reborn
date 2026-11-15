@@ -77,7 +77,11 @@ impl LoadedVisualResources {
         let end = offset
             .checked_add(bytes)
             .ok_or(LoadedVisualError::InvalidGeometry)?;
-        std::cell::Ref::filter_map(buffer.bytes.borrow(), |all| all.get(offset..end))
+        let bytes = buffer
+            .bytes
+            .try_borrow()
+            .map_err(|_| LoadedVisualError::Backend("inspection graphics being written"))?;
+        std::cell::Ref::filter_map(bytes, |all| all.get(offset..end))
             .map_err(|_| LoadedVisualError::InvalidGeometry)
     }
     /// Resolves live object/mesh/LOD/material identities each call. A plain
