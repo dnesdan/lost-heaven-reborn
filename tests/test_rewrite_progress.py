@@ -488,8 +488,10 @@ class RewriteProgressTests(unittest.TestCase):
         # future component owner).
         # +2 gifCollision owner contracts (DeleteCollsLevel 0x1c28d0,
         # LoadCollision 0x1c2b70; synthetic pin tests, live MISE01 stop).
-        self.assertEqual(game["ported"], 149 + 1013)
-        self.assertEqual(game["verified"], 149 + 517)
+        # +1 SaveGameNewGame differential (0x205ff0; complete 5-insn REA
+        # body + pin tests; live MISE01 new-game step).
+        self.assertEqual(game["ported"], 149 + 1014)
+        self.assertEqual(game["verified"], 149 + 518)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

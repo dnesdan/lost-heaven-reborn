@@ -939,8 +939,31 @@ fn seed_mission_numbers(session: &mut MissionLoadSession) {
     assert_eq!(session.mission_numbers(), (7, 3));
 }
 
+fn seed_load_save_progress(session: &mut MissionLoadSession) {
+    use crate::game_loadsave_lifecycle::GarageSlot;
+    session.load_save_progress.steal_cars = 0b1011;
+    session.load_save_progress.last_stolen = Some(4);
+    session.load_save_progress.garage.slots[0] = GarageSlot {
+        car: 0x0301,
+        actor: Some(4),
+    };
+    session.load_save_progress.garage.shown_cars[2] = 0x0301;
+    session.freeride.active = true;
+}
+
+const NEW_GAME_THROUGH_INIT: &[crate::mission_new_game_order::NewMissionStep] = &[
+    crate::mission_new_game_order::NewMissionStep::ClosePrevious,
+    crate::mission_new_game_order::NewMissionStep::Open,
+    crate::mission_new_game_order::NewMissionStep::LoadCollision,
+    crate::mission_new_game_order::NewMissionStep::ResetMissionNumbers,
+    crate::mission_new_game_order::NewMissionStep::SaveGameNewGame,
+    crate::mission_new_game_order::NewMissionStep::GameInit,
+];
+
 #[test]
-fn new_game_start_passes_absent_collision_then_stops_at_the_unowned_load_save() {
+fn new_game_start_runs_save_game_new_game_then_stops_at_the_init_render() {
+    use crate::game_init_order::{InitFailure, InitRunError, InitStep, SessionInitError};
+    use crate::game_loadsave_lifecycle::{FreerideState, LoadSaveProgress};
     use crate::mission_new_game_order::{
         NewMissionAttempt, NewMissionError, NewMissionFailure, NewMissionRequest,
         NewMissionRunError, NewMissionStep,
@@ -948,6 +971,7 @@ fn new_game_start_passes_absent_collision_then_stops_at_the_unowned_load_save() 
     let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     seed_mission_numbers(&mut session);
+    seed_load_save_progress(&mut session);
     let mut attempt = NewMissionAttempt::default();
     let mut render = renderer();
     let result = session.start_new_game_mission(
@@ -961,33 +985,33 @@ fn new_game_start_passes_absent_collision_then_stops_at_the_unowned_load_save() 
         &mut render,
     );
     // An absent tree.klz is the native dtaOpen early return: no level, and
-    // Main continues to ResetMissionNumbers and SaveGameNewGame.
-    let Err(NewMissionRunError::Callback(NewMissionFailure {
-        step: NewMissionStep::SaveGameNewGame,
-        error: NewMissionError::Step(detail),
-    })) = result
-    else {
-        panic!("unexpected new-game result: {result:?}");
-    };
-    assert!(detail.contains("no live G_LoadSaveClass owner"), "{detail}");
+    // Main continues to ResetMissionNumbers, SaveGameNewGame and Init. The
+    // unpresented Init stops at its Scene::Render effect after the mute.
     assert_eq!(
-        attempt.reached(),
-        &[
-            NewMissionStep::ClosePrevious,
-            NewMissionStep::Open,
-            NewMissionStep::LoadCollision,
-            NewMissionStep::ResetMissionNumbers,
-            NewMissionStep::SaveGameNewGame
-        ]
+        result,
+        Err(NewMissionRunError::Callback(NewMissionFailure {
+            step: NewMissionStep::GameInit,
+            error: NewMissionError::Init(InitRunError::Callback(InitFailure {
+                step: InitStep::ResetMissionState,
+                error: SessionInitError(
+                    "ResetMissionState: Init Scene::Render after sound mute unavailable".into()
+                ),
+            })),
+        }))
     );
+    assert_eq!(attempt.reached(), NEW_GAME_THROUGH_INIT);
     assert_eq!(attempt.open_result(), Some(OpenResult::Opened));
     assert_eq!(attempt.open().reached(), OPENED_WITH_AUDIO);
     assert_eq!(render.calls, 1);
     assert_eq!(session.collision().counts(), Default::default());
     assert!(!session.collision().loaded_level());
-    // ResetMissionNumbers ran; Init never entered.
+    // ResetMissionNumbers and SaveGameNewGame ran before Init was entered.
     assert_eq!(session.mission_numbers(), (0, 0));
-    assert!(!attempt.init().entered());
+    assert_eq!(session.load_save_progress(), &LoadSaveProgress::default());
+    assert_eq!(session.freeride(), FreerideState::default());
+    assert!(attempt.init().entered());
+    assert_eq!(attempt.init().last(), Some(InitStep::ResetMissionState));
+    // The stopped Init did not mark the game initialized.
     assert!(session.guard_game_init_for_init().is_ok());
     // A present file shorter than the header stops as a host error.
     let path = fixture.0.join("missions/synthetic/tree.klz");
@@ -1015,6 +1039,79 @@ fn new_game_start_passes_absent_collision_then_stops_at_the_unowned_load_save() 
     // Terminal disposal clears the owner before Scene release.
     discard(&mut session);
     assert_eq!(session.collision().counts(), Default::default());
+}
+
+#[test]
+fn save_game_new_game_step_clears_progress_and_stops_on_a_terminal_session() {
+    use crate::game_loadsave_lifecycle::{FreerideState, LoadSaveProgress};
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    // The step reads nothing, so it needs no Open; the session starts from
+    // the zeroed globals.
+    assert_eq!(session.load_save_progress(), &LoadSaveProgress::default());
+    seed_load_save_progress(&mut session);
+    assert_eq!(session.save_game_new_game_for_new_mission(), Ok(()));
+    assert_eq!(session.load_save_progress(), &LoadSaveProgress::default());
+    assert!(!session.freeride().active);
+    // After terminal disposal the step stops before any store.
+    open_recorded(&mut session);
+    seed_load_save_progress(&mut session);
+    discard(&mut session);
+    let before = session.load_save_progress().clone();
+    assert_eq!(
+        session.save_game_new_game_for_new_mission(),
+        Err("terminal discard entered".into())
+    );
+    assert_eq!(session.load_save_progress(), &before);
+    assert_eq!(session.freeride(), FreerideState { active: true });
+}
+
+#[test]
+fn presented_new_game_start_reaches_the_same_init_boundary_once() {
+    use crate::game_init_order::InitStep;
+    use crate::game_loadsave_lifecycle::LoadSaveProgress;
+    use crate::mission_new_game_order::{
+        NewMissionAttempt, NewMissionError, NewMissionFailure, NewMissionRequest,
+        NewMissionRunError, NewMissionStep,
+    };
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    seed_load_save_progress(&mut session);
+    let mut attempt = NewMissionAttempt::default();
+    let mut sequence = crate::scene_render::SceneSnapshotSequence::default();
+    let mut presented = 0;
+    let result = session.start_new_game_mission_presented(
+        &mut attempt,
+        NewMissionRequest {
+            mission: "synthetic",
+            model_directories: &[],
+            projection: projection(),
+        },
+        &mut Screen::default(),
+        &mut renderer(),
+        [64, 48],
+        &mut sequence,
+        |_snapshot| {
+            presented += 1;
+            Err("host presentation declined".into())
+        },
+    );
+    // Every step before Init is the unpresented composition's; Init stops
+    // at the same ResetMissionState render boundary, here through the
+    // presentation (declined by the host, or its snapshot unavailable).
+    let Err(NewMissionRunError::Callback(NewMissionFailure {
+        step: NewMissionStep::GameInit,
+        error: NewMissionError::Init(_),
+    })) = result
+    else {
+        panic!("unexpected presented new-game result: {result:?}");
+    };
+    assert!(presented <= 1);
+    assert_eq!(attempt.reached(), NEW_GAME_THROUGH_INIT);
+    assert_eq!(attempt.init().last(), Some(InitStep::ResetMissionState));
+    assert_eq!(session.load_save_progress(), &LoadSaveProgress::default());
+    assert!(!session.freeride().active);
+    discard(&mut session);
 }
 
 #[test]

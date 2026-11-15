@@ -389,6 +389,12 @@ pub struct MissionLoadSession {
     /// `gifCollision` (GAME 0x647f48), installed by the new-game
     /// `LoadCollision` step and cleared before the Scene is released.
     collision: crate::game_collision::GameCollision,
+    /// The `mafiaLoadSave` (GAME 0x6d4628) progress fields the new-game
+    /// `SaveGameNewGame` step resets. A process global natively, held here
+    /// like `gifCollision`; it owns no allocation and survives disposal.
+    load_save_progress: crate::game_loadsave_lifecycle::LoadSaveProgress,
+    /// The `freeride` global's `active` byte (GAME 0x6d4558).
+    freeride: crate::game_loadsave_lifecycle::FreerideState,
     /// Authoritative represented C_game scalar fields used by source-grounded
     /// inlines. C_game itself and the rest of Init still require live owners.
     game_inline: crate::game_housekeeping::GameInlineState,
@@ -568,6 +574,8 @@ impl MissionLoadSession {
             traffic_flags: TrafficGameFlags::default(),
             mission_counters: crate::mission_actor_lists::MissionCounterState::default(),
             collision: crate::game_collision::GameCollision::default(),
+            load_save_progress: Default::default(),
+            freeride: Default::default(),
             game_inline: crate::game_housekeeping::GameInlineState::default(),
             game_init_car_sounds: 0,
             game_init_weather: None,
@@ -1122,6 +1130,29 @@ impl MissionLoadSession {
                 progress.set_space_calls
             )
         })
+    }
+
+    /// `mafiaLoadSave.SaveGameNewGame()` (GAME 0x605ff0) at Main.cpp:395,
+    /// after `ResetMissionNumbers` and before `game->Init()`, over the
+    /// session's `G_LoadSaveClass` progress and `freeride` owners. The
+    /// native body has no failure path; only a terminal session stops it.
+    pub fn save_game_new_game_for_new_mission(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        crate::game_loadsave_lifecycle::save_game_new_game(
+            &mut self.load_save_progress,
+            &mut self.freeride,
+        );
+        Ok(())
+    }
+
+    /// The session's `G_LoadSaveClass` new-game progress owner.
+    pub fn load_save_progress(&self) -> &crate::game_loadsave_lifecycle::LoadSaveProgress {
+        &self.load_save_progress
+    }
+
+    /// The session's `freeride` owner (only `active` is represented).
+    pub fn freeride(&self) -> crate::game_loadsave_lifecycle::FreerideState {
+        self.freeride
     }
 
     /// The session's `gifCollision` owner.

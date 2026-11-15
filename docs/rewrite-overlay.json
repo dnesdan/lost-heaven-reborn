@@ -17590,6 +17590,15 @@
       "symbol": "lhr_engine::game_collision::GameCollision::load_collision",
       "tier": "contract",
       "evidence": "REA ev_f037ca6372 complete 0x5c2b70..0x5c3561 walk (step_actor clear, DeleteCollsLevel call, magic JNZ 0x5c2bc8, level_size store 0x5c2c4e before links, vtable+0x84 FindFrameFast, +0x110 type gate, vtable+0x50 SetSpace(1) 0x5c2d04, LoadedLevel 0x5c2d0f, LOD0 GetLOD(0)/LockVertices(1) 0x5c2f34/0x5c2f3c, disable 0x20 0x5c322a, ftol dyn grid + unsigned raise 0x5c343e, GrantCoherence 0x5c3554) + mafia-re g_c_glob.cpp:123-317; per-phase source reads (no up-front audit parse), level published right after LoadedLevel (g_c_glob.cpp:164) and kept with its completed phases on a later stop, LOD0 locks kept as the live shared buffer; synthetic KLZ pin tests (call order, early returns, SetSpace/LOD-lock/coherence/cell-table stops, live-buffer mutation between locks, shared link records, inputs the audit reader rejects, dyn grid); live MISE01 installs the level over the session owners (5999 links, 1632 resolved, 613 SetSpace bakes, LOD0 locks as live vertex views, dyn grid)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x205ff0",
+      "va": "0x605ff0",
+      "name": "G_LoadSaveClass::SaveGameNewGame",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::save_game_new_game",
+      "tier": "differential",
+      "evidence": "REA ev_dfd059fc0b Ghidra body 0x605ff0..0x606010 (33 bytes, 5 insns: last_stolen +0x1e8, steal_cars +0x98, call GarageClear 0x60b940 same this, freeride.active byte 0x6d4558, ret; independently hand-decoded from the PE bytes) + callers 0x5bebe0/0x6051e0 (REA ev_fffaa6495d) + mafia-re g_loadsave.cpp:470-477; pin tests (store order, idempotence, zeroed-global default); live MISE01 new-game start runs it over the session's G_LoadSaveClass progress and freeride owners between ResetMissionNumbers and game->Init"
     }
   ],
   "vm": {
