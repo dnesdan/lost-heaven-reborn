@@ -530,6 +530,76 @@ fn owner_writes_refuse_a_borrowed_allocation_and_views_stay_read_only() {
 }
 
 #[test]
+fn inspection_reads_through_the_held_lod0_lock_and_refuses_an_owner_write() {
+    use crate::loaded_visual_resources::{LoadedVisualError, LoadedVisualResources};
+    let mut f = fixture("inspect-locked");
+    let visual = f.visual;
+    let view = f.arena.lock_visual_lod0_vertices(visual).unwrap().unwrap();
+    f.arena.set_object_space_world(visual).unwrap();
+    let object = f.arena.frame_object_resources(visual).unwrap().unwrap();
+    let resources = f.arena.loaded_visual_resources().unwrap();
+    let locked = resources
+        .objects()
+        .managed()
+        .managers()
+        .vertex_locked()
+        .to_vec();
+    assert!(!locked.is_empty());
+    // C_VBuffer::Lock (LS3DF 0x1000af80) hands a further read its existing
+    // pointer: the inspection view reads the baked bytes under the lock.
+    let inspection = resources.inspection_mesh(object, 16).unwrap().unwrap();
+    let word = |i: usize| f32::from_le_bytes(inspection.vertex_bytes[i..i + 4].try_into().unwrap());
+    assert_eq!([word(32), word(36), word(40)], [4., 6., 8.]);
+    assert_eq!(view.position(1), Some([4., 6., 8.]));
+    drop(inspection);
+    // The read leaves the native lock bookkeeping untouched.
+    assert_eq!(
+        resources.objects().managed().managers().vertex_locked(),
+        &locked[..]
+    );
+    // Only an in-progress owner write (a mutable borrow) is refused.
+    let mesh = resources.objects().object(object).unwrap().mesh.unwrap();
+    let level = resources.objects().get_lod(mesh, 0).unwrap().unwrap();
+    let window = resources.game_level_vertex_window(level).unwrap();
+    let graphics = LoadedVisualResources::game_window_graphics(window);
+    let shared = resources.backend().graphics_shared_bytes(graphics).unwrap();
+    let writing = shared.borrow_mut();
+    assert!(matches!(
+        resources.inspection_mesh(object, 16),
+        Err(LoadedVisualError::Backend(
+            "inspection graphics being written"
+        ))
+    ));
+    drop(writing);
+    assert!(resources.inspection_mesh(object, 16).unwrap().is_some());
+    f.close();
+}
+
+#[test]
+fn a_world_space_visual_keeps_its_world_bound_from_the_local_box() {
+    let mut f = fixture("wbound-world");
+    let visual = f.visual;
+    let expected = f.arena.visual_world_bounds(visual).unwrap();
+    f.arena.set_object_space_world(visual).unwrap();
+    assert_eq!(
+        f.arena.state(visual).unwrap().visual_flags & 0x60040,
+        0x20040
+    );
+    // UpdateWBoundProc (LS3DF 0x1005a510) has no world-space test: the
+    // unchanged local vis_bound times the frame matrix, never the baked
+    // mesh bound again.
+    assert_eq!(f.arena.visual_world_bounds(visual).unwrap(), expected);
+    f.arena.update_visual_wbound_proc(visual).unwrap();
+    let (cache, error) = f.arena.visual_world_bound_snapshot(visual).unwrap();
+    assert_eq!((cache, error), (expected, None));
+    assert_eq!(
+        f.arena.state(visual).unwrap().visual_flags & 0x60040,
+        0x60040
+    );
+    f.close();
+}
+
+#[test]
 fn detach_keeps_the_native_locks_and_other_buffers_locks() {
     let mut f = fixture("detach-locks");
     let visual = f.visual;

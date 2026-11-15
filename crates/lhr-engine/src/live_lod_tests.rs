@@ -226,7 +226,7 @@ fn camera_horizontal_fov_and_world_scale_change_source_selection() {
         RenderLodSelection::Selected { index: 1, .. }
     ));
     let previous = resources.objects().object(object).unwrap().cur_lod;
-    for (flags, visual) in [(0x400, 0), (0, 0x10), (0, 0x40), (0, 0x10000)] {
+    for (flags, visual) in [(0x400, 0), (0, 0x10), (0, 0x10000)] {
         assert!(resources
             .select_render_lod(object, 200., 1., 1., flags, visual)
             .is_err());
@@ -235,6 +235,57 @@ fn camera_horizontal_fov_and_world_scale_change_source_selection() {
             previous
         );
     }
+    // GetObjectLOD (LS3DF 0x10061e30) has no VISF_WORLD_SPACE test: a baked
+    // plain object selects exactly as its object-space twin.
+    let object_space = resources
+        .select_render_lod(object, 81.25, 1., 1., 0, 0)
+        .unwrap();
+    let world_space = resources
+        .select_render_lod(object, 81.25, 1., 1., 0, 0x40)
+        .unwrap();
+    assert_eq!(world_space, object_space);
+}
+#[test]
+fn a_world_space_plain_object_draws_with_the_identity_render_matrix() {
+    let mut f = fixture([3., 4., 5.], false);
+    let root = f.model.root();
+    let visual = f.frames[0];
+    let camera = view([3., 4., 1.]);
+    let before = snapshot_car_arena_with_view(&mut f.arena, root, camera).unwrap();
+    assert!(!before.scene.meshes.is_empty());
+    // LoadCollision's held LOD0 lock, then SetSpace(true).
+    let lock = f.arena.lock_visual_lod0_vertices(visual).unwrap().unwrap();
+    f.arena.set_object_space_world(visual).unwrap();
+    assert_eq!(f.arena.state(visual).unwrap().visual_flags & 0x40, 0x40);
+    let locked = |arena: &ModelArena| {
+        arena
+            .loaded_visual_resources()
+            .unwrap()
+            .objects()
+            .managed()
+            .managers()
+            .vertex_locked()
+            .to_vec()
+    };
+    let held = locked(&f.arena);
+    let after = snapshot_car_arena_with_view(&mut f.arena, root, camera).unwrap();
+    // Baked world-space vertices under GetRenderMatrix's identity
+    // (0x1002ad00) land where the object-space vertices under the frame
+    // matrix did; nothing is transformed twice.
+    assert_eq!(after.scene.meshes.len(), before.scene.meshes.len());
+    for (a, b) in after.scene.meshes.iter().zip(&before.scene.meshes) {
+        let positions = |mesh: &lhr_render::Mesh| {
+            mesh.vertices
+                .iter()
+                .map(|vertex| vertex.position)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(positions(a), positions(b));
+        assert_eq!(a.indices, b.indices);
+    }
+    // The snapshot read through the lock and released nothing.
+    assert_eq!(locked(&f.arena), held);
+    assert_eq!(lock.position(1), Some([4., 3., 5.]));
 }
 #[test]
 fn view_car_wrapper_rejects_no_admitted_cpu_mesh_but_generic_empty_tree_is_valid() {

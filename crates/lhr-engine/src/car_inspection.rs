@@ -212,12 +212,9 @@ fn snapshot_arena_tree_inner(
         }
         if matches!(state.kind, FrameKind::Mesh | FrameKind::Singlemesh) {
             if view.is_some()
-                && (state.flags & 0x400 != 0 || state.visual_flags & (0x10 | 0x40 | 0x10000) != 0)
+                && (state.flags & 0x400 != 0 || state.visual_flags & (0x10 | 0x10000) != 0)
             {
-                return Err(
-                    "Camera LOD callback/texture-driven/world-space/proxy domain unavailable"
-                        .into(),
-                );
+                return Err("Camera LOD callback/texture-driven/proxy domain unavailable".into());
             }
             let object = arena
                 .frame_object_resources(frame)
@@ -231,13 +228,35 @@ fn snapshot_arena_tree_inner(
                 .map_err(|e| format!("Live visual class frame {frame:?}: {e:?}"))?
                 .visual_type();
             let billboard = visual_type == crate::i3d_object::ObjectVisualType::Billboard;
-            // Ordinary presentation keeps its historical world read here.
-            // Billboard bounds/LOD may return early; its render matrix is read
-            // only at ProductBillMatrix after a drawable LOD is prepared.
+            // VISF_WORLD_SPACE (0x40, SetSpace(true)) vertices are already in
+            // world space. Only the plain and lit objects' m_AddFGroups
+            // (LS3DF 0x10038020, 0x10027880) are admitted: both draw with
+            // GetRenderMatrix (0x1002ad00, identity for 0x40) and light with
+            // the inline GetInvMatrix (identity for 0x40, e.g. 0x10038759).
+            // Billboard, morph and skinned world-space arms differ natively.
+            if state.visual_flags & 0x40 != 0
+                && !matches!(
+                    visual_type,
+                    crate::i3d_object::ObjectVisualType::Plain
+                        | crate::i3d_object::ObjectVisualType::LitUnconstructed
+                )
+            {
+                return Err(format!(
+                    "World-space {visual_type:?} presentation unavailable frame {frame:?}"
+                ));
+            }
+            // Ordinary presentation reads GetRenderMatrix here: identity for a
+            // world-space visual, without a frame-matrix read. Billboard
+            // bounds/LOD may return early; its render matrix is read only at
+            // ProductBillMatrix after a drawable LOD is prepared.
             let ordinary_world = if billboard {
                 None
             } else {
-                Some(arena.world_matrix(frame).map_err(|e| e.to_string())?)
+                Some(
+                    arena
+                        .visual_render_matrix(frame)
+                        .map_err(|e| e.to_string())?,
+                )
             };
             let bound = arena.hr_bound_volume_w(frame).map_err(|e| e.to_string())?;
             let center = [bound.center[0], bound.center[1], -bound.center[2]];

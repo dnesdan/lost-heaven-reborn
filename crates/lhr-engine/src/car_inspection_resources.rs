@@ -45,6 +45,14 @@ impl LoadedVisualResources {
         }
         Ok(self.objects.get_material_texture(key, random)?)
     }
+    /// Read-only view of an allocation's live bytes. An active native lock
+    /// is read through, never released: a locked `C_VBuffer` hands every
+    /// further read lock its existing `data + stride * index` pointer
+    /// (`C_VBuffer::Lock`, LS3DF 0x1000af80), and `I3D_scene::Render`'s
+    /// draw reads the same buffer contents after its own
+    /// `m_UnlockAllVBuffers` (LS3DF 0x100697e0). The lock bookkeeping stays
+    /// with its owner (LoadCollision keeps its LOD0 locks, LS3DF 0x30e80);
+    /// only an in-progress owner write (a mutable borrow) is refused.
     pub(super) fn inspection_graphics(
         &self,
         graphics: GraphicsBuffer,
@@ -63,11 +71,8 @@ impl LoadedVisualResources {
             (buffer.kind, graphics),
             (BufferKind::Vertex, GraphicsBuffer::Vertex(_))
                 | (BufferKind::Index, GraphicsBuffer::Index(_))
-        ) || buffer.lock.is_some()
-        {
-            return Err(LoadedVisualError::Backend(
-                "inspection graphics kind or active lock",
-            ));
+        ) {
+            return Err(LoadedVisualError::Backend("inspection graphics kind"));
         }
         if matches!(graphics, GraphicsBuffer::Vertex(_)) && buffer.fvf != expected_fvf {
             return Err(LoadedVisualError::Backend(

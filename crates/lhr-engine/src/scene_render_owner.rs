@@ -1151,7 +1151,7 @@ mod cleanup_tests {
             )
             .err()
             .unwrap();
-            assert!(world_space.contains("world-space/proxy domain unavailable"));
+            assert!(world_space.contains("World-space Billboard presentation unavailable"));
             owner
                 .arena
                 .graph

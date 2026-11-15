@@ -3629,6 +3629,13 @@ impl ModelArena {
         self.frame_index(key)?;
         Ok(self.graph.world_matrix(key)?)
     }
+    /// `I3D_visual::GetRenderMatrix` (LS3DF 0x1002ad00): identity for a
+    /// `VISF_WORLD_SPACE` visual without reading the frame matrix, else the
+    /// 0x20-gated world matrix.
+    pub fn visual_render_matrix(&mut self, key: FrameKey) -> Result<SMatrix, ModelError> {
+        self.frame_index(key)?;
+        Ok(self.graph.visual_render_matrix(key)?)
+    }
     pub fn storage_bytes(&self) -> Result<usize, ModelError> {
         let mut size = self.graph.storage_bytes()?;
         let mut add = |n: usize| {
