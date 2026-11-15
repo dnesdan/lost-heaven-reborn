@@ -198,16 +198,25 @@ fn police_begin_shift_requires_the_open_prefix_and_keeps_the_manager() {
     assert_eq!(session.load_save_progress().progress, None);
     assert_eq!(session.execute(InitStep::PlayerNavi), Ok(()));
     // Open's inline ResetIntern set intern_load (+0x363c) and cleared
-    // intern_loaded; the gate reads it and reaches the unowned sectors.
+    // intern_loaded; the gate reads it and enters the sector rebuild.
     assert!(session.game_state().intern_load());
     assert!(!session.game_state().intern_loaded());
+    {
+        use crate::game_housekeeping::SectorLightBackend;
+        let stale = crate::frame_transform::FrameKey(u32::MAX - 1);
+        let sectors = session.vehicle_sectors_mut();
+        sectors.add_sector_for_projector_lights(stale);
+        sectors.add_sector_for_sounds(stale);
+    }
+    // This probe Open built no native Scene: both erases ran, then the
+    // primary-sector read stops the walk with nothing registered.
     let error = session.execute(InitStep::VehicleSectors).unwrap_err();
-    assert!(
-        error
-            .0
-            .starts_with("VehicleSectors: Init intern_load is set (Open's ResetIntern)"),
-        "{error}"
+    assert_eq!(
+        error.0,
+        "VehicleSectors: Init cbEnumSectors: no mission Scene for the primary sector"
     );
+    assert!(session.vehicle_sectors().light_sectors().is_empty());
+    assert!(session.vehicle_sectors().sound_sectors().is_empty());
 }
 
 fn seed_player_statics(session: &mut MissionLoadSession) {

@@ -277,8 +277,10 @@ where
 /// with the installed HUD, flag stores), the `AIManager` police shift begin
 /// and groups/follow/fight `Init`, the `PlayerNavi` progress mark,
 /// navigation-point clear and car-damage latch, the `VehicleSectors`
-/// `intern_load` gate, police init,
-/// traffic flags, the base-cache `IsOpen` read, and the `MarkInitialized`
+/// `intern_load` gate with the `C_Vehicle` sector clears and the
+/// `cbEnumSectors` walk of the primary sector, the `PhysicsClear` span,
+/// police init, traffic flags, the sound-arena/lightness/radar clears,
+/// the base-cache `IsOpen` read, and the `MarkInitialized`
 /// flag write. Every other boundary returns `Err` with its step prefix and
 /// preserves the reached live prefix: the driver stops at the first
 /// unowned step. Actor `GameInit`, scripts and rendering never run
@@ -304,19 +306,22 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::VehicleSectors => self
                 .vehicle_sectors_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::PhysicsClear => Err(SessionInitError::unavailable(step, "physics clear")),
+            InitStep::PhysicsClear => self
+                .physics_clear_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
             InitStep::PoliceGameInit => self
                 .apply_police_game_init_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
             InitStep::TrafficFlags => self
                 .apply_traffic_flags_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::SoundAndLightness => {
-                Err(SessionInitError::unavailable(step, "sound/lightness"))
-            }
-            InitStep::GlobalProgramStart => {
-                Err(SessionInitError::unavailable(step, "program-runtime"))
-            }
+            InitStep::SoundAndLightness => self
+                .sound_and_lightness_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::GlobalProgramStart => Err(SessionInitError::prefixed(
+                step,
+                "C_mission::GlobalProgramGameInit (GAME 0x540520, called at 0x5a0c9e) then GlobalProgramRun(\"GameInitStart\") (GAME 0x540580, at 0x5a0cae) have no program-runtime owner on this session; the programs run only in the headless probe's script diagnostic",
+            )),
             InitStep::IndicatorsGameInit => Err(SessionInitError::unavailable(
                 step,
                 "indicators HUD (IndicatorsState::game_init_texture_plan/apply, GAME 0x5f73c0; no HUD field on this session yet)",

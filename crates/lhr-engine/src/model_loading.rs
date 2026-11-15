@@ -2967,6 +2967,12 @@ impl ModelArena {
         self.frame_index(key)?;
         Ok(self.graph.links(key)?)
     }
+    /// `I3D_frame::GetChild(index)` over the live hierarchy links (the
+    /// frame graph's `child_at` projection); `None` is the NULL return.
+    pub fn child_at(&self, parent: FrameKey, index: i32) -> Result<Option<FrameKey>, ModelError> {
+        self.frame_index(parent)?;
+        Ok(self.graph.child_at(parent, index)?)
+    }
     /// Primary sector frame of a scene for the light-cache collector
     /// (`C_game::UseLightCacheSystem` walks the primary sector's subtree,
     /// mafia-re game/mission/game.cpp:5923 at pin fe7e746). `None` is

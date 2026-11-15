@@ -65,9 +65,37 @@ impl HousekeepingFrame {
     }
 }
 
-/// Native `C_Vehicle::AddSectorForProjectorLights` sink for `cb_enum_sectors`.
-pub trait SectorLightBackend {
-    fn add_sector_for_projector_lights(&mut self, sector: FrameId);
+/// Native `C_Vehicle::AddSectorForProjectorLights` (GAME 0x4ce560) sink for
+/// `cb_enum_sectors`.
+pub trait SectorLightBackend<F> {
+    fn add_sector_for_projector_lights(&mut self, sector: F);
+}
+
+/// The live frame reads `cb_enum_sectors` performs, in its order. Each read
+/// borrows the caller's actual frame graph when the native body reads it.
+pub trait SectorEnumFrames {
+    type Frame: Copy;
+    type Error;
+    /// `GetType() == FRAME_SECTOR`: the inline type-word compare against 5
+    /// (`cmp [edi+0x110], 5` at GAME 0x5a3b94).
+    fn is_sector(&self, frame: Self::Frame) -> Result<bool, Self::Error>;
+    /// `NumChildren`: the inline child-count read (`mov esi, [edi+0x11c]` at
+    /// GAME 0x5a3ba2), read once before the loop.
+    fn num_children(&self, frame: Self::Frame) -> Result<u32, Self::Error>;
+    /// `GetChild(index)`: the frame virtual at GAME 0x5a3bb1 (`call
+    /// [eax+0x30]`). `None` is its NULL return.
+    fn child(&self, frame: Self::Frame, index: u32) -> Result<Option<Self::Frame>, Self::Error>;
+}
+
+/// Where `cb_enum_sectors` stopped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CbEnumSectorsError<E> {
+    /// The frame graph could not supply a read the native body performs.
+    Frame(E),
+    /// `GetChild` returned NULL: the native recursion would read the type
+    /// word through NULL (`cmp [edi+0x110]` with `edi = 0`), so the walk
+    /// stops here with every earlier registration kept.
+    NullChild { index: u32 },
 }
 
 /// Native `C_animations_machine_de_luxe::LoadTrack` sink for `preload_anim`.
@@ -100,17 +128,34 @@ pub struct InventorySnapshot {
     pub marker: u32,
 }
 
-/// FUNCTION: GAME 0x5a3b90 (`game.cpp:1047`, `S_hlp::cbEnumSectors`).
-/// Registers every sector frame for projector lights, then visits children
-/// in reverse order, matching the original `for (i = NumChildren(); i--;)`
-/// loop.
-pub fn cb_enum_sectors(frame: &HousekeepingFrame, backend: &mut impl SectorLightBackend) {
-    if frame.is_sector {
-        backend.add_sector_for_projector_lights(frame.id);
+/// FUNCTION: GAME 0x5a3b90 (`game.cpp:1072` at pin fe7e746,
+/// `S_hlp::cbEnumSectors`; PS2 name per mafia-re).
+/// Registers the frame when it is a sector (`C_Vehicle::
+/// AddSectorForProjectorLights`, GAME 0x4ce560), then reads the child count
+/// once and recurses into `GetChild(i)` for `i = count - 1` down to 0,
+/// matching the original `for (i = NumChildren(); i--;)` loop. The walk
+/// borrows the live graph; nothing is snapshotted. A failed read or a NULL
+/// child stops the walk and keeps the registrations already made.
+pub fn cb_enum_sectors<G: SectorEnumFrames>(
+    graph: &G,
+    frame: G::Frame,
+    backend: &mut impl SectorLightBackend<G::Frame>,
+) -> Result<(), CbEnumSectorsError<G::Error>> {
+    if graph.is_sector(frame).map_err(CbEnumSectorsError::Frame)? {
+        backend.add_sector_for_projector_lights(frame);
     }
-    for child in frame.children.iter().rev() {
-        cb_enum_sectors(child, backend);
+    let mut index = graph
+        .num_children(frame)
+        .map_err(CbEnumSectorsError::Frame)?;
+    while index != 0 {
+        index -= 1;
+        let child = graph
+            .child(frame, index)
+            .map_err(CbEnumSectorsError::Frame)?
+            .ok_or(CbEnumSectorsError::NullChild { index })?;
+        cb_enum_sectors(graph, child, backend)?;
     }
+    Ok(())
 }
 
 /// FUNCTION: GAME 0x5a3bd0 (`game.cpp:1057`, `S_hlp::PreloadAnim`).
@@ -764,13 +809,16 @@ pub struct GameInlineState {
     player_horn_event: i32,
     player_wfall_program: u32,
     player_wfall_event: i32,
-    mission_end: i32,
+    /// `game_done` (+0x2ed8), `mission_end` (+0x48) and
+    /// `growing_projectors` (+0x29e8).
+    mission_end: MissionEndFlags,
     race6_state: i32,
     mission_passed: bool,
-    /// Raw cheat word read by [`GameInlineState::get_cheats_bit6`]
-    /// (`game.h:834-840` at pin 113b5b6). No cheat word toggles bit 6; the
-    /// writer stays with the cheat owner (DEFERRED).
-    cheats: u32,
+    /// `cheat_keys` (+0x2ef4) and the raw cheat word (+0x2f14) read by
+    /// [`GameInlineState::get_cheats_bit6`] (`game.h:834-840` at pin
+    /// 113b5b6). No cheat word toggles bit 6; the `CheatKey` writer stays
+    /// with the cheat owner (DEFERRED).
+    cheat_input: CheatKeysState,
     /// Staged identities for the object accessors below. The native bodies
     /// return references owned elsewhere (`G_Camera`, `C_using_object`,
     /// `C_sledovacka`, `soundArena`, `C_shvestky`); the host stages the
@@ -850,7 +898,26 @@ pub struct GameInlineState {
     stacks_clear: bool,
     /// `death_fade_time` (+0x2fd4): 7000 from `Init` (GAME 0x5a0974).
     death_fade_time: i32,
+    /// `next_i_show_id` (+0x2f38), the id `CreateIShow` gives next.
+    next_i_show_id: i32,
+    /// `next_sound_number` (+0x30c), the number `Play3DSound` returns next.
+    next_sound_number: i32,
+    /// `sounds_fading` (+0x310).
+    sounds_fading: i32,
+    /// `lightness_next` (+0x160), the entry `LightnessTick` checks next.
+    lightness_next: i32,
+    /// `sound_play_timer` (+0x304), an `S_timer` (mafia-re game/tools.h:17-22
+    /// at pin fe7e746: `uint time`, `uint period`, constructed `0, 200`).
+    sound_play_timer: SoundPlayTimer,
 }
+
+/// `C_game::sound_play_timer`'s `S_timer`, the existing port shared with the
+/// police manager.
+pub type SoundPlayTimer = crate::police_state::PoliceTimer;
+
+/// `sound_play_timer.period` from `C_game::Init` (`mov [esi+0x308], 0x32d`
+/// at GAME 0x5a0b6f).
+pub const GAME_INIT_SOUND_PLAY_PERIOD: u32 = 813;
 
 /// One staged subtitle request, in call order. Host staging for the HUD
 /// side of `INTRO_SUBTITLE_ADD`/`SUBTITLE_ADD`; text lookup and display
@@ -1014,12 +1081,12 @@ impl GameInlineState {
     /// `C_game::SetMissionEnd`): stores how the mission ends (1 on
     /// `ENDOFMISSION`, 2 on failure-menu exit/retry).
     pub fn set_mission_end(&mut self, value: i32) {
-        self.mission_end = value;
+        self.mission_end.mission_end = value;
     }
 
     /// Reads the value written by [`GameInlineState::set_mission_end`].
     pub fn mission_end(&self) -> i32 {
-        self.mission_end
+        self.mission_end.mission_end
     }
 
     /// FUNCTION: GAME 0x47b640 (RVA 0x7b640, VA 0x47b640; `game.h:922-927`,
@@ -1223,7 +1290,7 @@ impl GameInlineState {
     /// Staging for [`GameInlineState::get_cheats_bit6`]; the cheat-word
     /// writer itself stays with the cheat owner.
     pub fn set_cheats(&mut self, cheats: u32) {
-        self.cheats = cheats;
+        self.cheat_input.cheats = cheats;
     }
 
     /// Inline cheat-bit read (working name; `game.h:834-840` at pin 113b5b6,
@@ -1233,7 +1300,121 @@ impl GameInlineState {
     /// no outline RVA is claimed. The police tick stays with its owner
     /// (DEFERRED).
     pub fn get_cheats_bit6(&self) -> bool {
-        (self.cheats >> 6) & 1 != 0
+        (self.cheat_input.cheats >> 6) & 1 != 0
+    }
+
+    /// `cheat_keys` and the cheat word.
+    pub fn cheat_input(&self) -> CheatKeysState {
+        self.cheat_input
+    }
+
+    /// `game_done`, `mission_end` and `growing_projectors`.
+    pub fn mission_end_flags(&self) -> MissionEndFlags {
+        self.mission_end
+    }
+
+    /// `lightness_next`.
+    pub fn lightness_next(&self) -> i32 {
+        self.lightness_next
+    }
+
+    /// Test staging of `lightness_next` while `LightnessTick` stays unported.
+    #[cfg(test)]
+    pub(crate) fn stage_lightness_next(&mut self, next: i32) {
+        self.lightness_next = next;
+    }
+
+    /// The `C_game` part of `Init`'s `SoundAndLightness` span after
+    /// `sound_arena.Init()`: `LightnessClear()` (GAME 0x5b5780, called at
+    /// 0x5a0c5e), `lightness_next = 0` (0x5a0c69) and the POD erase of
+    /// `invisible_actors` (0x5a0c6f-0x5a0c90, copy helper 0x538520).
+    /// Working name, no function credit for the fragment itself.
+    pub fn init_lightness_clear(&mut self, lists: &mut GameInitLists) {
+        lightness_clear(&mut lists.lightness);
+        self.lightness_next = 0;
+        lists.invisible_actors.clear();
+    }
+
+    /// `next_i_show_id`, `next_sound_number`, `sounds_fading` and
+    /// `sound_play_timer`.
+    pub fn sound_counters(&self) -> (i32, i32, i32, SoundPlayTimer) {
+        (
+            self.next_i_show_id,
+            self.next_sound_number,
+            self.sounds_fading,
+            self.sound_play_timer,
+        )
+    }
+
+    /// Test staging of the state the `PhysicsClear` span overwrites while
+    /// its writers (`CheatKey`, `Done`, `CreateIShow`, `Play3DSound`, the
+    /// fade tick) stay unported.
+    #[cfg(test)]
+    pub(crate) fn stage_physics_clear_state(
+        &mut self,
+        cheat_input: CheatKeysState,
+        mission_end: MissionEndFlags,
+        counters: (i32, i32, i32, SoundPlayTimer),
+    ) {
+        self.cheat_input = cheat_input;
+        self.mission_end = mission_end;
+        (
+            self.next_i_show_id,
+            self.next_sound_number,
+            self.sounds_fading,
+            self.sound_play_timer,
+        ) = counters;
+    }
+
+    /// The `C_game` member stores of `Init`'s `PhysicsClear` span, GAME
+    /// 0x5a0a3d-0x5a0c17 in native order (`game.cpp:299-325` at pin
+    /// fe7e746), over this owner and the `Init` lists. Working name: a pure
+    /// fragment of the occupied `Init` body, no function credit. Every
+    /// vector clear is the POD `erase(begin, end)` (copy helpers 0x564750,
+    /// 0x537130, 0x5bc900, 0x538520, 0x411b80, 0x5bc8d0 with the empty
+    /// destroy 0x4d2040): nothing an entry names is released.
+    pub fn init_physics_clear(&mut self, lists: &mut GameInitLists) {
+        // 0x5a0a3d-0x5a0a62: strcpy(cheat_keys, "") stores one NUL; cheats=0.
+        game_init_cheats_reset(&mut self.cheat_input);
+        // 0x5a0a68-0x5a0a71: game_done, mission_end, growing_projectors.
+        game_init_mission_end_clear(&mut self.mission_end);
+        // 0x5a0a77-0x5a0a83: game_time, game_frames, init_frames.
+        self.game_time.set(0);
+        self.game_frames = 0;
+        self.init_frames = 0;
+        // 0x5a0a89: night_mission; 0x5a0a8f-0x5a0aa7: the four program
+        // pointers (events untouched) and race6_state.
+        self.night_mission = false;
+        reset_race6_and_timeout_events(self);
+        // 0x5a0aad: death_actors.
+        lists.death_actors.clear();
+        // 0x5a0acc-0x5a0afd: light_cache emptied (storage kept), then
+        // light_cache_time = -1.
+        if let Some(cache) = self.light_cache.as_mut() {
+            cache.lights.clear();
+            cache.header.end_token = cache.header.begin_token;
+            // The header's raw +0x178 word is `light_cache_time` itself.
+            cache.header.field_178 = u32::MAX;
+        }
+        self.light_cache_time = -1;
+        // 0x5a0b07-0x5a0b4e: i_shows, i_show_fades.
+        self.ishows.clear();
+        lists.i_show_fades.clear();
+        // 0x5a0b57-0x5a0b6f: next_i_show_id, next_sound_number,
+        // sounds_fading, then sound_play_timer.time = 0 before
+        // period = 813 (the `S_timer` reset order).
+        self.next_i_show_id = 0;
+        self.next_sound_number = 0;
+        self.sounds_fading = 0;
+        self.sound_play_timer.reset(GAME_INIT_SOUND_PLAY_PERIOD);
+        // 0x5a0b79-0x5a0bc0: enemy_talks, find_actors; 0x5a0bc9:
+        // anim_preload = true; 0x5a0bd0-0x5a0c17: film_music_streams,
+        // npc_kill_events.
+        lists.enemy_talks.clear();
+        lists.find_actors.clear();
+        self.anim_preload = true;
+        lists.film_music_streams.clear();
+        lists.npc_kill_events.clear();
     }
 }
 
@@ -2258,6 +2439,97 @@ pub struct GameInitLists {
     pub paused_i_shows: Vec<i32>,
     pub free_shadow_names: Vec<ShadowNameBufferId>,
     pub unknown_140: Vec<ActorId>,
+    /// `death_actors` (+0x2ee4, `std::vector<uint>`): the words
+    /// `DeathActorProcess` processes; their meaning stays with that owner.
+    pub death_actors: Vec<u32>,
+    /// `i_show_fades` (+0x2f28), in the existing `S_i_show_fade` projection.
+    pub i_show_fades: Vec<crate::ishow_renderer::CGameIshowFade>,
+    /// `enemy_talks` (+0x2f40).
+    pub enemy_talks: Vec<EnemyTalk>,
+    /// `find_actors` (+0x2f7c).
+    pub find_actors: Vec<FindActor>,
+    /// `film_music_streams` (+0x2fc4), IShow ids.
+    pub film_music_streams: Vec<i32>,
+    /// `npc_kill_events` (+0x2d68).
+    pub npc_kill_events: Vec<NpcKillEvent>,
+    /// `lightness` (+0x150), the owned entries `LightnessClear` deletes.
+    pub lightness: Vec<LightnessEntry>,
+    /// `invisible_actors` (+0x17c).
+    pub invisible_actors: Vec<InvisibleActor>,
+}
+
+/// `C_game::S_invisible_actor` (mafia-re game/mission/game.h:182-186 at pin
+/// fe7e746, member names mafia-re's): a borrowed actor and the
+/// `game_frames` value when `Tick` last changed its state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InvisibleActor {
+    pub actor: ActorId,
+    pub frame: u32,
+}
+
+/// `C_game::sound_arena` (+0x2b3c), a `soundArena` (mafia-re
+/// game/tools.h:144-157 at pin fe7e746). Its members' meanings are not
+/// recovered: the 0x200-byte block and the two words stay opaque until
+/// `SoundEmit`/`InvalidateActor` (unported) are reconstructed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SoundArena {
+    unknown_0: [u8; 0x200],
+    unknown_200: i32,
+    unknown_204: i32,
+}
+
+impl Default for SoundArena {
+    /// `C_game` construction zero-fills it (no constructor of its own).
+    fn default() -> Self {
+        Self {
+            unknown_0: [0; 0x200],
+            unknown_200: 0,
+            unknown_204: 0,
+        }
+    }
+}
+
+impl SoundArena {
+    /// FUNCTION: GAME 0x55fcf0 (`soundArena::Init`, mafia-re
+    /// game/tools.cpp:399-404 at pin fe7e746; PS2 name). `rep stosd` of
+    /// 0x80 zero dwords over +0x0, then `+0x200 = 0`, `+0x204 = 0`.
+    pub fn init(&mut self) {
+        self.unknown_0 = [0; 0x200];
+        self.unknown_200 = 0;
+        self.unknown_204 = 0;
+    }
+
+    /// Whether every member holds its `Init` zero.
+    pub fn is_cleared(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Test staging while the arena's writers stay unported.
+    #[cfg(test)]
+    pub(crate) fn stage(&mut self, byte: u8, unknown_200: i32, unknown_204: i32) {
+        self.unknown_0 = [byte; 0x200];
+        self.unknown_200 = unknown_200;
+        self.unknown_204 = unknown_204;
+    }
+}
+
+/// `C_game::S_enemy_talk` (mafia-re game/mission/game.h:291-295 at pin
+/// fe7e746, member names mafia-re's): a borrowed human and its
+/// dubbing channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EnemyTalk {
+    pub human: ActorId,
+    pub chanel: i32,
+}
+
+/// `C_game::S_find_actor` (game.h:298-303): a program handle (the same
+/// opaque handle the inline event setters store), its register and the
+/// awaited actor id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FindActor {
+    pub program: u32,
+    pub reg: i32,
+    pub id: u32,
 }
 
 /// Owner of the `mafiaIndicators` HUD global (GAME 0x6bf980, the `ECX` both
@@ -3735,9 +4007,32 @@ mod tests {
         visited: Vec<FrameId>,
     }
 
-    impl SectorLightBackend for SectorLog {
+    impl SectorLightBackend<FrameId> for SectorLog {
         fn add_sector_for_projector_lights(&mut self, sector: FrameId) {
             self.visited.push(sector);
+        }
+    }
+
+    /// Indexed test graph: per frame its sector flag, its stored child
+    /// count and its children by `GetChild` index (`None` is NULL). A frame
+    /// id outside the table is an unreadable frame.
+    struct SectorGraph {
+        frames: Vec<(bool, u32, Vec<Option<FrameId>>)>,
+    }
+
+    impl SectorEnumFrames for SectorGraph {
+        type Frame = FrameId;
+        type Error = FrameId;
+
+        fn is_sector(&self, frame: FrameId) -> Result<bool, FrameId> {
+            Ok(self.frames.get(frame as usize).ok_or(frame)?.0)
+        }
+        fn num_children(&self, frame: FrameId) -> Result<u32, FrameId> {
+            Ok(self.frames.get(frame as usize).ok_or(frame)?.1)
+        }
+        fn child(&self, frame: FrameId, index: u32) -> Result<Option<FrameId>, FrameId> {
+            let children = &self.frames.get(frame as usize).ok_or(frame)?.2;
+            Ok(children.get(index as usize).copied().flatten())
         }
     }
 
@@ -3770,21 +4065,48 @@ mod tests {
 
     #[test]
     fn enum_sectors_registers_sectors_children_reversed() {
-        let root = HousekeepingFrame {
-            id: 1,
-            is_sector: false,
-            children: vec![
-                HousekeepingFrame::leaf(2, true),
-                HousekeepingFrame {
-                    id: 3,
-                    is_sector: true,
-                    children: vec![HousekeepingFrame::leaf(4, true)],
-                },
+        // 0 (not a sector) -> [1 sector, 2 sector -> [3 sector], 4 plain].
+        let graph = SectorGraph {
+            frames: vec![
+                (false, 3, vec![Some(1), Some(2), Some(4)]),
+                (true, 0, vec![]),
+                (true, 1, vec![Some(3)]),
+                (true, 0, vec![]),
+                (false, 0, vec![]),
             ],
         };
         let mut backend = SectorLog { visited: vec![] };
-        cb_enum_sectors(&root, &mut backend);
-        assert_eq!(backend.visited, vec![3, 4, 2]);
+        assert_eq!(cb_enum_sectors(&graph, 0, &mut backend), Ok(()));
+        // Self first, then GetChild(count-1) down to GetChild(0), depth first.
+        assert_eq!(backend.visited, vec![2, 3, 1]);
+    }
+
+    #[test]
+    fn enum_sectors_stops_at_null_child_or_unreadable_frame_keeping_prefix() {
+        // The stored count names a third child GetChild cannot supply.
+        let graph = SectorGraph {
+            frames: vec![
+                (true, 3, vec![Some(1), Some(2)]),
+                (true, 0, vec![]),
+                (true, 0, vec![]),
+            ],
+        };
+        let mut backend = SectorLog { visited: vec![] };
+        assert_eq!(
+            cb_enum_sectors(&graph, 0, &mut backend),
+            Err(CbEnumSectorsError::NullChild { index: 2 })
+        );
+        assert_eq!(backend.visited, vec![0]);
+        // A child that cannot be read stops after the earlier sibling.
+        let graph = SectorGraph {
+            frames: vec![(false, 2, vec![Some(9), Some(1)]), (true, 0, vec![])],
+        };
+        let mut backend = SectorLog { visited: vec![] };
+        assert_eq!(
+            cb_enum_sectors(&graph, 0, &mut backend),
+            Err(CbEnumSectorsError::Frame(9))
+        );
+        assert_eq!(backend.visited, vec![1]);
     }
 
     #[test]
