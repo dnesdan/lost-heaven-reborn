@@ -73,11 +73,13 @@ impl ModelArena {
     /// Own-visual GetWBoundVolume producer used by LOD distance. Unlike HR
     /// bounds this excludes descendants. Computes the source eight-corner world
     /// AABB and its sphere without fabricating a native cache-valid flag.
+    /// A world-space visual (`VISF_WORLD_SPACE` 0x40, after `SetSpace(true)`)
+    /// takes the same arm: `UpdateWBoundProc` (LS3DF 0x1005a510) has no 0x40
+    /// test and always multiplies the unchanged local `vis_bound` box by the
+    /// frame matrix (`[edi+0x10]` after the 0x20-gated 0x1c7d0); the bake
+    /// rewrites only the mesh's vertices and bound, never `vis_bound`.
     pub fn visual_world_bounds(&mut self, key: FrameKey) -> Result<MeshBoundVolume, ModelError> {
         let fi = self.frame_index(key)?;
-        if self.state(key)?.visual_flags & 0x40 != 0 {
-            return Err(ModelError::VisualBoundsUnavailable(key));
-        }
         let local = self.frames[fi]
             .visual_bounds
             .ok_or(ModelError::VisualBoundsUnavailable(key))?;
@@ -115,10 +117,8 @@ impl ModelArena {
             // I3D_visual::UpdateBoundProc 0x5a4f0 (vtable +0x64).
             self.graph.mark_visual_bound_valid(key)?;
         }
-        if self.state(key)?.visual_flags & 0x40 != 0 {
-            // GetMatrix's world-space identity arm is not reached here.
-            return Err(ModelError::VisualBoundsUnavailable(key));
-        }
+        // No VISF_WORLD_SPACE (0x40) test follows: the box is always the
+        // local `vis_bound` times GetMatrix (0x1005a55e..0x1005a5ee).
         let local = self.frames[fi]
             .visual_bounds
             .ok_or(ModelError::VisualBoundsUnavailable(key))?;

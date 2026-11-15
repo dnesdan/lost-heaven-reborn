@@ -44,6 +44,64 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
 }
 
 #[test]
+fn presented_init_render_unlocks_every_buffer_before_presentation() {
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    let visual = super::install_scene_visual(&mut session);
+    // LoadCollision's LOD0 lock, kept like the native pointer.
+    let view = session
+        .arena
+        .lock_visual_lod0_vertices(visual)
+        .unwrap()
+        .unwrap();
+    let locked = |session: &MissionLoadSession| {
+        let managers = session
+            .arena()
+            .loaded_visual_resources()
+            .unwrap()
+            .objects()
+            .managed()
+            .managers();
+        (
+            managers.vertex_locked().to_vec(),
+            managers.index_locked().to_vec(),
+        )
+    };
+    let (held, _) = locked(&session);
+    assert_eq!(held.len(), 1);
+    let mut sequence = SceneSnapshotSequence::default();
+    let mut attempt = InitAttempt::default();
+    let mut presentations = 0;
+    let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| {
+        presentations += 1;
+        Ok(())
+    });
+    let Err(InitRunError::Callback(failure)) = result else {
+        panic!("the next unavailable owner must stop Init");
+    };
+    assert!(failure.error.0.ends_with("stop_sounds owner unavailable"));
+    assert_eq!(presentations, 1);
+    // I3D_driver::Render (LS3DF 0x10062030) unlocks the vertex manager
+    // (0x100697e0) and then the index manager before it draws: no buffer
+    // stays locked and the lock lists are empty.
+    assert_eq!(locked(&session), (vec![], vec![]));
+    // The collision's live view keeps reading the same storage.
+    assert_eq!(view.position(1), Some([1., 0., 0.]));
+    // The next access takes a fresh backend lock instead of reusing the
+    // stale pointer and flags.
+    let again = session
+        .arena
+        .lock_visual_lod0_vertices(visual)
+        .unwrap()
+        .unwrap();
+    assert!(again.same_buffer(&view));
+    assert_eq!(locked(&session).0, held);
+    drop((view, again));
+    discard(&mut session);
+}
+
+#[test]
 fn failed_presentation_retains_muted_prefix_without_restore_or_retry() {
     let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
     let mut session = fixture.session();

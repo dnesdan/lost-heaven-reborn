@@ -3358,9 +3358,14 @@ impl LoadedVisualResources {
         if frame_flags & 0x400 != 0 {
             return Err(LoadedVisualError::Backend("LOD callback unavailable"));
         }
-        if visual_flags & (0x10 | 0x40 | 0x10000) != 0 {
+        // GetObjectLOD (LS3DF 0x10061e30) reads only the world-bound
+        // distance, RSLodQuality, m_WorldScale and VISF_TEXTURE_LOD, so a
+        // VISF_WORLD_SPACE (0x40) plain or lit object selects as any other.
+        // The billboard's world-space arm (its own m_AddFGroups) is not.
+        let refused = 0x10 | 0x10000 | if billboard { 0x40 } else { 0 };
+        if visual_flags & refused != 0 {
             return Err(LoadedVisualError::Backend(
-                "texture-driven, world-space or proxy LOD unavailable",
+                "texture-driven, billboard world-space or proxy LOD unavailable",
             ));
         }
         let record = self.objects.object(object)?;

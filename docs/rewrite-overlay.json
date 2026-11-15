@@ -2505,7 +2505,7 @@
       "name": "I3D_visual::UpdateWBoundProc (upstream working name)",
       "symbol": "lhr_engine::mesh_bounds::update_visual_world_bound",
       "tier": "differential",
-      "evidence": "REA ghidra body 532B/171insn/23BB (WBOUND set + invalidate first, lazy ensure, X-validity, 8-corner absorb, half/center/sqrt) + mafia-re I3d_visual.cpp:114-134 + identity/invalid/order tests; per-vertex transform stays backend contract"
+      "evidence": "REA ghidra body 532B/171insn/23BB (WBOUND set + invalidate first, lazy ensure, X-validity, 8-corner absorb, half/center/sqrt) + mafia-re I3d_visual.cpp:114-134 + identity/invalid/order tests; per-vertex transform stays backend contract; REA listing 0x1005a510..0x1005a721 has no VISF_WORLD_SPACE 0x40 test (always local vis_bound x [this+0x10] after 0x20-gated 0x1c7d0), so the arena GetWBoundVolume/UpdateWBoundProc consumers admit SetSpace-baked visuals (a_world_space_visual_keeps_its_world_bound_from_the_local_box)"
     },
     {
       "binary": "LS3DF.dll",

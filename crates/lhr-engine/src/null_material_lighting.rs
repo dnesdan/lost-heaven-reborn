@@ -154,16 +154,31 @@ fn prepare_with_billboard_matrix(
     let bounds = arena
         .visual_world_bounds(frame)
         .map_err(|e| format!("null material lighting bounds: {e:?}"))?;
-    let world = match draw_matrix {
-        Some(matrix) => matrix,
-        None => arena
-            .world_matrix(frame)
-            .map_err(|e| format!("null material lighting matrix: {e:?}"))?,
+    // An object's PrepareLights inverse is the inline GetInvMatrix: for a
+    // VISF_WORLD_SPACE (0x40) visual the identity copy 0x1009c2f8, with no
+    // frame-matrix read or inversion (LS3DF 0x10038759, `test al, 0x40`).
+    let world_space = draw_matrix.is_none()
+        && arena
+            .state(frame)
+            .map_err(|e| format!("null material lighting state: {e:?}"))?
+            .visual_flags
+            & 0x40
+            != 0;
+    let inverse = if world_space {
+        SMatrix::identity()
+    } else {
+        let world = match draw_matrix {
+            Some(matrix) => matrix,
+            None => arena
+                .world_matrix(frame)
+                .map_err(|e| format!("null material lighting matrix: {e:?}"))?,
+        };
+        let (inverse, success) = world.inverse().map_err(|_| numeric())?;
+        if !success {
+            return Err("null material lighting: singular object inverse".into());
+        }
+        inverse
     };
-    let (inverse, success) = world.inverse().map_err(|_| numeric())?;
-    if !success {
-        return Err("null material lighting: singular object inverse".into());
-    }
     // GetUScale2e580 uses each row's Magnitude, then (x+y+z)/3.
     let scales = inverse.try_get_scale().map_err(|_| numeric())?;
     let scale = mul(
@@ -1155,6 +1170,109 @@ mod tests {
             // Inverse-scale changes the point position/ranges together: the
             // vertex remains at the far boundary, and RN(127.5) gives128 alpha.
             assert_eq!(result[0], [0., 0., 0., 128. / 255.]);
+        });
+    }
+
+    #[test]
+    fn world_space_visual_lights_with_the_identity_inverse() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let (mut arena, scene, sector, model, frame) = world();
+            light(&mut arena, scene, sector, 1, [1.; 3], [10., 0., 2.]);
+            arena
+                .graph
+                .assign_position(model.root(), [10., 0., 0.])
+                .unwrap();
+            arena.update_frame(model.root()).unwrap();
+            let object_space = colors(&mut arena, frame, sector);
+            assert_eq!(object_space[0], [128. / 255., 128. / 255., 128. / 255., 1.]);
+            // SetSpace(true) bakes the frame translation into the vertices;
+            // PrepareLights then takes GetInvMatrix's identity (LS3DF
+            // 0x10038759), so the baked positions light exactly as before.
+            arena.set_object_space_world(frame).unwrap();
+            let world = POSITIONS.map(|[x, y, z]| [x + 10., y, z]);
+            let baked = null_material_vertex_lighting(
+                &mut arena,
+                frame,
+                sector,
+                &world,
+                &NORMALS,
+                context(),
+            )
+            .unwrap();
+            assert_eq!(baked, object_space);
+            // No frame-matrix inverse is applied: local positions stay ten
+            // units from the light and receive nothing.
+            assert_eq!(colors(&mut arena, frame, sector)[0], [0., 0., 0., 1.]);
+        });
+    }
+
+    #[test]
+    fn rotated_scaled_world_space_visual_lights_in_world_units() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            // Bake a frame rotated 180 degrees about z and scaled by 2, then
+            // light it with the identity inverse. It must light exactly as a
+            // translation-only twin (unit inverse scale) whose vertices sit
+            // at the same world positions: world units, not the object's
+            // inverse-scaled ones.
+            let (mut arena, scene, sector, model, frame) = world();
+            light(&mut arena, scene, sector, 1, [1.; 3], [10., 0., 2.]);
+            let root = model.root();
+            arena.graph.assign_position(root, [10., 0., 0.]).unwrap();
+            arena
+                .graph
+                .assign_rotation(
+                    root,
+                    crate::native_transform::SQuat {
+                        wxyz: [0., 0., 0., 1.],
+                    },
+                )
+                .unwrap();
+            arena.graph.assign_scale(root, [2.; 3]).unwrap();
+            arena.update_frame(root).unwrap();
+            let object_space = colors(&mut arena, frame, sector);
+            arena.set_object_space_world(frame).unwrap();
+            let baked_positions = POSITIONS.map(|[x, y, z]| [10. - 2. * x, -2. * y, 2. * z]);
+            let normals = NORMALS.map(|[x, y, z]| [-x, -y, z]);
+            let baked = null_material_vertex_lighting(
+                &mut arena,
+                frame,
+                sector,
+                &baked_positions,
+                &normals,
+                context(),
+            )
+            .unwrap();
+            let (mut twin, twin_scene, twin_sector, twin_model, twin_frame) = world();
+            light(
+                &mut twin,
+                twin_scene,
+                twin_sector,
+                1,
+                [1.; 3],
+                [10., 0., 2.],
+            );
+            twin.graph
+                .assign_position(twin_model.root(), [10., 0., 0.])
+                .unwrap();
+            twin.update_frame(twin_model.root()).unwrap();
+            let twin_local = baked_positions.map(|[x, y, z]| [x - 10., y, z]);
+            let expected = null_material_vertex_lighting(
+                &mut twin,
+                twin_frame,
+                twin_sector,
+                &twin_local,
+                &normals,
+                context(),
+            )
+            .unwrap();
+            assert_eq!(baked, expected);
+            // This point light is invariant under the object's inverse
+            // scale, so the pre-bake evaluation agrees as well.
+            assert_eq!(baked, object_space);
+            // The frame's rotation/scale inverse is no longer applied: the
+            // pre-bake local vertices now light as if at those world points.
+            let stale = colors(&mut arena, frame, sector);
+            assert_ne!(stale, baked);
         });
     }
 
