@@ -46,7 +46,63 @@ fn stage_dirty_game_state(
     };
     session.game_inline.set_actor_lightness(true);
     session.game_inline.stage_camera_rot_repair(true);
+    stage_dirty_ai_manager(session);
     (sound, buffer)
+}
+
+/// Stage the `AIManager` records the police shift begin and the
+/// groups/follow/fight `Init` empty, with borrowed actor and frame ids.
+fn stage_dirty_ai_manager(session: &mut MissionLoadSession) {
+    use crate::ai_manager::*;
+    let actor = crate::script_scheduler::ActorReferenceId::from_existing;
+    let manager = session.ai_manager_mut();
+    manager.police.stage(
+        vec![AiAnimItem {
+            frame: crate::frame_transform::FrameKey(5),
+        }],
+        vec![AiPoliceAction {
+            members: vec![actor(21)],
+        }],
+        Some(actor(22)),
+    );
+    manager.groups.stage(
+        vec![AiGroup {
+            members: vec![AiGroupMember { entity: actor(23) }],
+            ..AiGroup::default()
+        }],
+        100,
+        4,
+    );
+    manager.groups.add_free_actor(actor(24));
+    manager.follow.stage(
+        vec![AiFollowGroup {
+            followers: vec![actor(25)],
+        }],
+        300,
+    );
+    manager.fight.stage(vec![AiFightFollowship {
+        members: vec![AiFightMember { entity: actor(26) }],
+    }]);
+}
+
+/// The `PoliceBeginShift` stores over the staged manager (GAME 0x53ba50,
+/// 0x531130, 0x532da0, 0x534ec0).
+fn assert_ai_manager_shift_begun(session: &MissionLoadSession) {
+    let manager = session.ai_manager();
+    assert!(manager.police.items().is_empty());
+    assert!(manager.police.actions().is_empty());
+    assert_eq!(manager.police.next_id(), 0);
+    assert_eq!(manager.police.unknown_24(), 0x0fff_ffff);
+    assert_eq!(manager.police.on_duty(), 0);
+    assert_eq!(manager.police.speed_factor().to_bits(), 0x3f80_0000);
+    assert_eq!(manager.police.customer(), None);
+    assert_eq!(manager.groups.unlock_time(), u32::MAX);
+    assert_eq!(manager.groups.last_id(), 0);
+    assert!(manager.groups.groups().is_empty());
+    assert!(manager.groups.free_actors().is_empty());
+    assert_eq!(manager.follow.check_time(), 0);
+    assert!(manager.follow.groups().is_empty());
+    assert!(manager.fight.parties().is_empty());
 }
 
 /// The list clear drops the id only: the buffer stays live and intact.
@@ -83,10 +139,16 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
     let Err(InitRunError::Callback(failure)) = result else {
         panic!("the next unavailable owner must stop Init");
     };
-    // The whole ResetMissionState span completes; the AI manager's police
-    // shift (GAME 0x53ba50) is the next unowned native step.
-    assert_eq!(failure.step, InitStep::PoliceBeginShift);
-    assert!(failure.error.0.contains("ZacatekSmeny, GAME 0x53ba50"));
+    // The whole ResetMissionState span and the AIManager police shift begin
+    // complete; `_show_progress_(0.0)` (GAME 0x5a3960 called at 0x5a09ba)
+    // over the unrepresented loading screen is the next unowned step.
+    assert_eq!(failure.step, InitStep::PlayerNavi);
+    assert!(failure
+        .error
+        .0
+        .starts_with("PlayerNavi: unavailable Init _show_progress_(0.0) loading screen"));
+    assert!(failure.error.0.contains("GAME 0x5a3960 called at 0x5a09ba"));
+    assert_eq!(session.ai_manager().groups.unlock_time(), u32::MAX);
     assert_eq!(presentations, 1);
     assert!(session.open_restore_volume());
     assert_eq!(session.scene().unwrap(), Some(scene));
@@ -142,7 +204,7 @@ fn presented_init_render_unlocks_every_buffer_before_presentation() {
     let Err(InitRunError::Callback(failure)) = result else {
         panic!("the next unavailable owner must stop Init");
     };
-    assert_eq!(failure.step, InitStep::PoliceBeginShift);
+    assert_eq!(failure.step, InitStep::PlayerNavi);
     assert_eq!(presentations, 1);
     // I3D_driver::Render (LS3DF 0x10062030) unlocks the vertex manager
     // (0x100697e0) and then the index manager before it draws: no buffer
@@ -176,9 +238,9 @@ fn presented_init_runs_the_reset_span_in_native_order_with_the_hud() {
     let mut attempt = InitAttempt::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("the police shift must stop Init");
+        panic!("the loading screen must stop Init");
     };
-    assert_eq!(failure.step, InitStep::PoliceBeginShift);
+    assert_eq!(failure.step, InitStep::PlayerNavi);
     // GAME 0x5a08c3-0x5a098c: lists emptied, ScoreSetOn(false) hides the
     // HUD bonus (0x7fffffff), score zeroed, flags stored.
     assert_eq!(
@@ -200,6 +262,9 @@ fn presented_init_runs_the_reset_span_in_native_order_with_the_hud() {
     assert_eq!(game.death_fade_time(), 7000);
     assert!(!game.actor_lightness());
     assert_shadow_buffer_kept(&session, buffer);
+    // GAME 0x5a0996-0x5a09b4: the police shift begins and the groups,
+    // follow and fight managers are emptied.
+    assert_ai_manager_shift_begun(&session);
     // Later steps never ran.
     assert!(!session.police_init().active());
     // Clearing the record released nothing: the sound is still live.
@@ -244,6 +309,14 @@ fn presented_init_without_hud_stops_at_score_set_on_keeping_earlier_clears() {
     assert_eq!(game.death_fade_time(), 0);
     assert!(game.actor_lightness());
     assert_eq!(lists.unknown_140, [11, 12]);
+    // The police shift begin after the reset span never ran.
+    let manager = session.ai_manager();
+    assert_eq!(manager.police.actions().len(), 1);
+    assert_eq!(manager.police.items().len(), 1);
+    assert_eq!(manager.groups.unlock_time(), 100);
+    assert_eq!(manager.groups.free_actors().len(), 1);
+    assert_eq!(manager.follow.check_time(), 300);
+    assert_eq!(manager.fight.parties().len(), 1);
     assert_eq!(
         attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(())),
         Err(InitRunError::AlreadyEntered)

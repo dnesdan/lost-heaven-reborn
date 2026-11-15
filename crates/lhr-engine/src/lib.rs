@@ -10,6 +10,7 @@ pub mod actor_shot;
 pub mod actor_tick;
 pub mod actor_world;
 pub mod ai_driver_tick;
+pub mod ai_manager;
 pub mod airplane_actor;
 pub mod animation_binding;
 pub mod animation_blending;
