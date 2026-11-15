@@ -39,6 +39,7 @@ fn open(
     session.open_source_in_order(
         &mut OpenAttempt::default(),
         "synthetic",
+        false,
         &[],
         projection(),
         &mut Screen::default(),
@@ -130,6 +131,7 @@ fn assert_nonfresh_preserved(session: &mut MissionLoadSession) {
             session.open_source_in_order(
                 &mut OpenAttempt::default(),
                 "synthetic",
+                false,
                 &[],
                 projection(),
                 &mut screen,
@@ -509,6 +511,7 @@ fn ordered_source_open_short_scene2_header_is_native_open_bin_failure() {
             session.open_source_in_order(
                 &mut attempt,
                 "synthetic",
+                false,
                 &[],
                 projection(),
                 &mut Screen::default(),
@@ -793,6 +796,7 @@ fn ordered_source_open_constructor_failure_retains_original_cleanup_boundary() {
         session.open_source_in_order(
             &mut OpenAttempt::default(),
             "synthetic",
+            false,
             &[],
             projection(),
             &mut screen,
@@ -854,6 +858,7 @@ fn open_recorded(session: &mut MissionLoadSession) -> (OpenAttempt, usize) {
         session.open_source_in_order(
             &mut attempt,
             "synthetic",
+            false,
             &[],
             projection(),
             &mut Screen::default(),
@@ -917,6 +922,7 @@ fn ordered_source_open_refuses_a_replayed_attempt_before_bootstrap() {
         second.open_source_in_order(
             &mut attempt,
             "synthetic",
+            false,
             &[],
             projection(),
             &mut screen,
@@ -963,7 +969,7 @@ const NEW_GAME_THROUGH_INIT: &[crate::mission_new_game_order::NewMissionStep] = 
 #[test]
 fn new_game_start_runs_save_game_new_game_then_stops_at_the_init_render() {
     use crate::game_init_order::{InitFailure, InitRunError, InitStep, SessionInitError};
-    use crate::game_loadsave_lifecycle::{FreerideState, LoadSaveProgress};
+    use crate::game_loadsave_lifecycle::{FreerideState, LoadProgressScreen, LoadSaveProgress};
     use crate::mission_new_game_order::{
         NewMissionAttempt, NewMissionError, NewMissionFailure, NewMissionRequest,
         NewMissionRunError, NewMissionStep,
@@ -1005,9 +1011,17 @@ fn new_game_start_runs_save_game_new_game_then_stops_at_the_init_render() {
     assert_eq!(render.calls, 1);
     assert_eq!(session.collision().counts(), Default::default());
     assert!(!session.collision().loaded_level());
-    // ResetMissionNumbers and SaveGameNewGame ran before Init was entered.
+    // ResetMissionNumbers and SaveGameNewGame ran before Init was entered;
+    // Main's Open (progress true) created the loading screen, which
+    // SaveGameNewGame leaves alone.
     assert_eq!(session.mission_numbers(), (0, 0));
-    assert_eq!(session.load_save_progress(), &LoadSaveProgress::default());
+    assert_eq!(
+        session.load_save_progress(),
+        &LoadSaveProgress {
+            progress: Some(LoadProgressScreen::for_mission_open()),
+            ..Default::default()
+        }
+    );
     assert_eq!(session.freeride(), FreerideState::default());
     assert!(attempt.init().entered());
     assert_eq!(attempt.init().last(), Some(InitStep::ResetMissionState));
@@ -1115,7 +1129,13 @@ fn presented_new_game_start_reaches_the_same_init_boundary_once() {
     );
     assert_eq!(attempt.reached(), NEW_GAME_THROUGH_INIT);
     assert_eq!(attempt.init().last(), Some(InitStep::ResetMissionState));
-    assert_eq!(session.load_save_progress(), &LoadSaveProgress::default());
+    assert_eq!(
+        session.load_save_progress(),
+        &LoadSaveProgress {
+            progress: Some(crate::game_loadsave_lifecycle::LoadProgressScreen::for_mission_open()),
+            ..Default::default()
+        }
+    );
     assert!(!session.freeride().active);
     discard(&mut session);
 }

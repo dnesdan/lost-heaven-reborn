@@ -389,9 +389,14 @@ pub struct MissionLoadSession {
     /// `gifCollision` (GAME 0x647f48), installed by the new-game
     /// `LoadCollision` step and cleared before the Scene is released.
     collision: crate::game_collision::GameCollision,
-    /// The `mafiaLoadSave` (GAME 0x6d4628) progress fields the new-game
-    /// `SaveGameNewGame` step resets. A process global natively, held here
-    /// like `gifCollision`; it owns no allocation and survives disposal.
+    /// The `mafiaLoadSave` (GAME 0x6d4628) fields: the progress fields the
+    /// new-game `SaveGameNewGame` step resets, and the loading screen
+    /// `progress` (+0x5d4), a 0x40-byte heap object natively that
+    /// SaveGameNewGame leaves alone and only `C_game` teardown deletes
+    /// (game.cpp:972-975). A process global natively, held here like
+    /// `gifCollision`; it survives disposal and is not a mission owner.
+    /// Known divergence: natively the screen carries over to the next
+    /// session's Open; here each session starts without one.
     load_save_progress: crate::game_loadsave_lifecycle::LoadSaveProgress,
     /// The `freeride` global's `active` byte (GAME 0x6d4558).
     freeride: crate::game_loadsave_lifecycle::FreerideState,
@@ -419,6 +424,13 @@ pub struct MissionLoadSession {
     /// teardown (`KonecSmeny`/`Destroy`, game.cpp:1279-1282, unported);
     /// here each session starts from the constructor zeros.
     ai_manager: crate::ai_manager::AiManager,
+    /// The `C_player` statics (`can_car_damage` GAME 0x6478b0, `navi_frame`
+    /// GAME 0x6478b4). Process globals like `mafiaIndicators`: they own no
+    /// mission allocation and survive disposal. Known divergence: natively
+    /// they carry over across missions (between Open and Init `navi_frame`
+    /// still names the previous mission's frame); here each session starts
+    /// zeroed. Init clears both, so nothing reached observes it.
+    player_statics: crate::player_actor::PlayerStatics,
     game_init_car_sounds: i32,
     game_init_weather: Option<(bool, i32)>,
     game_init_reset_entered: bool,
@@ -426,6 +438,11 @@ pub struct MissionLoadSession {
     /// 0x646db0): 0 cleared, 1 when `cache.bin` probes present, 2 after
     /// `OpenBin`. Read live by `ShowProgress`; only 1 advances to 2.
     open_cache_progress: i32,
+    /// Native `progress` argument of `C_mission::Open` (the stack byte
+    /// GAME 0x5409d0 tests at 0x540a79): whether `PrepareProgress` creates
+    /// the `mafiaLoadSave.progress` loading screen. Set per call by
+    /// `open_source_in_order`; false for the standalone step driver.
+    open_progress_argument: bool,
     /// Native `restore_volume` (mission +0x7c): set even when audio is
     /// absent, consumed by the first `Tick` with `skip_frames < 1`.
     open_restore_volume: bool,
@@ -602,10 +619,12 @@ impl MissionLoadSession {
             shadow_name_buffers: Default::default(),
             indicators: None,
             ai_manager: Default::default(),
+            player_statics: Default::default(),
             game_init_car_sounds: 0,
             game_init_weather: None,
             game_init_reset_entered: false,
             open_cache_progress: 0,
+            open_progress_argument: false,
             open_restore_volume: false,
             open_mission_opened: false,
             game_initialized: false,
@@ -1267,10 +1286,18 @@ impl MissionLoadSession {
         Ok(())
     }
 
-    /// `PrepareProgress` marker. Progress creation stays a host marker in
-    /// this unit; the mode itself is owned by `ProbeCache`/`AdvanceCacheProgress`.
+    /// `PrepareProgress` (GAME 0x540a79-0x540ab7, Mission.cpp:640-641):
+    /// with the `progress` argument set and no live `mafiaLoadSave.progress`
+    /// screen, create the mission-open screen (`operator new(0x40)`, then
+    /// `GM_LoadProgress(0, 0.7f, NULL)` at 0x540aa6, stored at 0x540ab7).
+    /// An existing screen is kept, as natively. The `progress` cache mode
+    /// itself is owned by `ProbeCache`/`AdvanceCacheProgress`.
     pub fn prepare_progress_for_open(&mut self) -> Result<(), String> {
         self.open_terminal_guard()?;
+        if self.open_progress_argument && self.load_save_progress.progress.is_none() {
+            self.load_save_progress.progress =
+                Some(crate::game_loadsave_lifecycle::LoadProgressScreen::for_mission_open());
+        }
         Ok(())
     }
 
@@ -1687,6 +1714,61 @@ impl MissionLoadSession {
         self.game_init_admission()?;
         self.ai_manager.game_init_police_begin_shift();
         Ok(())
+    }
+
+    /// `PlayerNavi` over the live owners in `Init` order (GAME
+    /// 0x5a09b9-0x5a09c6, game.cpp:289-291): `_show_progress_(0.0f)` (`push
+    /// ebx` with ebx 0, call 0x5a3960), `SetPlayerNaviPoint(NULL)` (`xor
+    /// ecx, ecx`, call 0x58f160), then the inline `can_car_damage = false`
+    /// store (`mov [0x6478b0], bl`). `_show_progress_` reads the live
+    /// `mafiaLoadSave.progress` (0x6d4bfc) through the credited gate: absent
+    /// is the native no-op; present runs `SetProgressGameInit`, which stops
+    /// at the uncreated loading-screen menu before `Present` (0x5e3d40),
+    /// leaving the navigation point and latch unwritten.
+    pub fn player_navi_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        self.show_progress_for_init(0.0)?;
+        self.player_statics.set_player_navi_point(None);
+        self.player_statics.set_can_car_damage(false);
+        Ok(())
+    }
+
+    /// `_show_progress_` (GAME 0x5a3960, game.cpp:1033-1040) over the live
+    /// `mafiaLoadSave.progress` owner: the gate, then `SetProgressGameInit`
+    /// and, once a created menu exists, `Present`.
+    fn show_progress_for_init(&mut self, fraction: f32) -> Result<(), String> {
+        let present = self.load_save_progress.progress.is_some();
+        if !crate::mission_actor_lists::show_progress_gate(present) {
+            return Ok(());
+        }
+        let screen = self
+            .load_save_progress
+            .progress
+            .as_mut()
+            .ok_or("Init _show_progress_ screen vanished after its gate")?;
+        screen
+            .set_progress_game_init(fraction)
+            .map_err(|boundary| format!("Init _show_progress_({fraction:?}): {boundary}"))
+    }
+
+    /// The live `C_player` statics owner.
+    pub fn player_statics(&self) -> crate::player_actor::PlayerStatics {
+        self.player_statics
+    }
+
+    /// Mutable test access to the `C_player` statics while their script
+    /// writers stay unported.
+    #[cfg(test)]
+    pub(crate) fn player_statics_mut(&mut self) -> &mut crate::player_actor::PlayerStatics {
+        &mut self.player_statics
+    }
+
+    /// Mutable test access to the `mafiaLoadSave` owner.
+    #[cfg(test)]
+    pub(crate) fn load_save_progress_mut(
+        &mut self,
+    ) -> &mut crate::game_loadsave_lifecycle::LoadSaveProgress {
+        &mut self.load_save_progress
     }
 
     /// The live `AIManager` police/groups/follow/fight owner.

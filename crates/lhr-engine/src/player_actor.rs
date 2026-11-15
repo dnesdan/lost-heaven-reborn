@@ -37,24 +37,52 @@ pub struct DrivenCarRef {
     /// Seat the player took; 0 drives (native `!seat`).
     pub seat: i32,
 }
+/// The `C_player` class statics (process globals, not per-player members):
+/// the navigation point and the card-damage HUD latch. One owner per
+/// process; the mission session holds it like its other process globals,
+/// because `C_game::Init` writes both before any player is selected.
+/// Default is the zeroed static storage (NULL, false).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PlayerStatics {
+    /// Card-damage HUD latch (mafia-re 113b5b6 game/actors/C_player.h:86-87:
+    /// static bool can_car_damage, GLOBAL GAME 0x6478b0, cleared by
+    /// C_game::Init at 0x5a09c6 and set by the script's CARDAMAGEVISIBLE
+    /// through SetCanCarDamage). The HUD consumer stays DEFERRED.
+    can_car_damage: bool,
+    /// Navigation-point frame (mafia-re 113b5b6 game/actors/C_player.h:89:
+    /// static I3D_frame *navi_frame, a frame or NULL, GLOBAL GAME 0x6478b4),
+    /// written by SetPlayerNaviPoint. The compass consumer stays DEFERRED.
+    navi_frame: Option<FrameReferenceId>,
+}
+impl PlayerStatics {
+    /// GAME 0x47b860 (RVA 0x7b860) C_player::SetCanCarDamage (mafia-re
+    /// 113b5b6 game/actors/C_player.h:92-96): store the card-damage HUD
+    /// latch.
+    pub fn set_can_car_damage(&mut self, on: bool) {
+        self.can_car_damage = on;
+    }
+    /// Card-damage HUD latch staged by SetCanCarDamage, cleared at start.
+    pub fn can_car_damage(&self) -> bool {
+        self.can_car_damage
+    }
+    /// GAME 0x58f160 (RVA 0x18f160) SetPlayerNaviPoint (mafia-re 113b5b6
+    /// game/actors/C_player.cpp:16-19): store the navigation point, None for
+    /// NULL. `C_game::Init` calls it with NULL at 0x5a09c1; the compass
+    /// setter stays DEFERRED.
+    pub fn set_player_navi_point(&mut self, frame: Option<FrameReferenceId>) {
+        self.navi_frame = frame;
+    }
+    /// Navigation point staged by SetPlayerNaviPoint, None for NULL.
+    pub fn navi_frame(&self) -> Option<FrameReferenceId> {
+        self.navi_frame
+    }
+}
+
 #[derive(Debug)]
 pub struct PlayerState {
     pub(crate) constructor_words: [u32; 2],
     pub(crate) collection: EmptyHumanCollection,
     controls_locked: bool,
-    /// Card-damage HUD latch (mafia-re 113b5b6 game/actors/C_player.h:86-87:
-    /// static bool can_car_damage, cleared by C_game::Init and set by the
-    /// script's CARDAMAGEVISIBLE; SetCanCarDamage GAME 0x47b860 writes it).
-    /// Native storage is a C_player static; this stages the per-player
-    /// projection (the single-player game owns one player). Starts cleared,
-    /// matching the C_game::Init clear; the HUD consumer stays DEFERRED.
-    can_car_damage: bool,
-    /// Navigation-point frame (mafia-re 113b5b6 game/actors/C_player.h:89:
-    /// static I3D_frame *navi_frame, a frame or NULL). Native storage is a
-    /// C_player.cpp static written by SetPlayerNaviPoint; this stages the
-    /// per-player projection. Starts at none; the compass consumer stays
-    /// DEFERRED.
-    navi_frame: Option<FrameReferenceId>,
     /// The player's alpha and the one it fades to (mafia-re 113b5b6
     /// game/actors/C_player.h:67-70: 0xab8 fade_alpha and 0xabc fade_target,
     /// 1 from C_game::Init and FadeReset). Written by the FadeReset core of
@@ -97,8 +125,6 @@ impl PlayerState {
             constructor_words: [0, 200],
             collection: EmptyHumanCollection::construct(allocator_tag),
             controls_locked: false,
-            can_car_damage: false,
-            navi_frame: None,
             fade_alpha: 1.0,
             fade_target: 1.0,
             recoil: 0.0,
@@ -122,27 +148,6 @@ impl PlayerState {
     /// Original LockControls(bool) store; Do_Breath is not run here.
     pub fn set_controls_locked(&mut self, locked: bool) {
         self.controls_locked = locked;
-    }
-    /// GAME 0x47b860 (RVA 0x7b860) C_player::SetCanCarDamage (mafia-re
-    /// 113b5b6 game/actors/C_player.h:92-96): store the card-damage HUD
-    /// latch.
-    pub fn set_can_car_damage(&mut self, on: bool) {
-        self.can_car_damage = on;
-    }
-    /// Card-damage HUD latch staged by SetCanCarDamage, cleared at start.
-    pub fn can_car_damage(&self) -> bool {
-        self.can_car_damage
-    }
-    /// GAME 0x58f160 (RVA 0x18f160) SetPlayerNaviPoint (mafia-re 113b5b6
-    /// game/actors/C_player.cpp:16-19): store the navigation point, None for
-    /// NULL. Native storage is the C_player.cpp static; the compass setter
-    /// and C_game::Init clearer stay DEFERRED with the mission owner.
-    pub fn set_player_navi_point(&mut self, frame: Option<FrameReferenceId>) {
-        self.navi_frame = frame;
-    }
-    /// Navigation point staged by SetPlayerNaviPoint, None for NULL.
-    pub fn navi_frame(&self) -> Option<FrameReferenceId> {
-        self.navi_frame
     }
     /// GAME 0x5961b0 (RVA 0x1961b0) C_player::FadeReset (mafia-re 113b5b6
     /// game/actors/C_player.cpp:59-64): restore fade_alpha and fade_target to
@@ -367,8 +372,7 @@ mod lock_tests {
     // GAME 0x47b860 (RVA 0x7b860) C_player::SetCanCarDamage: the latch
     // starts cleared like the C_game::Init clear and stores the bool.
     fn can_car_damage_rva_7b860_starts_cleared_and_stores_bool() {
-        let mut human = HumanState::construct(human_seed());
-        let mut player = PlayerState::construct(0xd7, &mut human);
+        let mut player = PlayerStatics::default();
         assert!(!player.can_car_damage());
         player.set_can_car_damage(true);
         assert!(player.can_car_damage());
@@ -381,8 +385,7 @@ mod lock_tests {
     // round-trips through the setter.
     fn navi_point_rva_18f160_starts_none_and_stores_frame() {
         use crate::script_scheduler::FrameReferenceId;
-        let mut human = HumanState::construct(human_seed());
-        let mut player = PlayerState::construct(0xd7, &mut human);
+        let mut player = PlayerStatics::default();
         assert_eq!(player.navi_frame(), None);
         player.set_player_navi_point(Some(FrameReferenceId::from_existing(7)));
         assert_eq!(

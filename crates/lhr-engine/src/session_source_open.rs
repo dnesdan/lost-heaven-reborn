@@ -30,6 +30,9 @@ impl MissionLoadSession {
     /// Startup/Scene construction precedes this fresh-session Open sequence.
     ///
     /// The name supplies missions/<name>/scene.i3d and scene2.bin together.
+    /// `progress` is Open's native fourth argument: true asks `PrepareProgress`
+    /// for the `mafiaLoadSave.progress` loading screen (every Main.cpp
+    /// mission start passes true; `G_LoadSaveClass::Init`'s menu open false).
     /// Model directories and projection remain explicit caller inputs. The
     /// configured volume is read from its existing session field when reached.
     /// A source prefix is admitted to scripts/Init only after the entire Open
@@ -43,6 +46,7 @@ impl MissionLoadSession {
         &mut self,
         attempt: &mut OpenAttempt,
         mission: &str,
+        progress: bool,
         model_directories: &[&[u8]],
         projection: GameCameraProjection,
         screen: &mut S,
@@ -90,6 +94,7 @@ impl MissionLoadSession {
             .map_err(MissionSourceOpenError::InvalidMissionName)?;
         // Callbacks and unwind cannot admit a second source owner.
         self.entered = true;
+        self.open_progress_argument = progress;
         Pc24PrecisionState::run_owner(
             self,
             |session| &mut session.precision,

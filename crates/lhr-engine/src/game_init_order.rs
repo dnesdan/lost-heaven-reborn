@@ -258,7 +258,8 @@ where
 /// the `Init` guard (live initialized flag + open prefix), the reached
 /// `ResetMissionState` span (weather reads, mute/render, list clears, score
 /// with the installed HUD, flag stores), the `AIManager` police shift begin
-/// and groups/follow/fight `Init`, police init,
+/// and groups/follow/fight `Init`, the `PlayerNavi` progress mark,
+/// navigation-point clear and car-damage latch, police init,
 /// traffic flags, the base-cache `IsOpen` read, and the `MarkInitialized`
 /// flag write. Every other boundary returns `Err` with its step prefix and
 /// preserves the reached live prefix: the driver stops at the first
@@ -279,11 +280,13 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::PoliceBeginShift => self
                 .police_begin_shift_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::PlayerNavi => Err(SessionInitError::unavailable(
+            InitStep::PlayerNavi => self
+                .player_navi_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::VehicleSectors => Err(SessionInitError::unavailable(
                 step,
-                "Init _show_progress_(0.0) loading screen (mafiaLoadSave.progress, GAME 0x5a3960 called at 0x5a09ba; no progress-screen field on this session yet)",
+                "Init intern_load gate (C_game +0x363c, read at 0x5a09cc; ResetIntern's store at 0x5409f2 in C_mission::Open has no session field) and vehicle light/sound sectors",
             )),
-            InitStep::VehicleSectors => Err(SessionInitError::unavailable(step, "vehicle sectors")),
             InitStep::PhysicsClear => Err(SessionInitError::unavailable(step, "physics clear")),
             InitStep::PoliceGameInit => self
                 .apply_police_game_init_for_init()

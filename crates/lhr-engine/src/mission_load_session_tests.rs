@@ -222,10 +222,20 @@ fn load_with(
     directories: &[&[u8]],
     screen: &mut Screen,
 ) -> Result<(), LoadStop> {
+    load_with_progress(session, directories, screen, false)
+}
+/// Open with the native `progress` argument, as Main.cpp's mission starts.
+fn load_with_progress(
+    session: &mut MissionLoadSession,
+    directories: &[&[u8]],
+    screen: &mut Screen,
+    progress: bool,
+) -> Result<(), LoadStop> {
     use crate::mission_open_order::{OpenResult, OpenRunError};
     match session.open_source_in_order(
         &mut crate::mission_open_order::OpenAttempt::default(),
         "synthetic",
+        progress,
         directories,
         projection(),
         screen,
@@ -2353,4 +2363,41 @@ fn show_progress_session_reads_live_cache_mode() {
         sink.reports,
         vec![(0.5f32.to_bits(), MISSION_PROGRESS_STEP)]
     );
+}
+
+#[test]
+fn open_prepare_progress_creates_the_loading_screen_only_when_asked() {
+    use crate::game_loadsave_lifecycle::LoadProgressScreen;
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    // Without the progress argument no screen is created.
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    assert_eq!(session.load_save_progress().progress, None);
+    discard(&mut session);
+    // With it, Open creates GM_LoadProgress(0, 0.7f, NULL).
+    let mut session = fixture.session();
+    load_with_progress(&mut session, &[], &mut Screen::default(), true).unwrap();
+    assert_eq!(
+        session.load_save_progress().progress,
+        Some(LoadProgressScreen::for_mission_open())
+    );
+    // The screen is a mafiaLoadSave global: disposal keeps it.
+    discard(&mut session);
+    assert!(session.load_save_progress().progress.is_some());
+    // A live screen is kept, not replaced (the NULL test at 0x540a7f).
+    let mut session = fixture.session();
+    let kept = LoadProgressScreen {
+        title: 0x2cf,
+        mission_part: 0.25,
+        mission_name: Some(b"mise02".to_vec()),
+    };
+    session.load_save_progress.progress = Some(kept.clone());
+    load_with_progress(&mut session, &[], &mut Screen::default(), true).unwrap();
+    assert_eq!(session.load_save_progress().progress, Some(kept));
+    // After terminal disposal the step stops before creating a screen.
+    session.load_save_progress.progress = None;
+    session.open_progress_argument = true;
+    discard(&mut session);
+    assert!(session.prepare_progress_for_open().is_err());
+    assert_eq!(session.load_save_progress().progress, None);
 }
