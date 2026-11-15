@@ -1101,12 +1101,18 @@ fn presented_new_game_start_reaches_the_same_init_boundary_once() {
     // presentation (declined by the host, or its snapshot unavailable).
     let Err(NewMissionRunError::Callback(NewMissionFailure {
         step: NewMissionStep::GameInit,
-        error: NewMissionError::Init(_),
-    })) = result
+        error: NewMissionError::Init(error),
+    })) = &result
     else {
         panic!("unexpected presented new-game result: {result:?}");
     };
-    assert!(presented <= 1);
+    // The snapshot reached the host exactly once and its refusal is the
+    // stop: an unpresented Init would never call the host.
+    assert_eq!(presented, 1);
+    assert!(
+        format!("{error:?}").contains("host presentation declined"),
+        "{error:?}"
+    );
     assert_eq!(attempt.reached(), NEW_GAME_THROUGH_INIT);
     assert_eq!(attempt.init().last(), Some(InitStep::ResetMissionState));
     assert_eq!(session.load_save_progress(), &LoadSaveProgress::default());
