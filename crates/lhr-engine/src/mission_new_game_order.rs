@@ -23,8 +23,13 @@
 //! `C_mission::Open` is GAME 0x5409d0, `g_collision::LoadCollision` GAME
 //! 0x5c2b70, `G_LoadSaveClass::SaveGameNewGame` GAME 0x605ff0 and
 //! `C_game::Init` GAME 0x5a0810; `ResetMissionNumbers` is inline
-//! (Mission.h:290-294). `GameLoopSingle` and the trailing `Close` are outside
-//! this composition. The composition is descriptive and earns no function
+//! (Mission.h:290-294). `SaveGameNewGame` runs natively over the session's
+//! `G_LoadSaveClass` progress and `freeride` owners
+//! ([`crate::game_loadsave_lifecycle::save_game_new_game`]); those owners
+//! start from the zeroed globals because `G_LoadSaveClass::Init` and the
+//! profile load are not composed, which the step's stores make unobservable
+//! for the fields it writes. `GameLoopSingle` and the trailing `Close` are
+//! outside this composition. The composition is descriptive and earns no function
 //! credit; every reached step is required and an unavailable owner returns
 //! `Err` at its own step instead of being skipped.
 #![forbid(unsafe_code)]
@@ -216,6 +221,8 @@ impl MissionLoadSession {
     /// owners: the single ordered source Open, then the post-Open steps. The
     /// first unavailable owner stops the composition with its step; nothing
     /// later runs, and Init is entered only after SaveGameNewGame returned.
+    /// The composed Init has no presentation: it stops at the
+    /// `ResetMissionState` render effect like an unpresented `InitAttempt`.
     pub fn start_new_game_mission<S, R>(
         &mut self,
         attempt: &mut NewMissionAttempt,
@@ -233,22 +240,67 @@ impl MissionLoadSession {
             request,
             screen,
             renderer,
+            init: |attempt: &mut InitAttempt, session: &mut MissionLoadSession| {
+                attempt.run(session)
+            },
+        })
+    }
+
+    /// The same composition with host presentation at the composed Init's
+    /// reached render boundary ([`InitAttempt::run_with_presentation`]).
+    /// Every earlier step and its stop are identical; presentation is host
+    /// observation of the live Scene, not an original effect.
+    pub fn start_new_game_mission_presented<S, R, F>(
+        &mut self,
+        attempt: &mut NewMissionAttempt,
+        request: NewMissionRequest<'_>,
+        screen: &mut S,
+        renderer: &mut R,
+        target: [u32; 2],
+        sequence: &mut crate::scene_render::SceneSnapshotSequence,
+        present: F,
+    ) -> Result<NewMissionResult, NewMissionRunError<NewMissionError>>
+    where
+        S: crate::driver_scene::DriverSceneScreen,
+        S::Error: std::fmt::Debug,
+        R: crate::scene_projection::SceneRenderBackend,
+        F: FnMut(&crate::scene_render::CanonicalSceneSnapshot) -> Result<(), String>,
+    {
+        let mut present = Some(present);
+        attempt.run(&mut SessionNewMission {
+            session: self,
+            request,
+            screen,
+            renderer,
+            init: |attempt: &mut InitAttempt, session: &mut MissionLoadSession| {
+                // Init is entered at most once per composed attempt.
+                match present.take() {
+                    Some(present) => {
+                        attempt.run_with_presentation(session, target, sequence, present)
+                    }
+                    None => Err(InitRunError::AlreadyEntered),
+                }
+            },
         })
     }
 }
 
-struct SessionNewMission<'a, S, R> {
+type SessionInitResult = Result<(), InitRunError<SessionInitError>>;
+
+struct SessionNewMission<'a, S, R, I> {
     session: &'a mut MissionLoadSession,
     request: NewMissionRequest<'a>,
     screen: &'a mut S,
     renderer: &'a mut R,
+    init: I,
 }
 
-impl<S, R> NewMissionOperations for SessionNewMission<'_, S, R>
+impl<S, R, I> NewMissionOperations for SessionNewMission<'_, S, R, I>
 where
     S: crate::driver_scene::DriverSceneScreen,
     S::Error: std::fmt::Debug,
     R: crate::scene_projection::SceneRenderBackend,
+    I: FnMut(&mut InitAttempt, &mut MissionLoadSession) -> SessionInitResult,
 {
     type Error = NewMissionError;
 
@@ -261,12 +313,7 @@ where
             NewMissionStep::ResetMissionNumbers => {
                 self.session.reset_mission_numbers_for_new_mission()
             }
-            // G_LoadSaveClass (mafiaLoadSave) is not a session owner; its
-            // garage/steal/freeride state must not be invented here.
-            NewMissionStep::SaveGameNewGame => Err(
-                "no live G_LoadSaveClass owner for last_stolen, steal_cars, GarageClear and freeride.active"
-                    .into(),
-            ),
+            NewMissionStep::SaveGameNewGame => self.session.save_game_new_game_for_new_mission(),
             NewMissionStep::Open | NewMissionStep::GameInit => {
                 Err("dispatched through its own entry".into())
             }
@@ -288,7 +335,7 @@ where
     }
 
     fn game_init(&mut self, attempt: &mut InitAttempt) -> Result<(), Self::Error> {
-        attempt.run(self.session).map_err(NewMissionError::Init)
+        (self.init)(attempt, self.session).map_err(NewMissionError::Init)
     }
 }
 

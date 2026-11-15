@@ -126,7 +126,9 @@ To verify the *same* Scene on the GPU, add `--probe-render-capture FILE.png`
 to `--mission-load-probe`. This explicitly requests an offscreen 800x600
 readback with the source mesh lighting, and reports GPU errors separately
 from input and disposal failures. The capture now runs at the reached render
-boundary of the ordered Init inspection, after the live audio mute. A failed
+boundary of the composed new-game Init (after `SaveGameNewGame`) when
+the start reaches it, otherwise of the independent ordered Init inspection,
+after the live audio mute. A failed
 or unreached presentation is not retried outside that order. Successful
 presentation advances to the still-unavailable `stop_sounds` owner; it does
 not complete GameInit. Store captures outside the source tree;

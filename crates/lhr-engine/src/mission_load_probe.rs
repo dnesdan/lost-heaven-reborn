@@ -483,18 +483,34 @@ pub fn run(
     // Main.cpp:373-384 is not composed): outer Close, the single ordered
     // C_mission::Open, then LoadCollision, ResetMissionNumbers,
     // SaveGameNewGame and game->Init, stopping at the first unavailable owner.
+    // A requested GPU capture runs at the composed Init's reached render
+    // boundary, after the live audio mute; it is never retried elsewhere.
     let mut render = ProbeOpenRender::default();
     let mut new_mission = NewMissionAttempt::default();
-    let new_mission_result = session.start_new_game_mission(
-        &mut new_mission,
-        NewMissionRequest {
-            mission,
-            model_directories: &directories,
-            projection: PROBE_PROJECTION,
-        },
-        &mut screen,
-        &mut render,
-    );
+    let mut init_capture = None;
+    let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
+    let request = NewMissionRequest {
+        mission,
+        model_directories: &directories,
+        projection: PROBE_PROJECTION,
+    };
+    let new_mission_result = if let Some(path) = capture {
+        session.start_new_game_mission_presented(
+            &mut new_mission,
+            request,
+            &mut screen,
+            &mut render,
+            PROBE_RENDER_SIZE,
+            &mut sequence,
+            |snapshot| {
+                let result = capture_retained_mission_frame(snapshot, path);
+                init_capture = Some(result.clone());
+                result
+            },
+        )
+    } else {
+        session.start_new_game_mission(&mut new_mission, request, &mut screen, &mut render)
+    };
     // The source-loading gate for every later diagnostic: Open returned
     // Opened, independent of where the post-Open composition stopped.
     let load: Result<(), ()> = match new_mission.open_result() {
@@ -551,6 +567,31 @@ pub fn run(
         new_mission.init().entered()
     )
     .unwrap();
+    let progress = session.load_save_progress();
+    writeln!(
+        report,
+        "G_LoadSaveClass new-game progress (SaveGameNewGame 0x605ff0): steal_cars={:#x} last_stolen={:?} occupied garage slots={} shown cars={} freeride.active={}",
+        progress.steal_cars,
+        progress.last_stolen,
+        progress.garage.slots.iter().filter(|slot| slot.car != 0 || slot.actor.is_some()).count(),
+        progress.garage.shown_cars.iter().filter(|&&car| car != 0).count(),
+        session.freeride().active
+    )
+    .unwrap();
+    match (&init_capture, capture) {
+        (Some(Ok(())), Some(path)) => writeln!(
+            report,
+            "Mission GPU readback at composed Init render boundary written to {}",
+            path.display()
+        )
+        .unwrap(),
+        (Some(Err(error)), _) => writeln!(
+            report,
+            "Mission GPU readback at composed Init render boundary stopped: {error}"
+        )
+        .unwrap(),
+        _ => {}
+    }
     let collision = session.collision();
     writeln!(
         report,
@@ -692,8 +733,6 @@ pub fn run(
     // this command separately exercises that script with session-owned effects.
     // Keep the first failure and reached owner state visible without changing
     // whether an otherwise complete source-load probe exits successfully.
-    let mut init_capture = None;
-    let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
     if load.is_ok() && !new_mission.init().entered() {
         let mut attempt = InitAttempt::default();
         let result = if let Some(path) = capture {
@@ -738,10 +777,14 @@ pub fn run(
         )
         .unwrap();
     } else if new_mission.init().entered() {
+        // The composed start entered Init after SaveGameNewGame; its stop is
+        // reported above. Init is one-shot, so it is not run again here.
+        let (passed, car_sounds, weather, buffer) = session.game_init_reset_observation();
         writeln!(
             report,
-            "GameInit ordered inspection: composed new-game start already entered Init; last={:?}",
-            new_mission.init().last()
+            "GameInit ordered inspection: composed new-game start already entered Init; last={:?}; mission_passed={passed} car_sounds={car_sounds} weather={weather:?} weather_buffer={buffer} PCM_gain={:?}",
+            new_mission.init().last(),
+            session.audio().master_gain()
         )
         .unwrap();
     } else {

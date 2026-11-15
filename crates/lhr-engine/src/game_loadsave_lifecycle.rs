@@ -797,6 +797,7 @@ pub struct GarageSlot {
 
 /// Live garage state (`G_LoadSaveClass::garage` and `shown_cars`, mafia-re
 /// `game/ui/g_loadsave.h:355-357`).
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LoadSaveGarage {
     pub slots: [GarageSlot; MAX_GARAGE_CARS],
     pub shown_cars: [u32; MAX_GARAGE_CARS],
@@ -1019,6 +1020,55 @@ pub fn enable_steal(steal_cars: &mut u32, c: u8) {
 /// the reference marker. Live actor lifetime stays with the caller.
 pub fn is_car_in(garage: &LoadSaveGarage, car: Option<GarageActor>) -> bool {
     garage.slots.iter().any(|slot| slot.actor == car)
+}
+
+/// The live `G_LoadSaveClass` progress fields a new game resets
+/// (`mafiaLoadSave`, GAME 0x6d4628; mafia-re `fe7e746`
+/// `game/ui/g_loadsave.h:350-372`): `steal_cars` (+0x98), the garage
+/// (+0xa0 slots, +0x168 `shown_cars`) and `last_stolen` (+0x1e8). The
+/// member names are mafia-re's, not original symbols; the class name is the
+/// PS2 one. This is not a mirrored layout of the class: profiles, settings,
+/// bindings and the replay stay with their own owners.
+///
+/// The default is the process-start state of the global: static storage is
+/// zero and the constructor (GAME 0x605140, g_loadsave.cpp:169-179, per
+/// mafia-re source; its body was not re-read here) stores none of these
+/// fields. `G_LoadSaveClass::Init` (GAME 0x604ee0) is
+/// not composed over this owner; its 0x1e8 clear is still modeled only by
+/// the unwired [`ProfileState::unknown_1e8`].
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LoadSaveProgress {
+    /// +0x98: the cars `EnableSteal` lets steal, a bit per letter.
+    pub steal_cars: u32,
+    /// +0xa0 / +0x168: the garage slots and the last-shown cars.
+    pub garage: LoadSaveGarage,
+    /// +0x1e8: the car the player stole last (`C_car*`), `None` for NULL.
+    pub last_stolen: Option<GarageActor>,
+}
+
+/// The `freeride` global (`S_freeride`, PS2 name; GAME 0x6d4540, mafia-re
+/// `game/ui/g_loadsave.cpp:96-97`), represented only by the `active` byte
+/// at +0x18 (GAME 0x6d4558) that `SaveGameNewGame` writes. The free-ride
+/// car, flags, location and densities stay outside this owner.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FreerideState {
+    /// +0x18: a free ride is on (mafia-re's guessed name).
+    pub active: bool,
+}
+
+/// FUNCTION: GAME RVA 0x205ff0, VA 0x605ff0 (mafia-re `fe7e746`,
+/// `game/ui/g_loadsave.cpp:470-477`, `G_LoadSaveClass::SaveGameNewGame`).
+/// Game.exe SHA-256 08398317…16ab27, Ghidra 12.1.4 body 0x605ff0..0x606010
+/// (33 bytes, 5 instructions; REA ev_dfd059fc0b): `mov [ecx+0x1e8],0`,
+/// `mov [ecx+0x98],0`, `call 0x60b940` (GarageClear, same `this`),
+/// `mov byte [0x6d4558],0`, `ret`. Direct callers 0x5bebe0 (Main's
+/// new-game cases) and 0x6051e0 (`AllDefault`; REA ev_fffaa6495d). The
+/// stores run in that order and nothing is read.
+pub fn save_game_new_game(progress: &mut LoadSaveProgress, freeride: &mut FreerideState) {
+    progress.last_stolen = None;
+    progress.steal_cars = 0;
+    garage_clear(&mut progress.garage);
+    freeride.active = false;
 }
 
 #[cfg(test)]
@@ -1250,6 +1300,37 @@ mod loadsave_gates_tests {
                 actor: None
             }));
         assert!(garage.shown_cars.iter().all(|&shown| shown == 0));
+    }
+
+    #[test]
+    fn save_game_new_game_rva_205ff0_clears_progress_and_freeride_active() {
+        let mut progress = LoadSaveProgress {
+            steal_cars: 0b101 | (1 << 25),
+            last_stolen: Some(7),
+            ..Default::default()
+        };
+        progress.garage.slots[3] = GarageSlot {
+            car: 0x1234,
+            actor: Some(7),
+        };
+        progress.garage.shown_cars[24] = 0x55;
+        let mut freeride = FreerideState { active: true };
+        save_game_new_game(&mut progress, &mut freeride);
+        assert_eq!(progress, LoadSaveProgress::default());
+        assert_eq!(freeride, FreerideState::default());
+        // Idempotent: a second new game over the cleared state is a no-op.
+        save_game_new_game(&mut progress, &mut freeride);
+        assert_eq!(progress, LoadSaveProgress::default());
+        assert!(!freeride.active);
+    }
+
+    #[test]
+    fn load_save_progress_default_is_the_zeroed_global() {
+        let progress = LoadSaveProgress::default();
+        assert_eq!(progress.steal_cars, 0);
+        assert_eq!(progress.last_stolen, None);
+        assert_eq!(progress.garage, LoadSaveGarage::new());
+        assert!(!FreerideState::default().active);
     }
 
     #[test]
