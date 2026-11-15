@@ -425,7 +425,9 @@ pub fn staged_script_content(
         .open_source_in_order(
             &mut OpenAttempt::default(),
             mission,
-            // Script staging never reaches Init, so no loading screen.
+            // Script staging never runs the ordered Init driver (its
+            // `_show_progress_`), so no loading screen; Main.cpp:387 passes
+            // true once that driver is wired here.
             false,
             &[],
             PROBE_PROJECTION,

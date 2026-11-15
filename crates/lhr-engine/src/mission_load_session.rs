@@ -389,9 +389,14 @@ pub struct MissionLoadSession {
     /// `gifCollision` (GAME 0x647f48), installed by the new-game
     /// `LoadCollision` step and cleared before the Scene is released.
     collision: crate::game_collision::GameCollision,
-    /// The `mafiaLoadSave` (GAME 0x6d4628) progress fields the new-game
-    /// `SaveGameNewGame` step resets. A process global natively, held here
-    /// like `gifCollision`; it owns no allocation and survives disposal.
+    /// The `mafiaLoadSave` (GAME 0x6d4628) fields: the progress fields the
+    /// new-game `SaveGameNewGame` step resets, and the loading screen
+    /// `progress` (+0x5d4), a 0x40-byte heap object natively that
+    /// SaveGameNewGame leaves alone and only `C_game` teardown deletes
+    /// (game.cpp:972-975). A process global natively, held here like
+    /// `gifCollision`; it survives disposal and is not a mission owner.
+    /// Known divergence: natively the screen carries over to the next
+    /// session's Open; here each session starts without one.
     load_save_progress: crate::game_loadsave_lifecycle::LoadSaveProgress,
     /// The `freeride` global's `active` byte (GAME 0x6d4558).
     freeride: crate::game_loadsave_lifecycle::FreerideState,
@@ -421,7 +426,10 @@ pub struct MissionLoadSession {
     ai_manager: crate::ai_manager::AiManager,
     /// The `C_player` statics (`can_car_damage` GAME 0x6478b0, `navi_frame`
     /// GAME 0x6478b4). Process globals like `mafiaIndicators`: they own no
-    /// mission allocation and survive disposal.
+    /// mission allocation and survive disposal. Known divergence: natively
+    /// they carry over across missions (between Open and Init `navi_frame`
+    /// still names the previous mission's frame); here each session starts
+    /// zeroed. Init clears both, so nothing reached observes it.
     player_statics: crate::player_actor::PlayerStatics,
     game_init_car_sounds: i32,
     game_init_weather: Option<(bool, i32)>,
