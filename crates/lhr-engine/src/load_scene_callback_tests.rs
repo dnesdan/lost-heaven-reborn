@@ -552,35 +552,3 @@ fn on_create_rereads_the_act_mission_name_per_entry_and_bounds_its_reads() {
         .unwrap_err()
         .contains("runs past the read bytes"));
 }
-
-#[test]
-fn scene_open_reports_follow_load_hierarchy_and_load_image() {
-    let bits = |value: f32| value.to_bits();
-    assert_eq!(
-        scene_open_progress_reports(0, 0),
-        [
-            (bits(0.0), LOAD_PROGRESS_BEGIN),
-            (bits(1.0), LOAD_PROGRESS_END)
-        ]
-    );
-    // (i / 2) / 4 for materials, (j / 2) / 4 + 0.5 for frames, each through
-    // the 0.02 gate starting from 0.
-    assert_eq!(
-        scene_open_progress_reports(4, 4),
-        [
-            (bits(0.0), LOAD_PROGRESS_BEGIN),
-            (bits(0.25), LOAD_PROGRESS_STEP),
-            (bits(0.5), LOAD_PROGRESS_STEP),
-            (bits(0.75), LOAD_PROGRESS_STEP),
-            (bits(1.0), LOAD_PROGRESS_END),
-        ]
-    );
-    // Dense counts are thinned by the gate, never reported twice.
-    let reports = scene_open_progress_reports(1000, 1000);
-    let steps: Vec<f32> = reports[1..reports.len() - 1]
-        .iter()
-        .map(|(value, _)| f32::from_bits(*value))
-        .collect();
-    assert!(steps.windows(2).all(|pair| pair[1] >= pair[0] + 0.02));
-    assert_eq!(steps.len(), 49);
-}

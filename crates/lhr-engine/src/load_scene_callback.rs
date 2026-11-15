@@ -187,34 +187,6 @@ impl LoadSceneCallback {
     }
 }
 
-/// The `CBM_PROGRESS` reports `I3D_scene::Open` (LS3DF 0x4a300) makes
-/// through `LoadHierarchy` (LS3DF 0x603e0, Load.cpp:105-205) over a scene
-/// file whose `LoadImage` read `materials` then `frames` entries: BEGIN
-/// with 0.0, a `LoadProgress` STEP per material
-/// (`(float)(i / 2) / LoadMaterialu`, load4ds.cpp:92) and per frame
-/// (`(float)(j / 2) / LoadFramu + .5f`, load4ds.cpp:128), each through the
-/// credited 0.02 gate [`crate::scene_file_load::load_progress_gate`], then
-/// END with 1.0. Values are `(prm1, prm2)` pairs in report order.
-pub fn scene_open_progress_reports(materials: usize, frames: usize) -> Vec<(u32, u32)> {
-    let mut reports = vec![(0.0f32.to_bits(), LOAD_PROGRESS_BEGIN)];
-    let mut last = 0.0f32;
-    let flags = crate::scene_file_load::I3DLOAD_PROGRESS;
-    for i in 0..materials {
-        let p = (i / 2) as f32 / materials as f32;
-        if crate::scene_file_load::load_progress_gate(&mut last, p, flags) {
-            reports.push((p.to_bits(), LOAD_PROGRESS_STEP));
-        }
-    }
-    for j in 0..frames {
-        let p = (j / 2) as f32 / frames as f32 + 0.5;
-        if crate::scene_file_load::load_progress_gate(&mut last, p, flags) {
-            reports.push((p.to_bits(), LOAD_PROGRESS_STEP));
-        }
-    }
-    reports.push((1.0f32.to_bits(), LOAD_PROGRESS_END));
-    reports
-}
-
 #[cfg(test)]
 #[path = "load_scene_callback_tests.rs"]
 mod tests;

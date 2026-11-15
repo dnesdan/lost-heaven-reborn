@@ -89,6 +89,30 @@ impl ModelArena {
         installation: &lhr_assets::Installation,
         name: &str,
     ) -> Result<CpuSceneWorldProgress, CpuSceneWorldFailure> {
+        self.load_scene_world_cpu_reporting(scene, installation, name, &mut |_| Ok(()))
+    }
+    /// The world intake with LoadImage's `LoadProgress` points
+    /// (load4ds.cpp:92/128): `report(p)` runs before each material is read
+    /// (`(i/2)/LoadMaterialu`, after the parse and before any frame) and
+    /// before each frame is read (`(j/2)/LoadFramu + .5`), each with the
+    /// raw value; the 0.02 gate and the callback are the caller's
+    /// (LoadProgress, LS3DF 0x60390). An `Err` stops the intake at that
+    /// point as [`ModelError::LoadCallback`], keeping the frames read before
+    /// it on the staging owner and running nothing later.
+    ///
+    /// The adapter parses the whole file before the material points, and
+    /// realizes materials per mesh in its later resource phase instead of in
+    /// LoadImage's material loop: a stop at a material point leaves no
+    /// material owners, where the original would hold the materials read
+    /// before it. Frame-type admission is a pre-pass before the frame
+    /// points.
+    pub(crate) fn load_scene_world_cpu_reporting(
+        &mut self,
+        scene: SceneKey,
+        installation: &lhr_assets::Installation,
+        name: &str,
+        report: &mut dyn FnMut(f32) -> Result<(), String>,
+    ) -> Result<CpuSceneWorldProgress, CpuSceneWorldFailure> {
         let mut progress = CpuSceneWorldProgress::empty(self, scene);
         let result = (|| -> Result<(), ModelError> {
             let si = self.scene_index(scene)?;
@@ -116,12 +140,20 @@ impl ModelArena {
                 count(source.model.materials.len())?,
                 count(source.model.frames.len())?,
             ));
+            let materials = source.model.materials.len();
+            for index in 0..materials {
+                report(crate::scene_file_load::load_image_material_progress(
+                    index, materials,
+                ))
+                .map_err(ModelError::LoadCallback)?;
+            }
             self.load_scene_world_parsed_cpu(
                 scene,
                 installation,
                 Arc::new(source.model),
                 &source.billboards,
                 &mut progress,
+                report,
             )
         })();
         match result {
@@ -139,6 +171,7 @@ impl ModelArena {
         source: Arc<Model>,
         billboards: &[lhr_assets::BillboardSource],
         progress: &mut CpuSceneWorldProgress,
+        report: &mut dyn FnMut(f32) -> Result<(), String>,
     ) -> Result<(), ModelError> {
         let si = self.scene_index(scene)?;
         let primary = self.scenes[si].sectors[0];
@@ -161,11 +194,18 @@ impl ModelArena {
         // Keep BBRD suffixes on their actual derived frames through the same
         // root-parent and staging-owner path as ordinary world geometry.
         // The existing resource loader applies them after inherited LoadImage.
-        let content = match self.load_parsed_into_model_for_root_with_billboards(
+        let frames = source.frames.len();
+        let content = match self.load_parsed_into_model_for_root_reporting(
             staging,
             source,
             Some(primary.frame()),
             billboards,
+            &mut |index| {
+                report(crate::scene_file_load::load_image_frame_progress(
+                    index, frames,
+                ))
+                .map_err(ModelError::LoadCallback)
+            },
         ) {
             Ok(content) => content,
             Err(failure) => {
@@ -278,7 +318,14 @@ mod tests {
         arena.sector_storage_mut().fail_on_allocation(Some(1));
         let mut progress = CpuSceneWorldProgress::empty(&arena, scene);
         let error = arena
-            .load_scene_world_parsed_cpu(scene, &installation, source, &[], &mut progress)
+            .load_scene_world_parsed_cpu(
+                scene,
+                &installation,
+                source,
+                &[],
+                &mut progress,
+                &mut |_| Ok(()),
+            )
             .unwrap_err();
         assert_eq!(error, ModelError::NativeModelOpenResult(0x80000002));
         assert_eq!(progress.phase(), CpuSceneWorldPhase::Geometry);

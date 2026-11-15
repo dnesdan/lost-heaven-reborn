@@ -1257,16 +1257,13 @@ fn open_reports_the_scene_load_to_the_mafia_load_save_screen() {
         open_with_progress(&mut session, true, &mut render),
         Ok(OpenResult::Opened)
     );
-    // BEGIN presents the created screen with an empty bar, every shown STEP
-    // sets the blend state and presents SetProgressMissionOpen(bit); the
-    // scene's END is the last STEP at half the bar (0.5 * 0.7).
-    let (materials, frames) = session.world_source_counts().unwrap();
-    assert_eq!(frames, 2);
-    let reports = crate::load_scene_callback::scene_open_progress_reports(materials, frames);
-    assert_eq!(render.loading_presents.first(), Some(&0.0));
-    assert_eq!(render.loading_presents.last(), Some(&(0.5f32 * 0.7)));
-    assert_eq!(render.loading_presents.len(), render.alpha_blend_states + 1);
-    assert!(render.alpha_blend_states < reports.len());
+    // BEGIN presents the created screen with an empty bar. Frame 0's
+    // LoadProgress(0/2 + 0.5) passes the 0.02 gate (bit 0.25), frame 1's
+    // repeats 0.5 and is gated; the scene's END is the last STEP at half the
+    // bar. Each shown STEP sets the blend state, then presents.
+    assert_eq!(session.world_source_counts(), Some((0, 2)));
+    assert_eq!(render.loading_presents, [0.0, 0.25f32 * 0.7, 0.5f32 * 0.7]);
+    assert_eq!(render.alpha_blend_states, 2);
     let callback = session.load_scene_callback();
     assert_eq!(callback.menu_progress(), None);
     assert_eq!(callback.last_bit(), 0.5);
@@ -1350,4 +1347,160 @@ fn vehicle_sectors_reads_the_live_intern_load() {
     session.game_inline = crate::game_housekeeping::GameInlineState::default();
     assert_eq!(session.vehicle_sectors_for_init(), Ok(()));
     discard(&mut session);
+}
+
+/// A camera-less Open device whose `refuse_at`-th loading-screen Present
+/// (0-based) is refused by the host.
+struct RefusingDevice {
+    presents: Vec<f32>,
+    refuse_at: Option<usize>,
+}
+
+impl SceneRenderBackend for RefusingDevice {
+    fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
+        assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
+        Ok(NOT_INITIALIZED)
+    }
+}
+
+impl crate::load_scene_callback::LoadingScreenDevice for RefusingDevice {
+    fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+    fn present_loading_screen(
+        &mut self,
+        frame: crate::load_scene_callback::LoadingScreenFrame<'_>,
+    ) -> Result<(), String> {
+        if self.refuse_at == Some(self.presents.len()) {
+            return Err("host refused the present".into());
+        }
+        self.presents.push(frame.screen.raw_progress());
+        Ok(())
+    }
+}
+
+fn four_frame_world() -> Vec<u8> {
+    world(&[
+        dummy(0, b"f0"),
+        dummy(0, b"f1"),
+        dummy(0, b"f2"),
+        dummy(0, b"f3"),
+    ])
+}
+
+fn assert_world_stop(session: &MissionLoadSession, error: MissionSourceOpenError) {
+    let MissionSourceOpenError::Open(OpenRunError::Callback(failure)) = error else {
+        panic!("unexpected Open failure: {error:?}");
+    };
+    assert_eq!(failure.step, OpenStep::OpenWorld);
+    assert!(
+        failure.error.0.contains("host refused the present"),
+        "{}",
+        failure.error
+    );
+    assert!(matches!(
+        session.failure().unwrap().cause,
+        MissionLoadCause::World(CpuSceneWorldError::Model(ModelError::LoadCallback(_)))
+    ));
+}
+
+#[test]
+fn a_refused_first_step_stops_the_world_before_its_frame() {
+    let fixture = Fixture::new(Some(&four_frame_world()), Some(&scene2(&[])), None);
+    write_loading_screen_tables(&fixture);
+    let mut session = fixture.session();
+    // Present 0 is BEGIN's; present 1 is the first STEP, frame 0's
+    // LoadProgress(0.5) at LS3DF 0x10060eef, before frame 0 is read.
+    let mut device = RefusingDevice {
+        presents: Vec::new(),
+        refuse_at: Some(1),
+    };
+    let error = open_with_progress(&mut session, true, &mut device).unwrap_err();
+    assert_world_stop(&session, error);
+    assert_eq!(device.presents, [0.0]);
+    // Nothing of the world was read: no frame, no transfer, no resources,
+    // no sector preparation.
+    let progress = session.world_progress().unwrap();
+    assert_eq!(progress.phase(), CpuSceneWorldPhase::Geometry);
+    assert!(progress.frames().is_empty());
+    assert_eq!(progress.transferred_frames(), 0);
+    assert_eq!(progress.prepared_sectors(), 0);
+    let scene = session.scene().unwrap().unwrap();
+    assert!(session.arena().scene(scene).unwrap().frames().is_empty());
+    // The refused STEP's bar write happened (SetProgressMissionOpen precedes
+    // Present); last_bit was not stored.
+    assert_eq!(
+        session
+            .load_save_progress()
+            .progress
+            .as_ref()
+            .unwrap()
+            .raw_progress(),
+        0.25 * 0.7
+    );
+    assert_eq!(session.load_scene_callback().last_bit(), 0.0);
+    discard(&mut session);
+}
+
+#[test]
+fn a_refused_later_step_keeps_only_the_frames_read_before_it() {
+    let fixture = Fixture::new(Some(&four_frame_world()), Some(&scene2(&[])), None);
+    write_loading_screen_tables(&fixture);
+    let mut session = fixture.session();
+    // Frame 0 reports 0.5 (shown), frame 1 repeats 0.5 (gated), frame 2
+    // reports 0.75: refused, before frame 2 is read.
+    let mut device = RefusingDevice {
+        presents: Vec::new(),
+        refuse_at: Some(2),
+    };
+    let error = open_with_progress(&mut session, true, &mut device).unwrap_err();
+    assert_world_stop(&session, error);
+    assert_eq!(device.presents, [0.0, 0.25f32 * 0.7]);
+    let progress = session.world_progress().unwrap();
+    assert_eq!(progress.frames().len(), 2);
+    assert_eq!(progress.transferred_frames(), 0);
+    assert_eq!(session.load_scene_callback().last_bit(), 0.25);
+    discard(&mut session);
+}
+
+#[test]
+fn a_later_world_error_keeps_the_step_presents_made_before_it() {
+    use crate::frame_sector::SectorError;
+    let fixture = Fixture::new(
+        Some(&world(&[dummy(0, b"world part"), sector()])),
+        Some(&scene2(&[])),
+        None,
+    );
+    write_loading_screen_tables(&fixture);
+    let mut session = fixture.session();
+    // The sector's TemporaryPlanes allocation fails in MakeReady, after
+    // every frame was read and reported.
+    session
+        .arena
+        .sector_storage_mut()
+        .fail_on_allocation(Some(3));
+    let mut device = RefusingDevice {
+        presents: Vec::new(),
+        refuse_at: None,
+    };
+    let error = open_with_progress(&mut session, true, &mut device).unwrap_err();
+    let MissionSourceOpenError::Open(OpenRunError::Callback(failure)) = error else {
+        panic!("unexpected Open failure: {error:?}");
+    };
+    assert_eq!(failure.step, OpenStep::OpenWorld);
+    assert!(matches!(
+        session.failure().unwrap().cause,
+        MissionLoadCause::World(CpuSceneWorldError::Model(ModelError::Sector(
+            SectorError::Allocation
+        )))
+    ));
+    // BEGIN and frame 0's STEP were presented; no END (it would show 0.5).
+    assert_eq!(device.presents, [0.0, 0.25f32 * 0.7]);
+    assert_eq!(session.load_scene_callback().last_bit(), 0.25);
+    // As without the loading screen, the interrupted sector refuses the
+    // Scene destructor's preflight (failed_world_prepare_preserves_...).
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::Stopped)
+    );
 }

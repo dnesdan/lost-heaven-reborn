@@ -120,6 +120,21 @@ pub fn load_progress_gate(last: &mut f32, p: f32, flags: u32) -> bool {
     true
 }
 
+/// LoadImage's material-loop progress (load4ds.cpp:92, the `LoadProgress`
+/// call at LS3DF 0x10060dd9): `(float)(i / 2) / LoadMaterialu`, reported
+/// before material `i` is read. Integer halving, then binary32 division
+/// (PC24).
+pub fn load_image_material_progress(index: usize, materials: usize) -> f32 {
+    (index / 2) as f32 / materials as f32
+}
+
+/// LoadImage's frame-loop progress (load4ds.cpp:128, the `LoadProgress`
+/// call at LS3DF 0x10060eef): `(float)(j / 2) / LoadFramu + .5f`, reported
+/// before frame `j` is read.
+pub fn load_image_frame_progress(index: usize, frames: usize) -> f32 {
+    (index / 2) as f32 / frames as f32 + 0.5
+}
+
 /// Deadlock-guarded begin shared by F2/F3/F4: pump loop until free or
 /// 4000ms. Order log: pump-messages events then "deadlock" or "begin"
 /// (`pump_messages` owns its own log event; no double log here). The
@@ -652,6 +667,24 @@ mod scene_file_load_tests {
         fn log(&mut self, m: &'static str) {
             self.events.push(m.into());
         }
+    }
+    #[test]
+    fn load_image_progress_halves_the_index_before_dividing() {
+        // (float)(i / 2) / LoadMaterialu: indices 0 and 1 both report 0.
+        assert_eq!(load_image_material_progress(0, 4), 0.0);
+        assert_eq!(load_image_material_progress(1, 4), 0.0);
+        assert_eq!(load_image_material_progress(3, 4), 0.25);
+        assert_eq!(
+            load_image_material_progress(7, 10).to_bits(),
+            0.3f32.to_bits()
+        );
+        // (float)(j / 2) / LoadFramu + .5f.
+        assert_eq!(load_image_frame_progress(0, 4), 0.5);
+        assert_eq!(load_image_frame_progress(3, 4), 0.75);
+        assert_eq!(
+            load_image_frame_progress(5, 3).to_bits(),
+            (2.0f32 / 3.0 + 0.5).to_bits()
+        );
     }
     #[test]
     fn progress_gate_step_and_nan() {

@@ -1228,8 +1228,8 @@ impl MissionLoadSession {
     }
 
     /// `ResetGame` prefix over the live open state: the inline
-    /// `game->ResetIntern()` (game.h:1014-1018; GAME 0x5409ef `mov byte
-    /// [eax+0x363c], 1` then 0x5409f6 `mov [eax+0x363d], bl` with ebx 0)
+    /// `game->ResetIntern()` (game.h:1014-1018; GAME 0x5409f2 `mov byte
+    /// [eax+0x363c], 1` then 0x5409f9 `mov [eax+0x363d], bl` with ebx 0)
     /// over the session's `C_game` scalars, then the host opened/restore/
     /// mute markers.
     pub fn reset_open_game(&mut self) -> Result<(), String> {
@@ -2034,18 +2034,62 @@ impl MissionLoadSession {
         Ok(scene)
     }
 
+    /// The world intake of `scene->Open` with LoadImage's progress points
+    /// reported in place: each `LoadProgress(p)` runs LS3DF's 0.02 gate
+    /// (`lastProgress` starts at 0 in LoadHierarchy) and a passing report
+    /// is `cbLoadScene(CBM_PROGRESS, p, LOAD_PROGRESS_STEP)` over the
+    /// session's owners and `device`, before the entry it precedes is read.
+    /// A refused report stops the intake there.
     fn load_world_source(
         &mut self,
         scene: SceneKey,
         world_input: &str,
+        device: &mut dyn crate::load_scene_callback::LoadingScreenDevice,
     ) -> Result<(), MissionLoadCause> {
         self.phase = MissionLoadPhase::World;
-        match self.driver.load_scene_world_cpu(
-            &mut self.arena,
-            &self.resources,
+        let Self {
+            driver,
+            arena,
+            resources,
+            installation,
+            load_scene_callback,
+            load_save_progress,
+            indicators,
+            open_mission_name,
+            ..
+        } = self;
+        let mut last_progress = 0.0f32;
+        let mut report = |p: f32| -> Result<(), String> {
+            if !crate::scene_file_load::load_progress_gate(
+                &mut last_progress,
+                p,
+                crate::scene_file_load::I3DLOAD_PROGRESS,
+            ) {
+                return Ok(());
+            }
+            let mut inputs = SessionLoadProgressInputs {
+                installation,
+                indicators: indicators.as_ref(),
+                mission_name: open_mission_name.as_deref(),
+            };
+            load_scene_callback
+                .cb_load_scene(
+                    &mut load_save_progress.progress,
+                    crate::load_scene_callback::CBM_PROGRESS,
+                    p.to_bits(),
+                    crate::load_scene_callback::LOAD_PROGRESS_STEP,
+                    &mut inputs,
+                    device,
+                )
+                .map_err(|detail| format!("cbLoadScene: {detail}"))
+        };
+        match driver.load_scene_world_cpu_reporting(
+            arena,
+            resources,
             scene,
-            &self.installation,
+            installation,
             world_input,
+            &mut report,
         ) {
             Ok(progress) => self.world = Some(progress),
             Err(failure) => {

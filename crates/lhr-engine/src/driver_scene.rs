@@ -250,6 +250,29 @@ impl DriverSceneOwner {
         }
         arena.load_scene_world_cpu(scene, installation, name)
     }
+    /// `load_scene_world_cpu` with LoadImage's progress
+    /// points reported to `report` (see
+    /// `ModelArena::load_scene_world_cpu_reporting`).
+    pub fn load_scene_world_cpu_reporting(
+        &mut self,
+        arena: &mut ModelArena,
+        resources: &SceneResources,
+        scene: SceneKey,
+        installation: &lhr_assets::Installation,
+        name: &str,
+        report: &mut dyn FnMut(f32) -> Result<(), String>,
+    ) -> Result<
+        crate::model_loading::CpuSceneWorldProgress,
+        crate::model_loading::CpuSceneWorldFailure,
+    > {
+        if let Err(error) = self.validate_scene_domain(arena, resources, scene) {
+            return Err(crate::model_loading::CpuSceneWorldFailure {
+                error: crate::model_loading::CpuSceneWorldError::DriverDomain(format!("{error:?}")),
+                progress: crate::model_loading::CpuSceneWorldProgress::empty(arena, scene),
+            });
+        }
+        arena.load_scene_world_cpu_reporting(scene, installation, name, report)
+    }
     pub fn discard_scene_world_staging_cpu(
         &mut self,
         arena: &mut ModelArena,

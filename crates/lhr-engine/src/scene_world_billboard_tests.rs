@@ -388,7 +388,14 @@ fn other_frame_classes_still_stop_before_world_owner_mutation() {
         });
         let mut progress = CpuSceneWorldProgress::empty(&arena, scene);
         assert_eq!(
-            arena.load_scene_world_parsed_cpu(scene, &installation, source, &[], &mut progress),
+            arena.load_scene_world_parsed_cpu(
+                scene,
+                &installation,
+                source,
+                &[],
+                &mut progress,
+                &mut |_| Ok(())
+            ),
             Err(ModelError::UnsupportedFrame {
                 index: 0,
                 kind,

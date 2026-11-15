@@ -1192,7 +1192,7 @@ impl GameInlineState {
     }
 
     /// The inline `C_game::ResetIntern` (game.h:1014-1018, no outline body;
-    /// inlined at GAME 0x5409ef/0x5409f6 in `C_mission::Open`):
+    /// inlined in `C_mission::Open` as the stores at GAME 0x5409f2 and 0x5409f9):
     /// `intern_load = true; intern_loaded = false`.
     pub fn reset_intern(&mut self) {
         self.intern_load = true;
