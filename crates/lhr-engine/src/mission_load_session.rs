@@ -414,7 +414,10 @@ pub struct MissionLoadSession {
     /// The `AIManager` global's police/groups/follow/fight members (GAME
     /// 0x646c80). A process global like `mafiaIndicators`: constructed with
     /// the session, it owns only vectors of borrowed identities, all empty
-    /// until their unported writers run.
+    /// until their unported writers run. Known divergence: natively its
+    /// scalars and vectors carry over across missions until `C_game`
+    /// teardown (`KonecSmeny`/`Destroy`, game.cpp:1279-1282, unported);
+    /// here each session starts from the constructor zeros.
     ai_manager: crate::ai_manager::AiManager,
     game_init_car_sounds: i32,
     game_init_weather: Option<(bool, i32)>,

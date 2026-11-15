@@ -22,7 +22,8 @@ pub enum InitStep {
     ResetMissionState,
     /// Police shift begin: `ZacatekSmeny` + groups/follow/fight `Init`.
     PoliceBeginShift,
-    /// Player navipoint clear and car-damage latch.
+    /// Progress 0.0 (`_show_progress_`, GAME 0x5a3960 at 0x5a09ba), player
+    /// navipoint clear and car-damage latch.
     PlayerNavi,
     /// Vehicle light/sound sector rebuild (`intern_load` only).
     VehicleSectors,
