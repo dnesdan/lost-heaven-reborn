@@ -477,21 +477,6 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
     )
 }
 
-/// Host stand-in for the constructor's `GetLocalTime` read (GAME 0x5f6cf0):
-/// the UTC wall clock, since std exposes no local time zone. Only the HUD
-/// timer words take it, and no reached probe step reads them.
-fn host_timer_clock() -> lhr_engine::indicators::TimerClock {
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs() % 86_400)
-        .unwrap_or(0) as u32;
-    lhr_engine::indicators::TimerClock {
-        hour: seconds / 3600,
-        minute: seconds / 60 % 60,
-        second: seconds % 60,
-    }
-}
-
 pub fn run(
     root: &Path,
     mission: &str,
@@ -505,10 +490,11 @@ pub fn run(
     let mut session = MissionLoadSession::new(installation, Pc24PrecisionState::new(false))
         .map_err(|error| format!("Mission probe initialization failed: {error:?}"))?;
     // The `mafiaIndicators` global exists before any mission natively; the
-    // probe constructs it with its staged clock read before the first Open.
-    session.install_indicators(lhr_engine::indicators::IndicatorsState::constructed(
-        host_timer_clock(),
-    ))?;
+    // probe constructs it with the host's local wall clock (GetLocalTime's
+    // stand-in, daylight saving included) before the first Open.
+    let clock = crate::host_local_time::local_timer_clock()
+        .map_err(|error| format!("Mission probe HUD clock: {error}"))?;
+    session.install_indicators(lhr_engine::indicators::IndicatorsState::constructed(clock))?;
     let world_input = format!("missions/{mission}/scene.i3d");
     let scene2_path = format!("missions/{mission}/scene2.bin");
     let directories: Vec<&[u8]> = model_directories

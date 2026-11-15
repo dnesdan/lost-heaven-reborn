@@ -401,6 +401,9 @@ pub struct MissionLoadSession {
     /// The C_game vectors `Init` empties (`stop_sounds`, `paused_i_shows`,
     /// `free_shadow_names`, `unknown_140`), owned beside `game_inline`.
     game_lists: crate::game_housekeeping::GameInitLists,
+    /// The shadow-name buffers `free_shadow_names` lists by id; a separate
+    /// owner so clearing the list never frees a buffer.
+    shadow_name_buffers: crate::game_housekeeping::ShadowNameBuffers,
     /// `mafiaIndicators` (GAME 0x6bf980), the HUD global. Natively it is
     /// constructed at process start (GAME 0x5f6b70 reads `GetLocalTime`), so
     /// the host installs it with its staged clock read; like
@@ -588,6 +591,7 @@ impl MissionLoadSession {
             freeride: Default::default(),
             game_inline: crate::game_housekeeping::GameInlineState::default(),
             game_lists: Default::default(),
+            shadow_name_buffers: Default::default(),
             indicators: None,
             game_init_car_sounds: 0,
             game_init_weather: None,
@@ -1628,7 +1632,9 @@ impl MissionLoadSession {
     /// `mafiaIndicators.BonusSetCount(0x7fffffff)` at 0x5fb010); `score = 0`;
     /// the flag stores 0x5a0960-0x5a097e; `unknown_140` emptied (0x5a098c).
     /// An absent HUD owner stops after the `score_on` store, before the call,
-    /// with every earlier clear kept.
+    /// with every earlier clear kept. The clears drop entries only: the
+    /// shadow-name buffers stay in their own owner, as native `clear()` drops
+    /// the `char*` values without deleting them.
     fn reset_game_lists_and_flags_for_init(&mut self) -> Result<(), String> {
         self.game_lists.stop_sounds.clear();
         self.game_lists.paused_i_shows.clear();
@@ -1666,6 +1672,11 @@ impl MissionLoadSession {
     /// The live C_game vectors `Init` empties.
     pub fn game_lists(&self) -> &crate::game_housekeeping::GameInitLists {
         &self.game_lists
+    }
+
+    /// The live shadow-name buffer owner.
+    pub fn shadow_name_buffers(&self) -> &crate::game_housekeeping::ShadowNameBuffers {
+        &self.shadow_name_buffers
     }
 
     /// Exact reached-prefix observations, not a completed GameInit snapshot.

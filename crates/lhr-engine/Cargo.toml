@@ -14,6 +14,14 @@ egui = { version = "=0.31.1", optional = true }
 egui-wgpu = { version = "=0.31.1", optional = true }
 egui-winit = { version = "=0.31.1", default-features = false, optional = true }
 
+# Host local-time read for the HUD constructor's GetLocalTime (probe only;
+# see src/host_local_time.rs). Both versions are already in Cargo.lock.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.52.0", features = ["Win32_Foundation", "Win32_System_Time", "Win32_System_SystemInformation"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"
+
 [features]
 default = []
 engine-lab = ["dep:egui", "dep:egui-wgpu", "dep:egui-winit"]

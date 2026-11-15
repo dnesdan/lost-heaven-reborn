@@ -13,9 +13,20 @@ fn hud() -> crate::indicators::IndicatorsState {
 
 /// Stage the C_game state the reached `Init` span overwrites, so every
 /// clear and store is observable. The returned sound frame is the borrowed
-/// identity the stopped-sound record names; the caller releases it.
-fn stage_dirty_game_state(session: &mut MissionLoadSession) -> crate::frame_sound::SoundKey {
+/// identity the stopped-sound record names; the caller releases it. The
+/// returned buffer id names the spare shadow-name buffer the list holds.
+fn stage_dirty_game_state(
+    session: &mut MissionLoadSession,
+) -> (
+    crate::frame_sound::SoundKey,
+    crate::game_housekeeping::ShadowNameBufferId,
+) {
     let sound = session.arena.create_owned_sound_frame().unwrap();
+    let mut name = vec![0u8; 32];
+    name[..6].copy_from_slice(b"shadow");
+    let buffer = session
+        .shadow_name_buffers
+        .allocate(name.into_boxed_slice());
     let lists = &mut session.game_lists;
     lists
         .stop_sounds
@@ -27,16 +38,27 @@ fn stage_dirty_game_state(session: &mut MissionLoadSession) -> crate::frame_soun
             time: 40,
         });
     lists.paused_i_shows.extend([3, -1]);
-    lists
-        .free_shadow_names
-        .push(vec![0u8; 32].into_boxed_slice());
+    lists.free_shadow_names.push(buffer);
     lists.unknown_140.extend([11, 12]);
     *session.game_inline.score_mut() = crate::game_housekeeping::ScoreState {
         score: 7,
         score_on: true,
     };
     session.game_inline.set_actor_lightness(true);
-    sound
+    session.game_inline.stage_camera_rot_repair(true);
+    (sound, buffer)
+}
+
+/// The list clear drops the id only: the buffer stays live and intact.
+fn assert_shadow_buffer_kept(
+    session: &MissionLoadSession,
+    buffer: crate::game_housekeeping::ShadowNameBufferId,
+) {
+    let buffers = session.shadow_name_buffers();
+    assert_eq!(buffers.live_count(), 1);
+    let bytes = buffers.get(buffer).unwrap();
+    assert_eq!(bytes.len(), 32);
+    assert_eq!(&bytes[..6], b"shadow");
 }
 
 #[test]
@@ -149,7 +171,7 @@ fn presented_init_runs_the_reset_span_in_native_order_with_the_hud() {
     indicators.bonus_set_count(7);
     session.install_indicators(indicators).unwrap();
     load(&mut session, &[]).unwrap();
-    let sound = stage_dirty_game_state(&mut session);
+    let (sound, buffer) = stage_dirty_game_state(&mut session);
     let mut sequence = SceneSnapshotSequence::default();
     let mut attempt = InitAttempt::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
@@ -177,6 +199,7 @@ fn presented_init_runs_the_reset_span_in_native_order_with_the_hud() {
     assert!(game.stacks_clear());
     assert_eq!(game.death_fade_time(), 7000);
     assert!(!game.actor_lightness());
+    assert_shadow_buffer_kept(&session, buffer);
     // Later steps never ran.
     assert!(!session.police_init().active());
     // Clearing the record released nothing: the sound is still live.
@@ -189,7 +212,7 @@ fn presented_init_without_hud_stops_at_score_set_on_keeping_earlier_clears() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     load(&mut session, &[]).unwrap();
-    let sound = stage_dirty_game_state(&mut session);
+    let (sound, buffer) = stage_dirty_game_state(&mut session);
     let mut sequence = SceneSnapshotSequence::default();
     let mut attempt = InitAttempt::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
@@ -215,6 +238,7 @@ fn presented_init_without_hud_stops_at_score_set_on_keeping_earlier_clears() {
             score_on: false,
         }
     );
+    assert!(game.camera_rot_repair());
     assert!(!game.heal_cheat());
     assert!(!game.stacks_clear());
     assert_eq!(game.death_fade_time(), 0);
@@ -224,6 +248,7 @@ fn presented_init_without_hud_stops_at_score_set_on_keeping_earlier_clears() {
         attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(())),
         Err(InitRunError::AlreadyEntered)
     );
+    assert_shadow_buffer_kept(&session, buffer);
     session.arena.release(sound.frame()).unwrap();
     discard(&mut session);
 }

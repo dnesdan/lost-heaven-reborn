@@ -1139,6 +1139,13 @@ impl GameInlineState {
         self.camera_rot_repair
     }
 
+    /// Test staging of `camera_rot_repair` while its writer
+    /// `SetCameraRotRepair` (GAME 0x5ba010) stays unported.
+    #[cfg(test)]
+    pub(crate) fn stage_camera_rot_repair(&mut self, on: bool) {
+        self.camera_rot_repair = on;
+    }
+
     /// Reads `heal_cheat`.
     pub fn heal_cheat(&self) -> bool {
         self.heal_cheat
@@ -2174,18 +2181,59 @@ pub struct StoppedSound {
     pub time: u32,
 }
 
+/// Identity of one shadow-name buffer held by [`ShadowNameBuffers`]. Ids are
+/// issued once per owner and never reused (no release is ported yet), so a
+/// stale id cannot alias a later buffer.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ShadowNameBufferId(u32);
+
+/// Owner of the shadow-name buffers `C_game::AddFrameForShadow` allocates
+/// (`new char[Max(SHADOW_NAME_SIZE, strlen + 1)]`, mafia-re
+/// game/mission/game.cpp:3677-3684 at pin fe7e746). `free_shadow_names`
+/// only lists borrowed ids: `DelFrameForShadow` pushes a buffer's pointer
+/// (game.cpp:3753-3756), `Done` deletes through the list (game.cpp:1432-1434),
+/// and `Init`'s `clear()` drops the pointers without deleting the buffers.
+/// Buffers whose ids `Init` dropped are unreachable natively; here they stay
+/// alive in this owner, which is the only place that frees them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShadowNameBuffers {
+    buffers: Vec<Box<[u8]>>,
+}
+
+impl ShadowNameBuffers {
+    /// Take ownership of one name buffer and return its identity.
+    pub fn allocate(&mut self, buffer: Box<[u8]>) -> ShadowNameBufferId {
+        let id = ShadowNameBufferId(
+            u32::try_from(self.buffers.len()).expect("shadow-name buffer ids exhausted"),
+        );
+        self.buffers.push(buffer);
+        id
+    }
+
+    /// The live buffer behind `id`, when this owner issued it.
+    pub fn get(&self, id: ShadowNameBufferId) -> Option<&[u8]> {
+        self.buffers.get(id.0 as usize).map(|buffer| &buffer[..])
+    }
+
+    /// Number of buffers this owner keeps alive.
+    pub fn live_count(&self) -> usize {
+        self.buffers.len()
+    }
+}
+
 /// The `C_game` vectors the reached `Init` prefix empties, held as the single
 /// owner of each (`game.h`, pin fe7e746): `stop_sounds` (+0x2d4),
 /// `paused_i_shows` (+0x2e4, signed IShow ids), `free_shadow_names` (+0x3674,
-/// spare name buffers of at least 32 bytes that `Done` deletes) and
+/// ids of spare name buffers owned by [`ShadowNameBuffers`]) and
 /// `unknown_140` (+0x140, actors). Their writers (`PauseAllSounds`,
 /// `DelFrameForShadow`, the `unknown_140` producers) are not ported yet, so
-/// a new session holds them empty; `Init` still performs every clear.
+/// a new session holds them empty; `Init` still performs every clear, and
+/// none of them releases what the entries name.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GameInitLists {
     pub stop_sounds: Vec<StoppedSound>,
     pub paused_i_shows: Vec<i32>,
-    pub free_shadow_names: Vec<Box<[u8]>>,
+    pub free_shadow_names: Vec<ShadowNameBufferId>,
     pub unknown_140: Vec<ActorId>,
 }
 
@@ -5087,6 +5135,21 @@ mod tests {
                 growing_projectors: 0,
             }
         );
+    }
+
+    #[test]
+    fn shadow_name_buffers_outlive_list_clears_with_distinct_ids() {
+        let mut buffers = ShadowNameBuffers::default();
+        let first = buffers.allocate(vec![b'a'; 32].into_boxed_slice());
+        let second = buffers.allocate(vec![b'b'; 40].into_boxed_slice());
+        assert_ne!(first, second);
+        let mut lists = GameInitLists::default();
+        lists.free_shadow_names.extend([first, second]);
+        lists.free_shadow_names.clear();
+        assert_eq!(buffers.live_count(), 2);
+        assert_eq!(buffers.get(first), Some(&[b'a'; 32][..]));
+        assert_eq!(buffers.get(second).map(<[u8]>::len), Some(40));
+        assert_eq!(ShadowNameBuffers::default().get(first), None);
     }
 
     #[test]
