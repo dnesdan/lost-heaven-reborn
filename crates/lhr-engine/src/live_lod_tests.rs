@@ -288,6 +288,38 @@ fn a_world_space_plain_object_draws_with_the_identity_render_matrix() {
     assert_eq!(lock.position(1), Some([4., 3., 5.]));
 }
 #[test]
+fn a_rotated_scaled_world_space_object_draws_where_its_object_space_did() {
+    let mut f = fixture([3., 4., 5.], false);
+    let root = f.model.root();
+    let visual = f.frames[0];
+    f.arena
+        .graph
+        .assign_rotation(
+            visual,
+            crate::native_transform::SQuat {
+                wxyz: [0., 0., 0., 1.],
+            },
+        )
+        .unwrap();
+    f.arena.graph.assign_scale(visual, [2.; 3]).unwrap();
+    f.arena.update_frame(visual).unwrap();
+    let camera = view([3., 4., 1.]);
+    let before = snapshot_car_arena_with_view(&mut f.arena, root, camera).unwrap();
+    assert!(!before.scene.meshes.is_empty());
+    f.arena.set_object_space_world(visual).unwrap();
+    let after = snapshot_car_arena_with_view(&mut f.arena, root, camera).unwrap();
+    assert_eq!(after.scene.meshes.len(), before.scene.meshes.len());
+    for (a, b) in after.scene.meshes.iter().zip(&before.scene.meshes) {
+        let positions = |mesh: &lhr_render::Mesh| {
+            mesh.vertices
+                .iter()
+                .map(|vertex| vertex.position)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(positions(a), positions(b));
+    }
+}
+#[test]
 fn view_car_wrapper_rejects_no_admitted_cpu_mesh_but_generic_empty_tree_is_valid() {
     let mut arena = ModelArena::default();
     let model = arena.create_model().unwrap();

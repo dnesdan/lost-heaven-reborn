@@ -1544,6 +1544,16 @@ impl MissionLoadSession {
     /// preparation borrows the same retained Scene at the reached render call,
     /// after weather reads and audio mute. The callback receives presentation
     /// data only; it never becomes a second gameplay owner.
+    ///
+    /// The snapshot stands in for the face-group preparation of the driver's
+    /// render (LS3DF 0x10062030), which then unlocks every buffer before it
+    /// draws: `C_VBManager::m_UnlockAllVBuffers` (0x100697e0 on cVBMan
+    /// 0x101c5014: each locked buffer's Unlock, data and lock index cleared,
+    /// the list reset), then the index manager's (0x1005b960 on cIBMan
+    /// 0x101b50f8). The same unlock runs here over the live owners between
+    /// the snapshot and the presentation, so the LOD0 locks LoadCollision
+    /// keeps are released and the next Lock takes a fresh backend lock. A
+    /// failed snapshot stops before the unlock, as no draw is reached.
     pub(crate) fn reset_game_mission_state_with_presentation(
         &mut self,
         target: [u32; 2],
@@ -1554,6 +1564,10 @@ impl MissionLoadSession {
             let snapshot = session
                 .snapshot_loaded_scene(target, sequence)
                 .map_err(|error| format!("Init presentation snapshot: {error}"))?;
+            session
+                .arena
+                .publish_runtime_buffers()
+                .map_err(|error| format!("Init render unlock-all: {error:?}"))?;
             present(&snapshot).map_err(|error| format!("Init presentation: {error}"))
         })
     }

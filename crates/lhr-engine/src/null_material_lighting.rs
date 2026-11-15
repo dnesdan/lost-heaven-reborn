@@ -1207,6 +1207,76 @@ mod tests {
     }
 
     #[test]
+    fn rotated_scaled_world_space_visual_lights_in_world_units() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            // Bake a frame rotated 180 degrees about z and scaled by 2, then
+            // light it with the identity inverse. It must light exactly as a
+            // translation-only twin (unit inverse scale) whose vertices sit
+            // at the same world positions: world units, not the object's
+            // inverse-scaled ones.
+            let (mut arena, scene, sector, model, frame) = world();
+            light(&mut arena, scene, sector, 1, [1.; 3], [10., 0., 2.]);
+            let root = model.root();
+            arena.graph.assign_position(root, [10., 0., 0.]).unwrap();
+            arena
+                .graph
+                .assign_rotation(
+                    root,
+                    crate::native_transform::SQuat {
+                        wxyz: [0., 0., 0., 1.],
+                    },
+                )
+                .unwrap();
+            arena.graph.assign_scale(root, [2.; 3]).unwrap();
+            arena.update_frame(root).unwrap();
+            let object_space = colors(&mut arena, frame, sector);
+            arena.set_object_space_world(frame).unwrap();
+            let baked_positions = POSITIONS.map(|[x, y, z]| [10. - 2. * x, -2. * y, 2. * z]);
+            let normals = NORMALS.map(|[x, y, z]| [-x, -y, z]);
+            let baked = null_material_vertex_lighting(
+                &mut arena,
+                frame,
+                sector,
+                &baked_positions,
+                &normals,
+                context(),
+            )
+            .unwrap();
+            let (mut twin, twin_scene, twin_sector, twin_model, twin_frame) = world();
+            light(
+                &mut twin,
+                twin_scene,
+                twin_sector,
+                1,
+                [1.; 3],
+                [10., 0., 2.],
+            );
+            twin.graph
+                .assign_position(twin_model.root(), [10., 0., 0.])
+                .unwrap();
+            twin.update_frame(twin_model.root()).unwrap();
+            let twin_local = baked_positions.map(|[x, y, z]| [x - 10., y, z]);
+            let expected = null_material_vertex_lighting(
+                &mut twin,
+                twin_frame,
+                twin_sector,
+                &twin_local,
+                &normals,
+                context(),
+            )
+            .unwrap();
+            assert_eq!(baked, expected);
+            // This point light is invariant under the object's inverse
+            // scale, so the pre-bake evaluation agrees as well.
+            assert_eq!(baked, object_space);
+            // The frame's rotation/scale inverse is no longer applied: the
+            // pre-bake local vertices now light as if at those world points.
+            let stale = colors(&mut arena, frame, sector);
+            assert_ne!(stale, baked);
+        });
+    }
+
+    #[test]
     fn actual_directional_update_changes_front_and_back_lighting() {
         crate::native_precision::Pc24PrecisionState::default().run(|| {
             let (mut arena, scene, sector, _model, frame) = world();
