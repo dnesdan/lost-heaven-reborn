@@ -10,6 +10,7 @@
 //! Visual 4 retains its existing BBRD owner; other derived world types stay gated.
 #![forbid(unsafe_code)]
 use super::*;
+use crate::scene_file_load::LoadHierarchyReport;
 use crate::scene_ownership::SceneKey;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CpuSceneWorldPhase {
@@ -91,14 +92,23 @@ impl ModelArena {
     ) -> Result<CpuSceneWorldProgress, CpuSceneWorldFailure> {
         self.load_scene_world_cpu_reporting(scene, installation, name, &mut |_| Ok(()))
     }
-    /// The world intake with LoadImage's `LoadProgress` points
-    /// (load4ds.cpp:92/128): `report(p)` runs before each material is read
-    /// (`(i/2)/LoadMaterialu`, after the parse and before any frame) and
-    /// before each frame is read (`(j/2)/LoadFramu + .5`), each with the
-    /// raw value; the 0.02 gate and the callback are the caller's
-    /// (LoadProgress, LS3DF 0x60390). An `Err` stops the intake at that
-    /// point as [`ModelError::LoadCallback`], keeping the frames read before
-    /// it on the staging owner and running nothing later.
+    /// The world intake with LoadHierarchy's progress reports:
+    /// `Step(p)` at LoadImage's `LoadProgress` points (load4ds.cpp:92/128),
+    /// before each material is read (`(i/2)/LoadMaterialu`, after the parse
+    /// and before any frame) and before each frame is read
+    /// (`(j/2)/LoadFramu + .5`), with the raw value (the 0.02 gate and the
+    /// callback are the caller's, LoadProgress LS3DF 0x60390); then `End`.
+    /// On success `End` follows the frames' transfer to the scene and the
+    /// root's update (`mark_loaded_model_root`, LoadHierarchy's
+    /// `root->Update()`) and precedes the sector preparation, which is
+    /// `I3D_scene::Open`'s `MakeReadySectors` after LoadHierarchy returns
+    /// (I3d_scene.cpp:542-545). Every error raised before that point
+    /// (admission, a missing or corrupt file, an unsupported frame, a frame,
+    /// resource or transfer failure) reports `End` first, as LoadHierarchy
+    /// reports END on each of its exits. A report's `Err` stops the intake
+    /// at that point as [`ModelError::LoadCallback`], with no `End`, keeping
+    /// the frames read before it on the staging owner and running nothing
+    /// later; a refused `End` after an error stops the same way.
     ///
     /// The adapter parses the whole file before the material points, and
     /// realizes materials per mesh in its later resource phase instead of in
@@ -111,9 +121,10 @@ impl ModelArena {
         scene: SceneKey,
         installation: &lhr_assets::Installation,
         name: &str,
-        report: &mut dyn FnMut(f32) -> Result<(), String>,
+        report: &mut dyn FnMut(LoadHierarchyReport) -> Result<(), String>,
     ) -> Result<CpuSceneWorldProgress, CpuSceneWorldFailure> {
         let mut progress = CpuSceneWorldProgress::empty(self, scene);
+        let mut end_reported = false;
         let result = (|| -> Result<(), ModelError> {
             let si = self.scene_index(scene)?;
             let primary = self.scenes[si].sectors[0];
@@ -142,8 +153,8 @@ impl ModelArena {
             ));
             let materials = source.model.materials.len();
             for index in 0..materials {
-                report(crate::scene_file_load::load_image_material_progress(
-                    index, materials,
+                report(LoadHierarchyReport::Step(
+                    crate::scene_file_load::load_image_material_progress(index, materials),
                 ))
                 .map_err(ModelError::LoadCallback)?;
             }
@@ -153,15 +164,32 @@ impl ModelArena {
                 Arc::new(source.model),
                 &source.billboards,
                 &mut progress,
-                report,
+                &mut |entry| {
+                    if entry == LoadHierarchyReport::End {
+                        end_reported = true;
+                    }
+                    report(entry)
+                },
             )
         })();
         match result {
             Ok(()) => Ok(progress),
-            Err(error) => Err(CpuSceneWorldFailure {
-                error: CpuSceneWorldError::Model(error),
-                progress,
-            }),
+            Err(error) => {
+                let error = match error {
+                    ModelError::LoadCallback(_) => error,
+                    error if end_reported => error,
+                    error => match report(LoadHierarchyReport::End) {
+                        Ok(()) => error,
+                        Err(stop) => {
+                            ModelError::LoadCallback(format!("{stop} (END after {error:?})"))
+                        }
+                    },
+                };
+                Err(CpuSceneWorldFailure {
+                    error: CpuSceneWorldError::Model(error),
+                    progress,
+                })
+            }
         }
     }
     fn load_scene_world_parsed_cpu(
@@ -171,7 +199,7 @@ impl ModelArena {
         source: Arc<Model>,
         billboards: &[lhr_assets::BillboardSource],
         progress: &mut CpuSceneWorldProgress,
-        report: &mut dyn FnMut(f32) -> Result<(), String>,
+        report: &mut dyn FnMut(LoadHierarchyReport) -> Result<(), String>,
     ) -> Result<(), ModelError> {
         let si = self.scene_index(scene)?;
         let primary = self.scenes[si].sectors[0];
@@ -201,8 +229,8 @@ impl ModelArena {
             Some(primary.frame()),
             billboards,
             &mut |index| {
-                report(crate::scene_file_load::load_image_frame_progress(
-                    index, frames,
+                report(LoadHierarchyReport::Step(
+                    crate::scene_file_load::load_image_frame_progress(index, frames),
                 ))
                 .map_err(ModelError::LoadCallback)
             },
@@ -227,6 +255,9 @@ impl ModelArena {
         progress.staging_model = None;
         progress.phase = CpuSceneWorldPhase::Prepare;
         self.mark_loaded_model_root(primary.frame())?;
+        // LoadHierarchy's success END (Load.cpp:202-204), before
+        // I3D_scene::Open's MakeReadySectors below.
+        report(LoadHierarchyReport::End).map_err(ModelError::LoadCallback)?;
         // Traverse actual primary child/next identities; never manufacture map
         // entries or sector registration from parsed metadata alone.
         let mut stack = Vec::new();

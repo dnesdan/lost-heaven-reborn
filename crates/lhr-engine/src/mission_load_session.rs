@@ -2034,12 +2034,15 @@ impl MissionLoadSession {
         Ok(scene)
     }
 
-    /// The world intake of `scene->Open` with LoadImage's progress points
-    /// reported in place: each `LoadProgress(p)` runs LS3DF's 0.02 gate
-    /// (`lastProgress` starts at 0 in LoadHierarchy) and a passing report
-    /// is `cbLoadScene(CBM_PROGRESS, p, LOAD_PROGRESS_STEP)` over the
-    /// session's owners and `device`, before the entry it precedes is read.
-    /// A refused report stops the intake there.
+    /// The world intake of `scene->Open` with LoadHierarchy's progress
+    /// reported in place: each LoadImage `LoadProgress(p)` runs LS3DF's 0.02
+    /// gate (`lastProgress` starts at 0 in LoadHierarchy) and a passing
+    /// report is `cbLoadScene(CBM_PROGRESS, p, LOAD_PROGRESS_STEP)` over the
+    /// session's owners and `device`, before the entry it precedes is read;
+    /// LoadHierarchy's END is `cbLoadScene(CBM_PROGRESS, 1.0f,
+    /// LOAD_PROGRESS_END)` where the intake reports it (see
+    /// `ModelArena::load_scene_world_cpu_reporting`). A refused report
+    /// stops the intake there.
     fn load_world_source(
         &mut self,
         scene: SceneKey,
@@ -2059,30 +2062,39 @@ impl MissionLoadSession {
             ..
         } = self;
         let mut last_progress = 0.0f32;
-        let mut report = |p: f32| -> Result<(), String> {
-            if !crate::scene_file_load::load_progress_gate(
-                &mut last_progress,
-                p,
-                crate::scene_file_load::I3DLOAD_PROGRESS,
-            ) {
-                return Ok(());
-            }
-            let mut inputs = SessionLoadProgressInputs {
-                installation,
-                indicators: indicators.as_ref(),
-                mission_name: open_mission_name.as_deref(),
+        let mut report =
+            |entry: crate::scene_file_load::LoadHierarchyReport| -> Result<(), String> {
+                let (p, phase) = match entry {
+                    crate::scene_file_load::LoadHierarchyReport::Step(p) => {
+                        if !crate::scene_file_load::load_progress_gate(
+                            &mut last_progress,
+                            p,
+                            crate::scene_file_load::I3DLOAD_PROGRESS,
+                        ) {
+                            return Ok(());
+                        }
+                        (p, crate::load_scene_callback::LOAD_PROGRESS_STEP)
+                    }
+                    crate::scene_file_load::LoadHierarchyReport::End => {
+                        (1.0, crate::load_scene_callback::LOAD_PROGRESS_END)
+                    }
+                };
+                let mut inputs = SessionLoadProgressInputs {
+                    installation,
+                    indicators: indicators.as_ref(),
+                    mission_name: open_mission_name.as_deref(),
+                };
+                load_scene_callback
+                    .cb_load_scene(
+                        &mut load_save_progress.progress,
+                        crate::load_scene_callback::CBM_PROGRESS,
+                        p.to_bits(),
+                        phase,
+                        &mut inputs,
+                        device,
+                    )
+                    .map_err(|detail| format!("cbLoadScene: {detail}"))
             };
-            load_scene_callback
-                .cb_load_scene(
-                    &mut load_save_progress.progress,
-                    crate::load_scene_callback::CBM_PROGRESS,
-                    p.to_bits(),
-                    crate::load_scene_callback::LOAD_PROGRESS_STEP,
-                    &mut inputs,
-                    device,
-                )
-                .map_err(|detail| format!("cbLoadScene: {detail}"))
-        };
         match driver.load_scene_world_cpu_reporting(
             arena,
             resources,

@@ -120,6 +120,16 @@ pub fn load_progress_gate(last: &mut f32, p: f32, flags: u32) -> bool {
     true
 }
 
+/// A LoadHierarchy progress report of a `CBM_PROGRESS` callback: a
+/// LoadImage `LoadProgress` point with its raw value (before LS3DF's 0.02
+/// gate), or the `LOAD_PROGRESS_END` at 1.0f that LoadHierarchy reports on
+/// every exit (Load.cpp:130/174/185/204).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LoadHierarchyReport {
+    Step(f32),
+    End,
+}
+
 /// LoadImage's material-loop progress (load4ds.cpp:92, the `LoadProgress`
 /// call at LS3DF 0x10060dd9): `(float)(i / 2) / LoadMaterialu`, reported
 /// before material `i` is read. Integer halving, then binary32 division
