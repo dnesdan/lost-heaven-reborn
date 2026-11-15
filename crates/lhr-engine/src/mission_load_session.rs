@@ -398,6 +398,16 @@ pub struct MissionLoadSession {
     /// Authoritative represented C_game scalar fields used by source-grounded
     /// inlines. C_game itself and the rest of Init still require live owners.
     game_inline: crate::game_housekeeping::GameInlineState,
+    /// The C_game vectors `Init` empties (`stop_sounds`, `paused_i_shows`,
+    /// `free_shadow_names`, `unknown_140`), owned beside `game_inline`.
+    game_lists: crate::game_housekeeping::GameInitLists,
+    /// `mafiaIndicators` (GAME 0x6bf980), the HUD global. Natively it is
+    /// constructed at process start (GAME 0x5f6b70 reads `GetLocalTime`), so
+    /// the host installs it with its staged clock read; like
+    /// `load_save_progress` it owns no mission allocation and survives
+    /// disposal. Absent, `Init` stops at its first HUD effect
+    /// (`ScoreSetOn`'s `BonusSetCount`).
+    indicators: Option<crate::indicators::IndicatorsState>,
     game_init_car_sounds: i32,
     game_init_weather: Option<(bool, i32)>,
     game_init_reset_entered: bool,
@@ -577,6 +587,8 @@ impl MissionLoadSession {
             load_save_progress: Default::default(),
             freeride: Default::default(),
             game_inline: crate::game_housekeeping::GameInlineState::default(),
+            game_lists: Default::default(),
+            indicators: None,
             game_init_car_sounds: 0,
             game_init_weather: None,
             game_init_reset_entered: false,
@@ -1514,7 +1526,9 @@ impl MissionLoadSession {
     /// weather_buffer=-1. With no caller renderer, the subsequent sound
     /// SetVolume/Render pair stops at the unavailable render effect. Preserve
     /// the first unsupported effect without claiming completion or mutating
-    /// later Init state. Re-entry is forbidden by the one-shot Init guard.
+    /// later Init state; without audio the render is skipped natively and
+    /// the span continues as in the rendered path. Re-entry is forbidden by
+    /// the one-shot Init guard.
     pub fn reset_game_mission_state_for_init(&mut self) -> Result<(), String> {
         self.reset_game_mission_state_inner(|_, _| {
             Err("Init Scene::Render after sound mute unavailable".into())
@@ -1524,7 +1538,7 @@ impl MissionLoadSession {
     /// The same one-shot native Init prefix with a caller-owned Scene render
     /// backend. It delegates to the already reconstructed LS3DF Render entry
     /// over the live Scene, never a second/copied scene or a generated image.
-    /// A successful render advances to the next unowned `stop_sounds` step;
+    /// A successful render continues the span through `unknown_140.clear()`;
     /// it does not complete GameInit or start the game's frame scheduler.
     /// No production composition calls it: it does not run the driver's
     /// unlock-all (LS3DF 0x10062030 at 0x100630b9/0x100630c3), so a caller
@@ -1603,7 +1617,55 @@ impl MissionLoadSession {
             render(self, scene)?;
             self.open_restore_volume = true;
         }
-        Err("Init stop_sounds owner unavailable".into())
+        self.reset_game_lists_and_flags_for_init()
+    }
+
+    /// The rest of the native `ResetMissionState` span after the sound
+    /// mute/render block, in Game.exe order (GAME 0x5a08c3-0x5a098c, reached
+    /// whether or not audio is present): `stop_sounds`, `paused_i_shows` and
+    /// `free_shadow_names` emptied; the direct `score_on = false` store
+    /// (0x5a0949); `ScoreSetOn(false)` (0x5b9fa0, tail call to
+    /// `mafiaIndicators.BonusSetCount(0x7fffffff)` at 0x5fb010); `score = 0`;
+    /// the flag stores 0x5a0960-0x5a097e; `unknown_140` emptied (0x5a098c).
+    /// An absent HUD owner stops after the `score_on` store, before the call,
+    /// with every earlier clear kept.
+    fn reset_game_lists_and_flags_for_init(&mut self) -> Result<(), String> {
+        self.game_lists.stop_sounds.clear();
+        self.game_lists.paused_i_shows.clear();
+        self.game_lists.free_shadow_names.clear();
+        self.game_inline.score_mut().score_on = false;
+        let hud = self
+            .indicators
+            .as_mut()
+            .ok_or("Init ScoreSetOn mafiaIndicators owner unavailable")?;
+        crate::game_housekeeping::game_init_score_reset(self.game_inline.score_mut(), hud);
+        self.game_inline.game_init_flag_resets();
+        self.game_lists.unknown_140.clear();
+        Ok(())
+    }
+
+    /// Install the `mafiaIndicators` HUD global constructed by the host
+    /// (GAME 0x5f6b70 with its staged `GetLocalTime` read). One process
+    /// global: a second install is refused and keeps the live owner.
+    pub fn install_indicators(
+        &mut self,
+        indicators: crate::indicators::IndicatorsState,
+    ) -> Result<(), String> {
+        if self.indicators.is_some() {
+            return Err("mafiaIndicators already installed".into());
+        }
+        self.indicators = Some(indicators);
+        Ok(())
+    }
+
+    /// The live `mafiaIndicators` owner, when installed.
+    pub fn indicators(&self) -> Option<&crate::indicators::IndicatorsState> {
+        self.indicators.as_ref()
+    }
+
+    /// The live C_game vectors `Init` empties.
+    pub fn game_lists(&self) -> &crate::game_housekeeping::GameInitLists {
+        &self.game_lists
     }
 
     /// Exact reached-prefix observations, not a completed GameInit snapshot.

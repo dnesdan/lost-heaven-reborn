@@ -896,7 +896,7 @@ fn game_init_render_borrows_live_scene_once_then_marks_volume_restore() {
     assert!(!session.open_restore_volume());
     assert_eq!(
         session.reset_game_mission_state_with_render(&mut renderer),
-        Err("Init stop_sounds owner unavailable".into()),
+        Err("Init ScoreSetOn mafiaIndicators owner unavailable".into()),
     );
     assert_eq!(renderer.calls, [scene]);
     assert!(session.open_restore_volume());
@@ -907,6 +907,42 @@ fn game_init_render_borrows_live_scene_once_then_marks_volume_restore() {
         Err("mission state reset already entered".into()),
     );
     assert_eq!(renderer.calls, [scene]);
+    discard(&mut session);
+}
+
+#[test]
+fn game_init_render_with_hud_completes_the_reset_span() {
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    session
+        .install_indicators(crate::indicators::IndicatorsState::constructed(
+            crate::indicators::TimerClock {
+                hour: 1,
+                minute: 2,
+                second: 3,
+            },
+        ))
+        .unwrap();
+    load(&mut session, &[]).unwrap();
+    consume_open_restore(&mut session);
+    let mut renderer = InitSceneRender {
+        calls: Vec::new(),
+        audio: session.audio().clone(),
+        fail: false,
+    };
+    // The renderer-backed entry reaches the same span end as the presented
+    // driver: the span returns, the next step belongs to the driver.
+    assert_eq!(
+        session.reset_game_mission_state_with_render(&mut renderer),
+        Ok(())
+    );
+    assert!(session.open_restore_volume());
+    assert!(session.game_state().heal_cheat());
+    assert_eq!(session.game_state().death_fade_time(), 7000);
+    assert_eq!(
+        session.indicators().unwrap().bonus_count(),
+        crate::indicators::BONUS_NONE
+    );
     discard(&mut session);
 }
 

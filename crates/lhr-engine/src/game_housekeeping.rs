@@ -355,7 +355,7 @@ pub fn lightness_tick(_time: u32) -> Result<(), UnwrittenGameEntry> {
 /// Current score and its HUD switch (`game.h`, `score` / `score_on`).
 /// Lifetime and rendering stay with the mission/HUD owners; only the
 /// stored scalars participate here.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ScoreState {
     pub score: i32,
     pub score_on: bool,
@@ -831,6 +831,20 @@ pub struct GameInlineState {
     /// `C_car` clears it; `Tick` runs the failure menu once the screen has
     /// faded out. Written by [`GameInlineState::set_game_failed`].
     game_failed: bool,
+    /// `score_on` (+0x363e) and `score` (+0x3640), the single owner of the
+    /// pair `ScoreSetOn`/`ScoreSet` and `C_game::Init` write.
+    score: ScoreState,
+    /// `camera_rot_repair` (+0x3644): `SetCameraRotRepair`'s flag, cleared by
+    /// `Init` (GAME 0x5a0960).
+    camera_rot_repair: bool,
+    /// `heal_cheat` (+0x3664): set by `Init` (GAME 0x5a0966), cleared by the
+    /// `KREFJEZIVOT` cheat once it heals.
+    heal_cheat: bool,
+    /// `stacks_clear` (+0x2e4c): set by `Init` (GAME 0x5a096d); the first
+    /// inter-mission stack push empties the stacks first and clears it.
+    stacks_clear: bool,
+    /// `death_fade_time` (+0x2fd4): 7000 from `Init` (GAME 0x5a0974).
+    death_fade_time: i32,
 }
 
 /// One staged subtitle request, in call order. Host staging for the HUD
@@ -1108,6 +1122,50 @@ impl GameInlineState {
     /// Reads the switch written by [`GameInlineState::set_actor_lightness`].
     pub fn actor_lightness(&self) -> bool {
         self.actor_lightness
+    }
+
+    /// The live `score_on`/`score` pair.
+    pub fn score(&self) -> ScoreState {
+        self.score
+    }
+
+    /// Mutable access for the `ScoreSetOn`/`ScoreSet` writers.
+    pub fn score_mut(&mut self) -> &mut ScoreState {
+        &mut self.score
+    }
+
+    /// Reads `camera_rot_repair`.
+    pub fn camera_rot_repair(&self) -> bool {
+        self.camera_rot_repair
+    }
+
+    /// Reads `heal_cheat`.
+    pub fn heal_cheat(&self) -> bool {
+        self.heal_cheat
+    }
+
+    /// Reads `stacks_clear`.
+    pub fn stacks_clear(&self) -> bool {
+        self.stacks_clear
+    }
+
+    /// Reads `death_fade_time`.
+    pub fn death_fade_time(&self) -> i32 {
+        self.death_fade_time
+    }
+
+    /// The `C_game::Init` scalar stores between `score = 0` and
+    /// `unknown_140.clear()` in Game.exe order (GAME 0x5a0960-0x5a097e):
+    /// `camera_rot_repair = false`, `heal_cheat = true`, `stacks_clear =
+    /// true`, `death_fade_time = 7000`, `actor_lightness = false`. Working
+    /// name for an inline span of the occupied `Init` entry; no function
+    /// credit is taken.
+    pub fn game_init_flag_resets(&mut self) {
+        self.camera_rot_repair = false;
+        self.heal_cheat = game_init_heal_cheat();
+        self.stacks_clear = true;
+        self.death_fade_time = game_init_death_fade_time();
+        self.set_actor_lightness(false);
     }
 
     /// FUNCTION: GAME 0x47b690 (RVA 0x7b690, VA 0x47b690; `game.h:942-946`,
@@ -2100,6 +2158,43 @@ pub fn reset_intern_flags(flags: &mut InternLoadFlags) {
 pub fn game_init_score_reset(state: &mut ScoreState, hud: &mut impl HudBonusBackend) {
     score_set_on(state, false, hud);
     state.score = 0;
+}
+
+/// One `C_game::S_stop_sounds` record (`game.h:236-243`, 0x14 bytes): a sound
+/// `PauseAllSounds` turned off, which `PlayAllSounds` restores. The sound is
+/// the borrowed I3D_sound frame identity; the record never owns it, so
+/// clearing the list releases nothing (the native `clear` frees only the
+/// vector storage). Member names are mafia-re's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StoppedSound {
+    pub sound: crate::frame_sound::SoundKey,
+    pub volume: f32,
+    pub volume_out: f32,
+    pub looped: bool,
+    pub time: u32,
+}
+
+/// The `C_game` vectors the reached `Init` prefix empties, held as the single
+/// owner of each (`game.h`, pin fe7e746): `stop_sounds` (+0x2d4),
+/// `paused_i_shows` (+0x2e4, signed IShow ids), `free_shadow_names` (+0x3674,
+/// spare name buffers of at least 32 bytes that `Done` deletes) and
+/// `unknown_140` (+0x140, actors). Their writers (`PauseAllSounds`,
+/// `DelFrameForShadow`, the `unknown_140` producers) are not ported yet, so
+/// a new session holds them empty; `Init` still performs every clear.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GameInitLists {
+    pub stop_sounds: Vec<StoppedSound>,
+    pub paused_i_shows: Vec<i32>,
+    pub free_shadow_names: Vec<Box<[u8]>>,
+    pub unknown_140: Vec<ActorId>,
+}
+
+/// Owner of the `mafiaIndicators` HUD global (GAME 0x6bf980, the `ECX` both
+/// tail calls of `ScoreSetOn` load) for the `BonusSetCount` sink.
+impl HudBonusBackend for crate::indicators::IndicatorsState {
+    fn bonus_set_count(&mut self, count: i32) {
+        crate::indicators::IndicatorsState::bonus_set_count(self, count);
+    }
 }
 
 /// Tick counters cleared by `C_game::Init` (`game.h:411-415`,
