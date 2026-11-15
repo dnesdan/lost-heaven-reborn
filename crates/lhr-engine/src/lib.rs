@@ -126,6 +126,7 @@ pub mod ishow_renderer;
 pub mod itexture;
 pub mod joint_state;
 pub mod landscape_roam;
+pub mod load_scene_callback;
 pub mod loaded_visual_resources;
 pub mod main_menu;
 pub mod managed_visual_resources;

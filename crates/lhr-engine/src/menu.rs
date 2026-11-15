@@ -694,6 +694,8 @@ pub struct MenuStack {
     /// Device-owned payloads (textures, text-database resolution) stay
     /// DEFERRED; these maps hold only the admitted host bytes/scalars.
     staged_texts: std::collections::BTreeMap<u32, Vec<u8>>,
+    /// Staged `SetString` values (GAME 0x5eb030), `None` for NULL.
+    staged_strings: std::collections::BTreeMap<u32, Option<Vec<u8>>>,
     /// Staged float values as raw f32 bits (keeps the owner `Eq`; bit-exact).
     staged_floats: std::collections::BTreeMap<u32, u32>,
     staged_dwords: std::collections::BTreeMap<u32, u32>,
@@ -816,15 +818,28 @@ impl MenuStack {
     }
 
     /// GM_Menu::SetString (GAME RVA 0x1eb030, VA 0x5eb030; reference mafia-re
-    /// pin fe7e746 `game/ui/g_menu.cpp:954-960`, cited only):
-    /// explicit-Unsupported STUB. The body looks the component up and calls
-    /// its `SetString` virtual, but the base virtual is an empty no-op
-    /// (sibling `game/ui/g_m_comps.h:109`) and every override needs the
-    /// missing component-class owners, so nothing observable stages and the
-    /// call is rejected. Unlike `set_text`, nothing lands in the staged
-    /// texts, matching the native base-class effect (none).
-    pub fn set_string(&self, _id: u32, _text: Option<&[u8]>) -> Result<(), MenuStubError> {
-        Err(MenuStubError::Unsupported("component classes"))
+    /// pin fe7e746 `game/ui/g_menu.cpp:954-960`). Game.exe SHA-256
+    /// 08398317…16ab27, Ghidra 12.1.4 body 0x5eb030..0x5eb04c (REA
+    /// ev_ec5b344f1c): `FindComponentByID(id)` (call 0x5eb2f0), a NULL
+    /// component returns, otherwise the component's `SetString` virtual
+    /// (vtable +0x44) receives the caller's string. Stages the string bytes
+    /// (`None` for NULL) on the looked-up component, separately from
+    /// [`MenuStack::set_text`] because the two are distinct virtuals; no-op
+    /// where the menu has no such component. The class-specific effects of
+    /// the override (a picture component loading its texture) stay with the
+    /// component-class owners (DEFERRED), as for the other value wrappers.
+    pub fn set_string(&mut self, id: u32, text: Option<&[u8]>) {
+        if self.find_component_by_id(id).is_some() {
+            self.staged_strings.insert(id, text.map(<[u8]>::to_vec));
+        }
+    }
+
+    /// Host read of the string [`MenuStack::set_string`] staged on `id`:
+    /// outer `None` where the menu has no such component or nothing was
+    /// staged, inner `None` for a staged NULL. Not an original accessor.
+    pub fn staged_string(&self, id: u32) -> Option<Option<&[u8]>> {
+        self.find_component_by_id(id)?;
+        self.staged_strings.get(&id).map(Option::as_deref)
     }
 
     /// GM_Menu::SetFloat (GAME VA 0x5eb070, RVA 0x1eb070; sibling
@@ -2249,18 +2264,23 @@ mod tests {
     }
 
     #[test]
-    fn rva_1eb030_set_string_is_unsupported_and_stages_nothing() {
-        // GM_Menu::SetString GAME VA 0x5eb030 (RVA 0x1eb030): the base
-        // component virtual is an empty no-op, so unlike SetText nothing
-        // lands in the staged texts.
-        let stack = MenuStack::create(&stack_definition());
-        let error = stack
-            .set_string(main_menu::MAINMENU_ITEM_INTRO, Some(b"intro"))
-            .unwrap_err();
-        assert_eq!(error, MenuStubError::Unsupported("component classes"));
-        assert_eq!(stack.get_text(main_menu::MAINMENU_ITEM_INTRO), None);
-        let error = stack.set_string(424242, None).unwrap_err();
-        assert_eq!(error, MenuStubError::Unsupported("component classes"));
+    fn rva_1eb030_set_string_stages_on_the_looked_up_component_only() {
+        // GM_Menu::SetString GAME VA 0x5eb030 (RVA 0x1eb030): FindComponentByID
+        // then the component's SetString virtual; a missing id is a no-op.
+        let mut stack = MenuStack::create(&stack_definition());
+        let id = main_menu::MAINMENU_ITEM_INTRO;
+        assert_eq!(stack.staged_string(id), None);
+        stack.set_string(id, Some(b"intro"));
+        assert_eq!(stack.staged_string(id), Some(Some(&b"intro"[..])));
+        // A distinct virtual from SetText: nothing lands in the texts.
+        assert_eq!(stack.get_text(id), None);
+        // NULL replaces the staged string.
+        stack.set_string(id, None);
+        assert_eq!(stack.staged_string(id), Some(None));
+        let before = stack.clone();
+        stack.set_string(424242, Some(b"x"));
+        assert_eq!(stack, before);
+        assert_eq!(stack.staged_string(424242), None);
     }
 
     #[test]

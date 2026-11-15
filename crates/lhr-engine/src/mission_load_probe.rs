@@ -4,7 +4,7 @@
 use lhr_engine::{
     actor_world::ActorWorld,
     game_camera_projection::GameCameraProjection,
-    game_init_order::{InitAttempt, InitRunError},
+    game_init_order::{InitAttempt, InitRunError, PresentedFrame},
     host_scene_adapters::InspectionScreen,
     mission_content_loading::{
         GameGlobalProgramWorldRunner, MissionContentOwner, MissionProgramDiagnostic,
@@ -43,6 +43,40 @@ const PROBE_DISPATCH_BUDGET: usize = 100_000;
 #[derive(Default)]
 struct ProbeOpenRender {
     calls: usize,
+    /// cbLoadScene STEP `SetState(DXS_ALPHA, ALPHASTATE_BLEND)` calls.
+    alpha_blend_states: usize,
+    /// `GM_LoadProgress::Present` frames during Open and their last bar.
+    loading_presents: usize,
+    last_loading_bar: Option<f32>,
+    /// Diagnostic refusal of this (0-based) loading-screen Present.
+    refuse_loading_present: Option<usize>,
+    /// Whether that refusal was reached.
+    refused_loading_present: bool,
+}
+
+/// The headless probe's Open device takes the loading screen's device calls
+/// as it takes the scene Render: counted, nothing drawn (there is no
+/// `GM_Menu::Draw` owner, and the original ignores every result).
+impl lhr_engine::load_scene_callback::LoadingScreenDevice for ProbeOpenRender {
+    fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+        self.alpha_blend_states += 1;
+        Ok(())
+    }
+    fn present_loading_screen(
+        &mut self,
+        frame: lhr_engine::load_scene_callback::LoadingScreenFrame<'_>,
+    ) -> Result<(), String> {
+        if self.refuse_loading_present == Some(self.loading_presents) {
+            self.refused_loading_present = true;
+            return Err(format!(
+                "probe refused loading-screen present {}",
+                self.loading_presents
+            ));
+        }
+        self.loading_presents += 1;
+        self.last_loading_bar = Some(frame.screen.raw_progress());
+        Ok(())
+    }
 }
 
 const I3DERR_GENERIC: u32 = 0x8000_0005;
@@ -417,6 +451,11 @@ pub fn staged_script_content(
     let installation = lhr_assets::Installation::open(root).map_err(|error| error.to_string())?;
     let mut session = MissionLoadSession::new(installation, Pc24PrecisionState::new(false))
         .map_err(|error| format!("Mission probe initialization failed: {error:?}"))?;
+    // Open's loading screen reads mafiaIndicators.GetLanguage (GM_Menu::
+    // CreateCompsByDef), so the global exists before Open as natively.
+    let clock = crate::host_local_time::local_timer_clock()
+        .map_err(|error| format!("Mission probe HUD clock: {error}"))?;
+    session.install_indicators(lhr_engine::indicators::IndicatorsState::constructed(clock))?;
     let mut screen = InspectionScreen {
         size: PROBE_SIZE,
         viewport: [0, 0, PROBE_SIZE[0], PROBE_SIZE[1]],
@@ -495,6 +534,7 @@ pub fn run(
     mission: &str,
     model_directories: &[String],
     capture: Option<&Path>,
+    refuse_loading_present: Option<usize>,
 ) -> Result<(), String> {
     // Keep this validation at the command boundary even if a future caller
     // bypasses the main option parser. Mission paths cannot escape their root.
@@ -524,9 +564,13 @@ pub fn run(
     // SaveGameNewGame and game->Init, stopping at the first unavailable owner.
     // A requested GPU capture runs at the composed Init's reached render
     // boundary, after the live audio mute; it is never retried elsewhere.
-    let mut render = ProbeOpenRender::default();
+    let mut render = ProbeOpenRender {
+        refuse_loading_present,
+        ..ProbeOpenRender::default()
+    };
     let mut new_mission = NewMissionAttempt::default();
     let mut init_capture = None;
+    let mut init_loading_presents: Vec<f32> = Vec::new();
     let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
     let request = NewMissionRequest {
         mission,
@@ -541,10 +585,18 @@ pub fn run(
             &mut render,
             PROBE_RENDER_SIZE,
             &mut sequence,
-            |snapshot| {
-                let result = capture_retained_mission_frame(snapshot, path);
-                init_capture = Some(result.clone());
-                result
+            |frame| match frame {
+                PresentedFrame::Scene(snapshot) => {
+                    let result = capture_retained_mission_frame(snapshot, path);
+                    init_capture = Some(result.clone());
+                    result
+                }
+                // The loading screen has no GM_Menu::Draw owner: counted,
+                // never written over the scene capture.
+                PresentedFrame::LoadingScreen(frame) => {
+                    init_loading_presents.push(frame.screen.raw_progress());
+                    Ok(())
+                }
             },
         )
     } else {
@@ -590,6 +642,37 @@ pub fn run(
         session.open_mission_opened()
     )
     .unwrap();
+    let loading_screen = session.load_save_progress().progress.as_ref();
+    writeln!(
+        report,
+        "Loading screen (cbLoadScene 0x5bcc10 over scene->Open): Open presents={} STEP SetState calls={} last Open bar={:?}; callback last_bit={} own screen={}; mafiaLoadSave.progress components={} bar={:?} mission picture={:?}; Init presents bars={:?} (headless: counted, not drawn)",
+        render.loading_presents,
+        render.alpha_blend_states,
+        render.last_loading_bar,
+        session.load_scene_callback().last_bit(),
+        session.load_scene_callback().menu_progress().is_some(),
+        loading_screen.map_or(0, |screen| screen.menu.len()),
+        loading_screen.map(|screen| screen.raw_progress()),
+        loading_screen
+            .and_then(|screen| screen
+                .menu
+                .staged_string(lhr_engine::game_loadsave_lifecycle::LOADPROGRESS_MISSION_PICTURE))
+            .map(|picture| picture.map(String::from_utf8_lossy)),
+        init_loading_presents
+    )
+    .unwrap();
+    if let Some(index) = render.refuse_loading_present {
+        writeln!(
+            report,
+            "Diagnostic loading-present refusal: requested index {index}, {}",
+            if render.refused_loading_present {
+                "reached"
+            } else {
+                "not reached (normal load)"
+            }
+        )
+        .unwrap();
+    }
     let new_mission_status = match &new_mission_result {
         Ok(result) => format!("{result:?}"),
         Err(NewMissionRunError::Callback(failure)) => {
@@ -775,29 +858,29 @@ pub fn run(
     if load.is_ok() && !new_mission.init().entered() {
         let mut attempt = InitAttempt::default();
         let result = if let Some(path) = capture {
-            attempt.run_with_presentation(
-                &mut session,
-                PROBE_RENDER_SIZE,
-                &mut sequence,
-                |snapshot| {
-                    let result = capture_retained_mission_frame(snapshot, path);
-                    match &result {
-                        Ok(()) => writeln!(
-                            report,
-                            "Mission GPU readback at Init render boundary written to {}",
-                            path.display()
-                        )
-                        .unwrap(),
-                        Err(error) => writeln!(
-                            report,
-                            "Mission GPU readback at Init render boundary stopped: {error}"
-                        )
-                        .unwrap(),
-                    }
-                    init_capture = Some(result.clone());
-                    result
-                },
-            )
+            attempt.run_with_presentation(&mut session, PROBE_RENDER_SIZE, &mut sequence, |frame| {
+                // A loading-screen Present is counted by nothing here:
+                // headless, nothing drawn, the original ignores it.
+                let PresentedFrame::Scene(snapshot) = frame else {
+                    return Ok(());
+                };
+                let result = capture_retained_mission_frame(snapshot, path);
+                match &result {
+                    Ok(()) => writeln!(
+                        report,
+                        "Mission GPU readback at Init render boundary written to {}",
+                        path.display()
+                    )
+                    .unwrap(),
+                    Err(error) => writeln!(
+                        report,
+                        "Mission GPU readback at Init render boundary stopped: {error}"
+                    )
+                    .unwrap(),
+                }
+                init_capture = Some(result.clone());
+                result
+            })
         } else {
             attempt.run(&mut session)
         };

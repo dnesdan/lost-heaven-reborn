@@ -233,7 +233,8 @@ impl MissionLoadSession {
     where
         S: crate::driver_scene::DriverSceneScreen,
         S::Error: std::fmt::Debug,
-        R: crate::scene_projection::SceneRenderBackend,
+        R: crate::scene_projection::SceneRenderBackend
+            + crate::load_scene_callback::LoadingScreenDevice,
     {
         attempt.run(&mut SessionNewMission {
             session: self,
@@ -263,8 +264,9 @@ impl MissionLoadSession {
     where
         S: crate::driver_scene::DriverSceneScreen,
         S::Error: std::fmt::Debug,
-        R: crate::scene_projection::SceneRenderBackend,
-        F: FnMut(&crate::scene_render::CanonicalSceneSnapshot) -> Result<(), String>,
+        R: crate::scene_projection::SceneRenderBackend
+            + crate::load_scene_callback::LoadingScreenDevice,
+        F: FnMut(crate::game_init_order::PresentedFrame<'_>) -> Result<(), String>,
     {
         let mut present = Some(present);
         attempt.run(&mut SessionNewMission {
@@ -299,7 +301,8 @@ impl<S, R, I> NewMissionOperations for SessionNewMission<'_, S, R, I>
 where
     S: crate::driver_scene::DriverSceneScreen,
     S::Error: std::fmt::Debug,
-    R: crate::scene_projection::SceneRenderBackend,
+    R: crate::scene_projection::SceneRenderBackend
+        + crate::load_scene_callback::LoadingScreenDevice,
     I: FnMut(&mut InitAttempt, &mut MissionLoadSession) -> SessionInitResult,
 {
     type Error = NewMissionError;

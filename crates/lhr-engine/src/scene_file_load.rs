@@ -90,12 +90,11 @@ pub fn rewrite_extension(file_name: &str, want: &str) -> Result<Vec<u8>, LoadSta
     Ok(name)
 }
 
-/// F1 0x60390 LoadProgress (70B/19insn/4BB). Literal gate `p<last+0.02f`
-/// (f32 — the source spells `.02f`, no double promotion). NaN takes the
-/// early-return through the x87 TEST-AH-0x41 unordered path (C0=1), modeled
-/// here as an explicit NaN refusal with identical outcomes; +Inf is admitted
-/// exactly like the source (stores + calls back). Then IFF PROGRESS flag:
-/// last=progress=p + cb(8,bits,1,ctx).
+/// F1 0x60390 LoadProgress (70B/19insn/4BB; REA ev_9cb0d60ce8): `fld
+/// [lastProgress]; fadd [0x1009d290] (0.02f); fcomp p; test ah, 0x41; jz
+/// ret`, so it returns only when `last + 0.02f > p`. An unordered compare
+/// (NaN) sets C0 and C3 and continues, like `<=`; +Inf continues too. Then
+/// IFF PROGRESS flag: last=progress=p + cb(8,bits,1,ctx).
 pub fn report_load_progress(
     b: &mut dyn LoadFileBackend,
     last: &mut f32,
@@ -103,13 +102,49 @@ pub fn report_load_progress(
     flags: u32,
     ctx_bits: u32,
 ) {
-    if p.is_nan() || last.is_nan() || p < *last + 0.02 {
-        return;
-    }
-    if flags & I3DLOAD_PROGRESS != 0 {
-        *last = p;
+    if load_progress_gate(last, p, flags) {
         b.progress(8, ctx_bits, 1);
     }
+}
+
+/// The state half of [`report_load_progress`] (LS3DF 0x60390): true where
+/// the STEP report is made, with `last` updated as the original stores it.
+pub fn load_progress_gate(last: &mut f32, p: f32, flags: u32) -> bool {
+    if *last + 0.02 > p {
+        return false;
+    }
+    if flags & I3DLOAD_PROGRESS == 0 {
+        return false;
+    }
+    *last = p;
+    true
+}
+
+/// A LoadHierarchy progress report of a `CBM_PROGRESS` callback: the
+/// `LOAD_PROGRESS_BEGIN` at 0.0f after its admission (Load.cpp:109-111), a
+/// LoadImage `LoadProgress` point with its raw value (before LS3DF's 0.02
+/// gate), or the `LOAD_PROGRESS_END` at 1.0f that LoadHierarchy reports on
+/// every later exit (Load.cpp:130/174/185/204).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LoadHierarchyReport {
+    Begin,
+    Step(f32),
+    End,
+}
+
+/// LoadImage's material-loop progress (load4ds.cpp:92, the `LoadProgress`
+/// call at LS3DF 0x10060dd9): `(float)(i / 2) / LoadMaterialu`, reported
+/// before material `i` is read. Integer halving, then binary32 division
+/// (PC24).
+pub fn load_image_material_progress(index: usize, materials: usize) -> f32 {
+    (index / 2) as f32 / materials as f32
+}
+
+/// LoadImage's frame-loop progress (load4ds.cpp:128, the `LoadProgress`
+/// call at LS3DF 0x10060eef): `(float)(j / 2) / LoadFramu + .5f`, reported
+/// before frame `j` is read.
+pub fn load_image_frame_progress(index: usize, frames: usize) -> f32 {
+    (index / 2) as f32 / frames as f32 + 0.5
 }
 
 /// Deadlock-guarded begin shared by F2/F3/F4: pump loop until free or
@@ -646,6 +681,24 @@ mod scene_file_load_tests {
         }
     }
     #[test]
+    fn load_image_progress_halves_the_index_before_dividing() {
+        // (float)(i / 2) / LoadMaterialu: indices 0 and 1 both report 0.
+        assert_eq!(load_image_material_progress(0, 4), 0.0);
+        assert_eq!(load_image_material_progress(1, 4), 0.0);
+        assert_eq!(load_image_material_progress(3, 4), 0.25);
+        assert_eq!(
+            load_image_material_progress(7, 10).to_bits(),
+            0.3f32.to_bits()
+        );
+        // (float)(j / 2) / LoadFramu + .5f.
+        assert_eq!(load_image_frame_progress(0, 4), 0.5);
+        assert_eq!(load_image_frame_progress(3, 4), 0.75);
+        assert_eq!(
+            load_image_frame_progress(5, 3).to_bits(),
+            (2.0f32 / 3.0 + 0.5).to_bits()
+        );
+    }
+    #[test]
     fn progress_gate_step_and_nan() {
         let mut b = MemBackend::with(&[]);
         let mut last = 0.0f32;
@@ -653,13 +706,20 @@ mod scene_file_load_tests {
         assert!(b.progresses.is_empty());
         report_load_progress(&mut b, &mut last, 0.02, 2, 0);
         assert_eq!(b.progresses, vec![(8, 0, 1)]);
+        // NaN compares unordered (C0|C3 set), so the jz does not return.
         report_load_progress(&mut b, &mut last, f32::NAN, 2, 0);
-        assert_eq!(b.progresses.len(), 1);
+        assert_eq!(b.progresses.len(), 2);
+        assert!(last.is_nan());
+        last = 0.02;
         // +Inf is admitted like the source (stores + calls back).
         report_load_progress(&mut b, &mut last, f32::INFINITY, 2, 7);
-        assert_eq!(b.progresses.len(), 2);
-        assert_eq!(b.progresses[1], (8, 7, 1));
+        assert_eq!(b.progresses.len(), 3);
+        assert_eq!(b.progresses[2], (8, 7, 1));
         assert_eq!(last, f32::INFINITY);
+        // Without the PROGRESS flag nothing is stored or reported.
+        let mut last = 0.0f32;
+        report_load_progress(&mut b, &mut last, 0.5, 0, 0);
+        assert_eq!((b.progresses.len(), last), (3, 0.0));
     }
     #[test]
     fn ext_rewrite_vectors() {

@@ -197,6 +197,10 @@ pub struct SharedModelLoadFailure {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModelError {
+    /// The loader's progress callback (LoadHierarchy's `pLoadCallback`)
+    /// stopped the host: the load ends at that report, before the entry the
+    /// report precedes.
+    LoadCallback(String),
     DummyFrameRequired(FrameKey),
     MirrorFrameRequired(FrameKey),
     ShadowFrameRequired(FrameKey),
@@ -2378,7 +2382,38 @@ impl ModelArena {
         root_parent: Option<FrameKey>,
         billboards: &[lhr_assets::BillboardSource],
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
-        self.load_parsed_hierarchy_profile(model, source, root_parent, billboards, true)
+        self.load_parsed_hierarchy_profile(
+            model,
+            source,
+            root_parent,
+            billboards,
+            true,
+            &mut |_| Ok(()),
+        )
+    }
+    /// [`ModelArena::load_parsed_into_model_for_root_with_billboards`] with
+    /// LoadImage's per-frame `LoadProgress` point: `frame_progress(j)` runs
+    /// before frame `j` is read (load4ds.cpp:128, LS3DF 0x10060eef). An
+    /// `Err` is a host stop, not a load error: the loader returns at once
+    /// with the frames read so far as untransferred creator references on
+    /// the failure's partial content (no target pass, no root link, no
+    /// AddFrame, no Release).
+    pub(crate) fn load_parsed_into_model_for_root_reporting(
+        &mut self,
+        model: ModelKey,
+        source: Arc<Model>,
+        root_parent: Option<FrameKey>,
+        billboards: &[lhr_assets::BillboardSource],
+        frame_progress: &mut dyn FnMut(usize) -> Result<(), ModelError>,
+    ) -> Result<SharedModelContent, SharedModelLoadFailure> {
+        self.load_parsed_hierarchy_profile(
+            model,
+            source,
+            root_parent,
+            billboards,
+            true,
+            frame_progress,
+        )
     }
     fn load_parsed_hierarchy_profile(
         &mut self,
@@ -2387,6 +2422,7 @@ impl ModelArena {
         root_parent: Option<FrameKey>,
         billboards: &[lhr_assets::BillboardSource],
         finalize_root: bool,
+        frame_progress: &mut dyn FnMut(usize) -> Result<(), ModelError>,
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
         let mut content = SharedModelContent {
             model,
@@ -2414,6 +2450,12 @@ impl ModelArena {
         let mut morph_poses = Vec::new();
         let mut result = Ok(());
         for index in 0..source.frames.len() {
+            if let Err(error) = frame_progress(index) {
+                return Err(SharedModelLoadFailure {
+                    error,
+                    partial: content,
+                });
+            }
             let suffix = billboards
                 .iter()
                 .find(|record| record.frame_index == index)
@@ -2671,6 +2713,7 @@ impl ModelArena {
                 None,
                 &source.billboards,
                 !companion,
+                &mut |_| Ok(()),
             )?;
             if let Err(error) = self.load_plain_visual_resources(model, installation) {
                 return Err(SharedModelLoadFailure {

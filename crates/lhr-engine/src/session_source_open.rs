@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 use super::*;
+use crate::load_scene_callback::LoadingScreenDevice;
 use crate::mission_open_order::{
     OpenAttempt, OpenOperations, OpenResult, OpenRunError, OpenStep, SessionOpenError,
 };
@@ -42,7 +43,7 @@ impl MissionLoadSession {
     /// This is the only source-loading entry: the probe and every composed
     /// new-mission caller go through it. The caller owns `attempt`, so the
     /// reached boundary sequence stays observable after any outcome.
-    pub fn open_source_in_order<S: DriverSceneScreen, R: SceneRenderBackend>(
+    pub fn open_source_in_order<S: DriverSceneScreen, R: SceneRenderBackend + LoadingScreenDevice>(
         &mut self,
         attempt: &mut OpenAttempt,
         mission: &str,
@@ -161,7 +162,8 @@ impl<S, R> SourceOpen<'_, S, R> {
     }
 }
 
-impl<S: DriverSceneScreen, R: SceneRenderBackend> OpenOperations for SourceOpen<'_, S, R>
+impl<S: DriverSceneScreen, R: SceneRenderBackend + LoadingScreenDevice> OpenOperations
+    for SourceOpen<'_, S, R>
 where
     S::Error: std::fmt::Debug,
 {
@@ -175,10 +177,15 @@ where
                 .set_open_mission_name(self.mission)
                 .map_err(|detail| SessionOpenError(format!("{step:?}: {detail}"))),
             OpenStep::OpenWorld => {
+                // scene->Open(.., I3DLOAD_PROGRESS | .., __SceneErrFnc)
+                // (Mission.cpp:643; __SceneErrFnc GAME 0x540fd0 forwards
+                // every CBM_PROGRESS to cbLoadScene). The intake reports
+                // LoadHierarchy's BEGIN after its admission, LoadImage's
+                // STEPs in place and END on its exits (load_world_source).
                 let scene = self.scene(step)?;
                 let input = MissionLoadSession::open_world_path(self.mission);
                 self.session
-                    .load_world_source(scene, &input)
+                    .load_world_source(scene, &input, self.renderer)
                     .map_err(|cause| self.source_error(step, cause))
             }
             OpenStep::ResetWeather => {

@@ -75,6 +75,9 @@ struct Options {
     mission_play_probe: bool,
     probe_model_directories: Vec<String>,
     probe_render_capture: Option<PathBuf>,
+    /// Diagnostic: the probe's Open device refuses this loading-screen
+    /// Present (0-based), to exercise the stop and its disposal.
+    probe_refuse_loading_present: Option<usize>,
     root: Option<PathBuf>,
     model: Option<String>,
     animation: Option<String>,
@@ -134,6 +137,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         mission_play_probe: false,
         probe_model_directories: Vec::new(),
         probe_render_capture: None,
+        probe_refuse_loading_present: None,
         root: None,
         model: None,
         animation: None,
@@ -185,6 +189,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         }
             "--probe-model-dir" => result.probe_model_directories.push(args.next().ok_or("Missing probe model directory")?),
             "--probe-render-capture" => result.probe_render_capture = Some(args.next().ok_or("Missing probe GPU capture output")?.into()),
+            "--probe-refuse-loading-present" => result.probe_refuse_loading_present = Some(args.next().ok_or("Missing loading-screen present index")?.parse().map_err(|_| "Invalid loading-screen present index")?),
             "--textures" => result.textures = args.next().ok_or("Missing textures argument")?,
             "--root" => result.root = Some(args.next().ok_or("Missing root argument")?.into()),
             "--sample-animation-ms" => result.sample_animation_ms = Some(args.next().ok_or("Missing animation sample time")?.parse().map_err(|_| "Invalid animation sample time")?),
@@ -249,7 +254,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 "Usage: lhr-engine [--synthetic | --root DIRECTORY [--model RELATIVE_4DS [--animation RELATIVE_5DS] | --mission NAME]] ",
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
                 "--lab requires --features engine-lab and a native window. It opens scenes/models, environment previews, camera and model tools, presets and actual driving input. F1 panel, F2 pause, F3 16 ms step, F4 reload. --synthetic --lab starts the public gallery; --root may also supply its asset browser. --lab-scene gallery|courtyard|primitives|lights selects a public --synthetic scene, including headless captures. --lab-preset FILE.lhr-lab loads presentation settings for --lab or --headless. --capture omits the Lab overlay. ",
-                "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] [--probe-render-capture PNG] runs the shared CPU load-session diagnostic without a window. Optional GPU capture renders the actual retained mission Scene, and does not execute gameplay. Other presentation and playback flags are excluded. ",
+                "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] [--probe-render-capture PNG] [--probe-refuse-loading-present N] runs the shared CPU load-session diagnostic without a window. A refused loading-screen present (0-based) exercises the Open stop and its disposal. Optional GPU capture renders the actual retained mission Scene, and does not execute gameplay. Other presentation and playback flags are excluded. ",
                 "--mission-play-probe --root DIRECTORY plays the MISE01 slice headless against original data without a window: intro cutscene lock, on-foot walk to the taxi stand, board the staged taxi00.4ds driving world and drive 150 m to Complete. Other presentation and playback flags are excluded. ",
                 "--audio-capture WAV records the actual mixed driving audio and requires --car-driving. ",
                 "--car-driving requires --root and --model and opens the original MISE01 driving world. W accelerates, S brakes, A/D steer, Space applies the handbrake; R reloads and Escape exits. The chase camera is a host view. ",
@@ -315,6 +320,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                     | "--mission"
                     | "--probe-model-dir"
                     | "--probe-render-capture"
+                    | "--probe-refuse-loading-present"
             ) {
                 return Err(format!(
                     "{option} is not used by --mission-load-probe; omit it"
@@ -335,6 +341,9 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
     }
     if result.probe_render_capture.is_some() {
         return Err("--probe-render-capture requires --mission-load-probe".into());
+    }
+    if result.probe_refuse_loading_present.is_some() {
+        return Err("--probe-refuse-loading-present requires --mission-load-probe".into());
     }
     if result.skeletal_animation
         && (result.animation.is_none() || result.sample_animation_ms.is_some())
@@ -5497,6 +5506,7 @@ fn run() -> Result<(), String> {
             options.mission.as_deref().unwrap(),
             &options.probe_model_directories,
             options.probe_render_capture.as_deref(),
+            options.probe_refuse_loading_present,
         );
     }
     if options.mission_play_probe {
@@ -6399,6 +6409,12 @@ mod mission_probe_option_tests {
             Some(PathBuf::from("mission.png"))
         );
         assert!(parse(&["--probe-render-capture", "mission.png"]).is_err());
+        args.extend(["--probe-refuse-loading-present", "19"]);
+        assert_eq!(parse(&args).unwrap().probe_refuse_loading_present, Some(19));
+        assert!(parse(&["--probe-refuse-loading-present", "19"]).is_err());
+        let mut bad = base.to_vec();
+        bad.extend(["--probe-refuse-loading-present", "x"]);
+        assert!(parse(&bad).is_err());
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Ordered initialization uses the retained scene at the reached render call.
 use super::*;
-use crate::game_init_order::{InitAttempt, InitRunError, InitStep};
+use crate::game_init_order::{InitAttempt, InitRunError, InitStep, PresentedFrame};
+use crate::load_scene_callback::LoadingScreenSource;
 use crate::scene_render::SceneSnapshotSequence;
 
 fn hud() -> crate::indicators::IndicatorsState {
@@ -120,7 +121,14 @@ fn assert_shadow_buffer_kept(
 #[test]
 fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
-    let mut session = fixture.session();
+    let menu = fixture.0.join("tables/menu");
+    std::fs::create_dir_all(&menu).unwrap();
+    std::fs::write(
+        menu.join("loadprogress.mnu"),
+        super::loadprogress_menu_bytes(),
+    )
+    .unwrap();
+    let mut session = fixture.session_without_hud();
     session.install_indicators(hud()).unwrap();
     // Main.cpp's mission starts open with progress: the loading screen.
     load_with_progress(&mut session, &[], &mut Screen::default(), true).unwrap();
@@ -136,10 +144,19 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
     let mut sequence = SceneSnapshotSequence::default();
     let mut attempt = InitAttempt::default();
     let mut presentations = 0;
+    let mut loading_bars = Vec::new();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |frame| {
-        assert_eq!(audio.master_gain().unwrap(), 0.0);
-        assert_eq!(frame.frame.viewport, [0, 0, 64, 64]);
-        presentations += 1;
+        match frame {
+            PresentedFrame::Scene(snapshot) => {
+                assert_eq!(audio.master_gain().unwrap(), 0.0);
+                assert_eq!(snapshot.frame.viewport, [0, 0, 64, 64]);
+                presentations += 1;
+            }
+            PresentedFrame::LoadingScreen(frame) => {
+                assert_eq!(frame.source, LoadingScreenSource::MafiaLoadSave);
+                loading_bars.push(frame.screen.raw_progress());
+            }
+        }
         Ok(())
     });
     let Err(InitRunError::Callback(failure)) = result else {
@@ -147,18 +164,31 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
     };
     // The whole ResetMissionState span and the AIManager police shift begin
     // complete; `_show_progress_(0.0)` (GAME 0x5a3960 called at 0x5a09ba)
-    // finds Open's loading screen and stops at its uncreated menu bar,
-    // before Present and before SetPlayerNaviPoint.
-    assert_eq!(failure.step, InitStep::PlayerNavi);
+    // writes 0.7 to Open's created loading-screen bar and presents it once
+    // through the host; SetPlayerNaviPoint(NULL) and can_car_damage follow.
+    // Open's ResetIntern set intern_load, so VehicleSectors reaches the
+    // unowned vehicle sector rebuild.
+    assert_eq!(failure.step, InitStep::VehicleSectors);
     assert!(
-        failure.error.0.starts_with(
-            "PlayerNavi: Init _show_progress_(0.0): loading-screen SetRawProgress(0.7) needs the created loadprogress menu bar"
-        ),
+        failure
+            .error
+            .0
+            .starts_with("VehicleSectors: Init intern_load is set (Open's ResetIntern)"),
         "{}",
         failure.error
     );
-    assert!(session.load_save_progress().progress.is_some());
-    assert_eq!(session.player_statics(), statics);
+    assert_eq!(loading_bars, [0.7]);
+    assert_eq!(
+        session
+            .load_save_progress()
+            .progress
+            .as_ref()
+            .unwrap()
+            .raw_progress(),
+        0.7
+    );
+    assert_eq!(session.player_statics(), Default::default());
+    assert_ne!(statics, Default::default());
     assert_eq!(session.ai_manager().groups.unlock_time(), u32::MAX);
     assert_eq!(presentations, 1);
     assert!(session.open_restore_volume());
@@ -180,7 +210,7 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
 #[test]
 fn presented_init_render_unlocks_every_buffer_before_presentation() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
-    let mut session = fixture.session();
+    let mut session = fixture.session_without_hud();
     session.install_indicators(hud()).unwrap();
     load(&mut session, &[]).unwrap();
     let visual = super::install_scene_visual(&mut session);
@@ -240,7 +270,7 @@ fn presented_init_render_unlocks_every_buffer_before_presentation() {
 #[test]
 fn presented_init_runs_the_reset_span_in_native_order_with_the_hud() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
-    let mut session = fixture.session();
+    let mut session = fixture.session_without_hud();
     let mut indicators = hud();
     indicators.bonus_set_count(7);
     session.install_indicators(indicators).unwrap();
@@ -296,6 +326,9 @@ fn presented_init_without_hud_stops_at_score_set_on_keeping_earlier_clears() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     load(&mut session, &[]).unwrap();
+    // Open needs the HUD (the loading screen's GetLanguage); taking it away
+    // afterwards isolates Init's own first HUD effect.
+    session.indicators = None;
     let (sound, buffer) = stage_dirty_game_state(&mut session);
     let mut sequence = SceneSnapshotSequence::default();
     let mut attempt = InitAttempt::default();
@@ -348,7 +381,7 @@ fn presented_init_without_hud_stops_at_score_set_on_keeping_earlier_clears() {
 #[test]
 fn indicators_install_once_and_keep_the_live_owner() {
     let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
-    let mut session = fixture.session();
+    let mut session = fixture.session_without_hud();
     assert!(session.indicators().is_none());
     let mut first = hud();
     first.bonus_set_count(3);

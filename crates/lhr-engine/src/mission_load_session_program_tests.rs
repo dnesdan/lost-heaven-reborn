@@ -64,6 +64,7 @@ fn loaded(fixture: &Fixture) -> MissionLoadSession {
         Pc24PrecisionState::new(true),
     )
     .unwrap();
+    session.install_indicators(super::fixture_hud()).unwrap();
     load(&mut session, &[]).unwrap();
     session
 }

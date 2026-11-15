@@ -41,6 +41,11 @@ impl Fixture {
         Self(path)
     }
     fn session(&self) -> MissionLoadSession {
+        let mut session = self.session_without_hud();
+        session.install_indicators(fixture_hud()).unwrap();
+        session
+    }
+    fn session_without_hud(&self) -> MissionLoadSession {
         MissionLoadSession::new(
             lhr_assets::Installation::open(&self.0).unwrap(),
             Pc24PrecisionState::new(false),
@@ -48,6 +53,42 @@ impl Fixture {
         .unwrap()
     }
 }
+/// The `mafiaIndicators` global a session's Open needs (the loading
+/// screen's `CreateCompsByDef` reads `GetLanguage`); natively it exists
+/// before any mission.
+/// A `loadprogress` menu definition with the window, the mission picture
+/// (0x65) and name (0xc8) items and the bar (0x12c),
+/// as `tables\menu\loadprogress.mnu` stores it.
+pub(crate) fn loadprogress_menu_bytes() -> Vec<u8> {
+    let mut menu = b"Menu".to_vec();
+    for word in [1u32, 4, 0] {
+        menu.extend(word.to_le_bytes());
+    }
+    for (id, kind) in [
+        (1u32, *b"dniw"),
+        (0x65, *b"ctip"),
+        (0xc8, *b"txet"),
+        (crate::menu::LOADPROGRESS_BAR_ID, *b"rabp"),
+    ] {
+        menu.extend(id.to_le_bytes());
+        menu.extend(kind);
+        for value in [0f32, 0., 100., 20.] {
+            menu.extend(value.to_le_bytes());
+        }
+        menu.extend(0u32.to_le_bytes());
+        menu.extend(0u32.to_le_bytes());
+    }
+    menu
+}
+
+pub(crate) fn fixture_hud() -> crate::indicators::IndicatorsState {
+    crate::indicators::IndicatorsState::constructed(crate::indicators::TimerClock {
+        hour: 9,
+        minute: 0,
+        second: 0,
+    })
+}
+
 impl Drop for Fixture {
     fn drop(&mut self) {
         std::fs::remove_dir_all(&self.0).unwrap();
@@ -113,6 +154,19 @@ impl crate::scene_projection::SceneRenderBackend for NoCameraRender {
     fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
         assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
         Ok(0x8000_0005)
+    }
+}
+
+/// The test device takes the loading screen's device calls; nothing draws.
+impl crate::load_scene_callback::LoadingScreenDevice for NoCameraRender {
+    fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+    fn present_loading_screen(
+        &mut self,
+        _: crate::load_scene_callback::LoadingScreenFrame<'_>,
+    ) -> Result<(), String> {
+        Ok(())
     }
 }
 fn frame_prefix(kind: u8, parent: u16, name: &[u8], culling: u8) -> Vec<u8> {
@@ -896,6 +950,8 @@ fn game_init_render_borrows_live_scene_once_then_marks_volume_restore() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     load(&mut session, &[]).unwrap();
+    // Open needed the HUD; without it Init stops at ScoreSetOn.
+    session.indicators = None;
     consume_open_restore(&mut session);
     let scene = session.scene().unwrap().unwrap();
     let mut renderer = InitSceneRender {
@@ -923,7 +979,7 @@ fn game_init_render_borrows_live_scene_once_then_marks_volume_restore() {
 #[test]
 fn game_init_render_with_hud_completes_the_reset_span() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
-    let mut session = fixture.session();
+    let mut session = fixture.session_without_hud();
     session
         .install_indicators(crate::indicators::IndicatorsState::constructed(
             crate::indicators::TimerClock {
@@ -2386,11 +2442,7 @@ fn open_prepare_progress_creates_the_loading_screen_only_when_asked() {
     assert!(session.load_save_progress().progress.is_some());
     // A live screen is kept, not replaced (the NULL test at 0x540a7f).
     let mut session = fixture.session();
-    let kept = LoadProgressScreen {
-        title: 0x2cf,
-        mission_part: 0.25,
-        mission_name: Some(b"mise02".to_vec()),
-    };
+    let kept = LoadProgressScreen::new(0x2cf, 0.25, Some(b"mise02".to_vec()));
     session.load_save_progress.progress = Some(kept.clone());
     load_with_progress(&mut session, &[], &mut Screen::default(), true).unwrap();
     assert_eq!(session.load_save_progress().progress, Some(kept));

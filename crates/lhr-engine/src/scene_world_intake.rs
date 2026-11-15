@@ -10,6 +10,7 @@
 //! Visual 4 retains its existing BBRD owner; other derived world types stay gated.
 #![forbid(unsafe_code)]
 use super::*;
+use crate::scene_file_load::LoadHierarchyReport;
 use crate::scene_ownership::SceneKey;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CpuSceneWorldPhase {
@@ -35,6 +36,14 @@ pub struct CpuSceneWorldProgress {
     transferred: usize,
     prepared_sectors: usize,
     phase: CpuSceneWorldPhase,
+    /// `LoadMaterialu`/`LoadFramu` of the parsed file (each read as two
+    /// bytes, load4ds.cpp:89,124): the entries `LoadImage` reads and reports
+    /// progress over. `None` before a parse.
+    source_counts: Option<(u16, u16)>,
+    /// `frames` are the creator references a host stop left before their
+    /// transfer (not linked to the primary sector, not on the staging
+    /// model); terminal disposal releases them.
+    creator_references_pending: bool,
 }
 impl CpuSceneWorldProgress {
     pub fn scene(&self) -> SceneKey {
@@ -55,6 +64,16 @@ impl CpuSceneWorldProgress {
     pub fn phase(&self) -> CpuSceneWorldPhase {
         self.phase
     }
+    /// True while `frames` are untransferred creator references of a host
+    /// stop inside the frame loop.
+    pub fn creator_references_pending(&self) -> bool {
+        self.creator_references_pending
+    }
+    /// The parsed file's (material, frame) entry counts, once parsed.
+    pub fn source_counts(&self) -> Option<(usize, usize)> {
+        self.source_counts
+            .map(|(materials, frames)| (usize::from(materials), usize::from(frames)))
+    }
     pub(crate) fn empty(arena: &ModelArena, scene: SceneKey) -> Self {
         Self {
             scene,
@@ -64,6 +83,8 @@ impl CpuSceneWorldProgress {
             transferred: 0,
             prepared_sectors: 0,
             phase: CpuSceneWorldPhase::Admission,
+            source_counts: None,
+            creator_references_pending: false,
         }
     }
 }
@@ -79,7 +100,46 @@ impl ModelArena {
         installation: &lhr_assets::Installation,
         name: &str,
     ) -> Result<CpuSceneWorldProgress, CpuSceneWorldFailure> {
+        self.load_scene_world_cpu_reporting(scene, installation, name, &mut |_| Ok(()))
+    }
+    /// The world intake with LoadHierarchy's progress reports: `Begin`
+    /// once the host admission passed (LoadHierarchy's BEGIN follows its
+    /// parameter and deadlock checks, Load.cpp:105-112; a refused admission
+    /// returns before it, with no report at all), then
+    /// `Step(p)` at LoadImage's `LoadProgress` points (load4ds.cpp:92/128),
+    /// before each material is read (`(i/2)/LoadMaterialu`, after the parse
+    /// and before any frame) and before each frame is read
+    /// (`(j/2)/LoadFramu + .5`), with the raw value (the 0.02 gate and the
+    /// callback are the caller's, LoadProgress LS3DF 0x60390); then `End`.
+    /// On success `End` follows the frames' transfer to the scene and the
+    /// root's update (`mark_loaded_model_root`, LoadHierarchy's
+    /// `root->Update()`) and precedes the sector preparation, which is
+    /// `I3D_scene::Open`'s `MakeReadySectors` after LoadHierarchy returns
+    /// (I3d_scene.cpp:542-545). Every error raised before that point
+    /// after `Begin` (a missing or corrupt file, an unsupported frame, a
+    /// frame, resource or transfer failure) reports `End` first, as
+    /// LoadHierarchy reports END on each of its exits. A report's `Err` is a
+    /// host stop: [`ModelError::LoadCallback`], no `End`, nothing later; the
+    /// frames read before a stop in the frame loop stay untransferred
+    /// creator references (`creator_references_pending`) for terminal
+    /// disposal. A refused `End` after an error stops the same way.
+    ///
+    /// The adapter parses the whole file before the material points, and
+    /// realizes materials per mesh in its later resource phase instead of in
+    /// LoadImage's material loop: a stop at a material point leaves no
+    /// material owners, where the original would hold the materials read
+    /// before it. Frame-type admission is a pre-pass before the frame
+    /// points.
+    pub(crate) fn load_scene_world_cpu_reporting(
+        &mut self,
+        scene: SceneKey,
+        installation: &lhr_assets::Installation,
+        name: &str,
+        report: &mut dyn FnMut(LoadHierarchyReport) -> Result<(), String>,
+    ) -> Result<CpuSceneWorldProgress, CpuSceneWorldFailure> {
         let mut progress = CpuSceneWorldProgress::empty(self, scene);
+        let mut begun = false;
+        let mut end_reported = false;
         let result = (|| -> Result<(), ModelError> {
             let si = self.scene_index(scene)?;
             let primary = self.scenes[si].sectors[0];
@@ -91,6 +151,8 @@ impl ModelArena {
                     "CPU world intake requires an empty scene and no interrupted intake",
                 ));
             }
+            begun = true;
+            report(LoadHierarchyReport::Begin).map_err(ModelError::LoadCallback)?;
             progress.phase = CpuSceneWorldPhase::Input;
             let path = original_static_geometry_path(name.as_bytes())?;
             let bytes = installation
@@ -98,20 +160,53 @@ impl ModelArena {
                 .map_err(|e| ModelError::Asset(e.to_string()))?;
             let source = lhr_assets::parse_four_ds_scene_billboards(&bytes)
                 .map_err(|e| ModelError::Asset(e.to_string()))?;
+            let count = |len: usize| {
+                u16::try_from(len)
+                    .map_err(|_| ModelError::Asset("4DS entry count exceeds its u16 field".into()))
+            };
+            progress.source_counts = Some((
+                count(source.model.materials.len())?,
+                count(source.model.frames.len())?,
+            ));
+            let materials = source.model.materials.len();
+            for index in 0..materials {
+                report(LoadHierarchyReport::Step(
+                    crate::scene_file_load::load_image_material_progress(index, materials),
+                ))
+                .map_err(ModelError::LoadCallback)?;
+            }
             self.load_scene_world_parsed_cpu(
                 scene,
                 installation,
                 Arc::new(source.model),
                 &source.billboards,
                 &mut progress,
+                &mut |entry| {
+                    if entry == LoadHierarchyReport::End {
+                        end_reported = true;
+                    }
+                    report(entry)
+                },
             )
         })();
         match result {
             Ok(()) => Ok(progress),
-            Err(error) => Err(CpuSceneWorldFailure {
-                error: CpuSceneWorldError::Model(error),
-                progress,
-            }),
+            Err(error) => {
+                let error = match error {
+                    ModelError::LoadCallback(_) => error,
+                    error if end_reported || !begun => error,
+                    error => match report(LoadHierarchyReport::End) {
+                        Ok(()) => error,
+                        Err(stop) => {
+                            ModelError::LoadCallback(format!("{stop} (END after {error:?})"))
+                        }
+                    },
+                };
+                Err(CpuSceneWorldFailure {
+                    error: CpuSceneWorldError::Model(error),
+                    progress,
+                })
+            }
         }
     }
     fn load_scene_world_parsed_cpu(
@@ -121,6 +216,7 @@ impl ModelArena {
         source: Arc<Model>,
         billboards: &[lhr_assets::BillboardSource],
         progress: &mut CpuSceneWorldProgress,
+        report: &mut dyn FnMut(LoadHierarchyReport) -> Result<(), String>,
     ) -> Result<(), ModelError> {
         let si = self.scene_index(scene)?;
         let primary = self.scenes[si].sectors[0];
@@ -143,15 +239,43 @@ impl ModelArena {
         // Keep BBRD suffixes on their actual derived frames through the same
         // root-parent and staging-owner path as ordinary world geometry.
         // The existing resource loader applies them after inherited LoadImage.
-        let content = match self.load_parsed_into_model_for_root_with_billboards(
+        let frames = source.frames.len();
+        let content = match self.load_parsed_into_model_for_root_reporting(
             staging,
             source,
             Some(primary.frame()),
             billboards,
+            &mut |index| {
+                report(LoadHierarchyReport::Step(
+                    crate::scene_file_load::load_image_frame_progress(index, frames),
+                ))
+                .map_err(ModelError::LoadCallback)
+            },
         ) {
             Ok(content) => content,
             Err(failure) => {
                 progress.frames = failure.partial.frames;
+                if matches!(failure.error, ModelError::LoadCallback(_)) {
+                    // Flag the creator references first, so a failing lookup
+                    // below still leaves them to terminal disposal.
+                    progress.creator_references_pending = true;
+                    // LoadImage constructed each frame read before the stop,
+                    // visuals included; the adapter publishes their
+                    // ObjectResources only in the resource phase, which never
+                    // ran. Their destructor is the parsed-visual path with
+                    // null resource fields.
+                    for &frame in &progress.frames {
+                        let fi = self.frame_index(frame)?;
+                        if self.frames[fi].source.is_some()
+                            && matches!(
+                                self.state(frame)?.kind,
+                                FrameKind::Mesh | FrameKind::Singlemesh
+                            )
+                        {
+                            self.frames[fi].visual_admission_attempted = true;
+                        }
+                    }
+                }
                 return Err(failure.error);
             }
         };
@@ -169,6 +293,9 @@ impl ModelArena {
         progress.staging_model = None;
         progress.phase = CpuSceneWorldPhase::Prepare;
         self.mark_loaded_model_root(primary.frame())?;
+        // LoadHierarchy's success END (Load.cpp:202-204), before
+        // I3D_scene::Open's MakeReadySectors below.
+        report(LoadHierarchyReport::End).map_err(ModelError::LoadCallback)?;
         // Traverse actual primary child/next identities; never manufacture map
         // entries or sector registration from parsed metadata alone.
         let mut stack = Vec::new();
@@ -214,6 +341,19 @@ impl ModelArena {
         }
         let si = self.scene_index(progress.scene)?;
         self.check_owner_available(progress.scene.into())?;
+        if progress.creator_references_pending {
+            // The creator references of a host stop. No original path
+            // releases them (LoadHierarchy would have linked, added and
+            // released them in read order); they go in reverse read order,
+            // children before the parents they were linked to, so no frame
+            // is destroyed with live children. A host choice: read order
+            // completes too, as a destroyed parent unlinks its children.
+            while let Some(&frame) = progress.frames.last() {
+                self.release(frame)?;
+                progress.frames.pop();
+            }
+            progress.creator_references_pending = false;
+        }
         if let Some(staging) = progress.staging_model {
             self.release(staging.root())?;
             progress.staging_model = None;
@@ -260,7 +400,14 @@ mod tests {
         arena.sector_storage_mut().fail_on_allocation(Some(1));
         let mut progress = CpuSceneWorldProgress::empty(&arena, scene);
         let error = arena
-            .load_scene_world_parsed_cpu(scene, &installation, source, &[], &mut progress)
+            .load_scene_world_parsed_cpu(
+                scene,
+                &installation,
+                source,
+                &[],
+                &mut progress,
+                &mut |_| Ok(()),
+            )
             .unwrap_err();
         assert_eq!(error, ModelError::NativeModelOpenResult(0x80000002));
         assert_eq!(progress.phase(), CpuSceneWorldPhase::Geometry);
