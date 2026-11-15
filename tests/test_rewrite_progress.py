@@ -492,8 +492,12 @@ class RewriteProgressTests(unittest.TestCase):
         # body + pin tests; live MISE01 new-game step).
         # ScoreSetOn 0x1b9fa0 contract -> differential (complete 11-insn
         # REA body; reached from the presented MISE01 C_game::Init).
-        self.assertEqual(game["ported"], 149 + 1014)
-        self.assertEqual(game["verified"], 149 + 519)
+        # +5 AIManager Init differentials (ZacatekSmeny 0x13ba50 + its tail
+        # ai_animitem_manager::Init 0x13d9c0, ai_groups/follow/fight Init
+        # 0x131130/0x132da0/0x134ec0; complete REA bodies + pin tests;
+        # reached from the presented MISE01 C_game::Init).
+        self.assertEqual(game["ported"], 149 + 1019)
+        self.assertEqual(game["verified"], 149 + 524)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

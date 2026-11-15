@@ -461,8 +461,9 @@ pub fn staged_script_content(
 fn reset_flags_observation(session: &MissionLoadSession) -> String {
     let game = session.game_state();
     let lists = session.game_lists();
+    let ai = session.ai_manager();
     format!(
-        "score={:?} HUD bonus={:?} camera_rot_repair={} heal_cheat={} stacks_clear={} death_fade_time={} actor_lightness={} lists(stop_sounds, paused_i_shows, free_shadow_names, unknown_140)=({}, {}, {}, {})",
+        "score={:?} HUD bonus={:?} camera_rot_repair={} heal_cheat={} stacks_clear={} death_fade_time={} actor_lightness={} lists(stop_sounds, paused_i_shows, free_shadow_names, unknown_140)=({}, {}, {}, {}) AIManager(police unknown_24={:#x} speed_factor={} groups unlock_time={:#x} follow check_time={} records police/groups/follow/fight={}/{}/{}/{})",
         game.score(),
         session.indicators().map(|hud| hud.bonus_count()),
         game.camera_rot_repair(),
@@ -473,7 +474,15 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
         lists.stop_sounds.len(),
         lists.paused_i_shows.len(),
         lists.free_shadow_names.len(),
-        lists.unknown_140.len()
+        lists.unknown_140.len(),
+        ai.police.unknown_24(),
+        ai.police.speed_factor(),
+        ai.groups.unlock_time(),
+        ai.follow.check_time(),
+        ai.police.actions().len(),
+        ai.groups.groups().len(),
+        ai.follow.groups().len(),
+        ai.fight.parties().len()
     )
 }
 

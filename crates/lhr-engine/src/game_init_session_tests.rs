@@ -125,6 +125,12 @@ fn init_stops_at_first_unowned_step_with_live_prefix_preserved() {
     assert!(!session.traffic_flags().taxi_driver_enabled());
     assert!(!session.traffic_flags().player_in_taxi());
     assert!(!session.traffic_flags().valid_scream());
+    // The police shift begin after the stopped span never ran: AIManager
+    // keeps its constructor state (zero scalars, GAME 0x538760).
+    assert_eq!(
+        session.ai_manager(),
+        &crate::ai_manager::AiManager::default()
+    );
     assert!(session.base_cache().is_open());
     assert_eq!(session.read_base_blocks_for_init(), Ok(true));
     let visited = attempt.last().unwrap();
@@ -153,6 +159,30 @@ fn guard_without_open_prefix_reports_its_step() {
         other => panic!("unexpected error: {other:?}"),
     }
     assert_eq!(attempt.last(), Some(InitStep::GuardNotInitialized));
+}
+
+#[test]
+fn police_begin_shift_requires_the_open_prefix_and_keeps_the_manager() {
+    let fixture = Fixture::new();
+    let mut session = fixture.session();
+    session.ai_manager_mut().groups.stage(Vec::new(), 77, 2);
+    assert_eq!(
+        session.police_begin_shift_for_init(),
+        Err("game init requires completed open prefix".into())
+    );
+    assert_eq!(session.ai_manager().groups.unlock_time(), 77);
+    assert_eq!(session.ai_manager().police.unknown_24(), 0);
+
+    fixture.write("missions/mise01/scene.4ds", &[]);
+    fixture.write("missions/mise01/scene2.bin", &scene2(&[]));
+    fixture.write("missions/mise01/cache.bin", &cache_bytes());
+    let mut session = fixture.session();
+    open_mise01(&mut session);
+    assert_eq!(session.execute(InitStep::PoliceBeginShift), Ok(()));
+    assert_eq!(session.ai_manager().groups.unlock_time(), u32::MAX);
+    assert_eq!(session.ai_manager().police.unknown_24(), 0x0fff_ffff);
+    let error = session.execute(InitStep::PlayerNavi).unwrap_err();
+    assert!(error.0.contains("mafiaLoadSave.progress"), "{error}");
 }
 
 #[test]

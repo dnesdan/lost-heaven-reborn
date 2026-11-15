@@ -411,6 +411,14 @@ pub struct MissionLoadSession {
     /// disposal. Absent, `Init` stops at its first HUD effect
     /// (`ScoreSetOn`'s `BonusSetCount`).
     indicators: Option<crate::indicators::IndicatorsState>,
+    /// The `AIManager` global's police/groups/follow/fight members (GAME
+    /// 0x646c80). A process global like `mafiaIndicators`: constructed with
+    /// the session, it owns only vectors of borrowed identities, all empty
+    /// until their unported writers run. Known divergence: natively its
+    /// scalars and vectors carry over across missions until `C_game`
+    /// teardown (`KonecSmeny`/`Destroy`, game.cpp:1279-1282, unported);
+    /// here each session starts from the constructor zeros.
+    ai_manager: crate::ai_manager::AiManager,
     game_init_car_sounds: i32,
     game_init_weather: Option<(bool, i32)>,
     game_init_reset_entered: bool,
@@ -593,6 +601,7 @@ impl MissionLoadSession {
             game_lists: Default::default(),
             shadow_name_buffers: Default::default(),
             indicators: None,
+            ai_manager: Default::default(),
             game_init_car_sounds: 0,
             game_init_weather: None,
             game_init_reset_entered: false,
@@ -1667,6 +1676,29 @@ impl MissionLoadSession {
     /// The live `mafiaIndicators` owner, when installed.
     pub fn indicators(&self) -> Option<&crate::indicators::IndicatorsState> {
         self.indicators.as_ref()
+    }
+
+    /// `PoliceBeginShift` over the live `AIManager` owner in `Init` order:
+    /// `ZacatekSmeny` (0x53ba50, tail `ai_animitem_manager::Init`
+    /// 0x53d9c0), `ai_groups::Init` (0x531130), `ai_follow_manager::Init`
+    /// (0x532da0), `ai_fight_manager::Init` (0x534ec0), from the call sites
+    /// 0x5a0996-0x5a09b4. None of them can fail natively.
+    pub fn police_begin_shift_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        self.ai_manager.game_init_police_begin_shift();
+        Ok(())
+    }
+
+    /// The live `AIManager` police/groups/follow/fight owner.
+    pub fn ai_manager(&self) -> &crate::ai_manager::AiManager {
+        &self.ai_manager
+    }
+
+    /// Mutable test access to the `AIManager` owner while its writers stay
+    /// unported.
+    #[cfg(test)]
+    pub(crate) fn ai_manager_mut(&mut self) -> &mut crate::ai_manager::AiManager {
+        &mut self.ai_manager
     }
 
     /// The live C_game vectors `Init` empties.

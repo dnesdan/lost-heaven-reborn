@@ -564,6 +564,13 @@ impl AiFreeActorStore {
     pub fn add_free_actor(&mut self, actor: ActorReferenceId) {
         self.actors.push(actor);
     }
+
+    /// The `free_actors.erase(begin, end)` that `ai_groups::Init` (GAME
+    /// 0x531130, copy loop 0x531187-0x531195) inlines: drops the borrowed
+    /// identities without touching the actors.
+    pub fn clear_for_init(&mut self) {
+        self.actors.clear();
+    }
 }
 
 /// One `ai_action` job of an entity (mafia-re game/ai/jp_ai_entity.h:31-43 at
