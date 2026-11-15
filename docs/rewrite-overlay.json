@@ -11359,7 +11359,7 @@
       "rva": "0x7b860",
       "va": "0x47b860",
       "name": "C_player::SetCanCarDamage",
-      "symbol": "lhr_engine::player_actor::PlayerState::set_can_car_damage",
+      "symbol": "lhr_engine::player_actor::PlayerStatics::set_can_car_damage",
       "tier": "differential",
       "evidence": "REA ev_ffe6cef182 + Ghidra body 2 insns/1 bb, set_can_car_damage; pin tests player 22 pass"
     },
@@ -11602,7 +11602,7 @@
       "rva": "0x18f160",
       "va": "0x58f160",
       "name": "SetPlayerNaviPoint",
-      "symbol": "lhr_engine::player_actor::PlayerState::set_player_navi_point",
+      "symbol": "lhr_engine::player_actor::PlayerStatics::set_player_navi_point",
       "tier": "differential",
       "evidence": "REA ev_b9c4ccf830 + Ghidra body 2 insns/1 bbs; pin tests human_actor 32 / player_actor 4 pass"
     },

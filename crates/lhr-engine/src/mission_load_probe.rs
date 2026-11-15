@@ -425,6 +425,8 @@ pub fn staged_script_content(
         .open_source_in_order(
             &mut OpenAttempt::default(),
             mission,
+            // Script staging never reaches Init, so no loading screen.
+            false,
             &[],
             PROBE_PROJECTION,
             &mut screen,

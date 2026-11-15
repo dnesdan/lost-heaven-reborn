@@ -326,6 +326,8 @@ where
             .open_source_in_order(
                 attempt,
                 self.request.mission,
+                // Main.cpp's mission starts open with progress (Main.cpp:387).
+                true,
                 self.request.model_directories,
                 self.request.projection,
                 self.screen,

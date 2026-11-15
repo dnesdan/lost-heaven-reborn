@@ -122,7 +122,13 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();
     session.install_indicators(hud()).unwrap();
-    load(&mut session, &[]).unwrap();
+    // Main.cpp's mission starts open with progress: the loading screen.
+    load_with_progress(&mut session, &[], &mut Screen::default(), true).unwrap();
+    use crate::script_scheduler::FrameReferenceId;
+    session
+        .player_statics
+        .set_player_navi_point(Some(FrameReferenceId::from_existing(3)));
+    let statics = session.player_statics();
     let scene = session.scene().unwrap().unwrap();
     let camera = session.arena().scene_active_camera(scene).unwrap();
     let counts = session.owned_counts().unwrap();
@@ -141,13 +147,18 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
     };
     // The whole ResetMissionState span and the AIManager police shift begin
     // complete; `_show_progress_(0.0)` (GAME 0x5a3960 called at 0x5a09ba)
-    // over the unrepresented loading screen is the next unowned step.
+    // finds Open's loading screen and stops at its uncreated menu bar,
+    // before Present and before SetPlayerNaviPoint.
     assert_eq!(failure.step, InitStep::PlayerNavi);
-    assert!(failure
-        .error
-        .0
-        .starts_with("PlayerNavi: unavailable Init _show_progress_(0.0) loading screen"));
-    assert!(failure.error.0.contains("GAME 0x5a3960 called at 0x5a09ba"));
+    assert!(
+        failure.error.0.starts_with(
+            "PlayerNavi: Init _show_progress_(0.0): loading-screen SetRawProgress(0.7) needs the created loadprogress menu bar"
+        ),
+        "{}",
+        failure.error
+    );
+    assert!(session.load_save_progress().progress.is_some());
+    assert_eq!(session.player_statics(), statics);
     assert_eq!(session.ai_manager().groups.unlock_time(), u32::MAX);
     assert_eq!(presentations, 1);
     assert!(session.open_restore_volume());
@@ -204,7 +215,8 @@ fn presented_init_render_unlocks_every_buffer_before_presentation() {
     let Err(InitRunError::Callback(failure)) = result else {
         panic!("the next unavailable owner must stop Init");
     };
-    assert_eq!(failure.step, InitStep::PlayerNavi);
+    // Opened without progress: no loading screen, so Init passes PlayerNavi.
+    assert_eq!(failure.step, InitStep::VehicleSectors);
     assert_eq!(presentations, 1);
     // I3D_driver::Render (LS3DF 0x10062030) unlocks the vertex manager
     // (0x100697e0) and then the index manager before it draws: no buffer
@@ -234,13 +246,20 @@ fn presented_init_runs_the_reset_span_in_native_order_with_the_hud() {
     session.install_indicators(indicators).unwrap();
     load(&mut session, &[]).unwrap();
     let (sound, buffer) = stage_dirty_game_state(&mut session);
+    session.player_statics.set_player_navi_point(Some(
+        crate::script_scheduler::FrameReferenceId::from_existing(3),
+    ));
+    session.player_statics.set_can_car_damage(true);
     let mut sequence = SceneSnapshotSequence::default();
     let mut attempt = InitAttempt::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("the loading screen must stop Init");
+        panic!("the intern_load gate must stop Init");
     };
-    assert_eq!(failure.step, InitStep::PlayerNavi);
+    // Opened without progress, `_show_progress_` is the native no-op and
+    // the C_player statics are cleared; the intern_load gate stops next.
+    assert_eq!(failure.step, InitStep::VehicleSectors);
+    assert_eq!(session.player_statics(), Default::default());
     // GAME 0x5a08c3-0x5a098c: lists emptied, ScoreSetOn(false) hides the
     // HUD bonus (0x7fffffff), score zeroed, flags stored.
     assert_eq!(

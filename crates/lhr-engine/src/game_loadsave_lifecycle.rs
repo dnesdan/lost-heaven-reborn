@@ -19,18 +19,21 @@ pub struct ProfileState {
     pub race_cars: u32,
     pub unknown_1f0: u32,
     pub unknown_9c: u32,
-    pub unknown_1e8: u32,
     pub camera_setting: u32,
     pub bindings: ProfileBindings,
     pub profiles: Vec<[u8; 0x54]>,
 }
 impl ProfileState {
-    fn begin_initialization(&mut self) {
+    /// The `G_LoadSaveClass::Init` head stores (GAME 0x604ee0,
+    /// g_loadsave.cpp:110-114). Its fifth store, `last_stolen = 0` at
+    /// +0x1e8, writes the field [`LoadSaveProgress::last_stolen`] owns, so it
+    /// lands there rather than in a duplicate profile word.
+    fn begin_initialization(&mut self, progress: &mut LoadSaveProgress) {
         self.init_flag = true;
         self.race_cars = 0;
         self.unknown_1f0 = 0;
         self.unknown_9c = 0;
-        self.unknown_1e8 = 0;
+        progress.last_stolen = None;
     }
 }
 impl crate::mission_components::CameraProfile for ProfileState {
@@ -116,6 +119,7 @@ impl GameLoadSave {
     /// partial tables. Any unavailable backend stops at its exact prefix.
     pub fn init<T, C, E>(
         &mut self,
+        progress: &mut LoadSaveProgress,
         tables: &mut GameDefinitionTables,
         controls: &mut GameControls,
         table_backend: &mut T,
@@ -130,7 +134,7 @@ impl GameLoadSave {
         if self.init_interrupted || self.close_interrupted {
             return Err(LoadSaveError::Interrupted);
         }
-        self.profile.begin_initialization();
+        self.profile.begin_initialization(progress);
         init_effect(
             &mut self.init_interrupted,
             effects.all_default(&mut self.profile),
@@ -375,7 +379,6 @@ mod tests {
             race_cars: 0xa5a5_a5a5,
             unknown_1f0: 0xa5a5_a5a5,
             unknown_9c: 0xa5a5_a5a5,
-            unknown_1e8: 0xa5a5_a5a5,
             camera_setting: 7,
             bindings: ProfileBindings::from_rows([empty; PROFILE_CONTROL_COUNT]),
             profiles: Vec::new(),
@@ -407,6 +410,10 @@ mod tests {
     #[test]
     fn menu_quit_returns_false_after_releasing_profile_list_then_close_skips_save() {
         let (mut owner, mut tables, mut controls, mut files, mut input) = owners();
+        let mut progress = LoadSaveProgress {
+            last_stolen: Some(9),
+            ..Default::default()
+        };
         let mut effects = Effects {
             events: Vec::new(),
             choice: 0xf,
@@ -414,6 +421,7 @@ mod tests {
         };
         assert_eq!(
             owner.init(
+                &mut progress,
                 &mut tables,
                 &mut controls,
                 &mut files,
@@ -423,6 +431,8 @@ mod tests {
             Ok(false)
         );
         assert!(owner.profile.init_flag);
+        // The +0x1e8 `last_stolen = 0` store lands in its single owner.
+        assert_eq!(progress.last_stolen, None);
         assert_eq!(owner.profile.camera_setting, 1);
         assert!(owner.profile.profiles.is_empty());
         assert!(owner.profile_ignore_save);
@@ -450,6 +460,10 @@ mod tests {
     #[test]
     fn missing_material_file_is_ignored_by_init_and_loaded_profile_is_reapplied() {
         let (mut owner, mut tables, mut controls, mut files, mut input) = owners();
+        let mut progress = LoadSaveProgress {
+            last_stolen: Some(9),
+            ..Default::default()
+        };
         files.missing = Some(DefinitionKind::Materials);
         let mut effects = Effects {
             events: Vec::new(),
@@ -458,6 +472,7 @@ mod tests {
         };
         assert_eq!(
             owner.init(
+                &mut progress,
                 &mut tables,
                 &mut controls,
                 &mut files,
@@ -481,6 +496,10 @@ mod tests {
     #[test]
     fn effect_error_keeps_completed_tables_and_controls_then_allows_close() {
         let (mut owner, mut tables, mut controls, mut files, mut input) = owners();
+        let mut progress = LoadSaveProgress {
+            last_stolen: Some(9),
+            ..Default::default()
+        };
         let mut effects = Effects {
             events: Vec::new(),
             choice: 0,
@@ -488,6 +507,7 @@ mod tests {
         };
         assert_eq!(
             owner.init(
+                &mut progress,
                 &mut tables,
                 &mut controls,
                 &mut files,
@@ -507,6 +527,10 @@ mod tests {
     #[test]
     fn read_failure_stops_close_before_effects_and_preserves_pending_file_and_bytes() {
         let (mut owner, mut tables, mut controls, mut files, mut input) = owners();
+        let mut progress = LoadSaveProgress {
+            last_stolen: Some(9),
+            ..Default::default()
+        };
         files.fail_read = Some(DefinitionKind::Materials);
         let mut effects = Effects {
             events: Vec::new(),
@@ -515,6 +539,7 @@ mod tests {
         };
         assert_eq!(
             owner.init(
+                &mut progress,
                 &mut tables,
                 &mut controls,
                 &mut files,
@@ -1022,21 +1047,22 @@ pub fn is_car_in(garage: &LoadSaveGarage, car: Option<GarageActor>) -> bool {
     garage.slots.iter().any(|slot| slot.actor == car)
 }
 
-/// The live `G_LoadSaveClass` progress fields a new game resets
-/// (`mafiaLoadSave`, GAME 0x6d4628; mafia-re `fe7e746`
-/// `game/ui/g_loadsave.h:350-372`): `steal_cars` (+0x98), the garage
-/// (+0xa0 slots, +0x168 `shown_cars`) and `last_stolen` (+0x1e8). The
-/// member names are mafia-re's, not original symbols; the class name is the
-/// PS2 one. This is not a mirrored layout of the class: profiles, settings,
-/// bindings and the replay stay with their own owners.
+/// The represented live `G_LoadSaveClass` fields (`mafiaLoadSave`, GAME
+/// 0x6d4628; mafia-re `fe7e746` `game/ui/g_loadsave.h:350-382`): the
+/// progress a new game resets, `steal_cars` (+0x98), the garage (+0xa0
+/// slots, +0x168 `shown_cars`) and `last_stolen` (+0x1e8), and the loading
+/// screen pointer `progress` (+0x5d4). The member names are mafia-re's, not
+/// original symbols; the class name is the PS2 one. This is not a mirrored
+/// layout of the class: profiles, settings, bindings and the replay stay
+/// with their own owners. Every represented `mafiaLoadSave` field has this
+/// single owner; `G_LoadSaveClass::Init`'s +0x1e8 store reaches it through
+/// [`GameLoadSave::init`].
 ///
 /// The default is the process-start state of the global: static storage is
 /// zero and the constructor (GAME 0x605140, g_loadsave.cpp:169-179, per
 /// mafia-re source; its body was not re-read here) stores none of these
-/// fields. `G_LoadSaveClass::Init` (GAME 0x604ee0) is
-/// not composed over this owner; its 0x1e8 clear is still modeled only by
-/// the unwired [`ProfileState::unknown_1e8`].
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// fields.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct LoadSaveProgress {
     /// +0x98: the cars `EnableSteal` lets steal, a bit per letter.
     pub steal_cars: u32,
@@ -1044,6 +1070,91 @@ pub struct LoadSaveProgress {
     pub garage: LoadSaveGarage,
     /// +0x1e8: the car the player stole last (`C_car*`), `None` for NULL.
     pub last_stolen: Option<GarageActor>,
+    /// +0x5d4: the mission's loading screen (`GM_LoadProgress*`), `None` for
+    /// NULL. Natively `C_mission::Open` allocates it when asked for progress
+    /// and none exists (Mission.cpp:640-641), `C_game::Init` drives it
+    /// through `_show_progress_` and deletes it after its last mark
+    /// (game.cpp:971-976, unported). `SaveGameNewGame` leaves it alone.
+    pub progress: Option<LoadProgressScreen>,
+}
+
+/// The `GM_LoadProgress` loading screen behind `mafiaLoadSave.progress`
+/// (PS2 class name; mafia-re `fe7e746` `game/ui/g_m_func.h:222-258`, VTABLE
+/// GAME 0x6275c0). Holds only the constructor's member stores (GAME
+/// 0x5e3aa0, g_m_func.cpp:991-1008): `mission_part` (+0x30), `title`
+/// (+0x38) and `mission_name` (+0x3c, NULL for the active mission's). The
+/// constructor's `menuScreenScale` stores (a menu-drawing global read by
+/// `Draw` only) and the `GM_Menu` base stay with the unported menu-screen
+/// owner, so the constructor receives no function credit.
+///
+/// The screen's menu items, among them the bar `SetRawProgress` writes
+/// (`SetFloat(LOADPROGRESS_BAR)`), exist only after `GM_Menu::Create`, which
+/// natively runs from `cbLoadScene`'s `LOAD_PROGRESS_BEGIN` (GAME 0x5bcc10,
+/// Load_progress.cpp:36-49) while `scene->Open` loads the mission. The
+/// session's scene load never reaches that callback, so no menu exists to
+/// write and [`LoadProgressScreen::set_progress_game_init`] stops there
+/// instead of inventing a bar.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LoadProgressScreen {
+    /// +0x38: text-database title shown with "press <ESC> to Abort", 0 for
+    /// none (mafia-re's name).
+    pub title: u32,
+    /// +0x30: the bar's part the mission's opening fills (mafia-re's name).
+    pub mission_part: f32,
+    /// +0x3c: the mission whose picture and name `OnCreate` shows, `None`
+    /// (NULL) for `act_mission`'s (mafia-re's name).
+    pub mission_name: Option<Vec<u8>>,
+}
+
+/// Mission-open loading screen arguments: `new GM_LoadProgress(0, .7f,
+/// NULL)` (Mission.cpp:641; GAME 0x5409d0 pushes title 0, mission_part
+/// 0x3f333333 and NULL).
+pub const MISSION_OPEN_PROGRESS_PART: f32 = 0.7;
+
+/// The `SetRawProgress` boundary reached by
+/// [`LoadProgressScreen::set_progress_game_init`]: the bar value it would
+/// have written and the absent menu item it is written to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LoadProgressMenuUnavailable {
+    /// `SetProgressGameInit`'s bar value (GAME 0x5e3cf0).
+    pub raw_progress: f32,
+}
+
+impl std::fmt::Display for LoadProgressMenuUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "loading-screen SetRawProgress({}) needs the created loadprogress menu bar (GM_Menu::SetFloat id {:#x}; GM_Menu::Create runs from cbLoadScene LOAD_PROGRESS_BEGIN, GAME 0x5bcc10, which the session's scene load does not reach)",
+            self.raw_progress,
+            crate::menu::LOADPROGRESS_BAR_ID
+        )
+    }
+}
+
+impl LoadProgressScreen {
+    /// `C_mission::Open`'s screen (Mission.cpp:640-641): title 0, the
+    /// opening's 0.7 of the bar, the active mission's name.
+    pub fn for_mission_open() -> Self {
+        Self {
+            title: 0,
+            mission_part: MISSION_OPEN_PROGRESS_PART,
+            mission_name: None,
+        }
+    }
+
+    /// `GM_LoadProgress::SetProgressGameInit` (GAME 0x5e3cf0, the credited
+    /// [`crate::menu::load_progress_game_init_value`] math over the live
+    /// `mission_part`) followed by its inline `SetRawProgress`. The value is
+    /// computed as the original does; the write stops at the uncreated menu
+    /// (see the type docs), so the caller's `Present` (GAME 0x5e3d40) is
+    /// never reached.
+    pub fn set_progress_game_init(
+        &mut self,
+        progress: f32,
+    ) -> Result<(), LoadProgressMenuUnavailable> {
+        let raw_progress = crate::menu::load_progress_game_init_value(self.mission_part, progress);
+        Err(LoadProgressMenuUnavailable { raw_progress })
+    }
 }
 
 /// The `freeride` global (`S_freeride`, PS2 name; GAME 0x6d4540, mafia-re
@@ -1325,10 +1436,48 @@ mod loadsave_gates_tests {
     }
 
     #[test]
+    fn save_game_new_game_keeps_the_loading_screen() {
+        // SaveGameNewGame's five instructions never touch +0x5d4.
+        let mut progress = LoadSaveProgress {
+            progress: Some(LoadProgressScreen::for_mission_open()),
+            ..Default::default()
+        };
+        save_game_new_game(&mut progress, &mut FreerideState::default());
+        assert_eq!(
+            progress.progress,
+            Some(LoadProgressScreen::for_mission_open())
+        );
+    }
+
+    #[test]
+    fn mission_open_loading_screen_carries_the_open_constructor_arguments() {
+        // GAME 0x540a9d-0x540aa6 pushes NULL, 0x3f333333 and 0 for
+        // GM_LoadProgress(title, mission_part, mission_name).
+        let screen = LoadProgressScreen::for_mission_open();
+        assert_eq!(screen.title, 0);
+        assert_eq!(screen.mission_part.to_bits(), 0x3f33_3333);
+        assert_eq!(screen.mission_name, None);
+    }
+
+    #[test]
+    fn set_progress_game_init_reads_the_live_part_and_stops_at_the_menu() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let boundary = screen.set_progress_game_init(0.0).unwrap_err();
+        assert_eq!(boundary.raw_progress.to_bits(), 0.7f32.to_bits());
+        // The live mission_part is read, not the Open constant.
+        screen.mission_part = 0.5;
+        let boundary = screen.set_progress_game_init(0.5).unwrap_err();
+        assert_eq!(boundary.raw_progress, 0.75);
+        assert!(boundary.to_string().contains("id 0x12c"), "{boundary}");
+        assert_eq!(screen.mission_part, 0.5);
+    }
+
+    #[test]
     fn load_save_progress_default_is_the_zeroed_global() {
         let progress = LoadSaveProgress::default();
         assert_eq!(progress.steal_cars, 0);
         assert_eq!(progress.last_stolen, None);
+        assert_eq!(progress.progress, None);
         assert_eq!(progress.garage, LoadSaveGarage::new());
         assert!(!FreerideState::default().active);
     }

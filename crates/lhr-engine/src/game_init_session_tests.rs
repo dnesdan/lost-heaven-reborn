@@ -181,8 +181,80 @@ fn police_begin_shift_requires_the_open_prefix_and_keeps_the_manager() {
     assert_eq!(session.execute(InitStep::PoliceBeginShift), Ok(()));
     assert_eq!(session.ai_manager().groups.unlock_time(), u32::MAX);
     assert_eq!(session.ai_manager().police.unknown_24(), 0x0fff_ffff);
+    // The standalone Open driver passes no progress argument, so no loading
+    // screen exists and `_show_progress_` is the native no-op.
+    assert_eq!(session.load_save_progress().progress, None);
+    assert_eq!(session.execute(InitStep::PlayerNavi), Ok(()));
+    let error = session.execute(InitStep::VehicleSectors).unwrap_err();
+    assert!(
+        error
+            .0
+            .starts_with("VehicleSectors: unavailable Init intern_load gate"),
+        "{error}"
+    );
+}
+
+fn seed_player_statics(session: &mut MissionLoadSession) {
+    use crate::script_scheduler::FrameReferenceId;
+    let statics = session.player_statics_mut();
+    statics.set_player_navi_point(Some(FrameReferenceId::from_existing(5)));
+    statics.set_can_car_damage(true);
+}
+
+#[test]
+fn player_navi_without_a_loading_screen_clears_the_player_statics() {
+    let fixture = Fixture::new();
+    let mut session = fixture.session();
+    seed_player_statics(&mut session);
+    let seeded = session.player_statics();
+    // Before the Open prefix the step stops before any store.
+    assert_eq!(
+        session.player_navi_for_init(),
+        Err("game init requires completed open prefix".into())
+    );
+    assert_eq!(session.player_statics(), seeded);
+
+    fixture.write("missions/mise01/scene.4ds", &[]);
+    fixture.write("missions/mise01/scene2.bin", &scene2(&[]));
+    fixture.write("missions/mise01/cache.bin", &cache_bytes());
+    let mut session = fixture.session();
+    open_mise01(&mut session);
+    seed_player_statics(&mut session);
+    assert_eq!(session.execute(InitStep::PlayerNavi), Ok(()));
+    // SetPlayerNaviPoint(NULL) at 0x5a09c1, then `can_car_damage = false`.
+    assert_eq!(session.player_statics().navi_frame(), None);
+    assert!(!session.player_statics().can_car_damage());
+    assert_eq!(session.load_save_progress().progress, None);
+}
+
+#[test]
+fn player_navi_with_a_loading_screen_stops_at_its_uncreated_menu() {
+    use crate::game_loadsave_lifecycle::LoadProgressScreen;
+    let fixture = Fixture::new();
+    fixture.write("missions/mise01/scene.4ds", &[]);
+    fixture.write("missions/mise01/scene2.bin", &scene2(&[]));
+    fixture.write("missions/mise01/cache.bin", &cache_bytes());
+    let mut session = fixture.session();
+    open_mise01(&mut session);
+    session.load_save_progress_mut().progress = Some(LoadProgressScreen::for_mission_open());
+    seed_player_statics(&mut session);
+    let seeded = session.player_statics();
     let error = session.execute(InitStep::PlayerNavi).unwrap_err();
-    assert!(error.0.contains("mafiaLoadSave.progress"), "{error}");
+    // SetProgressGameInit(0.0) over mission_part 0.7 yields the bar value
+    // 0.7; SetRawProgress has no created menu to write it to.
+    assert!(
+        error
+            .0
+            .starts_with("PlayerNavi: Init _show_progress_(0.0): loading-screen SetRawProgress(0.7) needs the created loadprogress menu bar"),
+        "{error}"
+    );
+    assert!(error.0.contains("cbLoadScene"), "{error}");
+    // The later stores are not reached and the screen stays live.
+    assert_eq!(session.player_statics(), seeded);
+    assert_eq!(
+        session.load_save_progress().progress,
+        Some(LoadProgressScreen::for_mission_open())
+    );
 }
 
 #[test]

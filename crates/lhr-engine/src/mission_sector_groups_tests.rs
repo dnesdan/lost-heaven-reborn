@@ -263,6 +263,7 @@ fn load(session: &mut MissionLoadSession) -> Result<OpenResult, MissionSourceOpe
     session.open_source_in_order(
         &mut OpenAttempt::default(),
         "synthetic",
+        false,
         &[],
         crate::game_camera_projection::GameCameraProjection {
             global_mode: 0,

@@ -2146,7 +2146,6 @@ mod tests {
             race_cars: 0,
             unknown_1f0: 0,
             unknown_9c: 0,
-            unknown_1e8: 0,
             camera_setting: 0,
             bindings: ProfileBindings::from_rows(
                 [empty; crate::game_loadsave_controls::PROFILE_CONTROL_COUNT],
