@@ -10,7 +10,7 @@ use crate::singlemorph_state::SinglemorphState;
 /// Borrowed positions from the actual per-visual render LOD allocation. Shared
 /// canonical normals and UVs remain separate, live source inputs for lighting.
 pub(crate) struct MorphRenderPositions<'a> {
-    vertices: &'a [u8],
+    vertices: std::cell::Ref<'a, [u8]>,
 }
 impl MorphRenderPositions<'_> {
     pub(crate) fn len(&self) -> usize {
@@ -224,6 +224,7 @@ impl LoadedVisualResources {
                 }
             })
             .collect::<Vec<_>>();
+        drop(data);
         let key = self.ensure_morph_render_lod(object, index, &vertices)?;
         if self.objects.lod(key)?.update_count == update_count {
             return Ok(());

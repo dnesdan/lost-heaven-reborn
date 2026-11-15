@@ -52,7 +52,10 @@ fn sphere(volume: &mut MeshBoundVolume) -> Result<(), ModelError> {
         )
     })()
     .map_err(|_| FrameError::NumericDomain("hierarchy radius"))?;
+    // FSQRT under PC24 (UpdateWBoundProc 0x5a6ee and the hierarchy bounds):
+    // an inexact root raises the sticky precision bit.
     volume.radius = squared.sqrt();
+    crate::native_precision::record_sqrt(squared, volume.radius);
     Ok(())
 }
 impl ModelArena {
@@ -79,6 +82,70 @@ impl ModelArena {
             .visual_bounds
             .ok_or(ModelError::VisualBoundsUnavailable(key))?;
         let mut output = MeshBoundVolume::CONSTRUCTOR;
+        self.visual_world_box(key, local, &mut output)?;
+        Ok(output)
+    }
+    /// `I3D_visual::UpdateWBoundProc`, LS3DF RVA 0x5a510 (mafia-re
+    /// I3d_visual.cpp:114-134; prologue walk 0x5a510..0x5a55e), for the
+    /// plain and lit objects, whose vtables (0x1009c348, 0x1009bd70) both hold
+    /// `I3D_visual::UpdateBoundProc` 0x5a4f0 at +0x64. In native order:
+    /// `vis_flags |= VISF_WBOUND_VALID` (0x40000); `vis_bound_w.bbox`
+    /// invalidated (min words 0x5a0e1bca, max 0xda0e1bca); when
+    /// `VISF_BOUND_VALID` (0x20000) is clear, the virtual `UpdateBoundProc`,
+    /// which only sets 0x20000 (`or [eax+0x1d8], 0x20000` at 0x5a4f4); then,
+    /// for a valid `vis_bound` box, its eight corners times `GetMatrix()`
+    /// absorbed into `vis_bound_w.bbox` and the sphere from the half extent,
+    /// else a zero sphere. The box is the one `SetMesh` supplied; a visual
+    /// without it stops. A host stop keeps the stores before it and records
+    /// the error with the cache, which the flag then cannot vouch for.
+    pub(crate) fn update_visual_wbound_proc(&mut self, key: FrameKey) -> Result<(), ModelError> {
+        let fi = self.frame_index(key)?;
+        if self.state(key)?.kind != FrameKind::Mesh {
+            return Err(ModelError::VisualBoundsUnavailable(key));
+        }
+        self.graph.set_visual_flag_words(key, 0, 0x40000)?;
+        self.frames[fi].visual_world_bound_cache.bbox = MeshBoundVolume::CONSTRUCTOR.bbox;
+        self.frames[fi].visual_world_bound_error = None;
+        let result = self.update_visual_wbound_body(key, fi);
+        self.frames[fi].visual_world_bound_error = result.as_ref().err().cloned();
+        result
+    }
+    fn update_visual_wbound_body(&mut self, key: FrameKey, fi: usize) -> Result<(), ModelError> {
+        if self.state(key)?.visual_flags & 0x20000 == 0 {
+            // I3D_visual::UpdateBoundProc 0x5a4f0 (vtable +0x64).
+            self.graph.mark_visual_bound_valid(key)?;
+        }
+        if self.state(key)?.visual_flags & 0x40 != 0 {
+            // GetMatrix's world-space identity arm is not reached here.
+            return Err(ModelError::VisualBoundsUnavailable(key));
+        }
+        let local = self.frames[fi]
+            .visual_bounds
+            .ok_or(ModelError::VisualBoundsUnavailable(key))?;
+        let mut cache = self.frames[fi].visual_world_bound_cache;
+        let result = self.visual_world_box(key, local, &mut cache);
+        self.frames[fi].visual_world_bound_cache = cache;
+        result
+    }
+    /// `vis_bound_w`'s current contents, including an interrupted prefix.
+    pub fn visual_world_bound_snapshot(
+        &self,
+        key: FrameKey,
+    ) -> Result<(MeshBoundVolume, Option<ModelError>), ModelError> {
+        let frame = &self.frames[self.frame_index(key)?];
+        Ok((
+            frame.visual_world_bound_cache,
+            frame.visual_world_bound_error.clone(),
+        ))
+    }
+    /// The world box and sphere of a visual's own box, stored into `output`
+    /// in the order UpdateWBoundProc stores them.
+    fn visual_world_box(
+        &mut self,
+        key: FrameKey,
+        local: MeshBoundVolume,
+        output: &mut MeshBoundVolume,
+    ) -> Result<(), ModelError> {
         if valid(local.bbox) {
             let matrix = self.world_matrix(key)?;
             for (i, point) in corners(local.bbox).into_iter().enumerate() {
@@ -91,12 +158,12 @@ impl ModelArena {
                     absorb(&mut output.bbox, point);
                 }
             }
-            sphere(&mut output)?;
+            sphere(output)?;
         } else {
             output.center = [0.; 3];
             output.radius = 0.;
         }
-        Ok(output)
+        Ok(())
     }
     pub fn hr_bound_volume(&mut self, key: FrameKey) -> Result<MeshBoundVolume, ModelError> {
         if self.state(key)?.flags & 0x40 == 0 {

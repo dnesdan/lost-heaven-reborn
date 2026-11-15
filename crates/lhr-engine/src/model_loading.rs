@@ -25,6 +25,8 @@ mod crash_duplicate;
 mod glass;
 #[path = "model_morph.rs"]
 mod morph;
+#[path = "model_object_space.rs"]
+mod object_space;
 /// Re-exported morph word helpers so the rewrite-overlay symbol paths
 /// (`model_loading::morph_ctor_fields`, …) resolve literally and not only
 /// through the validator's `#[path]` fallback.
@@ -33,6 +35,7 @@ pub use morph::{
     morph_set_mesh_tail, morph_teardown_order, MorphCtorFields, MorphDefCtorError, MorphDefFields,
     MorphDefRelease, MORPH_BBOX_MAX_WORD, MORPH_BBOX_MIN_WORD, MORPH_MAGIC,
 };
+pub use object_space::ObjectSpaceWorld;
 
 use crate::frame_transform::{FrameError, FrameKey, FrameKind, I3dFrameGraph, I3dFrameState};
 use crate::joint_state::{I3dJointState, SinglemeshInvalidationState};
@@ -87,6 +90,16 @@ pub struct LoadedFrame {
     pub(crate) emitor: Option<crate::frame_emitor::I3dEmitorState>,
     pub(crate) hr_bounds_error: Option<ModelError>,
     pub(crate) hr_world_bounds_error: Option<ModelError>,
+    /// `I3D_visual::vis_bound_w` (+0x184), the cache `UpdateWBoundProc`
+    /// (LS3DF 0x5a510) fills; `VISF_WBOUND_VALID` (0x40000) says whether it
+    /// is current. A host stop inside the update keeps the stores before it
+    /// and records the error, so the flag never vouches for a stale box.
+    pub(crate) visual_world_bound_cache: crate::mesh_bounds::MeshBoundVolume,
+    pub(crate) visual_world_bound_error: Option<ModelError>,
+    /// A `SetSpace(true)` bake that stopped after its first effect. The
+    /// stored vertices are partly world space; replaying it would transform
+    /// them again, so any further call is refused before any write.
+    pub(crate) world_space_bake_interrupted: Option<ModelError>,
     /// Immutable host backing, independent of model membership. This is not a
     /// native mesh/LOD resource allocation or filename reference count.
     pub source: Option<Arc<Model>>,
@@ -251,6 +264,25 @@ pub enum ModelError {
     OwnershipCycle,
     NestedDestructionUnavailable(FrameKey),
     UnknownActorDataRecord(crate::actor_frames::ActorDataRecordId),
+    /// `SetSpace(true)` reached a visual whose override has no owner here
+    /// (only the plain and lit objects' `I3D_object::SetSpace` is supported).
+    SetSpaceUnsupportedVisual(FrameKey),
+    /// A `SetSpace` bake value left the guarded PC24 arithmetic domain.
+    SetSpaceNumeric(FrameKey),
+    /// A previous `SetSpace(true)` on this visual stopped after its first
+    /// effect; replaying it would re-transform the stored vertices.
+    SetSpaceInterrupted(FrameKey),
+    /// `LockVertices` returned null for a level with vertices to transform,
+    /// which native would dereference.
+    VertexLockUnavailable {
+        frame: FrameKey,
+        index: u32,
+    },
+    /// `GetLOD(index)` returned null where native calls through it.
+    MeshLodUnavailable {
+        frame: FrameKey,
+        index: u32,
+    },
 }
 impl From<FrameError> for ModelError {
     fn from(e: FrameError) -> Self {
@@ -535,6 +567,9 @@ impl ModelArena {
             emitor: None,
             hr_bounds_error: None,
             hr_world_bounds_error: None,
+            visual_world_bound_cache: crate::mesh_bounds::MeshBoundVolume::CONSTRUCTOR,
+            visual_world_bound_error: None,
+            world_space_bake_interrupted: None,
             source: None,
             user_data: crate::actor_frames::FrameUserData::Null,
             alive: true,

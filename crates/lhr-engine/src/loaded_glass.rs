@@ -94,8 +94,8 @@ impl LoadedVisualResources {
         if allocation.lock.is_none() {
             return Err(LoadedVisualError::InvalidGeometry);
         }
-        let bytes = allocation
-            .bytes
+        let all = allocation.bytes.borrow();
+        let bytes = all
             .get(descriptor.base as usize * 2..descriptor.base as usize * 2 + length)
             .ok_or(LoadedVisualError::InvalidGeometry)?;
         let faces = bytes
@@ -110,6 +110,7 @@ impl LoadedVisualResources {
                 ]
             })
             .collect();
+        drop(all);
         // CutMesh itself calls only level UnlockVertices; the retained IB lock
         // remains in its real manager until the driver's UnlockAll boundary.
         self.game_unlock_level_vertices(level)?;
@@ -380,7 +381,7 @@ mod tests {
             assert_eq!(view.vertex_count, 6);
             assert_eq!(view.groups.len(), 1);
             assert_eq!(
-                view.groups[0].index_bytes,
+                *view.groups[0].index_bytes,
                 [0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0]
             );
             for (i, vertex) in vertices.iter().enumerate() {

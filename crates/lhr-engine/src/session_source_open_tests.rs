@@ -1039,3 +1039,24 @@ fn new_game_close_is_a_native_no_op_only_before_open() {
     assert_eq!(session.mission_numbers(), (0, 0));
     discard(&mut session);
 }
+
+#[test]
+fn load_collision_runs_in_the_session_precision_scope() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    seed_mission_numbers(&mut session);
+    open_recorded(&mut session);
+    // Open's own arithmetic already raised the sticky bit; clear the
+    // session's state so LoadCollision's contribution is observable.
+    session.precision = crate::native_precision::Pc24PrecisionState::new(false);
+    assert!(!session.precision_state().precision_raised());
+    // The dyn grid divides the 10 x 5 extent by 3 (inexact) and truncates:
+    // that x87 arithmetic raises the sticky precision bit, which the
+    // session keeps for its later steps.
+    let path = fixture.0.join("missions/synthetic/tree.klz");
+    std::fs::write(&path, crate::game_collision::tests::fixture(3.0)).unwrap();
+    assert_eq!(session.load_collision_for_new_mission("synthetic"), Ok(()));
+    assert!(session.collision().dynamic_grid().is_some());
+    assert!(session.precision_state().precision_raised());
+    discard(&mut session);
+}

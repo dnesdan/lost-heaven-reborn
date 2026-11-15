@@ -79,37 +79,122 @@ const VERTEX_COUNT: usize = 0x60;
 const MAX_CELLS: i64 = 1 << 24;
 
 /// A mesh LOD0 vertex buffer as its owner shares it: `LockVertices(1)`
-/// returns the live buffer, not a copy. Clones are the same buffer; equality
-/// is buffer identity. Reads return the current contents.
+/// returns a pointer into the live vertex storage, not a copy. This is a view
+/// of that storage: the shared bytes, the level's first byte, the vertex
+/// stride and the level's vertex count. Clones are the same view; equality is
+/// identity (same storage and first byte). Reads return the current contents,
+/// so a later write by the owner (a `SetSpace` bake, a deform) is seen.
+///
+/// The view is read-only: the collision code only reads through the native
+/// pointer. Every write goes through the storage's owner (the CPU graphics
+/// allocation's locked write, which also advances its revision for derived
+/// data), never through this view. Reads take a checked shared borrow and
+/// report an unreachable vertex (`None`) instead of panicking.
 #[derive(Clone)]
-pub struct LodVertexBuffer(Rc<RefCell<Vec<[f32; 3]>>>);
+pub struct LodVertexBuffer {
+    bytes: Rc<RefCell<Vec<u8>>>,
+    base: usize,
+    stride: usize,
+    count: usize,
+}
 
-impl LodVertexBuffer {
-    pub fn new(positions: Vec<[f32; 3]>) -> Self {
-        Self(Rc::new(RefCell::new(positions)))
+/// Synthetic standalone LOD0 storage for collision tests: the owner of a
+/// packed-position buffer (12-byte stride) that hands out read-only views and
+/// alone writes, with a checked exclusive borrow.
+#[cfg(test)]
+pub(crate) struct StandaloneLodVertices {
+    bytes: Rc<RefCell<Vec<u8>>>,
+    count: usize,
+}
+
+#[cfg(test)]
+impl StandaloneLodVertices {
+    pub(crate) fn new(positions: Vec<[f32; 3]>) -> Self {
+        let count = positions.len();
+        let bytes = positions
+            .into_iter()
+            .flatten()
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        Self {
+            bytes: Rc::new(RefCell::new(bytes)),
+            count,
+        }
     }
-    /// The vertex's current position (`I3D_vertex::pos`).
-    pub fn position(&self, index: u16) -> Option<[f32; 3]> {
-        self.0.borrow().get(usize::from(index)).copied()
+    pub(crate) fn view(&self) -> LodVertexBuffer {
+        LodVertexBuffer {
+            bytes: self.bytes.clone(),
+            base: 0,
+            stride: 12,
+            count: self.count,
+        }
     }
-    /// The owner's write of a vertex position; false outside the buffer.
-    pub fn set_position(&self, index: u16, position: [f32; 3]) -> bool {
-        match self.0.borrow_mut().get_mut(usize::from(index)) {
+    /// The owner's write of a vertex position; false outside the buffer or
+    /// while the storage is borrowed.
+    pub(crate) fn set_position(&mut self, index: u16, position: [f32; 3]) -> bool {
+        let at = usize::from(index) * 12;
+        if usize::from(index) >= self.count {
+            return false;
+        }
+        let Ok(mut bytes) = self.bytes.try_borrow_mut() else {
+            return false;
+        };
+        match bytes.get_mut(at..at + 12) {
             Some(slot) => {
-                *slot = position;
+                for (axis, value) in position.into_iter().enumerate() {
+                    slot[4 * axis..4 * axis + 4].copy_from_slice(&value.to_le_bytes());
+                }
                 true
             }
             None => false,
         }
     }
+}
+
+impl LodVertexBuffer {
+    /// A view of `count` vertices of `stride` bytes at `base` in the owner's
+    /// live storage; the position is each vertex's first three LE `f32`
+    /// (`I3D_vertex::pos`). `None` for a stride shorter than a position.
+    pub(crate) fn live(
+        bytes: Rc<RefCell<Vec<u8>>>,
+        base: usize,
+        stride: usize,
+        count: usize,
+    ) -> Option<Self> {
+        (stride >= 12).then_some(Self {
+            bytes,
+            base,
+            stride,
+            count,
+        })
+    }
+    fn at(&self, index: u16) -> Option<usize> {
+        let index = usize::from(index);
+        (index < self.count)
+            .then(|| index.checked_mul(self.stride)?.checked_add(self.base))
+            .flatten()
+    }
+    /// The vertex's current position (`I3D_vertex::pos`); `None` outside the
+    /// level, when the storage no longer reaches it, or while the owner holds
+    /// it exclusively.
+    pub fn position(&self, index: u16) -> Option<[f32; 3]> {
+        let at = self.at(index)?;
+        let bytes = self.bytes.try_borrow().ok()?;
+        let word = |i: usize| {
+            bytes
+                .get(at + 4 * i..at + 4 * i + 4)
+                .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+        };
+        Some([word(0)?, word(1)?, word(2)?])
+    }
     pub fn len(&self) -> usize {
-        self.0.borrow().len()
+        self.count
     }
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.count == 0
     }
     pub fn same_buffer(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+        Rc::ptr_eq(&self.bytes, &other.bytes) && self.base == other.base
     }
 }
 
@@ -123,9 +208,10 @@ impl fmt::Debug for LodVertexBuffer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "LodVertexBuffer({:p}, {} vertices)",
-            Rc::as_ptr(&self.0),
-            self.len()
+            "LodVertexBuffer({:p}+{:#x}, {} vertices)",
+            Rc::as_ptr(&self.bytes),
+            self.base,
+            self.count
         )
     }
 }

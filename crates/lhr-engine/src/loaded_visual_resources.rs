@@ -95,11 +95,17 @@ struct BlockAllocation {
     base: u32,
     count: u32,
 }
+/// One CPU graphics allocation's bytes as a shared, in-place-mutated owner.
+pub(crate) type SharedGraphicsBytes = std::rc::Rc<std::cell::RefCell<Vec<u8>>>;
 #[derive(Debug)]
 struct CpuGraphics {
     kind: BufferKind,
     fvf: Option<u32>,
-    bytes: Vec<u8>,
+    /// The allocation's bytes, shared with live views that the original
+    /// keeps as raw locked pointers (LoadCollision's LOD0 vertex pointers,
+    /// [`crate::game_collision::LodVertexBuffer`]). Writes go in place; the
+    /// `Rc` is never replaced, so every view keeps reading this allocation.
+    bytes: SharedGraphicsBytes,
     lock: Option<LockedDataKey>,
     /// Host write generation for rebuilding derived saved-lighting geometry.
     revision: u64,
@@ -148,10 +154,27 @@ impl CpuVisualStorage {
         Ok(())
     }
     pub fn graphics_bytes(&self) -> usize {
-        self.graphics.values().map(|g| g.bytes.len()).sum()
+        self.graphics.values().map(|g| g.bytes.borrow().len()).sum()
     }
     pub fn live_graphics(&self) -> usize {
         self.graphics.len()
+    }
+    /// The allocation's host write generation (derived-data invalidation).
+    #[cfg(test)]
+    pub(crate) fn graphics_revision(&self, graphics: GraphicsBuffer) -> Option<u64> {
+        self.graphics
+            .get(&Self::graphics_id(graphics))
+            .map(|g| g.revision)
+    }
+    /// A clone of the allocation's shared bytes (tests hold borrows on it).
+    #[cfg(test)]
+    pub(crate) fn graphics_shared_bytes(
+        &self,
+        graphics: GraphicsBuffer,
+    ) -> Option<SharedGraphicsBytes> {
+        self.graphics
+            .get(&Self::graphics_id(graphics))
+            .map(|g| g.bytes.clone())
     }
     /// Native Close unloads only managed pools. CPU immediate textures do not
     /// participate; managed requests must be rejected by a scene adapter.
@@ -208,7 +231,12 @@ impl CpuVisualStorage {
         let end = offset
             .checked_add(data.len())
             .ok_or(LoadedVisualError::InvalidGeometry)?;
+        // Live views (LoadCollision's LOD0 pointers, inspection borrows) only
+        // read; a write while any of them holds a borrow is refused before
+        // any byte or the revision changes.
         x.bytes
+            .try_borrow_mut()
+            .map_err(|_| LoadedVisualError::Backend("CPU graphics bytes borrowed by a live view"))?
             .get_mut(offset..end)
             .ok_or(LoadedVisualError::InvalidGeometry)?
             .copy_from_slice(data);
@@ -347,7 +375,7 @@ impl BufferBackend for CpuVisualStorage {
             CpuGraphics {
                 kind: r.kind,
                 fvf: r.fvf,
-                bytes: storage,
+                bytes: std::rc::Rc::new(std::cell::RefCell::new(storage)),
                 lock: None,
                 revision: 0,
             },
@@ -2098,7 +2126,7 @@ mod tests {
         storage.write_graphics(graphics, 2, &[4, 5, 6]).unwrap();
         assert!(storage.release_graphics(graphics).is_err());
         assert_eq!(
-            storage.get_graphics_mut(graphics).unwrap().bytes,
+            *storage.get_graphics_mut(graphics).unwrap().bytes.borrow(),
             [0, 0, 4, 5, 6, 0, 0, 0]
         );
         storage.unlock(graphics).unwrap();
