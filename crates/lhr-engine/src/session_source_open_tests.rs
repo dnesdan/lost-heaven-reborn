@@ -1098,7 +1098,7 @@ fn presented_new_game_start_reaches_the_same_init_boundary_once() {
     );
     // Every step before Init is the unpresented composition's; Init stops
     // at the same ResetMissionState render boundary, here through the
-    // presentation (declined by the host, or its snapshot unavailable).
+    // presentation, whose one snapshot the host declines.
     let Err(NewMissionRunError::Callback(NewMissionFailure {
         step: NewMissionStep::GameInit,
         error: NewMissionError::Init(error),
