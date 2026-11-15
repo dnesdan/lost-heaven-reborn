@@ -106,6 +106,49 @@ fn assert_ai_manager_shift_begun(session: &MissionLoadSession) {
     assert!(manager.fight.parties().is_empty());
 }
 
+/// `IndicatorsGameInit`'s boundary: the speedometer setting has no owner.
+const INDICATORS_STOP: &str = "IndicatorsGameInit: mafiaIndicators.GameInit (GAME 0x5f73c0, called at 0x5a0cb8) reads mafiaLoadSave.settings.speedometer_mph, which has no session owner";
+
+/// A world with two mission-global programs: `GameInitStart` sets the
+/// night-mission flag when its subroutine runs, `other` never runs.
+fn programs_fixture() -> Fixture {
+    let input = scene2(
+        &[
+            chunk(
+                0xae50,
+                &program_record(
+                    b"GameInitStart",
+                    b"commandblock 1\ngame_nightmission 1\ncommandblock 0",
+                ),
+            ),
+            chunk(
+                0xae50,
+                &program_record(b"other", b"commandblock 1\nnoanimpreload\ncommandblock 0"),
+            ),
+        ]
+        .concat(),
+    );
+    Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&input), None)
+}
+
+fn programs_session(fixture: &Fixture) -> MissionLoadSession {
+    let mut session = fixture.session_without_hud();
+    session.install_indicators(hud()).unwrap();
+    load(&mut session, &[]).unwrap();
+    session
+}
+
+fn program_runtimes(session: &MissionLoadSession) -> Vec<bool> {
+    session
+        .loader()
+        .unwrap()
+        .content
+        .programs()
+        .iter()
+        .map(|program| program.runtime().is_some())
+        .collect()
+}
+
 /// A sector key no scene frame has: an entry an earlier fill left behind.
 const STALE_SECTOR: crate::frame_transform::FrameKey =
     crate::frame_transform::FrameKey(u32::MAX - 1);
@@ -317,13 +360,16 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
     // through the host; SetPlayerNaviPoint(NULL) and can_car_damage follow.
     // Open's ResetIntern set intern_load, so VehicleSectors rebuilds the
     // light sectors; PhysicsClear, police and traffic init and the
-    // sound-arena/lightness/radar clears follow, and the program runtime
-    // stops Init.
-    assert_eq!(failure.step, InitStep::GlobalProgramStart);
-    assert!(
-        failure.error.0.starts_with("GlobalProgramStart: C_mission::GlobalProgramGameInit (GAME 0x540520, called at 0x5a0c9e)"),
-        "{}",
-        failure.error
+    // sound-arena/lightness/radar clears follow, the (empty) global
+    // programs are initialized and GameInitStart finds no program; the HUD
+    // GameInit's unowned speedometer setting stops Init.
+    assert_eq!(failure.step, InitStep::IndicatorsGameInit);
+    assert_eq!(failure.error.0, INDICATORS_STOP);
+    assert_eq!(
+        session.game_init_programs().game_init_start,
+        Some(Ok(
+            crate::mission_content_loading::NamedGlobalProgramOutcome::NoMatch
+        ))
     );
     assert_vehicle_sectors_rebuilt(&session);
     assert_eq!(loading_bars, [0.7]);
@@ -395,8 +441,8 @@ fn presented_init_render_unlocks_every_buffer_before_presentation() {
         panic!("the next unavailable owner must stop Init");
     };
     // Opened without progress: no loading screen, so Init passes PlayerNavi
-    // and runs on to the program runtime.
-    assert_eq!(failure.step, InitStep::GlobalProgramStart);
+    // and runs on to the HUD GameInit.
+    assert_eq!(failure.step, InitStep::IndicatorsGameInit);
     assert_eq!(presentations, 1);
     // I3D_driver::Render (LS3DF 0x10062030) unlocks the vertex manager
     // (0x100697e0) and then the index manager before it draws: no buffer
@@ -435,12 +481,12 @@ fn presented_init_runs_the_reset_span_in_native_order_with_the_hud() {
     let mut attempt = InitAttempt::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("the program runtime must stop Init");
+        panic!("the HUD GameInit must stop Init");
     };
     // Opened without progress, `_show_progress_` is the native no-op and
     // the C_player statics are cleared; the owned spans run on to the
-    // program runtime.
-    assert_eq!(failure.step, InitStep::GlobalProgramStart);
+    // HUD GameInit.
+    assert_eq!(failure.step, InitStep::IndicatorsGameInit);
     assert_eq!(session.player_statics(), Default::default());
     // GAME 0x5a08c3-0x5a098c: lists emptied, ScoreSetOn(false) hides the
     // HUD bonus (0x7fffffff), score zeroed, flags stored.
@@ -569,6 +615,127 @@ fn sound_and_lightness_without_hud_stops_at_radar_clear_keeping_earlier_clears()
         ))
     );
     assert_sound_arena_and_lightness_cleared(&session);
+    discard(&mut session);
+}
+
+#[test]
+fn presented_init_initializes_the_global_programs_and_runs_game_init_start_once() {
+    use crate::mission_content_loading::NamedGlobalProgramOutcome;
+    let fixture = programs_fixture();
+    let mut session = programs_session(&fixture);
+    assert_eq!(program_runtimes(&session), [false, false]);
+    let mut sequence = SceneSnapshotSequence::default();
+    let mut attempt = InitAttempt::default();
+    let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
+    let Err(InitRunError::Callback(failure)) = result else {
+        panic!("the HUD GameInit must stop Init");
+    };
+    assert_eq!(failure.step, InitStep::IndicatorsGameInit);
+    assert_eq!(failure.error.0, INDICATORS_STOP);
+    // GAME 0x5a0c9e: GlobalProgramGameInit gave every program its runtime;
+    // 0x5a0cae: the empty diff_programs left GameInitStart to the mission's
+    // program, whose subroutine set the flag PhysicsClear had cleared.
+    assert_eq!(program_runtimes(&session), [true, true]);
+    let record = session.game_init_programs();
+    assert!(record.initialized);
+    assert_eq!(
+        record.game_init_start,
+        Some(Ok(NamedGlobalProgramOutcome::MissionHandled { index: 0 }))
+    );
+    assert!(session.game_state().night_mission());
+    // `other` was initialized but never called.
+    assert!(session.game_state().anim_preload());
+    // The single owner refuses a second GameInit of the same programs.
+    let mut budget = DispatchBudget::new(64).unwrap();
+    assert_eq!(
+        session.run_global_program_start(
+            &mut budget,
+            &mut crate::mission_load_session::GameInitProgramDiagnostic
+        ),
+        Err("GlobalProgramGameInit already ran for these programs".into())
+    );
+    assert_eq!(budget.remaining(), 64);
+    // The retained runtimes refuse terminal disposal until the host
+    // discards them; then every owner reaches zero.
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::ProgramRuntimeRetained)
+    );
+    assert_eq!(
+        session
+            .discard_global_program_runtimes_host()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(program_runtimes(&session), [false, false]);
+    discard(&mut session);
+}
+
+#[test]
+fn a_matching_diff_program_stops_game_init_start_after_the_global_game_init() {
+    let fixture = programs_fixture();
+    let mut session = programs_session(&fixture);
+    session
+        .game_inline
+        .diff_programs_mut()
+        .push(crate::game_housekeeping::DiffProgram {
+            name: "gameinitstart".into(),
+        });
+    let mut sequence = SceneSnapshotSequence::default();
+    let result =
+        InitAttempt::default()
+            .run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
+    let Err(InitRunError::Callback(failure)) = result else {
+        panic!("the matched diff program must stop Init");
+    };
+    // C_game::GlobalProgramRun (0x5afd50) matches without case; its
+    // CallSubroutine has no owner, so the run stops before the mission's
+    // program, after GlobalProgramGameInit initialized both.
+    assert_eq!(failure.step, InitStep::GlobalProgramStart);
+    assert!(
+        failure.error.0.contains("matched diff program Some(0)"),
+        "{}",
+        failure.error
+    );
+    assert_eq!(program_runtimes(&session), [true, true]);
+    assert!(!session.game_state().night_mission());
+    assert!(session.game_init_programs().initialized);
+    assert!(matches!(
+        session.game_init_programs().game_init_start,
+        Some(Err(_))
+    ));
+    session.discard_global_program_runtimes_host().unwrap();
+    discard(&mut session);
+}
+
+#[test]
+fn init_refuses_to_initialize_programs_a_host_diagnostic_already_initialized() {
+    let fixture = programs_fixture();
+    let mut session = programs_session(&fixture);
+    // A host diagnostic ran the pair first through the same owner.
+    let mut budget = DispatchBudget::new(64).unwrap();
+    assert_eq!(
+        session.run_global_program_start(
+            &mut budget,
+            &mut crate::mission_load_session::GameInitProgramDiagnostic
+        ),
+        Ok(crate::mission_content_loading::NamedGlobalProgramOutcome::MissionHandled { index: 0 })
+    );
+    let mut sequence = SceneSnapshotSequence::default();
+    let result =
+        InitAttempt::default()
+            .run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
+    let Err(InitRunError::Callback(failure)) = result else {
+        panic!("Init must not initialize the programs again");
+    };
+    assert_eq!(failure.step, InitStep::GlobalProgramStart);
+    assert_eq!(
+        failure.error.0,
+        "GlobalProgramStart: GlobalProgramGameInit already ran for these programs"
+    );
+    assert_eq!(program_runtimes(&session), [true, true]);
+    session.discard_global_program_runtimes_host().unwrap();
     discard(&mut session);
 }
 

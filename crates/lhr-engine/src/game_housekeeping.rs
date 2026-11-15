@@ -906,6 +906,11 @@ pub struct GameInlineState {
     sounds_fading: i32,
     /// `lightness_next` (+0x160), the entry `LightnessTick` checks next.
     lightness_next: i32,
+    /// `diff_programs` (+0x2afc), the game's own scripts `GlobalProgramRun`
+    /// (GAME 0x5afd50) searches before the mission's. Only the script
+    /// command `LoadDiffData` (GAME 0x5ae480, unported) adds to it, so a
+    /// fresh session holds it empty, as a fresh native game does.
+    diff_programs: Vec<DiffProgram>,
     /// `sound_play_timer` (+0x304), an `S_timer` (mafia-re game/tools.h:17-22
     /// at pin fe7e746: `uint time`, `uint period`, constructed `0, 200`).
     sound_play_timer: SoundPlayTimer,
@@ -1311,6 +1316,17 @@ impl GameInlineState {
     /// `game_done`, `mission_end` and `growing_projectors`.
     pub fn mission_end_flags(&self) -> MissionEndFlags {
         self.mission_end
+    }
+
+    /// `diff_programs`, the game's own scripts.
+    pub fn diff_programs(&self) -> &[DiffProgram] {
+        &self.diff_programs
+    }
+
+    /// Test staging of `diff_programs` while `LoadDiffData` stays unported.
+    #[cfg(test)]
+    pub(crate) fn diff_programs_mut(&mut self) -> &mut Vec<DiffProgram> {
+        &mut self.diff_programs
     }
 
     /// `lightness_next`.
@@ -2439,9 +2455,10 @@ pub struct GameInitLists {
     pub paused_i_shows: Vec<i32>,
     pub free_shadow_names: Vec<ShadowNameBufferId>,
     pub unknown_140: Vec<ActorId>,
-    /// `death_actors` (+0x2ee4, `std::vector<uint>`): the words
-    /// `DeathActorProcess` processes; their meaning stays with that owner.
-    pub death_actors: Vec<u32>,
+    /// `death_actors` (+0x2ee4, declared `std::vector<uint>`): borrowed
+    /// `C_actor*` identities, as its writer `DeathActorAdd` and its consumer
+    /// `DeathActorProcess` use them; the actors stay with their owner.
+    pub death_actors: Vec<ActorId>,
     /// `i_show_fades` (+0x2f28), in the existing `S_i_show_fade` projection.
     pub i_show_fades: Vec<crate::ishow_renderer::CGameIshowFade>,
     /// `enemy_talks` (+0x2f40).

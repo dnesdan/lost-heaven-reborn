@@ -3547,13 +3547,17 @@ impl I3dFrameGraph {
     /// I3D_frame::GetChild (mafia-re I3d_frame.cpp:610-620), not an
     /// evidenced original symbol. No Ghidra body in session -> tier
     /// contract per the 0x2b830 standard. Signed index; 0 = head
-    /// (most-recently-prepended). Negative and over-range yield None
-    /// (native unsigned compare + dbgPrintf/NULL path). Short lists yield
-    /// None (native fallthrough to NULL). Live-borrow view, no mutation.
+    /// (most-recently-prepended). The bounds test is a SIGNED compare
+    /// (bytes at 0x1001bfd8: `cmp ecx,[eax+0x11c]` / `jge` to the NULL
+    /// path): an index at or above the count read as `int` yields None, so
+    /// a count of 2^31 or more refuses every index. A negative index passes
+    /// that test and walks the list until it ends (`mov edx,ecx; dec ecx;
+    /// test edx,edx` never reaches zero first), also yielding None, as do
+    /// short lists (corrupt count). Live-borrow view, no mutation.
     pub fn child_at(&self, parent: FrameKey, index: i32) -> Result<Option<FrameKey>, FrameError> {
         let count = self.links(parent)?.child_count;
-        // Native unsigned compare: (unsigned)index < count.
-        if (index as u32) >= count {
+        // Native signed compare: jge when index >= (int)count.
+        if index >= count as i32 {
             return Ok(None);
         }
         let mut at = self.links(parent)?.child;
@@ -3562,10 +3566,10 @@ impl I3dFrameGraph {
             if remaining == 0 {
                 return Ok(Some(key));
             }
-            remaining -= 1;
+            remaining = remaining.wrapping_sub(1);
             at = self.links(key)?.next;
         }
-        // Short list (corrupt count): native falls through to NULL.
+        // Negative index or short list (corrupt count): the walk ends at NULL.
         Ok(None)
     }
     /// 0x1c2a0 projection (LS3DF.dll e211c850…). Upstream working name
@@ -6115,6 +6119,11 @@ mod tests {
         assert_eq!(graph.child_at(parent, 3).unwrap(), None);
         assert_eq!(graph.child_at(parent, -1).unwrap(), None);
         assert_eq!(graph.child_at(parent, i32::MAX).unwrap(), None);
+        // `jge` is signed: a count of 2^31 or more reads as negative, so
+        // even index 0 takes the NULL path although the list has a head.
+        graph.node_mut(parent).unwrap().links.child_count = 0x8000_0001;
+        assert_eq!(graph.child_at(parent, 0).unwrap(), None);
+        assert_eq!(graph.child_at(parent, -1).unwrap(), None);
     }
     #[test]
     fn enum_frames_preorder_cancel_skip_and_order() {

@@ -453,6 +453,9 @@ pub struct MissionLoadSession {
     posscoll_frames: Vec<crate::actor_registry::PossCollEntry>,
     /// `C_game::sound_arena` (+0x2b3c), the `soundArena` `Init` resets.
     sound_arena: crate::game_housekeeping::SoundArena,
+    /// What `Init`'s `GlobalProgramStart` did with the mission-global
+    /// programs (initialized once, `GameInitStart` run once).
+    game_init_programs: owned_program_runtime::GameInitPrograms,
     game_init_car_sounds: i32,
     game_init_weather: Option<(bool, i32)>,
     game_init_reset_entered: bool,
@@ -524,8 +527,10 @@ impl crate::game_housekeeping::SectorEnumFrames for SessionSectorFrames<'_> {
         Ok(self.arena.links(frame)?.child_count)
     }
     fn child(&self, frame: Self::Frame, index: u32) -> Result<Option<Self::Frame>, Self::Error> {
-        // The native pushes the unsigned index; `child_at` compares it
-        // unsigned against the count, so the cast keeps the bits.
+        // cbEnumSectors pushes its counter (`push esi`); GetChild compares
+        // it signed (`jge`) against the count, which `child_at` reproduces
+        // for the reinterpreted bits. Below a count of 2^31 every index the
+        // walk passes is in range either way.
         self.arena.child_at(frame, index as i32)
     }
 }
@@ -616,7 +621,9 @@ pub use owned_source_open::MissionSourceOpenError;
 #[path = "session_program_runtime.rs"]
 mod owned_program_runtime;
 pub use owned_program_runtime::{
-    DetectorScheduleFrontier, SessionActorProgramError, SessionProgramEffects,
+    DetectorScheduleFrontier, GameInitProgramDiagnostic, GameInitPrograms,
+    SessionActorProgramError, SessionGameDiffPrograms, SessionProgramEffects,
+    GAME_INIT_DISPATCH_BUDGET, GAME_INIT_PROGRAM_LOCALES,
 };
 
 impl MissionLoadSession {
@@ -671,6 +678,7 @@ impl MissionLoadSession {
             public_physics_unknown_63d78c: Vec::new(),
             posscoll_frames: Vec::new(),
             sound_arena: Default::default(),
+            game_init_programs: Default::default(),
             game_init_car_sounds: 0,
             game_init_weather: None,
             game_init_reset_entered: false,

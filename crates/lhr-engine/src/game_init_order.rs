@@ -280,11 +280,11 @@ where
 /// `intern_load` gate with the `C_Vehicle` sector clears and the
 /// `cbEnumSectors` walk of the primary sector, the `PhysicsClear` span,
 /// police init, traffic flags, the sound-arena/lightness/radar clears,
-/// the base-cache `IsOpen` read, and the `MarkInitialized`
+/// the mission-global program `GameInit` and the `GameInitStart` run, the
+/// base-cache `IsOpen` read, and the `MarkInitialized`
 /// flag write. Every other boundary returns `Err` with its step prefix and
 /// preserves the reached live prefix: the driver stops at the first
-/// unowned step. Actor `GameInit`, scripts and rendering never run
-/// here; program execution remains in the headless probe. This is the owned
+/// unowned step. Actor `GameInit` and rendering never run here. This is the owned
 /// `Init` prefix without claiming gameplay.
 impl InitOperations for crate::mission_load_session::MissionLoadSession {
     type Error = SessionInitError;
@@ -318,13 +318,12 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::SoundAndLightness => self
                 .sound_and_lightness_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::GlobalProgramStart => Err(SessionInitError::prefixed(
+            InitStep::GlobalProgramStart => self
+                .global_program_start_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::IndicatorsGameInit => Err(SessionInitError::prefixed(
                 step,
-                "C_mission::GlobalProgramGameInit (GAME 0x540520, called at 0x5a0c9e) then GlobalProgramRun(\"GameInitStart\") (GAME 0x540580, at 0x5a0cae) have no program-runtime owner on this session; the programs run only in the headless probe's script diagnostic",
-            )),
-            InitStep::IndicatorsGameInit => Err(SessionInitError::unavailable(
-                step,
-                "indicators HUD (IndicatorsState::game_init_texture_plan/apply, GAME 0x5f73c0; no HUD field on this session yet)",
+                "mafiaIndicators.GameInit (GAME 0x5f73c0, called at 0x5a0cb8) reads mafiaLoadSave.settings.speedometer_mph, which has no session owner",
             )),
             InitStep::EffectsStart => Err(SessionInitError::unavailable(step, "effects start")),
             InitStep::DiffClear => Err(SessionInitError::unavailable(step, "diff pools")),
