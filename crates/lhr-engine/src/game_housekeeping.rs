@@ -2195,7 +2195,7 @@ pub struct ShadowNameBufferId(u32);
 /// and `Init`'s `clear()` drops the pointers without deleting the buffers.
 /// Buffers whose ids `Init` dropped are unreachable natively; here they stay
 /// alive in this owner, which is the only place that frees them.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct ShadowNameBuffers {
     buffers: Vec<Box<[u8]>>,
 }
