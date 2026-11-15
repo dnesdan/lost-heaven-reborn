@@ -436,6 +436,26 @@ pub struct MissionLoadSession {
     /// the loading screen: each session starts from their zero/NULL
     /// process-start state.
     load_scene_callback: crate::load_scene_callback::LoadSceneCallback,
+    /// The `C_Vehicle::v_light_sector`/`v_sound_sector` statics (GAME
+    /// 0x63d890/0x63d880). Process statics natively; session-scoped here,
+    /// each session starting from their empty process-start state. They
+    /// borrow this session's sector frames, so disposal empties them before
+    /// the scene closes, as native `Done`/`DoneIntern` do.
+    vehicle_sectors: crate::vehicle_owner::VehicleSectorStatics,
+    /// `C_public_physics::unknown_63d78c` (GAME 0x63d78c, mafia-re
+    /// `std::vector<uint>`, meaning unrecovered: `Init`'s clear is its only
+    /// known access) and `C_actor::posscoll_frame` (GAME 0x63d2a4), the
+    /// two class statics `Init`'s `PhysicsClear` span empties.
+    /// Session-scoped like the other process statics: each session starts
+    /// from their empty process-start state, and their writers
+    /// (`AddFrameForPossibleColl`/`DelFrameForPossibleColl`) stay unported.
+    public_physics_unknown_63d78c: Vec<u32>,
+    posscoll_frames: Vec<crate::actor_registry::PossCollEntry>,
+    /// `C_game::sound_arena` (+0x2b3c), the `soundArena` `Init` resets.
+    sound_arena: crate::game_housekeeping::SoundArena,
+    /// What `Init`'s `GlobalProgramStart` did with the mission-global
+    /// programs (initialized once, `GameInitStart` run once).
+    game_init_programs: owned_program_runtime::GameInitPrograms,
     game_init_car_sounds: i32,
     game_init_weather: Option<(bool, i32)>,
     game_init_reset_entered: bool,
@@ -487,6 +507,32 @@ pub struct MissionLoadSession {
     // Rust drops fields in declaration order: source owners precede this table
     // even if a host caller abandons the session without explicit disposal.
     startup_patches: ProgramPatchStartup,
+}
+
+/// `cbEnumSectors`' live frame reads over the session arena: the sector
+/// type compare, the stored child count and `GetChild`.
+struct SessionSectorFrames<'a> {
+    arena: &'a crate::model_loading::ModelArena,
+}
+
+impl crate::game_housekeeping::SectorEnumFrames for SessionSectorFrames<'_> {
+    type Frame = crate::frame_transform::FrameKey;
+    type Error = crate::model_loading::ModelError;
+
+    /// Type word 5 is `FrameKind::Sector` alone in the frame-type projection.
+    fn is_sector(&self, frame: Self::Frame) -> Result<bool, Self::Error> {
+        Ok(self.arena.state(frame)?.kind == crate::frame_transform::FrameKind::Sector)
+    }
+    fn num_children(&self, frame: Self::Frame) -> Result<u32, Self::Error> {
+        Ok(self.arena.links(frame)?.child_count)
+    }
+    fn child(&self, frame: Self::Frame, index: u32) -> Result<Option<Self::Frame>, Self::Error> {
+        // cbEnumSectors pushes its counter (`push esi`); GetChild compares
+        // it signed (`jge`) against the count, which `child_at` reproduces
+        // for the reinterpreted bits. Below a count of 2^31 every index the
+        // walk passes is in range either way.
+        self.arena.child_at(frame, index as i32)
+    }
 }
 
 /// `LoadCollision`'s calls into the live mission Scene: the driver's
@@ -575,7 +621,9 @@ pub use owned_source_open::MissionSourceOpenError;
 #[path = "session_program_runtime.rs"]
 mod owned_program_runtime;
 pub use owned_program_runtime::{
-    DetectorScheduleFrontier, SessionActorProgramError, SessionProgramEffects,
+    DetectorScheduleFrontier, GameInitProgramDiagnostic, GameInitPrograms,
+    SessionActorProgramError, SessionGameDiffPrograms, SessionProgramEffects,
+    GAME_INIT_DISPATCH_BUDGET, GAME_INIT_PROGRAM_LOCALES,
 };
 
 impl MissionLoadSession {
@@ -626,6 +674,11 @@ impl MissionLoadSession {
             ai_manager: Default::default(),
             player_statics: Default::default(),
             load_scene_callback: Default::default(),
+            vehicle_sectors: Default::default(),
+            public_physics_unknown_63d78c: Vec::new(),
+            posscoll_frames: Vec::new(),
+            sound_arena: Default::default(),
+            game_init_programs: Default::default(),
             game_init_car_sounds: 0,
             game_init_weather: None,
             game_init_reset_entered: false,
@@ -1838,7 +1891,84 @@ impl MissionLoadSession {
         if !self.game_inline.intern_load() {
             return Ok(());
         }
-        Err("Init intern_load is set (Open's ResetIntern): C_Vehicle::v_light_sector (0x63d890, cleared via 0x44b270 at 0x5a09e8) / v_sound_sector clears and S_hlp::cbEnumSectors over the primary sector have no owner".into())
+        // GAME 0x5a09d6-0x5a0a12: both erases, then the primary sector of
+        // `act_mission->scene` (`[[0x63788c]+0x10]+0x210`) is read and
+        // walked; only the walk can stop, after both clears.
+        self.vehicle_sectors.clear_light_sectors();
+        self.vehicle_sectors.clear_sound_sectors();
+        let scene = self
+            .scene()
+            .map_err(|error| format!("Init cbEnumSectors scene owner: {error:?}"))?
+            .ok_or("Init cbEnumSectors: no mission Scene for the primary sector")?;
+        // `I3D_scene::primary_sector` (+0x210), the constructor's first
+        // retained sector, not the sector ring head.
+        let root = self
+            .arena
+            .scene_primary_sector(scene)
+            .map_err(|error| format!("Init cbEnumSectors primary sector: {error:?}"))?
+            .frame();
+        crate::game_housekeeping::cb_enum_sectors(
+            &SessionSectorFrames { arena: &self.arena },
+            root,
+            &mut self.vehicle_sectors,
+        )
+        .map_err(|error| format!("Init cbEnumSectors stopped: {error:?}"))
+    }
+
+    /// `PhysicsClear` in `Init` order, GAME 0x5a0a17-0x5a0c2c
+    /// (`game.cpp:298-328` at pin fe7e746): the `C_public_physics` static
+    /// erase (0x564750 copy + empty destroy 0x4d2040 on 0x63d78c), the
+    /// `C_game` member stores and clears, then the `C_actor::posscoll_frame`
+    /// erase (0x4bc2c0 on 0x63d2a4). Pure stores and POD erases: nothing
+    /// here can stop once admitted, and nothing an entry names is released.
+    pub fn physics_clear_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        self.public_physics_unknown_63d78c.clear();
+        self.game_inline.init_physics_clear(&mut self.game_lists);
+        self.posscoll_frames.clear();
+        Ok(())
+    }
+
+    /// `SoundAndLightness` in `Init` order, GAME 0x5a0c4a-0x5a0c93
+    /// (`game.cpp:333-337` at pin fe7e746): `sound_arena.Init()` (0x55fcf0
+    /// with `ecx = this+0x2b3c`), `LightnessClear()`, `lightness_next = 0`,
+    /// the `invisible_actors` erase, then `mafiaIndicators.RadarClear()`
+    /// (0x5fa4a0 with `ecx = 0x6bf980`). Without the HUD owner the step
+    /// stops at `RadarClear` with the earlier stores kept.
+    pub fn sound_and_lightness_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        self.sound_arena.init();
+        self.game_inline.init_lightness_clear(&mut self.game_lists);
+        self.indicators
+            .as_mut()
+            .ok_or("Init RadarClear (GAME 0x5fa4a0) mafiaIndicators owner unavailable")?
+            .radar_clear();
+        Ok(())
+    }
+
+    /// The live `C_game::sound_arena` owner.
+    pub fn sound_arena(&self) -> &crate::game_housekeeping::SoundArena {
+        &self.sound_arena
+    }
+
+    /// The `C_public_physics::unknown_63d78c` and `C_actor::posscoll_frame`
+    /// statics.
+    pub fn physics_clear_statics(&self) -> (&[u32], &[crate::actor_registry::PossCollEntry]) {
+        (&self.public_physics_unknown_63d78c, &self.posscoll_frames)
+    }
+
+    /// The live `C_Vehicle` sector statics owner.
+    pub fn vehicle_sectors(&self) -> &crate::vehicle_owner::VehicleSectorStatics {
+        &self.vehicle_sectors
+    }
+
+    /// Mutable test access to the `C_Vehicle` sector statics while their
+    /// script writer stays unported.
+    #[cfg(test)]
+    pub(crate) fn vehicle_sectors_mut(
+        &mut self,
+    ) -> &mut crate::vehicle_owner::VehicleSectorStatics {
+        &mut self.vehicle_sectors
     }
 
     /// The live `C_player` statics owner.
@@ -2244,6 +2374,11 @@ impl MissionLoadSession {
         // before the scene closes; the level names that Scene's frames.
         self.discard.phase = MissionDiscardPhase::Collision;
         self.collision.game_done();
+        // Native `C_game::Done` clears `v_sound_sector` (game.cpp:1404) and
+        // `DoneIntern` (GAME 0x5a4d20) `v_light_sector` (game.cpp:1446)
+        // while the scene is still open; their keys name its sectors.
+        self.vehicle_sectors.clear_sound_sectors();
+        self.vehicle_sectors.clear_light_sectors();
         self.discard.phase = MissionDiscardPhase::Navigation;
         self.navigation
             .destroy()

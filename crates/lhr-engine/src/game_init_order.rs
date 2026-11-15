@@ -277,12 +277,14 @@ where
 /// with the installed HUD, flag stores), the `AIManager` police shift begin
 /// and groups/follow/fight `Init`, the `PlayerNavi` progress mark,
 /// navigation-point clear and car-damage latch, the `VehicleSectors`
-/// `intern_load` gate, police init,
-/// traffic flags, the base-cache `IsOpen` read, and the `MarkInitialized`
+/// `intern_load` gate with the `C_Vehicle` sector clears and the
+/// `cbEnumSectors` walk of the primary sector, the `PhysicsClear` span,
+/// police init, traffic flags, the sound-arena/lightness/radar clears,
+/// the mission-global program `GameInit` and the `GameInitStart` run, the
+/// base-cache `IsOpen` read, and the `MarkInitialized`
 /// flag write. Every other boundary returns `Err` with its step prefix and
 /// preserves the reached live prefix: the driver stops at the first
-/// unowned step. Actor `GameInit`, scripts and rendering never run
-/// here; program execution remains in the headless probe. This is the owned
+/// unowned step. Actor `GameInit` and rendering never run here. This is the owned
 /// `Init` prefix without claiming gameplay.
 impl InitOperations for crate::mission_load_session::MissionLoadSession {
     type Error = SessionInitError;
@@ -304,22 +306,24 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::VehicleSectors => self
                 .vehicle_sectors_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::PhysicsClear => Err(SessionInitError::unavailable(step, "physics clear")),
+            InitStep::PhysicsClear => self
+                .physics_clear_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
             InitStep::PoliceGameInit => self
                 .apply_police_game_init_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
             InitStep::TrafficFlags => self
                 .apply_traffic_flags_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::SoundAndLightness => {
-                Err(SessionInitError::unavailable(step, "sound/lightness"))
-            }
-            InitStep::GlobalProgramStart => {
-                Err(SessionInitError::unavailable(step, "program-runtime"))
-            }
-            InitStep::IndicatorsGameInit => Err(SessionInitError::unavailable(
+            InitStep::SoundAndLightness => self
+                .sound_and_lightness_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::GlobalProgramStart => self
+                .global_program_start_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::IndicatorsGameInit => Err(SessionInitError::prefixed(
                 step,
-                "indicators HUD (IndicatorsState::game_init_texture_plan/apply, GAME 0x5f73c0; no HUD field on this session yet)",
+                "mafiaIndicators.GameInit (GAME 0x5f73c0, called at 0x5a0cb8) reads mafiaLoadSave.settings.speedometer_mph, which has no session owner",
             )),
             InitStep::EffectsStart => Err(SessionInitError::unavailable(step, "effects start")),
             InitStep::DiffClear => Err(SessionInitError::unavailable(step, "diff pools")),

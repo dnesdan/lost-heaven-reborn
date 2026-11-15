@@ -143,14 +143,71 @@ impl VehicleOwnerState {
     }
 }
 
+/// The `C_Vehicle::v_light_sector` (GAME 0x63d890) and `v_sound_sector`
+/// (GAME 0x63d880) statics (PS2 names per mafia-re
+/// `game/vehicles/C_Vehicle.h:152-153`): the sectors with projector lights
+/// and with traffic sounds. Process statics natively; owned per mission
+/// session here, like the other session-scoped `Init` statics.
+///
+/// Entries borrow the session scene's sector frames: they never keep a
+/// frame alive. Native `C_game::Done` clears `v_sound_sector`
+/// (`game.cpp:1404`) and `DoneIntern` clears `v_light_sector`
+/// (`game.cpp:1446`), so session disposal empties both before the scene
+/// closes and no key outlives its frame.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VehicleSectorStatics {
+    light: Vec<crate::frame_transform::FrameKey>,
+    sound: Vec<crate::frame_transform::FrameKey>,
+}
+
+impl VehicleSectorStatics {
+    /// `v_light_sector` in insertion order.
+    pub fn light_sectors(&self) -> &[crate::frame_transform::FrameKey] {
+        &self.light
+    }
+
+    /// `v_sound_sector` in insertion order.
+    pub fn sound_sectors(&self) -> &[crate::frame_transform::FrameKey] {
+        &self.sound
+    }
+
+    /// `v_light_sector.clear()`: the POD erase(begin, end) GAME 0x44b270
+    /// (called at 0x5a09e8 with `ecx = 0x63d890`); no element is released.
+    pub fn clear_light_sectors(&mut self) {
+        self.light.clear();
+    }
+
+    /// `v_sound_sector.clear()`: the same erase (called at 0x5a09ff with
+    /// `ecx = 0x63d880`).
+    pub fn clear_sound_sectors(&mut self) {
+        self.sound.clear();
+    }
+
+    /// Stage a `v_sound_sector` entry through `AddSectorForSounds`
+    /// (GAME 0x4ce760) while its script writer `SETTRAFFSECTORSND` stays
+    /// unported.
+    #[cfg(test)]
+    pub(crate) fn add_sector_for_sounds(&mut self, sector: crate::frame_transform::FrameKey) {
+        add_sector_for_sounds(&mut self.sound, sector);
+    }
+}
+
+impl crate::game_housekeeping::SectorLightBackend<crate::frame_transform::FrameKey>
+    for VehicleSectorStatics
+{
+    fn add_sector_for_projector_lights(&mut self, sector: crate::frame_transform::FrameKey) {
+        add_sector_for_projector_lights(&mut self.light, sector);
+    }
+}
+
 /// FUNCTION: GAME 0x4ce560 (`C_Vehicle::AddSectorForProjectorLights`,
 /// mafia-re `game/vehicles/C_Vehicle.cpp:234`).
 ///
-/// Dedup-push over the caller's projection of the `v_light_sector` static
-/// (mafia-re `game/vehicles/C_Vehicle.h:152`), scanned from the back; an
-/// already listed sector is a no-op. Sector tick and native `I3D_sector`
-/// lifetime are DEFERRED.
-pub fn add_sector_for_projector_lights(sectors: &mut Vec<u32>, sector: u32) {
+/// Dedup-push over the `v_light_sector` static (mafia-re
+/// `game/vehicles/C_Vehicle.h:152`, owned by [`VehicleSectorStatics`]),
+/// scanned from the back; an already listed sector is a no-op. Sector
+/// identity is the caller's; native `I3D_sector` lifetime is DEFERRED.
+pub fn add_sector_for_projector_lights<S: Copy + Eq>(sectors: &mut Vec<S>, sector: S) {
     for index in (0..sectors.len()).rev() {
         if sectors[index] == sector {
             return;
@@ -162,9 +219,9 @@ pub fn add_sector_for_projector_lights(sectors: &mut Vec<u32>, sector: u32) {
 /// FUNCTION: GAME 0x4ce760 (`C_Vehicle::AddSectorForSounds`, mafia-re
 /// `game/vehicles/C_Vehicle.cpp:248`).
 ///
-/// The same dedup-push over the caller's projection of the `v_sound_sector`
-/// static (mafia-re `game/vehicles/C_Vehicle.h:153`).
-pub fn add_sector_for_sounds(sectors: &mut Vec<u32>, sector: u32) {
+/// The same dedup-push over the `v_sound_sector` static (mafia-re
+/// `game/vehicles/C_Vehicle.h:153`, owned by [`VehicleSectorStatics`]).
+pub fn add_sector_for_sounds<S: Copy + Eq>(sectors: &mut Vec<S>, sector: S) {
     for index in (0..sectors.len()).rev() {
         if sectors[index] == sector {
             return;
@@ -256,5 +313,26 @@ mod tests {
         assert_eq!(sectors, vec![7, 9]);
         add_sector_for_sounds(&mut sectors, 11);
         assert_eq!(sectors, vec![7, 9, 11]);
+    }
+
+    #[test]
+    fn sector_statics_route_registration_and_clear_each_static_alone() {
+        use crate::frame_transform::FrameKey;
+        use crate::game_housekeeping::SectorLightBackend;
+        let mut statics = VehicleSectorStatics::default();
+        statics.add_sector_for_projector_lights(FrameKey(3));
+        statics.add_sector_for_projector_lights(FrameKey(4));
+        statics.add_sector_for_projector_lights(FrameKey(3));
+        statics.add_sector_for_sounds(FrameKey(5));
+        // `cbEnumSectors` registers into v_light_sector only, deduplicated.
+        assert_eq!(statics.light_sectors(), [FrameKey(3), FrameKey(4)]);
+        assert_eq!(statics.sound_sectors(), [FrameKey(5)]);
+        statics.clear_light_sectors();
+        assert!(statics.light_sectors().is_empty());
+        assert_eq!(statics.sound_sectors(), [FrameKey(5)]);
+        statics.add_sector_for_projector_lights(FrameKey(6));
+        statics.clear_sound_sectors();
+        assert!(statics.sound_sectors().is_empty());
+        assert_eq!(statics.light_sectors(), [FrameKey(6)]);
     }
 }

@@ -10056,7 +10056,7 @@
       "name": "S_hlp::cbEnumSectors",
       "symbol": "lhr_engine::game_housekeeping::cb_enum_sectors",
       "tier": "differential",
-      "evidence": "REA ev_d159f91f89 + Ghidra body 21 insns/5 bbs, cbEnumSectors; pin tests housekeeping 20 pass"
+      "evidence": "REA ev_d159f91f89 + ev_4196a15480 Ghidra body 21 insns/5 bbs: type word cmp [+0x110],5 then 0x4ce560, count read once [+0x11c], GetChild vtable+0x30 from count-1 down; live session walk from scene primary_sector (Init 0x5a0a04-0x5a0a12, ev_920ab8ecce); pin tests order/NULL-child/read-failure stops + MISE01 Init probe"
     },
     {
       "binary": "Game.exe",
@@ -17662,6 +17662,15 @@
       "symbol": "lhr_engine::game_loadsave_lifecycle::LoadProgressScreen::on_create",
       "tier": "differential",
       "evidence": "REA ev_e5206d5bb7 + Ghidra body 0x5e3b90..0x5e3cc7: title SetTextID(0x190)/(0x191,0x2ce), SetString(0x64 loadbok.tga)/(0x66 mafia.tga), new[0x1f40], dtaOpen tables\\load.def (jl skip), dtaRead 0x1f40, read/0x44 via 0xf0f0f0f1, per-entry reread of [esi+0x3c] else act_mission+0x68, _stricmp 0x61d0b0, SetString(0x65, entry+0x20), nonzero name_id (+0x40) SetTextID(0xc8), SetHidden(1000/2000/3000,false); mafia-re g_m_func.cpp:1017-1058; pin tests (order, first match, case folding, act-name reread, NULL name, bounded reads) + MISE01 probe picture"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x15fcf0",
+      "va": "0x55fcf0",
+      "name": "soundArena::Init",
+      "symbol": "lhr_engine::game_housekeeping::SoundArena::init",
+      "tier": "differential",
+      "evidence": "REA ev_db81b55a45 Ghidra body 10 insns: rep stosd 0x80 zero dwords at +0x0, then +0x200=0, +0x204=0; called from C_game::Init at 0x5a0c57 with ecx=this+0x2b3c; mafia-re tools.cpp:399-404; pin tests presented Init SoundAndLightness (cleared after staging, kept on RadarClear stop) + MISE01 probe"
     }
   ],
   "vm": {

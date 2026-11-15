@@ -1426,6 +1426,12 @@ impl IndicatorsState {
             self.overlay_opaque,
         )
     }
+    /// Test staging of one radar car row while `RadarAddCar` stays a STUB.
+    #[cfg(test)]
+    pub(crate) fn stage_radar_car(&mut self, car: u32, color: u32) {
+        self.radar_cars.push(RadarCar { car, color });
+    }
+
     pub fn radar_car_count(&self) -> usize {
         self.radar_cars.len()
     }

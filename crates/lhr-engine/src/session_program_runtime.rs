@@ -579,3 +579,153 @@ impl MissionLoadSession {
         )
     }
 }
+
+/// Host dispatch guard for `Init`'s `GlobalProgramRun("GameInitStart")`.
+/// Not native behavior: an exhausted budget stops the run as an error,
+/// never as a completed script.
+pub const GAME_INIT_DISPATCH_BUDGET: usize = 100_000;
+
+/// The C runtime locale `Init`'s scripts run under: neither Game.exe nor
+/// LS3DF.dll changes it from the default `"C"` before `C_game::Init`.
+pub const GAME_INIT_PROGRAM_LOCALES: ProgramWorldLocales = ProgramWorldLocales {
+    game_default_c_locale: true,
+    ls3df_default_c_locale: true,
+};
+
+/// `C_game::GlobalProgramRun` (GAME 0x5afd50) as the required Game-global
+/// owner of `C_mission::GlobalProgramRun` (GAME 0x540580). It reads the
+/// live `C_game::diff_programs` through the session effects when the
+/// native call reads it. A matching diff program would need its
+/// `CallSubroutine`, which has no program owner (its only writer
+/// `LoadDiffData`, GAME 0x5ae480, is unported), so a match stops the run
+/// instead of being reported as handled.
+pub struct SessionGameDiffPrograms;
+
+struct MatchedDiffProgram(Option<usize>);
+
+impl crate::game_housekeeping::DiffProgramBackend for MatchedDiffProgram {
+    fn call_subroutine(&mut self, index: usize) {
+        self.0 = Some(index);
+    }
+}
+
+impl<'a, D: MissionProgramDiagnostic> GameGlobalProgramWorldRunner<SessionProgramEffects<'a>, D>
+    for SessionGameDiffPrograms
+{
+    fn run_game_global(
+        &mut self,
+        _: &mut crate::mission_content_loading::MissionContentOwner,
+        name: &[u8],
+        _: &mut DispatchBudget,
+        context: &mut MissionProgramWorldContext<'_, SessionProgramEffects<'a>, D>,
+    ) -> Result<bool, String> {
+        let name = std::str::from_utf8(name)
+            .map_err(|_| "C_game::GlobalProgramRun: name outside the ASCII domain".to_string())?;
+        let mut matched = MatchedDiffProgram(None);
+        let handled = crate::game_housekeeping::global_program_run(
+            context.effects_mut().game.diff_programs(),
+            name,
+            &mut matched,
+        );
+        match (handled, matched.0) {
+            (false, _) => Ok(false),
+            (true, index) => Err(format!(
+                "C_game::GlobalProgramRun (GAME 0x5afd50) matched diff program {index:?}, whose CallSubroutine has no program owner"
+            )),
+        }
+    }
+}
+
+/// `Init`'s script diagnostic boundary: a `MessageBeep` reached while
+/// `GameInitStart` runs has no host owner here, so it stops the run.
+pub struct GameInitProgramDiagnostic;
+
+impl MissionProgramDiagnostic for GameInitProgramDiagnostic {
+    fn message_beep(
+        &mut self,
+        _: &mut ActorWorld,
+        _: &mut ModelArena,
+        _: RuntimeView<'_>,
+        _: &mut Option<crate::script_scheduler::ActorReferenceId>,
+        _: &mut FrameReferenceId,
+        argument: i32,
+    ) -> Result<(), crate::script_lookup::LookupError> {
+        Err(crate::script_lookup::LookupError::Backend(format!(
+            "MessageBeep({argument}) during Init's GameInitStart has no host owner"
+        )))
+    }
+}
+
+/// What `Init`'s `GlobalProgramStart` did with the mission-global
+/// programs: the single owner of their `GameInit` initialization and of
+/// the one `GameInitStart` run. Host diagnostics read it instead of
+/// initializing or running the same programs a second time.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GameInitPrograms {
+    /// `C_mission::GlobalProgramGameInit` (GAME 0x540520) completed.
+    pub initialized: bool,
+    /// The `GlobalProgramRun("GameInitStart")` result, once reached.
+    pub game_init_start: Option<Result<NamedGlobalProgramOutcome, String>>,
+    /// Dispatches left in the host guard after that run.
+    pub budget_remaining: Option<usize>,
+}
+
+impl MissionLoadSession {
+    /// `GlobalProgramStart` in `Init` order (GAME 0x5a0c98-0x5a0cae,
+    /// `game.cpp:338-340` at pin fe7e746): `C_mission::GlobalProgramGameInit`
+    /// (GAME 0x540520) initializes the mission-global programs from the
+    /// last, then `C_mission::GlobalProgramRun("GameInitStart")` (GAME
+    /// 0x540580, string 0x6376e0) asks the game's own `diff_programs` first
+    /// and falls back to the mission's programs. A failed initialization
+    /// keeps the programs initialized before it; the run keeps its reached
+    /// prefix. The retained runtimes belong to the session until
+    /// `discard_global_program_runtimes_host` before terminal disposal.
+    pub fn global_program_start_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        let mut budget = DispatchBudget::new(GAME_INIT_DISPATCH_BUDGET)
+            .map_err(|error| format!("Init GameInitStart dispatch guard: {error:?}"))?;
+        self.run_global_program_start(&mut budget, &mut GameInitProgramDiagnostic)
+            .map(|_| ())
+    }
+
+    /// The `GlobalProgramGameInit` + `GlobalProgramRun("GameInitStart")`
+    /// pair over the session's programs, recorded in
+    /// [`MissionLoadSession::game_init_programs`]. It is the single owner
+    /// of that pair: a second call refuses before touching any program,
+    /// whether `Init` or a host diagnostic made the first.
+    pub fn run_global_program_start<D>(
+        &mut self,
+        budget: &mut DispatchBudget,
+        diagnostic: &mut D,
+    ) -> Result<NamedGlobalProgramOutcome, String>
+    where
+        D: MissionProgramDiagnostic,
+        SessionGameDiffPrograms: for<'a> GameGlobalProgramWorldRunner<SessionProgramEffects<'a>, D>,
+    {
+        if self.game_init_programs.initialized {
+            return Err("GlobalProgramGameInit already ran for these programs".into());
+        }
+        self.initialize_owned_global_programs()
+            .map_err(|error| format!("GlobalProgramGameInit (GAME 0x540520): {error:?}"))?;
+        self.game_init_programs.initialized = true;
+        let result = self
+            .run_owned_global_program_in_world(
+                b"GameInitStart",
+                &mut SessionGameDiffPrograms,
+                budget,
+                diagnostic,
+                GAME_INIT_PROGRAM_LOCALES,
+            )
+            .map_err(|error| {
+                format!("GlobalProgramRun(\"GameInitStart\") (GAME 0x540580): {error:?}")
+            });
+        self.game_init_programs.game_init_start = Some(result.clone());
+        self.game_init_programs.budget_remaining = Some(budget.remaining());
+        result
+    }
+
+    /// What `Init`'s `GlobalProgramStart` did with the global programs.
+    pub fn game_init_programs(&self) -> &GameInitPrograms {
+        &self.game_init_programs
+    }
+}

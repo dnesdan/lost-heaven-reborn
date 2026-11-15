@@ -7,8 +7,7 @@ use lhr_engine::{
     game_init_order::{InitAttempt, InitRunError, PresentedFrame},
     host_scene_adapters::InspectionScreen,
     mission_content_loading::{
-        GameGlobalProgramWorldRunner, MissionContentOwner, MissionProgramDiagnostic,
-        MissionProgramWorldContext, NamedGlobalProgramOutcome, ProgramWorldLocales,
+        MissionProgramDiagnostic, NamedGlobalProgramOutcome, ProgramWorldLocales,
     },
     mission_load_session::{DetectorScheduleFrontier, MissionLoadCause, MissionLoadSession},
     mission_new_game_order::{NewMissionAttempt, NewMissionRequest, NewMissionRunError},
@@ -16,7 +15,7 @@ use lhr_engine::{
     mission_world_completeness,
     model_loading::{ModelArena, ModelError},
     native_precision::Pc24PrecisionState,
-    original_program::{RuntimeBackend, RuntimeView},
+    original_program::RuntimeView,
     scene_ownership::SceneKey,
     scene_projection::SceneRenderBackend,
     script_lookup::LookupError,
@@ -121,25 +120,6 @@ impl MissionProgramDiagnostic for ProbeDiagnostic {
     }
 }
 
-/// Empty game-global runner: the probe ships no game programs, so the
-/// mission fallback always decides. Returning `false` is the absence
-/// branch, never a handled claim.
-struct ProbeGame;
-
-impl<B: RuntimeBackend, D: MissionProgramDiagnostic> GameGlobalProgramWorldRunner<B, D>
-    for ProbeGame
-{
-    fn run_game_global(
-        &mut self,
-        _: &mut MissionContentOwner,
-        _: &[u8],
-        _: &mut DispatchBudget,
-        _: &mut MissionProgramWorldContext<'_, B, D>,
-    ) -> Result<bool, String> {
-        Ok(false)
-    }
-}
-
 struct ScriptRunReport {
     outcome: NamedGlobalProgramOutcome,
     beeps: usize,
@@ -222,37 +202,42 @@ fn run_schedule_ticks(
 }
 
 /// Owned program init plus the single `GameInitStart` run over the live
-/// session owners as a separate dependency diagnostic. This does not bypass
+/// session owners as a separate dependency diagnostic. When the ordered
+/// `Init` already reached `GlobalProgramStart`, that step is the single
+/// owner of both: its recorded outcome and remaining dispatch guard are
+/// reused and nothing is initialized or run again. This does not bypass
 /// earlier missing Init owners in a playable startup path. Runtimes
 /// are discarded host-side afterwards so terminal disposal sees no retained
 /// program state; this is Init, not Done.
 fn run_game_init_scripts(session: &mut MissionLoadSession) -> Result<ScriptRunReport, String> {
     let mut diagnostic = ProbeDiagnostic::default();
-    let mut game = ProbeGame;
-    let mut budget =
-        DispatchBudget::new(PROBE_DISPATCH_BUDGET).map_err(|error| format!("{error:?}"))?;
+    let record = session.game_init_programs().clone();
+    let budget = DispatchBudget::new(record.budget_remaining.unwrap_or(PROBE_DISPATCH_BUDGET))
+        .map_err(|error| format!("dispatch guard after Init's GameInitStart: {error:?}"));
+    let mut budget = match budget {
+        Ok(budget) => budget,
+        Err(error) => {
+            let discard = session
+                .discard_global_program_runtimes_host()
+                .map_err(|discard| format!("{error}; runtimes discard: {discard:?}"));
+            return Err(discard.err().unwrap_or(error));
+        }
+    };
     // Program runtimes must be discarded before reporting no matter how the
     // run below ends; otherwise terminal disposal refuses the retained state
     // and masks the real outcome.
-    let init = session
-        .initialize_owned_global_programs()
-        .map_err(|error| format!("{error:?}"));
-    let outcome = match &init {
-        Ok(()) => Some(
-            session
-                .run_owned_global_program_in_world(
-                    b"GameInitStart",
-                    &mut game,
-                    &mut budget,
-                    &mut diagnostic,
-                    ProgramWorldLocales {
-                        game_default_c_locale: true,
-                        ls3df_default_c_locale: true,
-                    },
-                )
-                .map_err(|error| format!("{error:?}")),
-        ),
-        Err(_) => None,
+    let (init, outcome) = if record.initialized {
+        let outcome = record.game_init_start.clone().unwrap_or_else(|| {
+            Err("the global programs were initialized but GameInitStart was not reached".into())
+        });
+        (Ok(()), Some(outcome))
+    } else {
+        // Recorded on the session: a later ordered Init refuses to
+        // initialize the same programs again.
+        (
+            Ok(()),
+            Some(session.run_global_program_start(&mut budget, &mut diagnostic)),
+        )
     };
     let discard = session
         .discard_global_program_runtimes_host()
@@ -506,7 +491,7 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
     let lists = session.game_lists();
     let ai = session.ai_manager();
     format!(
-        "score={:?} HUD bonus={:?} camera_rot_repair={} heal_cheat={} stacks_clear={} death_fade_time={} actor_lightness={} lists(stop_sounds, paused_i_shows, free_shadow_names, unknown_140)=({}, {}, {}, {}) AIManager(police unknown_24={:#x} speed_factor={} groups unlock_time={:#x} follow check_time={} records police/groups/follow/fight={}/{}/{}/{})",
+        "score={:?} HUD bonus={:?} camera_rot_repair={} heal_cheat={} stacks_clear={} death_fade_time={} actor_lightness={} lists(stop_sounds, paused_i_shows, free_shadow_names, unknown_140)=({}, {}, {}, {}) AIManager(police unknown_24={:#x} speed_factor={} groups unlock_time={:#x} follow check_time={} records police/groups/follow/fight={}/{}/{}/{}) C_Vehicle sectors light/sound={}/{} sound_play_timer period={} sound_arena cleared={} lightness/invisible_actors={}/{}",
         game.score(),
         session.indicators().map(|hud| hud.bonus_count()),
         game.camera_rot_repair(),
@@ -525,7 +510,13 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
         ai.police.actions().len(),
         ai.groups.groups().len(),
         ai.follow.groups().len(),
-        ai.fight.parties().len()
+        ai.fight.parties().len(),
+        session.vehicle_sectors().light_sectors().len(),
+        session.vehicle_sectors().sound_sectors().len(),
+        game.sound_counters().3.period_ms(),
+        session.sound_arena().is_cleared(),
+        lists.lightness.len(),
+        lists.invisible_actors.len()
     )
 }
 
@@ -851,8 +842,8 @@ pub fn run(
     // Independent ordered Init inspection AFTER the GameInitStart script
     // diagnostic above. It starts with the actual retained Scene, but is not
     // a continuation of that diagnostic or a successful full GameInit. In
-    // particular the true Init driver stops before GlobalProgramStart while
-    // this command separately exercises that script with session-owned effects.
+    // particular, when the diagnostic initialized the global programs first,
+    // this Init stops at GlobalProgramStart instead of initializing them again.
     // Keep the first failure and reached owner state visible without changing
     // whether an otherwise complete source-load probe exits successfully.
     if load.is_ok() && !new_mission.init().entered() {

@@ -1332,21 +1332,70 @@ fn open_without_the_hud_stops_at_the_loading_screen_before_the_world() {
 }
 
 #[test]
-fn vehicle_sectors_reads_the_live_intern_load() {
-    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+fn vehicle_sectors_rebuild_the_light_sectors_from_the_live_primary_sector() {
+    use crate::frame_transform::FrameKey;
+    use crate::game_housekeeping::SectorLightBackend;
+    let fixture = Fixture::new(
+        Some(&world(&[dummy(0, b"world part"), sector()])),
+        Some(&scene2(&[])),
+        None,
+    );
     let mut session = fixture.session();
     assert_eq!(open(&mut session, &mut renderer()), Ok(OpenResult::Opened));
     // Open's ResetIntern: intern_load set, intern_loaded clear.
     assert!(session.game_inline.intern_load());
     assert!(!session.game_inline.intern_loaded());
-    assert!(session
-        .vehicle_sectors_for_init()
-        .unwrap_err()
-        .starts_with("Init intern_load is set (Open's ResetIntern)"));
-    // A clear intern_load skips the span (jz 0x5a0a17).
+    let scene = session.scene().unwrap().unwrap();
+    let primary = session.arena.scene_primary_sector(scene).unwrap().frame();
+    // Entries a previous fill (or the script writer) left behind.
+    let stale = FrameKey(u32::MAX - 1);
+    session
+        .vehicle_sectors_mut()
+        .add_sector_for_projector_lights(stale);
+    session.vehicle_sectors_mut().add_sector_for_sounds(stale);
+    assert_eq!(session.vehicle_sectors_for_init(), Ok(()));
+    let named = |key| session.arena.frame_name_or_empty(key).unwrap().to_vec();
+    // GAME 0x5a09d6-0x5a0a12: both statics erased, then cbEnumSectors over
+    // `scene->primary_sector`: the primary sector registers itself, then
+    // its sector child; the dummy world part is walked but is no sector.
+    let sectors = session.vehicle_sectors();
+    assert_eq!(sectors.light_sectors().len(), 2);
+    assert_eq!(sectors.light_sectors()[0], primary);
+    let names: Vec<_> = sectors
+        .light_sectors()
+        .iter()
+        .map(|key| named(*key))
+        .collect();
+    assert_eq!(names, [&b"Primary sector"[..], b"synthetic sector"]);
+    assert!(sectors.sound_sectors().is_empty());
+    // The keys borrow the scene's frames: disposal empties both statics
+    // before the scene closes, and every owner reaches zero.
+    discard(&mut session);
+    assert!(session.vehicle_sectors().light_sectors().is_empty());
+    assert!(session.vehicle_sectors().sound_sectors().is_empty());
+}
+
+#[test]
+fn vehicle_sectors_skip_the_rebuild_when_intern_load_is_clear() {
+    use crate::frame_transform::FrameKey;
+    use crate::game_housekeeping::SectorLightBackend;
+    let fixture = Fixture::new(Some(&world(&[sector()])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    assert_eq!(open(&mut session, &mut renderer()), Ok(OpenResult::Opened));
+    let stale = FrameKey(u32::MAX - 1);
+    session
+        .vehicle_sectors_mut()
+        .add_sector_for_projector_lights(stale);
+    session.vehicle_sectors_mut().add_sector_for_sounds(stale);
+    // A clear intern_load skips the whole span (`jz 0x5a0a17`): neither
+    // static is erased and nothing is walked.
     session.game_inline = crate::game_housekeeping::GameInlineState::default();
     assert_eq!(session.vehicle_sectors_for_init(), Ok(()));
+    assert_eq!(session.vehicle_sectors().light_sectors(), [stale]);
+    assert_eq!(session.vehicle_sectors().sound_sectors(), [stale]);
     discard(&mut session);
+    assert!(session.vehicle_sectors().light_sectors().is_empty());
+    assert!(session.vehicle_sectors().sound_sectors().is_empty());
 }
 
 /// A camera-less Open device whose `refuse_at`-th loading-screen Present
