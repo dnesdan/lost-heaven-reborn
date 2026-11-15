@@ -28,7 +28,19 @@ impl Fixture {
 
     fn session(&self) -> MissionLoadSession {
         let installation = lhr_assets::Installation::open(&self.0).unwrap();
-        MissionLoadSession::new(installation, Pc24PrecisionState::new(false)).unwrap()
+        let mut session =
+            MissionLoadSession::new(installation, Pc24PrecisionState::new(false)).unwrap();
+        // Open's loading screen reads mafiaIndicators.GetLanguage.
+        session
+            .install_indicators(crate::indicators::IndicatorsState::constructed(
+                crate::indicators::TimerClock {
+                    hour: 9,
+                    minute: 0,
+                    second: 0,
+                },
+            ))
+            .unwrap();
+        session
     }
 }
 
@@ -185,11 +197,15 @@ fn police_begin_shift_requires_the_open_prefix_and_keeps_the_manager() {
     // screen exists and `_show_progress_` is the native no-op.
     assert_eq!(session.load_save_progress().progress, None);
     assert_eq!(session.execute(InitStep::PlayerNavi), Ok(()));
+    // Open's inline ResetIntern set intern_load (+0x363c) and cleared
+    // intern_loaded; the gate reads it and reaches the unowned sectors.
+    assert!(session.game_state().intern_load());
+    assert!(!session.game_state().intern_loaded());
     let error = session.execute(InitStep::VehicleSectors).unwrap_err();
     assert!(
         error
             .0
-            .starts_with("VehicleSectors: unavailable Init intern_load gate"),
+            .starts_with("VehicleSectors: Init intern_load is set (Open's ResetIntern)"),
         "{error}"
     );
 }
@@ -228,7 +244,7 @@ fn player_navi_without_a_loading_screen_clears_the_player_statics() {
 }
 
 #[test]
-fn player_navi_with_a_loading_screen_stops_at_its_uncreated_menu() {
+fn unpresented_player_navi_with_a_loading_screen_stops_at_its_present() {
     use crate::game_loadsave_lifecycle::LoadProgressScreen;
     let fixture = Fixture::new();
     fixture.write("missions/mise01/scene.4ds", &[]);
@@ -240,15 +256,15 @@ fn player_navi_with_a_loading_screen_stops_at_its_uncreated_menu() {
     seed_player_statics(&mut session);
     let seeded = session.player_statics();
     let error = session.execute(InitStep::PlayerNavi).unwrap_err();
-    // SetProgressGameInit(0.0) over mission_part 0.7 yields the bar value
-    // 0.7; SetRawProgress has no created menu to write it to.
+    // SetProgressGameInit(0.0) runs (an uncreated screen has no bar, the
+    // native SetFloat no-op); Present needs the host presentation the
+    // unpresented Init has not.
     assert!(
-        error
-            .0
-            .starts_with("PlayerNavi: Init _show_progress_(0.0): loading-screen SetRawProgress(0.7) needs the created loadprogress menu bar"),
+        error.0.starts_with(
+            "PlayerNavi: Init _show_progress_(0.0): GM_LoadProgress::Present (GAME 0x5e3d40) needs host presentation"
+        ),
         "{error}"
     );
-    assert!(error.0.contains("cbLoadScene"), "{error}");
     // The later stores are not reached and the screen stays live.
     assert_eq!(session.player_statics(), seeded);
     assert_eq!(

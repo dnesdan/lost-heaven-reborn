@@ -8,6 +8,23 @@ use crate::scene_projection::{SceneRenderBackend, NOT_INITIALIZED};
 struct Renderer<F> {
     calls: usize,
     action: F,
+    /// Loading-screen device calls: (STEP SetState count, presented bars).
+    alpha_blend_states: usize,
+    loading_presents: Vec<f32>,
+}
+
+impl<F> crate::load_scene_callback::LoadingScreenDevice for Renderer<F> {
+    fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+        self.alpha_blend_states += 1;
+        Ok(())
+    }
+    fn present_loading_screen(
+        &mut self,
+        frame: crate::load_scene_callback::LoadingScreenFrame<'_>,
+    ) -> Result<(), String> {
+        self.loading_presents.push(frame.screen.raw_progress());
+        Ok(())
+    }
 }
 
 impl<F> SceneRenderBackend for Renderer<F>
@@ -23,6 +40,8 @@ where
 fn renderer() -> Renderer<impl FnMut(&ModelArena, SceneKey) -> Result<u32, ModelError>> {
     Renderer {
         calls: 0,
+        alpha_blend_states: 0,
+        loading_presents: Vec::new(),
         action: |arena: &ModelArena, scene| {
             assert!(arena.scene(scene).is_ok());
             assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
@@ -34,7 +53,7 @@ fn renderer() -> Renderer<impl FnMut(&ModelArena, SceneKey) -> Result<u32, Model
 
 fn open(
     session: &mut MissionLoadSession,
-    renderer: &mut impl SceneRenderBackend,
+    renderer: &mut (impl SceneRenderBackend + crate::load_scene_callback::LoadingScreenDevice),
 ) -> Result<OpenResult, MissionSourceOpenError> {
     session.open_source_in_order(
         &mut OpenAttempt::default(),
@@ -350,6 +369,8 @@ fn ordered_source_open_retains_real_world_actors_programs_and_restarts_cleanly()
         let audio = session.audio().clone();
         let mut render = Renderer {
             calls: 0,
+            alpha_blend_states: 0,
+            loading_presents: Vec::new(),
             action: |arena: &ModelArena, scene| {
                 assert_eq!(audio.master_gain().unwrap(), 0.0);
                 assert_eq!(arena.scene(scene).unwrap().frames().len(), 1);
@@ -556,6 +577,8 @@ fn ordered_source_open_reads_scene2_once_after_render_callback_changes_it() {
     let mut session = fixture.session();
     let mut render = Renderer {
         calls: 0,
+        alpha_blend_states: 0,
+        loading_presents: Vec::new(),
         action: |arena: &ModelArena, scene| {
             assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
             std::fs::write(
@@ -590,6 +613,8 @@ fn ordered_source_open_render_error_and_unwind_keep_mute_precision_and_admission
         let expected_token = token.clone();
         let mut render = Renderer {
             calls: 0,
+            alpha_blend_states: 0,
+            loading_presents: Vec::new(),
             action: |arena: &ModelArena, scene| {
                 assert_eq!(audio.master_gain().unwrap(), 0.0);
                 assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
@@ -642,6 +667,8 @@ fn ordered_source_open_cache_tail_error_keeps_loaded_sources_unadmitted() {
     session.set_open_configured_volume(0.5).unwrap();
     let mut render = Renderer {
         calls: 0,
+        alpha_blend_states: 0,
+        loading_presents: Vec::new(),
         action: |_: &ModelArena, _| {
             std::fs::remove_file(&cache).unwrap();
             std::fs::create_dir(&cache).unwrap();
@@ -1181,5 +1208,146 @@ fn load_collision_runs_in_the_session_precision_scope() {
     assert_eq!(session.load_collision_for_new_mission("synthetic"), Ok(()));
     assert!(session.collision().dynamic_grid().is_some());
     assert!(session.precision_state().precision_raised());
+    discard(&mut session);
+}
+
+fn write_loading_screen_tables(fixture: &Fixture) {
+    let menu = fixture.0.join("tables/menu");
+    std::fs::create_dir_all(&menu).unwrap();
+    std::fs::write(
+        menu.join("loadprogress.mnu"),
+        super::loadprogress_menu_bytes(),
+    )
+    .unwrap();
+    let mut entry = vec![0u8; 0x44];
+    entry[..9].copy_from_slice(b"SYNTHETIC");
+    entry[0x20..0x25].copy_from_slice(b"S.tga");
+    entry[0x40..].copy_from_slice(&0x77u32.to_le_bytes());
+    std::fs::write(fixture.0.join("tables/load.def"), entry).unwrap();
+}
+
+fn open_with_progress(
+    session: &mut MissionLoadSession,
+    progress: bool,
+    render: &mut (impl SceneRenderBackend + crate::load_scene_callback::LoadingScreenDevice),
+) -> Result<OpenResult, MissionSourceOpenError> {
+    session.open_source_in_order(
+        &mut OpenAttempt::default(),
+        "synthetic",
+        progress,
+        &[],
+        projection(),
+        &mut Screen::default(),
+        render,
+    )
+}
+
+#[test]
+fn open_reports_the_scene_load_to_the_mafia_load_save_screen() {
+    use crate::game_loadsave_lifecycle::LOADPROGRESS_MISSION_PICTURE;
+    let fixture = Fixture::new(
+        Some(&world(&[dummy(0, b"a"), dummy(0, b"b")])),
+        Some(&scene2(&[])),
+        None,
+    );
+    write_loading_screen_tables(&fixture);
+    let mut session = fixture.session();
+    let mut render = renderer();
+    assert_eq!(
+        open_with_progress(&mut session, true, &mut render),
+        Ok(OpenResult::Opened)
+    );
+    // BEGIN presents the created screen with an empty bar, every shown STEP
+    // sets the blend state and presents SetProgressMissionOpen(bit); the
+    // scene's END is the last STEP at half the bar (0.5 * 0.7).
+    let (materials, frames) = session.world_source_counts().unwrap();
+    assert_eq!(frames, 2);
+    let reports = crate::load_scene_callback::scene_open_progress_reports(materials, frames);
+    assert_eq!(render.loading_presents.first(), Some(&0.0));
+    assert_eq!(render.loading_presents.last(), Some(&(0.5f32 * 0.7)));
+    assert_eq!(render.loading_presents.len(), render.alpha_blend_states + 1);
+    assert!(render.alpha_blend_states < reports.len());
+    let callback = session.load_scene_callback();
+    assert_eq!(callback.menu_progress(), None);
+    assert_eq!(callback.last_bit(), 0.5);
+    // Open's FinishProgress END keeps the mafiaLoadSave screen, created
+    // with the definition's components and load.def's picture and name
+    // for the act mission ("synthetic", _stricmp-equal to "SYNTHETIC").
+    let screen = session.load_save_progress().progress.as_ref().unwrap();
+    assert_eq!(screen.menu.len(), 4);
+    assert_eq!(screen.raw_progress(), 0.5 * 0.7);
+    assert_eq!(
+        screen.menu.staged_string(LOADPROGRESS_MISSION_PICTURE),
+        Some(Some(&b"S.tga"[..]))
+    );
+    assert_eq!(
+        screen
+            .menu
+            .get_text_id(crate::game_loadsave_lifecycle::LOADPROGRESS_MISSION_NAME),
+        0x77
+    );
+    assert_eq!(render.calls, 1);
+    discard(&mut session);
+}
+
+#[test]
+fn open_without_progress_uses_and_destroys_the_callbacks_own_screen() {
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"a")])), Some(&scene2(&[])), None);
+    write_loading_screen_tables(&fixture);
+    let mut session = fixture.session();
+    let mut render = renderer();
+    assert_eq!(
+        open_with_progress(&mut session, false, &mut render),
+        Ok(OpenResult::Opened)
+    );
+    // GM_LoadProgress(0, 1.0f, NULL): the scene's END shows bit 0.5 as 0.5.
+    assert_eq!(render.loading_presents.first(), Some(&0.0));
+    assert_eq!(render.loading_presents.last(), Some(&0.5));
+    // FinishProgress's END destroyed it; mafiaLoadSave has none.
+    assert_eq!(session.load_scene_callback().menu_progress(), None);
+    assert_eq!(session.load_save_progress().progress, None);
+    discard(&mut session);
+}
+
+#[test]
+fn open_without_the_hud_stops_at_the_loading_screen_before_the_world() {
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"a")])), Some(&scene2(&[])), None);
+    let mut session = fixture.session_without_hud();
+    let mut render = renderer();
+    let error = open_with_progress(&mut session, true, &mut render).unwrap_err();
+    let MissionSourceOpenError::Open(OpenRunError::Callback(failure)) = error else {
+        panic!("unexpected Open failure: {error:?}");
+    };
+    assert_eq!(failure.step, OpenStep::OpenWorld);
+    assert!(
+        failure
+            .error
+            .0
+            .contains("cbLoadScene: GM_Menu::CreateCompsByDef: mafiaIndicators"),
+        "{}",
+        failure.error
+    );
+    // BEGIN precedes the file read: nothing was loaded or presented.
+    assert_eq!(session.world_source_counts(), None);
+    assert!(render.loading_presents.is_empty());
+    assert!(session.load_save_progress().progress.is_some());
+    discard(&mut session);
+}
+
+#[test]
+fn vehicle_sectors_reads_the_live_intern_load() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    assert_eq!(open(&mut session, &mut renderer()), Ok(OpenResult::Opened));
+    // Open's ResetIntern: intern_load set, intern_loaded clear.
+    assert!(session.game_inline.intern_load());
+    assert!(!session.game_inline.intern_loaded());
+    assert!(session
+        .vehicle_sectors_for_init()
+        .unwrap_err()
+        .starts_with("Init intern_load is set (Open's ResetIntern)"));
+    // A clear intern_load skips the span (jz 0x5a0a17).
+    session.game_inline = crate::game_housekeeping::GameInlineState::default();
+    assert_eq!(session.vehicle_sectors_for_init(), Ok(()));
     discard(&mut session);
 }

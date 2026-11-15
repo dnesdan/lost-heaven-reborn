@@ -431,6 +431,11 @@ pub struct MissionLoadSession {
     /// still names the previous mission's frame); here each session starts
     /// zeroed. Init clears both, so nothing reached observes it.
     player_statics: crate::player_actor::PlayerStatics,
+    /// `cbLoadScene`'s globals (`menuProgress` GAME 0x647b20, `last_bit`
+    /// GAME 0x647b1c). Process globals natively; session-scoped here like
+    /// the loading screen: each session starts from their zero/NULL
+    /// process-start state.
+    load_scene_callback: crate::load_scene_callback::LoadSceneCallback,
     game_init_car_sounds: i32,
     game_init_weather: Option<(bool, i32)>,
     game_init_reset_entered: bool,
@@ -620,6 +625,7 @@ impl MissionLoadSession {
             indicators: None,
             ai_manager: Default::default(),
             player_statics: Default::default(),
+            load_scene_callback: Default::default(),
             game_init_car_sounds: 0,
             game_init_weather: None,
             game_init_reset_entered: false,
@@ -1221,11 +1227,14 @@ impl MissionLoadSession {
         )
     }
 
-    /// `ResetGame` prefix over the live open state. This resets the host
-    /// opened/restore/mute markers; full `ResetIntern` game state stays
-    /// outside this owner by construction.
+    /// `ResetGame` prefix over the live open state: the inline
+    /// `game->ResetIntern()` (game.h:1014-1018; GAME 0x5409ef `mov byte
+    /// [eax+0x363c], 1` then 0x5409f6 `mov [eax+0x363d], bl` with ebx 0)
+    /// over the session's `C_game` scalars, then the host opened/restore/
+    /// mute markers.
     pub fn reset_open_game(&mut self) -> Result<(), String> {
         self.open_terminal_guard()?;
+        self.game_inline.reset_intern();
         self.open_mission_opened = false;
         self.open_restore_volume = false;
         self.open_muted = false;
@@ -1523,11 +1532,56 @@ impl MissionLoadSession {
         }
     }
 
-    /// `FinishProgress` marker (`LOAD_PROGRESS_END`). Progress teardown
-    /// stays a host marker in this unit.
+    /// `FinishProgress`: `cbLoadScene(CBM_MISSION_PROGRESS, 1.0f,
+    /// LOAD_PROGRESS_END, NULL)` (Mission.cpp:690), whose END branch
+    /// destroys the callback's own screen and touches no device; a
+    /// `mafiaLoadSave.progress` screen stays for `C_game::Init`.
     pub fn finish_progress_for_open(&mut self) -> Result<(), String> {
         self.open_terminal_guard()?;
-        Ok(())
+        self.report_load_scene(
+            crate::load_scene_callback::CBM_MISSION_PROGRESS,
+            1.0f32.to_bits(),
+            crate::load_scene_callback::LOAD_PROGRESS_END,
+            &mut NoLoadingScreenDevice,
+        )
+    }
+
+    /// One `cbLoadScene` report over the session's owners: the callback's
+    /// globals, `mafiaLoadSave.progress`, and the screen-creation inputs
+    /// (installation files, `mafiaIndicators.GetLanguage`, the open
+    /// mission's name), with the caller's device.
+    pub fn report_load_scene(
+        &mut self,
+        msg: u32,
+        prm1: u32,
+        prm2: u32,
+        device: &mut dyn crate::load_scene_callback::LoadingScreenDevice,
+    ) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        let mut inputs = SessionLoadProgressInputs {
+            installation: &self.installation,
+            indicators: self.indicators.as_ref(),
+            mission_name: self.open_mission_name.as_deref(),
+        };
+        self.load_scene_callback.cb_load_scene(
+            &mut self.load_save_progress.progress,
+            msg,
+            prm1,
+            prm2,
+            &mut inputs,
+            device,
+        )
+    }
+
+    /// The parsed world file's (material, frame) entry counts, once the
+    /// world intake parsed it.
+    pub fn world_source_counts(&self) -> Option<(usize, usize)> {
+        self.world.as_ref()?.source_counts()
+    }
+
+    /// The live `cbLoadScene` globals.
+    pub fn load_scene_callback(&self) -> &crate::load_scene_callback::LoadSceneCallback {
+        &self.load_scene_callback
     }
 
     /// Owned `C_shvestky::GameInit` + traffic-flag stores in `Init` order,
@@ -1720,25 +1774,43 @@ impl MissionLoadSession {
     /// 0x5a09b9-0x5a09c6, game.cpp:289-291): `_show_progress_(0.0f)` (`push
     /// ebx` with ebx 0, call 0x5a3960), `SetPlayerNaviPoint(NULL)` (`xor
     /// ecx, ecx`, call 0x58f160), then the inline `can_car_damage = false`
-    /// store (`mov [0x6478b0], bl`). `_show_progress_` reads the live
-    /// `mafiaLoadSave.progress` (0x6d4bfc) through the credited gate: absent
-    /// is the native no-op; present runs `SetProgressGameInit`, which stops
-    /// at the uncreated loading-screen menu before `Present` (0x5e3d40),
-    /// leaving the navigation point and latch unwritten.
+    /// store (`mov [0x6478b0], bl`). Without host presentation a live
+    /// loading screen stops at its `Present` (GAME 0x5e3d40), after the bar
+    /// write, leaving the navigation point and latch unwritten.
     pub fn player_navi_for_init(&mut self) -> Result<(), String> {
+        self.player_navi_for_init_presented(&mut |_| {
+            Err("GM_LoadProgress::Present (GAME 0x5e3d40) needs host presentation, which the unpresented Init has not".into())
+        })
+    }
+
+    /// [`MissionLoadSession::player_navi_for_init`] with the host
+    /// presentation receiving the loading screen's `Present`.
+    pub(crate) fn player_navi_for_init_presented(
+        &mut self,
+        present: &mut dyn FnMut(
+            crate::load_scene_callback::LoadingScreenFrame<'_>,
+        ) -> Result<(), String>,
+    ) -> Result<(), String> {
         self.game_init_admission()?;
-        self.show_progress_for_init(0.0)?;
+        self.show_progress_for_init(0.0, present)?;
         self.player_statics.set_player_navi_point(None);
         self.player_statics.set_can_car_damage(false);
         Ok(())
     }
 
     /// `_show_progress_` (GAME 0x5a3960, game.cpp:1033-1040) over the live
-    /// `mafiaLoadSave.progress` owner: the gate, then `SetProgressGameInit`
-    /// and, once a created menu exists, `Present`.
-    fn show_progress_for_init(&mut self, fraction: f32) -> Result<(), String> {
-        let present = self.load_save_progress.progress.is_some();
-        if !crate::mission_actor_lists::show_progress_gate(present) {
+    /// `mafiaLoadSave.progress` owner: the credited gate, then
+    /// `SetProgressGameInit` (0x5e3cf0) and `Present` (0x5e3d40) through
+    /// the host presentation.
+    fn show_progress_for_init(
+        &mut self,
+        fraction: f32,
+        present: &mut dyn FnMut(
+            crate::load_scene_callback::LoadingScreenFrame<'_>,
+        ) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let live = self.load_save_progress.progress.is_some();
+        if !crate::mission_actor_lists::show_progress_gate(live) {
             return Ok(());
         }
         let screen = self
@@ -1746,9 +1818,27 @@ impl MissionLoadSession {
             .progress
             .as_mut()
             .ok_or("Init _show_progress_ screen vanished after its gate")?;
-        screen
-            .set_progress_game_init(fraction)
-            .map_err(|boundary| format!("Init _show_progress_({fraction:?}): {boundary}"))
+        screen.set_progress_game_init(fraction);
+        present(crate::load_scene_callback::LoadingScreenFrame {
+            source: crate::load_scene_callback::LoadingScreenSource::MafiaLoadSave,
+            screen,
+        })
+        .map_err(|error| format!("Init _show_progress_({fraction:?}): {error}"))
+    }
+
+    /// `VehicleSectors` gate in `Init` order (GAME 0x5a09cc `mov al,
+    /// [esi+0x363c]; cmp al, bl; jz 0x5a0a17`, game.cpp:292): reads the live
+    /// `intern_load`, which `Open`'s `ResetIntern` set. Clear skips the span
+    /// as natively; set reaches the `C_Vehicle::v_light_sector` (0x63d890,
+    /// cleared through 0x44b270 at 0x5a09e8) and `v_sound_sector` clears
+    /// and `S_hlp::cbEnumSectors` over the primary sector, whose owners are
+    /// not ported, so the step stops there with nothing written.
+    pub fn vehicle_sectors_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        if !self.game_inline.intern_load() {
+            return Ok(());
+        }
+        Err("Init intern_load is set (Open's ResetIntern): C_Vehicle::v_light_sector (0x63d890, cleared via 0x44b270 at 0x5a09e8) / v_sound_sector clears and S_hlp::cbEnumSectors over the primary sector have no owner".into())
     }
 
     /// The live `C_player` statics owner.
@@ -2254,6 +2344,67 @@ pub fn forward_mission_progress<S: MissionProgressSink>(
         show_progress_bits(chunk_pos, chunk_file_size, can_show_progress),
         MISSION_PROGRESS_STEP,
     );
+}
+
+/// The session's `GM_LoadProgress::Create`/`OnCreate` inputs.
+struct SessionLoadProgressInputs<'a> {
+    installation: &'a lhr_assets::Installation,
+    indicators: Option<&'a crate::indicators::IndicatorsState>,
+    mission_name: Option<&'a [u8]>,
+}
+
+impl crate::game_loadsave_lifecycle::LoadProgressCreateInputs for SessionLoadProgressInputs<'_> {
+    fn menu_definition(
+        &mut self,
+        name: &str,
+    ) -> Result<Option<lhr_assets::MenuDefinition>, String> {
+        let language = self
+            .indicators
+            .ok_or("GM_Menu::CreateCompsByDef: mafiaIndicators (GetLanguage, GAME 0x5f70d0) owner unavailable")?
+            .get_language();
+        let candidates = lhr_assets::MenuDefinition::menu_file_candidates(name, language)
+            .ok_or_else(|| format!("menu name {name} is not admittable"))?;
+        for path in candidates {
+            let bytes = self
+                .installation
+                .read_optional(&path)
+                .map_err(|error| format!("menu definition {path}: {error}"))?;
+            if let Some(bytes) = bytes {
+                return lhr_assets::parse_menu_definition(&bytes)
+                    .map(Some)
+                    .map_err(|error| format!("menu definition {path}: {error}"));
+            }
+        }
+        Ok(None)
+    }
+
+    fn load_def(&mut self) -> Result<Option<Vec<u8>>, String> {
+        let path = crate::game_loadsave_lifecycle::LOAD_DEF_PATH;
+        self.installation
+            .read_optional(path)
+            .map_err(|error| format!("{path}: {error}"))
+    }
+
+    fn act_mission_name(&mut self) -> Result<Vec<u8>, String> {
+        self.mission_name
+            .map(<[u8]>::to_vec)
+            .ok_or_else(|| "act_mission->mission_name is NULL".into())
+    }
+}
+
+/// The device of a `cbLoadScene` call that reaches none (`LOAD_PROGRESS_END`).
+struct NoLoadingScreenDevice;
+
+impl crate::load_scene_callback::LoadingScreenDevice for NoLoadingScreenDevice {
+    fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+        Err("loading-screen device unavailable".into())
+    }
+    fn present_loading_screen(
+        &mut self,
+        _: crate::load_scene_callback::LoadingScreenFrame<'_>,
+    ) -> Result<(), String> {
+        Err("loading-screen device unavailable".into())
+    }
 }
 
 #[cfg(test)]

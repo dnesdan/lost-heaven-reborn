@@ -90,12 +90,11 @@ pub fn rewrite_extension(file_name: &str, want: &str) -> Result<Vec<u8>, LoadSta
     Ok(name)
 }
 
-/// F1 0x60390 LoadProgress (70B/19insn/4BB). Literal gate `p<last+0.02f`
-/// (f32 — the source spells `.02f`, no double promotion). NaN takes the
-/// early-return through the x87 TEST-AH-0x41 unordered path (C0=1), modeled
-/// here as an explicit NaN refusal with identical outcomes; +Inf is admitted
-/// exactly like the source (stores + calls back). Then IFF PROGRESS flag:
-/// last=progress=p + cb(8,bits,1,ctx).
+/// F1 0x60390 LoadProgress (70B/19insn/4BB; REA ev_9cb0d60ce8): `fld
+/// [lastProgress]; fadd [0x1009d290] (0.02f); fcomp p; test ah, 0x41; jz
+/// ret`, so it returns only when `last + 0.02f > p`. An unordered compare
+/// (NaN) sets C0 and C3 and continues, like `<=`; +Inf continues too. Then
+/// IFF PROGRESS flag: last=progress=p + cb(8,bits,1,ctx).
 pub fn report_load_progress(
     b: &mut dyn LoadFileBackend,
     last: &mut f32,
@@ -103,13 +102,22 @@ pub fn report_load_progress(
     flags: u32,
     ctx_bits: u32,
 ) {
-    if p.is_nan() || last.is_nan() || p < *last + 0.02 {
-        return;
-    }
-    if flags & I3DLOAD_PROGRESS != 0 {
-        *last = p;
+    if load_progress_gate(last, p, flags) {
         b.progress(8, ctx_bits, 1);
     }
+}
+
+/// The state half of [`report_load_progress`] (LS3DF 0x60390): true where
+/// the STEP report is made, with `last` updated as the original stores it.
+pub fn load_progress_gate(last: &mut f32, p: f32, flags: u32) -> bool {
+    if *last + 0.02 > p {
+        return false;
+    }
+    if flags & I3DLOAD_PROGRESS == 0 {
+        return false;
+    }
+    *last = p;
+    true
 }
 
 /// Deadlock-guarded begin shared by F2/F3/F4: pump loop until free or
@@ -653,13 +661,20 @@ mod scene_file_load_tests {
         assert!(b.progresses.is_empty());
         report_load_progress(&mut b, &mut last, 0.02, 2, 0);
         assert_eq!(b.progresses, vec![(8, 0, 1)]);
+        // NaN compares unordered (C0|C3 set), so the jz does not return.
         report_load_progress(&mut b, &mut last, f32::NAN, 2, 0);
-        assert_eq!(b.progresses.len(), 1);
+        assert_eq!(b.progresses.len(), 2);
+        assert!(last.is_nan());
+        last = 0.02;
         // +Inf is admitted like the source (stores + calls back).
         report_load_progress(&mut b, &mut last, f32::INFINITY, 2, 7);
-        assert_eq!(b.progresses.len(), 2);
-        assert_eq!(b.progresses[1], (8, 7, 1));
+        assert_eq!(b.progresses.len(), 3);
+        assert_eq!(b.progresses[2], (8, 7, 1));
         assert_eq!(last, f32::INFINITY);
+        // Without the PROGRESS flag nothing is stored or reported.
+        let mut last = 0.0f32;
+        report_load_progress(&mut b, &mut last, 0.5, 0, 0);
+        assert_eq!((b.progresses.len(), last), (3, 0.0));
     }
     #[test]
     fn ext_rewrite_vectors() {

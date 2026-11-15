@@ -186,11 +186,22 @@ impl Fixture {
         Self(root)
     }
     fn session(&self) -> MissionLoadSession {
-        MissionLoadSession::new(
+        let mut session = MissionLoadSession::new(
             lhr_assets::Installation::open(&self.0).unwrap(),
             Pc24PrecisionState::new(false),
         )
-        .unwrap()
+        .unwrap();
+        // Open's loading screen reads mafiaIndicators.GetLanguage.
+        session
+            .install_indicators(crate::indicators::IndicatorsState::constructed(
+                crate::indicators::TimerClock {
+                    hour: 9,
+                    minute: 0,
+                    second: 0,
+                },
+            ))
+            .unwrap();
+        session
     }
     fn scene2(&self) {
         let bytes = [
@@ -257,6 +268,19 @@ impl crate::scene_projection::SceneRenderBackend for NoCameraRender {
     fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
         assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
         Ok(0x8000_0005)
+    }
+}
+
+/// The test device takes the loading screen's device calls; nothing draws.
+impl crate::load_scene_callback::LoadingScreenDevice for NoCameraRender {
+    fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+    fn present_loading_screen(
+        &mut self,
+        _: crate::load_scene_callback::LoadingScreenFrame<'_>,
+    ) -> Result<(), String> {
+        Ok(())
     }
 }
 fn load(session: &mut MissionLoadSession) -> Result<OpenResult, MissionSourceOpenError> {

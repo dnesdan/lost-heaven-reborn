@@ -171,7 +171,7 @@ impl InitAttempt {
         present: F,
     ) -> Result<(), InitRunError<SessionInitError>>
     where
-        F: FnMut(&crate::scene_render::CanonicalSceneSnapshot) -> Result<(), String>,
+        F: FnMut(PresentedFrame<'_>) -> Result<(), String>,
     {
         self.run(&mut PresentedSessionInit {
             session,
@@ -201,6 +201,16 @@ impl InitAttempt {
         }
         Ok(())
     }
+}
+
+/// What the host presentation receives from the presented `Init`: the
+/// retained scene at the `ResetMissionState` render boundary, or the live
+/// loading screen at a `GM_LoadProgress::Present` (GAME 0x5e3d40) reached
+/// through `_show_progress_`. One callback, one host presentation path.
+#[derive(Clone, Copy)]
+pub enum PresentedFrame<'a> {
+    Scene(&'a crate::scene_render::CanonicalSceneSnapshot),
+    LoadingScreen(crate::load_scene_callback::LoadingScreenFrame<'a>),
 }
 
 /// Production `Init` failure over the live session owners. The display
@@ -235,19 +245,26 @@ struct PresentedSessionInit<'a, F> {
 
 impl<F> InitOperations for PresentedSessionInit<'_, F>
 where
-    F: FnMut(&crate::scene_render::CanonicalSceneSnapshot) -> Result<(), String>,
+    F: FnMut(PresentedFrame<'_>) -> Result<(), String>,
 {
     type Error = SessionInitError;
 
     fn execute(&mut self, step: InitStep) -> Result<(), Self::Error> {
+        let present = &mut self.present;
         match step {
             InitStep::ResetMissionState => self
                 .session
                 .reset_game_mission_state_with_presentation(
                     self.target,
                     self.sequence,
-                    &mut self.present,
+                    &mut |snapshot| present(PresentedFrame::Scene(snapshot)),
                 )
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::PlayerNavi => self
+                .session
+                .player_navi_for_init_presented(&mut |frame| {
+                    present(PresentedFrame::LoadingScreen(frame))
+                })
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
             _ => self.session.execute(step),
         }
@@ -259,7 +276,8 @@ where
 /// `ResetMissionState` span (weather reads, mute/render, list clears, score
 /// with the installed HUD, flag stores), the `AIManager` police shift begin
 /// and groups/follow/fight `Init`, the `PlayerNavi` progress mark,
-/// navigation-point clear and car-damage latch, police init,
+/// navigation-point clear and car-damage latch, the `VehicleSectors`
+/// `intern_load` gate, police init,
 /// traffic flags, the base-cache `IsOpen` read, and the `MarkInitialized`
 /// flag write. Every other boundary returns `Err` with its step prefix and
 /// preserves the reached live prefix: the driver stops at the first
@@ -283,10 +301,9 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::PlayerNavi => self
                 .player_navi_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::VehicleSectors => Err(SessionInitError::unavailable(
-                step,
-                "Init intern_load gate (C_game +0x363c, read at 0x5a09cc; ResetIntern's store at 0x5409f2 in C_mission::Open has no session field) and vehicle light/sound sectors",
-            )),
+            InitStep::VehicleSectors => self
+                .vehicle_sectors_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
             InitStep::PhysicsClear => Err(SessionInitError::unavailable(step, "physics clear")),
             InitStep::PoliceGameInit => self
                 .apply_police_game_init_for_init()

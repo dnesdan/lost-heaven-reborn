@@ -5430,7 +5430,7 @@
       "name": "LoadProgress",
       "symbol": "lhr_engine::scene_file_load::report_load_progress",
       "tier": "contract",
-      "evidence": "mafia-re Load.cpp:63-84 + gate/NaN/Inf tests; tier contract (new-module wave-3 policy: contract regardless of bodies)"
+      "evidence": "mafia-re Load.cpp:63-84 + REA ev_9cb0d60ce8 (fld last; fadd 0.02f 0x1009d290; fcomp p; test ah,0x41; jz ret: an unordered NaN compare continues) + gate/NaN/Inf/flag tests; its state half load_progress_gate also drives the scene-open reports; tier contract (new-module wave-3 policy: contract regardless of bodies)"
     },
     {
       "binary": "LS3DF.dll",
@@ -16832,8 +16832,8 @@
       "va": "0x5eb030",
       "name": "GM_Menu::SetString",
       "symbol": "lhr_engine::menu::MenuStack::set_string",
-      "tier": "contract",
-      "evidence": "Marker-only contract; tests green on this tree. FUNCTION/STUB: GAME confirmed at fe7e746."
+      "tier": "differential",
+      "evidence": "REA ev_ec5b344f1c + Ghidra body 0x5eb030..0x5eb04c: FindComponentByID 0x5eb2f0, NULL returns, else the component's SetString virtual (vtable +0x44); staged per looked-up component like the other value wrappers (class effects deferred); pin test set_string + OnCreate/Open tests"
     },
     {
       "binary": "Game.exe",
@@ -17644,6 +17644,24 @@
       "symbol": "lhr_engine::ai_manager::AiFightManager::init",
       "tier": "differential",
       "evidence": "REA ev_7b25d0f3f8 + Ghidra body 0x534ec0..0x534f61 (162 bytes): inlined parties.erase with folded dtor 0x538c30 (frees the +0x18 members storage only); mafia-re jp_ai_groups.cpp:393-397; pin tests ai_manager + presented Init; reached by the presented MISE01 C_game::Init (call sites 0x5a0996/0x5a09a0/0x5a09aa/0x5a09b4 on AIManager 0x646c80 members 0x646d10/0x646d44/0x646d6c/0x646d80, REA ev_ca93072cc1) over the session's AIManager owner"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1bcc10",
+      "va": "0x5bcc10",
+      "name": "cbLoadScene",
+      "symbol": "lhr_engine::load_scene_callback::LoadSceneCallback::cb_load_scene",
+      "tier": "differential",
+      "evidence": "REA ev_aff337665f + Ghidra 12.1.4 body 0x5bcc10..0x5bcdca: msg filter 8/0x2710, CBM_PROGRESS END->STEP and *0.5f (0x6232fc), mission (p+1.0f)*0.5f (0x623238), STEP fsub last_bit (0x647b1c) / fcomp 0.02f (0x6233b4 = 0x3ca3d70a) / test ah,5 / jnp, igraph SetState(0,1) vtable+0x44, SetProgressMissionOpen 0x5e3d20 + Present 0x5e3d40 on mafiaLoadSave.progress (0x6d4bfc) else menuProgress (0x647b20), BEGIN new(0x40) + GM_LoadProgress(0,1.0f,NULL) stored before Create 0x5ea2e0 or NULL + Create on the mafiaLoadSave screen, last_bit=0, END Destroy 0x5ea690; mafia-re Load_progress.cpp:17-70; pin tests load_scene_callback (filter, BEGIN both branches, STEP threshold/NaN/no screen, END, refused present/create) + session Open integration; reached by the MISE01 composed Open (25 presents)"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x1e3b90",
+      "va": "0x5e3b90",
+      "name": "GM_LoadProgress::OnCreate",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::LoadProgressScreen::on_create",
+      "tier": "differential",
+      "evidence": "REA ev_e5206d5bb7 + Ghidra body 0x5e3b90..0x5e3cc7: title SetTextID(0x190)/(0x191,0x2ce), SetString(0x64 loadbok.tga)/(0x66 mafia.tga), new[0x1f40], dtaOpen tables\\load.def (jl skip), dtaRead 0x1f40, read/0x44 via 0xf0f0f0f1, per-entry reread of [esi+0x3c] else act_mission+0x68, _stricmp 0x61d0b0, SetString(0x65, entry+0x20), nonzero name_id (+0x40) SetTextID(0xc8), SetHidden(1000/2000/3000,false); mafia-re g_m_func.cpp:1017-1058; pin tests (order, first match, case folding, act-name reread, NULL name, bounded reads) + MISE01 probe picture"
     }
   ],
   "vm": {

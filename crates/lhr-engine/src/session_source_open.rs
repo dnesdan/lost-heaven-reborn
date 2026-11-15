@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 use super::*;
+use crate::load_scene_callback::LoadingScreenDevice;
 use crate::mission_open_order::{
     OpenAttempt, OpenOperations, OpenResult, OpenRunError, OpenStep, SessionOpenError,
 };
@@ -42,7 +43,7 @@ impl MissionLoadSession {
     /// This is the only source-loading entry: the probe and every composed
     /// new-mission caller go through it. The caller owns `attempt`, so the
     /// reached boundary sequence stays observable after any outcome.
-    pub fn open_source_in_order<S: DriverSceneScreen, R: SceneRenderBackend>(
+    pub fn open_source_in_order<S: DriverSceneScreen, R: SceneRenderBackend + LoadingScreenDevice>(
         &mut self,
         attempt: &mut OpenAttempt,
         mission: &str,
@@ -161,7 +162,8 @@ impl<S, R> SourceOpen<'_, S, R> {
     }
 }
 
-impl<S: DriverSceneScreen, R: SceneRenderBackend> OpenOperations for SourceOpen<'_, S, R>
+impl<S: DriverSceneScreen, R: SceneRenderBackend + LoadingScreenDevice> OpenOperations
+    for SourceOpen<'_, S, R>
 where
     S::Error: std::fmt::Debug,
 {
@@ -175,11 +177,42 @@ where
                 .set_open_mission_name(self.mission)
                 .map_err(|detail| SessionOpenError(format!("{step:?}: {detail}"))),
             OpenStep::OpenWorld => {
+                // scene->Open(.., I3DLOAD_PROGRESS | .., __SceneErrFnc)
+                // (Mission.cpp:643; __SceneErrFnc GAME 0x540fd0 forwards
+                // every CBM_PROGRESS to cbLoadScene). LoadHierarchy reports
+                // BEGIN before the file is read, a gated STEP per material
+                // and frame LoadImage reads, and END after the load. The
+                // CPU intake reads the whole file before building frames,
+                // so its STEP reports follow the intake in their native
+                // order and values instead of interleaving with the reads;
+                // a failed intake stops Open before any END is reported.
+                use crate::load_scene_callback::{scene_open_progress_reports, CBM_PROGRESS};
                 let scene = self.scene(step)?;
                 let input = MissionLoadSession::open_world_path(self.mission);
+                let report = |session: &mut MissionLoadSession,
+                              renderer: &mut R,
+                              (prm1, prm2): (u32, u32)| {
+                    session
+                        .report_load_scene(CBM_PROGRESS, prm1, prm2, renderer)
+                        .map_err(|detail| {
+                            SessionOpenError(format!("{step:?}: cbLoadScene: {detail}"))
+                        })
+                };
+                let mut reports = scene_open_progress_reports(0, 0).into_iter();
+                report(self.session, self.renderer, reports.next().unwrap())?;
                 self.session
                     .load_world_source(scene, &input)
-                    .map_err(|cause| self.source_error(step, cause))
+                    .map_err(|cause| self.source_error(step, cause))?;
+                let (materials, frames) = self.session.world_source_counts().ok_or_else(|| {
+                    SessionOpenError(format!("{step:?}: world entry counts unavailable"))
+                })?;
+                for entry in scene_open_progress_reports(materials, frames)
+                    .into_iter()
+                    .skip(1)
+                {
+                    report(self.session, self.renderer, entry)?;
+                }
+                Ok(())
             }
             OpenStep::ResetWeather => {
                 let scene = self.scene(step)?;

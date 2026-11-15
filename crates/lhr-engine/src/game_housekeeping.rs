@@ -783,6 +783,11 @@ pub struct GameInlineState {
     shvestky: Option<u32>,
     actor_lightness: bool,
     anim_preload: bool,
+    /// +0x363c `intern_load` / +0x363d `intern_loaded` (game.h:641-645,
+    /// mafia-re names): `ResetIntern` sets the first and clears the second;
+    /// `Init`'s `intern_load` gates read the first. Zero at process start.
+    intern_load: bool,
+    intern_loaded: bool,
     weather_buffer: i32,
     /// Night-mission switch (`game.h:419`, offset 0x2d44, `GAME_NIGHTMISSION's`).
     /// Written by [`GameInlineState::set_night_mission`].
@@ -1184,6 +1189,24 @@ impl GameInlineState {
     /// Reads the switch written by [`GameInlineState::set_anim_preload`].
     pub fn anim_preload(&self) -> bool {
         self.anim_preload
+    }
+
+    /// The inline `C_game::ResetIntern` (game.h:1014-1018, no outline body;
+    /// inlined at GAME 0x5409ef/0x5409f6 in `C_mission::Open`):
+    /// `intern_load = true; intern_loaded = false`.
+    pub fn reset_intern(&mut self) {
+        self.intern_load = true;
+        self.intern_loaded = false;
+    }
+
+    /// The live `intern_load` (+0x363c) that `Init`'s gates read.
+    pub fn intern_load(&self) -> bool {
+        self.intern_load
+    }
+
+    /// The live `intern_loaded` (+0x363d).
+    pub fn intern_loaded(&self) -> bool {
+        self.intern_loaded
     }
 
     /// FUNCTION: GAME 0x47b6a0 (RVA 0x7b6a0, VA 0x47b6a0; `game.h:947-951`,

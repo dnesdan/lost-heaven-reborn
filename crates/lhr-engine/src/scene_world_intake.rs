@@ -35,6 +35,10 @@ pub struct CpuSceneWorldProgress {
     transferred: usize,
     prepared_sectors: usize,
     phase: CpuSceneWorldPhase,
+    /// `LoadMaterialu`/`LoadFramu` of the parsed file (each read as two
+    /// bytes, load4ds.cpp:89,124): the entries `LoadImage` reads and reports
+    /// progress over. `None` before a parse.
+    source_counts: Option<(u16, u16)>,
 }
 impl CpuSceneWorldProgress {
     pub fn scene(&self) -> SceneKey {
@@ -55,6 +59,11 @@ impl CpuSceneWorldProgress {
     pub fn phase(&self) -> CpuSceneWorldPhase {
         self.phase
     }
+    /// The parsed file's (material, frame) entry counts, once parsed.
+    pub fn source_counts(&self) -> Option<(usize, usize)> {
+        self.source_counts
+            .map(|(materials, frames)| (usize::from(materials), usize::from(frames)))
+    }
     pub(crate) fn empty(arena: &ModelArena, scene: SceneKey) -> Self {
         Self {
             scene,
@@ -64,6 +73,7 @@ impl CpuSceneWorldProgress {
             transferred: 0,
             prepared_sectors: 0,
             phase: CpuSceneWorldPhase::Admission,
+            source_counts: None,
         }
     }
 }
@@ -98,6 +108,14 @@ impl ModelArena {
                 .map_err(|e| ModelError::Asset(e.to_string()))?;
             let source = lhr_assets::parse_four_ds_scene_billboards(&bytes)
                 .map_err(|e| ModelError::Asset(e.to_string()))?;
+            let count = |len: usize| {
+                u16::try_from(len)
+                    .map_err(|_| ModelError::Asset("4DS entry count exceeds its u16 field".into()))
+            };
+            progress.source_counts = Some((
+                count(source.model.materials.len())?,
+                count(source.model.frames.len())?,
+            ));
             self.load_scene_world_parsed_cpu(
                 scene,
                 installation,

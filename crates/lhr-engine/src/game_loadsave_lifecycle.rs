@@ -1080,20 +1080,21 @@ pub struct LoadSaveProgress {
 
 /// The `GM_LoadProgress` loading screen behind `mafiaLoadSave.progress`
 /// (PS2 class name; mafia-re `fe7e746` `game/ui/g_m_func.h:222-258`, VTABLE
-/// GAME 0x6275c0). Holds only the constructor's member stores (GAME
-/// 0x5e3aa0, g_m_func.cpp:991-1008): `mission_part` (+0x30), `title`
-/// (+0x38) and `mission_name` (+0x3c, NULL for the active mission's). The
-/// constructor's `menuScreenScale` stores (a menu-drawing global read by
-/// `Draw` only) and the `GM_Menu` base stay with the unported menu-screen
-/// owner, so the constructor receives no function credit.
+/// GAME 0x6275c0), also the screen `cbLoadScene` creates for itself
+/// (`menuProgress`, [`crate::load_scene_callback`]). Holds the constructor's
+/// member stores (GAME 0x5e3aa0, g_m_func.cpp:991-1008): `mission_part`
+/// (+0x30), `title` (+0x38) and `mission_name` (+0x3c, NULL for the active
+/// mission's), and the `GM_Menu` base's component stack. The constructor's
+/// `menuScreenScale` stores (a menu-drawing global read by `Draw` only) and
+/// the `GM_Menu` constructor's `menuCount`/`LoadResources` half stay with
+/// the unported menu-resource owner, so the constructor receives no
+/// function credit.
 ///
-/// The screen's menu items, among them the bar `SetRawProgress` writes
-/// (`SetFloat(LOADPROGRESS_BAR)`), exist only after `GM_Menu::Create`, which
-/// natively runs from `cbLoadScene`'s `LOAD_PROGRESS_BEGIN` (GAME 0x5bcc10,
-/// Load_progress.cpp:36-49) while `scene->Open` loads the mission. The
-/// session's scene load never reaches that callback, so no menu exists to
-/// write and [`LoadProgressScreen::set_progress_game_init`] stops there
-/// instead of inventing a bar.
+/// `menu` is empty from the constructor until [`LoadProgressScreen::create`]
+/// (`GM_Menu::Create`, natively from `cbLoadScene`'s `LOAD_PROGRESS_BEGIN`)
+/// builds the `loadprogress` components. Before that the bar write
+/// (`SetFloat(LOADPROGRESS_BAR)`) finds no component and is the native
+/// no-op of `GM_Menu::SetFloat` over an empty component list.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LoadProgressScreen {
     /// +0x38: text-database title shown with "press <ESC> to Abort", 0 for
@@ -1104,6 +1105,8 @@ pub struct LoadProgressScreen {
     /// +0x3c: the mission whose picture and name `OnCreate` shows, `None`
     /// (NULL) for `act_mission`'s (mafia-re's name).
     pub mission_name: Option<Vec<u8>>,
+    /// The `GM_Menu` base's components (+0x10) with their staged values.
+    pub menu: crate::menu::MenuStack,
 }
 
 /// Mission-open loading screen arguments: `new GM_LoadProgress(0, .7f,
@@ -1111,49 +1114,201 @@ pub struct LoadProgressScreen {
 /// 0x3f333333 and NULL).
 pub const MISSION_OPEN_PROGRESS_PART: f32 = 0.7;
 
-/// The `SetRawProgress` boundary reached by
-/// [`LoadProgressScreen::set_progress_game_init`]: the bar value it would
-/// have written and the absent menu item it is written to.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct LoadProgressMenuUnavailable {
-    /// `SetProgressGameInit`'s bar value (GAME 0x5e3cf0).
-    pub raw_progress: f32,
+/// `tables\load.def` (GAME string 0x638368) as `OnCreate` opens it.
+pub const LOAD_DEF_PATH: &str = "tables/load.def";
+/// `OnCreate`'s `new char[8000]` buffer and `dtaRead` limit (`push 0x1f40`
+/// at 0x5e3bd6 and 0x5e3c03).
+pub const LOAD_DEF_BUFFER: usize = 8000;
+/// `sizeof(S_load_def)`: `read / 0x44` through the `0xf0f0f0f1` reciprocal
+/// at 0x5e3c15-0x5e3c20, entries stepped by `add ebp, 0x44` (0x5e3c45).
+pub const LOAD_DEF_ENTRY: usize = 0x44;
+
+/// The `loadprogress` items `OnCreate` addresses (mafia-re
+/// `g_m_func.cpp:51-60` names; the ids are the pushed immediates).
+pub const LOADPROGRESS_SIDE: u32 = 0x64;
+pub const LOADPROGRESS_MISSION_PICTURE: u32 = 0x65;
+pub const LOADPROGRESS_LOGO: u32 = 0x66;
+pub const LOADPROGRESS_MISSION_NAME: u32 = 0xc8;
+pub const LOADPROGRESS_UNKNOWN_1000: u32 = 1000;
+pub const LOADPROGRESS_UNKNOWN_2000: u32 = 2000;
+pub const LOADPROGRESS_UNKNOWN_3000: u32 = 3000;
+
+/// The inputs `GM_Menu::Create` and `GM_LoadProgress::OnCreate` read while
+/// building the screen, each read when the original reads it.
+pub trait LoadProgressCreateInputs {
+    /// `CreateCompsByDef(name)` file intake (GAME 0x5ea370): the language's
+    /// `tables\menu\<name>_<ll>.mnu`, then `<name>.mnu`. `Ok(None)` is the
+    /// native "no file" early return (no components); an unparseable file
+    /// or an unavailable language owner is `Err`.
+    fn menu_definition(&mut self, name: &str)
+        -> Result<Option<lhr_assets::MenuDefinition>, String>;
+    /// `dtaOpen("tables\\load.def")` + `dtaRead(.., 8000)`: `Ok(None)` for
+    /// the failed open (`jl` at 0x5e3bfb), else the read bytes.
+    fn load_def(&mut self) -> Result<Option<Vec<u8>>, String>;
+    /// `act_mission->mission_name` (`[0x63788c]+0x68`), read per compared
+    /// entry while the screen's own `mission_name` is NULL.
+    fn act_mission_name(&mut self) -> Result<Vec<u8>, String>;
 }
 
-impl std::fmt::Display for LoadProgressMenuUnavailable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "loading-screen SetRawProgress({}) needs the created loadprogress menu bar (GM_Menu::SetFloat id {:#x}; GM_Menu::Create runs from cbLoadScene LOAD_PROGRESS_BEGIN, GAME 0x5bcc10, which the session's scene load does not reach)",
-            self.raw_progress,
-            crate::menu::LOADPROGRESS_BAR_ID
-        )
+/// `_stricmp` equality of the C string at `field` inside the read `bytes`
+/// and `name` (whose end is its NUL), folding ASCII case as the CRT's "C"
+/// locale. A comparison that would read past the read bytes is refused
+/// (natively it continues into the rest of the uninitialized buffer).
+fn stricmp_eq(bytes: &[u8], field: usize, name: &[u8]) -> Result<bool, String> {
+    let mut index = 0;
+    loop {
+        let left = *bytes
+            .get(field + index)
+            .ok_or("load.def mission string runs past the read bytes")?;
+        let right = name.get(index).copied().unwrap_or(0);
+        if !left.eq_ignore_ascii_case(&right) {
+            return Ok(false);
+        }
+        if left == 0 {
+            return Ok(true);
+        }
+        index += 1;
     }
+}
+
+/// The C string at `field` inside the read `bytes`, without its NUL.
+fn c_string_at(bytes: &[u8], field: usize) -> Result<&[u8], String> {
+    let tail = bytes
+        .get(field..)
+        .ok_or("load.def picture outside the read bytes")?;
+    let end = tail
+        .iter()
+        .position(|&byte| byte == 0)
+        .ok_or("load.def picture runs past the read bytes")?;
+    Ok(&tail[..end])
 }
 
 impl LoadProgressScreen {
-    /// `C_mission::Open`'s screen (Mission.cpp:640-641): title 0, the
-    /// opening's 0.7 of the bar, the active mission's name.
-    pub fn for_mission_open() -> Self {
+    /// `GM_LoadProgress(title, mission_part, mission_name)` member stores
+    /// (GAME 0x5e3aa0) over an empty `GM_Menu` base.
+    pub fn new(title: u32, mission_part: f32, mission_name: Option<Vec<u8>>) -> Self {
         Self {
-            title: 0,
-            mission_part: MISSION_OPEN_PROGRESS_PART,
-            mission_name: None,
+            title,
+            mission_part,
+            mission_name,
+            menu: crate::menu::MenuStack::new(),
         }
     }
 
-    /// `GM_LoadProgress::SetProgressGameInit` (GAME 0x5e3cf0, the credited
+    /// `C_mission::Open`'s screen (Mission.cpp:640-641): title 0, the
+    /// opening's 0.7 of the bar, the active mission's name.
+    pub fn for_mission_open() -> Self {
+        Self::new(0, MISSION_OPEN_PROGRESS_PART, None)
+    }
+
+    /// `cbLoadScene`'s own screen: `GM_LoadProgress(0, 1.0f, NULL)` (GAME
+    /// 0x5bcd68-0x5bcd73 pushes 0, 0x3f800000 and 0).
+    pub fn for_load_callback() -> Self {
+        Self::new(0, 1.0, None)
+    }
+
+    /// The bar value the menu holds (`GetFloat(LOADPROGRESS_BAR)`): 0.0
+    /// before `Create` or before any write, the native base default.
+    pub fn raw_progress(&self) -> f32 {
+        self.menu.get_float(crate::menu::LOADPROGRESS_BAR_ID)
+    }
+
+    /// The inline `SetRawProgress` (`SetFloat(LOADPROGRESS_BAR, progress)`,
+    /// g_m_func.h:247; no outline body).
+    pub fn set_raw_progress(&mut self, progress: f32) {
+        self.menu
+            .set_float(crate::menu::LOADPROGRESS_BAR_ID, progress);
+    }
+
+    /// `GM_LoadProgress::SetProgressGameInit` (GAME 0x5e3cf0): the credited
     /// [`crate::menu::load_progress_game_init_value`] math over the live
-    /// `mission_part`) followed by its inline `SetRawProgress`. The value is
-    /// computed as the original does; the write stops at the uncreated menu
-    /// (see the type docs), so the caller's `Present` (GAME 0x5e3d40) is
-    /// never reached.
-    pub fn set_progress_game_init(
-        &mut self,
-        progress: f32,
-    ) -> Result<(), LoadProgressMenuUnavailable> {
-        let raw_progress = crate::menu::load_progress_game_init_value(self.mission_part, progress);
-        Err(LoadProgressMenuUnavailable { raw_progress })
+    /// `mission_part`, then the inline `SetRawProgress`.
+    pub fn set_progress_game_init(&mut self, progress: f32) {
+        let raw = crate::menu::load_progress_game_init_value(self.mission_part, progress);
+        self.set_raw_progress(raw);
+    }
+
+    /// `GM_LoadProgress::SetProgressMissionOpen` (GAME 0x5e3d20, REA
+    /// ev_93ac45a5be: `fld [esp+4]; fmul [ecx+0x30]; fstp float`, then
+    /// `SetFloat(0x12c, ..)` at 0x5e3d30): the credited
+    /// [`crate::menu::load_progress_mission_open_value`] over the live
+    /// `mission_part`, then the bar write.
+    pub fn set_progress_mission_open(&mut self, progress: f32) {
+        let raw = crate::menu::load_progress_mission_open_value(self.mission_part, progress);
+        self.set_raw_progress(raw);
+    }
+
+    /// `GM_Menu::Create` (GAME 0x5ea2e0, g_menu.cpp:610-625) for this class:
+    /// `components.clear()`, `CreateCompsByDef(OnBeforeCreate())` over
+    /// `"loadprogress"` (GAME 0x5e3b80), `ActivateByIDOrNext(1)`, then
+    /// [`LoadProgressScreen::on_create`]. The menu-open sound
+    /// (`menuSoundOpen`, created by the unported `LoadResources`) and the
+    /// parent `OnCreateChild` stay with the menu-resource owner, as in
+    /// [`crate::menu::MenuStack::create`]; this screen has no parent, and
+    /// its `OnChange` is the base `return 0`. A failed read stops with the
+    /// components built so far.
+    pub fn create(&mut self, inputs: &mut dyn LoadProgressCreateInputs) -> Result<(), String> {
+        self.menu = crate::menu::MenuStack::new();
+        let name = crate::main_menu::load_progress_definition();
+        if let Some(definition) = inputs.menu_definition(name)? {
+            self.menu = crate::menu::MenuStack::create_from_definition(&definition);
+        }
+        self.menu.activate_by_id_or_next(1);
+        self.on_create(inputs)
+    }
+
+    /// `GM_LoadProgress::OnCreate` (GAME 0x5e3b90, g_m_func.cpp:1017-1058).
+    /// Game.exe SHA-256 08398317…16ab27, Ghidra 12.1.4 body
+    /// 0x5e3b90..0x5e3cc7 (REA ev_e5206d5bb7). In order: with a title,
+    /// `SetTextID(0x190, title)` and `SetTextID(0x191, 0x2ce)`;
+    /// `SetString(0x64, "loadbok.tga")`, `SetString(0x66, "mafia.tga")`;
+    /// `tables\load.def` opened (a failed open skips to the cleanup), read
+    /// up to 8000 bytes, `read > 0` gives `read / 0x44` entries; the first
+    /// entry whose `mission` (+0) `_stricmp`-equals the screen's
+    /// `mission_name`, else `act_mission->mission_name` (reread per entry),
+    /// gets `SetString(0x65, entry+0x20)` and, for a nonzero +0x40,
+    /// `SetTextID(0xc8, name_id)`, and the scan ends; finally
+    /// `SetHidden(1000/2000/3000, false)`. Returns 0.
+    pub fn on_create(&mut self, inputs: &mut dyn LoadProgressCreateInputs) -> Result<(), String> {
+        if let Some(texts) = crate::main_menu::load_progress_title_texts(self.title) {
+            for (id, text_id) in texts {
+                self.menu.set_text_id(id, text_id);
+            }
+        }
+        self.menu
+            .set_string(LOADPROGRESS_SIDE, Some(b"loadbok.tga"));
+        self.menu.set_string(LOADPROGRESS_LOGO, Some(b"mafia.tga"));
+        if let Some(mut bytes) = inputs.load_def()? {
+            bytes.truncate(LOAD_DEF_BUFFER);
+            let count = bytes.len() / LOAD_DEF_ENTRY;
+            for entry in 0..count {
+                let base = entry * LOAD_DEF_ENTRY;
+                let name = match &self.mission_name {
+                    Some(name) => name.clone(),
+                    None => inputs.act_mission_name()?,
+                };
+                if stricmp_eq(&bytes, base, &name)? {
+                    let picture = c_string_at(&bytes, base + 0x20)?.to_vec();
+                    self.menu
+                        .set_string(LOADPROGRESS_MISSION_PICTURE, Some(&picture));
+                    let name_id =
+                        u32::from_le_bytes(bytes[base + 0x40..base + 0x44].try_into().unwrap());
+                    if name_id != 0 {
+                        self.menu.set_text_id(LOADPROGRESS_MISSION_NAME, name_id);
+                    }
+                    break;
+                }
+            }
+        }
+        for id in [
+            LOADPROGRESS_UNKNOWN_1000,
+            LOADPROGRESS_UNKNOWN_2000,
+            LOADPROGRESS_UNKNOWN_3000,
+        ] {
+            // SetHidden(id, false) (`push 0` at 0x5e3c98/0x5e3ca4/0x5e3cb2).
+            self.menu.set_hidden(id, false);
+        }
+        Ok(())
     }
 }
 
@@ -1460,16 +1615,32 @@ mod loadsave_gates_tests {
     }
 
     #[test]
-    fn set_progress_game_init_reads_the_live_part_and_stops_at_the_menu() {
+    fn bar_writes_need_the_created_bar_component() {
         let mut screen = LoadProgressScreen::for_mission_open();
-        let boundary = screen.set_progress_game_init(0.0).unwrap_err();
-        assert_eq!(boundary.raw_progress.to_bits(), 0.7f32.to_bits());
+        // Before Create the GM_Menu base has no component: SetFloat is the
+        // native no-op and the bar reads the base default.
+        screen.set_progress_game_init(0.0);
+        assert_eq!(screen.raw_progress(), 0.0);
+        assert!(screen.menu.is_empty());
+        screen.menu = crate::menu::MenuStack::create_from_definition(&lhr_assets::MenuDefinition {
+            version: 1,
+            reserved: 0,
+            items: vec![lhr_assets::MenuItem {
+                id: crate::menu::LOADPROGRESS_BAR_ID,
+                kind: *b"rabp",
+                rect: [0.0, 0.0, 1.0, 1.0],
+                text_id: 0,
+                style: 0,
+            }],
+        });
+        screen.set_progress_game_init(0.0);
+        assert_eq!(screen.raw_progress().to_bits(), 0.7f32.to_bits());
         // The live mission_part is read, not the Open constant.
         screen.mission_part = 0.5;
-        let boundary = screen.set_progress_game_init(0.5).unwrap_err();
-        assert_eq!(boundary.raw_progress, 0.75);
-        assert!(boundary.to_string().contains("id 0x12c"), "{boundary}");
-        assert_eq!(screen.mission_part, 0.5);
+        screen.set_progress_game_init(0.5);
+        assert_eq!(screen.raw_progress(), 0.75);
+        screen.set_progress_mission_open(0.5);
+        assert_eq!(screen.raw_progress(), 0.25);
     }
 
     #[test]
