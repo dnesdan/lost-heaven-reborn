@@ -50,6 +50,8 @@ struct ProbeOpenRender {
     last_loading_bar: Option<f32>,
     /// Diagnostic refusal of this (0-based) loading-screen Present.
     refuse_loading_present: Option<usize>,
+    /// Whether that refusal was reached.
+    refused_loading_present: bool,
 }
 
 /// The headless probe's Open device takes the loading screen's device calls
@@ -65,6 +67,7 @@ impl lhr_engine::load_scene_callback::LoadingScreenDevice for ProbeOpenRender {
         frame: lhr_engine::load_scene_callback::LoadingScreenFrame<'_>,
     ) -> Result<(), String> {
         if self.refuse_loading_present == Some(self.loading_presents) {
+            self.refused_loading_present = true;
             return Err(format!(
                 "probe refused loading-screen present {}",
                 self.loading_presents
@@ -658,6 +661,18 @@ pub fn run(
         init_loading_presents
     )
     .unwrap();
+    if let Some(index) = render.refuse_loading_present {
+        writeln!(
+            report,
+            "Diagnostic loading-present refusal: requested index {index}, {}",
+            if render.refused_loading_present {
+                "reached"
+            } else {
+                "not reached (normal load)"
+            }
+        )
+        .unwrap();
+    }
     let new_mission_status = match &new_mission_result {
         Ok(result) => format!("{result:?}"),
         Err(NewMissionRunError::Callback(failure)) => {

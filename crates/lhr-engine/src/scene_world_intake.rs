@@ -256,6 +256,9 @@ impl ModelArena {
             Err(failure) => {
                 progress.frames = failure.partial.frames;
                 if matches!(failure.error, ModelError::LoadCallback(_)) {
+                    // Flag the creator references first, so a failing lookup
+                    // below still leaves them to terminal disposal.
+                    progress.creator_references_pending = true;
                     // LoadImage constructed each frame read before the stop,
                     // visuals included; the adapter publishes their
                     // ObjectResources only in the resource phase, which never
@@ -272,7 +275,6 @@ impl ModelArena {
                             self.frames[fi].visual_admission_attempted = true;
                         }
                     }
-                    progress.creator_references_pending = true;
                 }
                 return Err(failure.error);
             }
