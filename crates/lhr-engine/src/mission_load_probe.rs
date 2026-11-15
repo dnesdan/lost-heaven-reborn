@@ -48,6 +48,8 @@ struct ProbeOpenRender {
     /// `GM_LoadProgress::Present` frames during Open and their last bar.
     loading_presents: usize,
     last_loading_bar: Option<f32>,
+    /// Diagnostic refusal of this (0-based) loading-screen Present.
+    refuse_loading_present: Option<usize>,
 }
 
 /// The headless probe's Open device takes the loading screen's device calls
@@ -62,6 +64,12 @@ impl lhr_engine::load_scene_callback::LoadingScreenDevice for ProbeOpenRender {
         &mut self,
         frame: lhr_engine::load_scene_callback::LoadingScreenFrame<'_>,
     ) -> Result<(), String> {
+        if self.refuse_loading_present == Some(self.loading_presents) {
+            return Err(format!(
+                "probe refused loading-screen present {}",
+                self.loading_presents
+            ));
+        }
         self.loading_presents += 1;
         self.last_loading_bar = Some(frame.screen.raw_progress());
         Ok(())
@@ -523,6 +531,7 @@ pub fn run(
     mission: &str,
     model_directories: &[String],
     capture: Option<&Path>,
+    refuse_loading_present: Option<usize>,
 ) -> Result<(), String> {
     // Keep this validation at the command boundary even if a future caller
     // bypasses the main option parser. Mission paths cannot escape their root.
@@ -552,7 +561,10 @@ pub fn run(
     // SaveGameNewGame and game->Init, stopping at the first unavailable owner.
     // A requested GPU capture runs at the composed Init's reached render
     // boundary, after the live audio mute; it is never retried elsewhere.
-    let mut render = ProbeOpenRender::default();
+    let mut render = ProbeOpenRender {
+        refuse_loading_present,
+        ..ProbeOpenRender::default()
+    };
     let mut new_mission = NewMissionAttempt::default();
     let mut init_capture = None;
     let mut init_loading_presents: Vec<f32> = Vec::new();

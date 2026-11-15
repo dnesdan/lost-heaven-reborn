@@ -179,23 +179,11 @@ where
             OpenStep::OpenWorld => {
                 // scene->Open(.., I3DLOAD_PROGRESS | .., __SceneErrFnc)
                 // (Mission.cpp:643; __SceneErrFnc GAME 0x540fd0 forwards
-                // every CBM_PROGRESS to cbLoadScene). LoadHierarchy reports
-                // BEGIN before the file is read; the intake reports
-                // LoadImage's STEPs in place and LoadHierarchy's END on its
-                // exits (load_world_source).
-                use crate::load_scene_callback::{CBM_PROGRESS, LOAD_PROGRESS_BEGIN};
+                // every CBM_PROGRESS to cbLoadScene). The intake reports
+                // LoadHierarchy's BEGIN after its admission, LoadImage's
+                // STEPs in place and END on its exits (load_world_source).
                 let scene = self.scene(step)?;
                 let input = MissionLoadSession::open_world_path(self.mission);
-                self.session
-                    .report_load_scene(
-                        CBM_PROGRESS,
-                        0.0f32.to_bits(),
-                        LOAD_PROGRESS_BEGIN,
-                        self.renderer,
-                    )
-                    .map_err(|detail| {
-                        SessionOpenError(format!("{step:?}: cbLoadScene: {detail}"))
-                    })?;
                 self.session
                     .load_world_source(scene, &input, self.renderer)
                     .map_err(|cause| self.source_error(step, cause))

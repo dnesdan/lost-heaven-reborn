@@ -2394,8 +2394,10 @@ impl ModelArena {
     /// [`ModelArena::load_parsed_into_model_for_root_with_billboards`] with
     /// LoadImage's per-frame `LoadProgress` point: `frame_progress(j)` runs
     /// before frame `j` is read (load4ds.cpp:128, LS3DF 0x10060eef). An
-    /// `Err` stops the frame loop there, with the frames read so far kept on
-    /// the failure's partial content.
+    /// `Err` is a host stop, not a load error: the loader returns at once
+    /// with the frames read so far as untransferred creator references on
+    /// the failure's partial content (no target pass, no root link, no
+    /// AddFrame, no Release).
     pub(crate) fn load_parsed_into_model_for_root_reporting(
         &mut self,
         model: ModelKey,
@@ -2448,9 +2450,11 @@ impl ModelArena {
         let mut morph_poses = Vec::new();
         let mut result = Ok(());
         for index in 0..source.frames.len() {
-            result = frame_progress(index);
-            if result.is_err() {
-                break;
+            if let Err(error) = frame_progress(index) {
+                return Err(SharedModelLoadFailure {
+                    error,
+                    partial: content,
+                });
             }
             let suffix = billboards
                 .iter()

@@ -120,12 +120,14 @@ pub fn load_progress_gate(last: &mut f32, p: f32, flags: u32) -> bool {
     true
 }
 
-/// A LoadHierarchy progress report of a `CBM_PROGRESS` callback: a
+/// A LoadHierarchy progress report of a `CBM_PROGRESS` callback: the
+/// `LOAD_PROGRESS_BEGIN` at 0.0f after its admission (Load.cpp:109-111), a
 /// LoadImage `LoadProgress` point with its raw value (before LS3DF's 0.02
 /// gate), or the `LOAD_PROGRESS_END` at 1.0f that LoadHierarchy reports on
-/// every exit (Load.cpp:130/174/185/204).
+/// every later exit (Load.cpp:130/174/185/204).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LoadHierarchyReport {
+    Begin,
     Step(f32),
     End,
 }

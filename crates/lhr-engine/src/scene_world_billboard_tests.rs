@@ -546,3 +546,39 @@ fn world_suffix_uses_existing_native_orientation_corrections() {
         }
     });
 }
+
+#[test]
+fn a_refused_admission_reports_neither_begin_nor_end() {
+    use crate::scene_file_load::LoadHierarchyReport;
+    crate::native_precision::Pc24PrecisionState::default().run(|| {
+        let scratch = Scratch::new();
+        let installation = scratch.install(&world(&[visual(b"sprite", 0, 0, Some((0, 1)))], b""));
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let mut reports = Vec::new();
+        arena
+            .load_scene_world_cpu_reporting(scene, &installation, "world.i3d", &mut |report| {
+                reports.push(report);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(reports.first(), Some(&LoadHierarchyReport::Begin));
+        assert_eq!(reports.last(), Some(&LoadHierarchyReport::End));
+        // The scene is no longer empty: the host admission refuses before
+        // LoadHierarchy starts, so neither BEGIN nor END is reported.
+        let mut second = Vec::new();
+        let failure = arena
+            .load_scene_world_cpu_reporting(scene, &installation, "world.i3d", &mut |report| {
+                second.push(report);
+                Ok(())
+            })
+            .unwrap_err();
+        assert_eq!(failure.progress.phase(), CpuSceneWorldPhase::Admission);
+        assert!(matches!(
+            failure.error,
+            CpuSceneWorldError::Model(ModelError::OriginalModelOpenUnavailable(_))
+        ));
+        assert!(second.is_empty());
+        close_world(&mut arena, scene);
+    });
+}

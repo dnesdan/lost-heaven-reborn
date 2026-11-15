@@ -40,6 +40,10 @@ pub struct CpuSceneWorldProgress {
     /// bytes, load4ds.cpp:89,124): the entries `LoadImage` reads and reports
     /// progress over. `None` before a parse.
     source_counts: Option<(u16, u16)>,
+    /// `frames` are the creator references a host stop left before their
+    /// transfer (not linked to the primary sector, not on the staging
+    /// model); terminal disposal releases them.
+    creator_references_pending: bool,
 }
 impl CpuSceneWorldProgress {
     pub fn scene(&self) -> SceneKey {
@@ -60,6 +64,11 @@ impl CpuSceneWorldProgress {
     pub fn phase(&self) -> CpuSceneWorldPhase {
         self.phase
     }
+    /// True while `frames` are untransferred creator references of a host
+    /// stop inside the frame loop.
+    pub fn creator_references_pending(&self) -> bool {
+        self.creator_references_pending
+    }
     /// The parsed file's (material, frame) entry counts, once parsed.
     pub fn source_counts(&self) -> Option<(usize, usize)> {
         self.source_counts
@@ -75,6 +84,7 @@ impl CpuSceneWorldProgress {
             prepared_sectors: 0,
             phase: CpuSceneWorldPhase::Admission,
             source_counts: None,
+            creator_references_pending: false,
         }
     }
 }
@@ -92,7 +102,10 @@ impl ModelArena {
     ) -> Result<CpuSceneWorldProgress, CpuSceneWorldFailure> {
         self.load_scene_world_cpu_reporting(scene, installation, name, &mut |_| Ok(()))
     }
-    /// The world intake with LoadHierarchy's progress reports:
+    /// The world intake with LoadHierarchy's progress reports: `Begin`
+    /// once the host admission passed (LoadHierarchy's BEGIN follows its
+    /// parameter and deadlock checks, Load.cpp:105-112; a refused admission
+    /// returns before it, with no report at all), then
     /// `Step(p)` at LoadImage's `LoadProgress` points (load4ds.cpp:92/128),
     /// before each material is read (`(i/2)/LoadMaterialu`, after the parse
     /// and before any frame) and before each frame is read
@@ -103,12 +116,13 @@ impl ModelArena {
     /// `root->Update()`) and precedes the sector preparation, which is
     /// `I3D_scene::Open`'s `MakeReadySectors` after LoadHierarchy returns
     /// (I3d_scene.cpp:542-545). Every error raised before that point
-    /// (admission, a missing or corrupt file, an unsupported frame, a frame,
-    /// resource or transfer failure) reports `End` first, as LoadHierarchy
-    /// reports END on each of its exits. A report's `Err` stops the intake
-    /// at that point as [`ModelError::LoadCallback`], with no `End`, keeping
-    /// the frames read before it on the staging owner and running nothing
-    /// later; a refused `End` after an error stops the same way.
+    /// after `Begin` (a missing or corrupt file, an unsupported frame, a
+    /// frame, resource or transfer failure) reports `End` first, as
+    /// LoadHierarchy reports END on each of its exits. A report's `Err` is a
+    /// host stop: [`ModelError::LoadCallback`], no `End`, nothing later; the
+    /// frames read before a stop in the frame loop stay untransferred
+    /// creator references (`creator_references_pending`) for terminal
+    /// disposal. A refused `End` after an error stops the same way.
     ///
     /// The adapter parses the whole file before the material points, and
     /// realizes materials per mesh in its later resource phase instead of in
@@ -124,6 +138,7 @@ impl ModelArena {
         report: &mut dyn FnMut(LoadHierarchyReport) -> Result<(), String>,
     ) -> Result<CpuSceneWorldProgress, CpuSceneWorldFailure> {
         let mut progress = CpuSceneWorldProgress::empty(self, scene);
+        let mut begun = false;
         let mut end_reported = false;
         let result = (|| -> Result<(), ModelError> {
             let si = self.scene_index(scene)?;
@@ -136,6 +151,8 @@ impl ModelArena {
                     "CPU world intake requires an empty scene and no interrupted intake",
                 ));
             }
+            begun = true;
+            report(LoadHierarchyReport::Begin).map_err(ModelError::LoadCallback)?;
             progress.phase = CpuSceneWorldPhase::Input;
             let path = original_static_geometry_path(name.as_bytes())?;
             let bytes = installation
@@ -177,7 +194,7 @@ impl ModelArena {
             Err(error) => {
                 let error = match error {
                     ModelError::LoadCallback(_) => error,
-                    error if end_reported => error,
+                    error if end_reported || !begun => error,
                     error => match report(LoadHierarchyReport::End) {
                         Ok(()) => error,
                         Err(stop) => {
@@ -238,6 +255,25 @@ impl ModelArena {
             Ok(content) => content,
             Err(failure) => {
                 progress.frames = failure.partial.frames;
+                if matches!(failure.error, ModelError::LoadCallback(_)) {
+                    // LoadImage constructed each frame read before the stop,
+                    // visuals included; the adapter publishes their
+                    // ObjectResources only in the resource phase, which never
+                    // ran. Their destructor is the parsed-visual path with
+                    // null resource fields.
+                    for &frame in &progress.frames {
+                        let fi = self.frame_index(frame)?;
+                        if self.frames[fi].source.is_some()
+                            && matches!(
+                                self.state(frame)?.kind,
+                                FrameKind::Mesh | FrameKind::Singlemesh
+                            )
+                        {
+                            self.frames[fi].visual_admission_attempted = true;
+                        }
+                    }
+                    progress.creator_references_pending = true;
+                }
                 return Err(failure.error);
             }
         };
@@ -303,6 +339,19 @@ impl ModelArena {
         }
         let si = self.scene_index(progress.scene)?;
         self.check_owner_available(progress.scene.into())?;
+        if progress.creator_references_pending {
+            // The creator references of a host stop. No original path
+            // releases them (LoadHierarchy would have linked, added and
+            // released them in read order); they go in reverse read order,
+            // children before the parents they were linked to, so no frame
+            // is destroyed with live children. A host choice: read order
+            // completes too, as a destroyed parent unlinks its children.
+            while let Some(&frame) = progress.frames.last() {
+                self.release(frame)?;
+                progress.frames.pop();
+            }
+            progress.creator_references_pending = false;
+        }
         if let Some(staging) = progress.staging_model {
             self.release(staging.root())?;
             progress.staging_model = None;

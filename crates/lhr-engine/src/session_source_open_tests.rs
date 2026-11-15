@@ -1692,3 +1692,80 @@ fn a_refused_success_end_stops_before_make_ready_sectors() {
     assert_eq!(progress.prepared_sectors(), 0);
     discard(&mut session);
 }
+
+/// A one-vertex, one-face mesh frame (kind 1, visual 0) using material 1.
+fn mesh_frame(parent: u16, name: &[u8]) -> Vec<u8> {
+    let mut bytes = vec![1, 0, 0, 0];
+    bytes.extend(parent.to_le_bytes());
+    for value in [0f32, 0., 0., 1., 1., 1., 1., 0., 0., 0.] {
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.push(0); // culling
+    bytes.push(u8::try_from(name.len()).unwrap());
+    bytes.extend(name);
+    bytes.push(0); // properties
+    bytes.extend(0u16.to_le_bytes()); // no instance
+    bytes.push(1); // one LOD
+    bytes.extend(0f32.to_le_bytes());
+    bytes.extend(1u16.to_le_bytes());
+    for value in [1f32, 2., 3., 0., 1., 0., 0.25, 0.75] {
+        bytes.extend(value.to_le_bytes());
+    }
+    bytes.push(1); // one face group
+    bytes.extend(1u16.to_le_bytes());
+    bytes.extend([0; 6]);
+    bytes.extend(1u16.to_le_bytes()); // material 1
+    bytes
+}
+
+#[test]
+fn a_step_stop_after_mesh_frames_leaves_creator_references_that_dispose() {
+    // Mesh 0 (root), mesh 1 (child of 0), meshes 2 and 3. Frame 0 reports
+    // 0.5 (shown), frame 1 repeats it (gated), frame 2 reports 0.75:
+    // refused before frame 2 is read.
+    let fixture = Fixture::new(
+        Some(&world_with_materials(
+            1,
+            &[
+                mesh_frame(0, b"m0"),
+                mesh_frame(1, b"m1"),
+                mesh_frame(0, b"m2"),
+                mesh_frame(0, b"m3"),
+            ],
+        )),
+        Some(&scene2(&[])),
+        None,
+    );
+    write_loading_screen_tables(&fixture);
+    let mut session = fixture.session();
+    let mut device = RefusingDevice {
+        presents: Vec::new(),
+        refuse_at: Some(2),
+    };
+    let error = open_with_progress(&mut session, true, &mut device).unwrap_err();
+    assert_world_stop(&session, error);
+    let progress = session.world_progress().unwrap();
+    let frames = progress.frames().to_vec();
+    assert_eq!(frames.len(), 2);
+    assert!(progress.creator_references_pending());
+    assert_eq!(progress.transferred_frames(), 0);
+    // The stop ran no transfer: mesh 0 is not linked to the primary sector,
+    // mesh 1 is linked to mesh 0 as LoadImage read it, nothing is on the
+    // staging model or in the Scene, and no resource was admitted.
+    let arena = session.arena();
+    assert_eq!(arena.links(frames[0]).unwrap().parent, None);
+    assert_eq!(arena.links(frames[1]).unwrap().parent, Some(frames[0]));
+    let staging = progress.staging_model().unwrap();
+    assert!(arena.model(staging).unwrap().frames.is_empty());
+    let scene = session.scene().unwrap().unwrap();
+    assert!(arena.scene(scene).unwrap().frames().is_empty());
+    for &frame in &frames {
+        assert_eq!(arena.frame(frame).unwrap().object_resources, None);
+        assert_eq!(arena.frame(frame).unwrap().owner, None);
+    }
+    discard(&mut session);
+    let counts = session.owned_counts().unwrap();
+    assert_eq!(counts.live_frames, 0);
+    assert_eq!(counts.driver_scenes, 0);
+    assert_eq!(counts.visual_allocations, 0);
+}

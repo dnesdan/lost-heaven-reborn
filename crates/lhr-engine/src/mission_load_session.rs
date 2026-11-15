@@ -2075,6 +2075,9 @@ impl MissionLoadSession {
                         }
                         (p, crate::load_scene_callback::LOAD_PROGRESS_STEP)
                     }
+                    crate::scene_file_load::LoadHierarchyReport::Begin => {
+                        (0.0, crate::load_scene_callback::LOAD_PROGRESS_BEGIN)
+                    }
                     crate::scene_file_load::LoadHierarchyReport::End => {
                         (1.0, crate::load_scene_callback::LOAD_PROGRESS_END)
                     }
