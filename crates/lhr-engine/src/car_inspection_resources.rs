@@ -48,9 +48,10 @@ impl LoadedVisualResources {
     /// Read-only view of an allocation's live bytes. An active native lock
     /// is read through, never released: a locked `C_VBuffer` hands every
     /// further read lock its existing `data + stride * index` pointer
-    /// (`C_VBuffer::Lock`, LS3DF 0x1000af80), and `I3D_scene::Render`'s
-    /// draw reads the same buffer contents after its own
-    /// `m_UnlockAllVBuffers` (LS3DF 0x100697e0). The lock bookkeeping stays
+    /// (`C_VBuffer::Lock`, LS3DF 0x1000af80). Reading the same bytes after
+    /// `m_UnlockAllVBuffers` (LS3DF 0x100697e0) is a host storage contract,
+    /// not native evidence: native gives no guarantee that a D3D pointer
+    /// stays valid after `Unlock`. The lock bookkeeping stays
     /// with its owner (LoadCollision keeps its LOD0 locks, LS3DF 0x30e80);
     /// only an in-progress owner write (a mutable borrow) is refused.
     pub(super) fn inspection_graphics(

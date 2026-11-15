@@ -1526,6 +1526,9 @@ impl MissionLoadSession {
     /// over the live Scene, never a second/copied scene or a generated image.
     /// A successful render advances to the next unowned `stop_sounds` step;
     /// it does not complete GameInit or start the game's frame scheduler.
+    /// No production composition calls it: it does not run the driver's
+    /// unlock-all (LS3DF 0x10062030 at 0x100630b9/0x100630c3), so a caller
+    /// wiring a real backend must add `publish_runtime_buffers()` first.
     pub fn reset_game_mission_state_with_render<B: crate::scene_projection::SceneRenderBackend>(
         &mut self,
         renderer: &mut B,
