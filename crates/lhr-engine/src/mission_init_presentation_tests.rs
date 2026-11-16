@@ -48,6 +48,7 @@ fn stage_dirty_game_state(
     session.game_inline.set_actor_lightness(true);
     session.game_inline.stage_camera_rot_repair(true);
     stage_dirty_ai_manager(session);
+    stage_box_placements(session);
     (sound, buffer)
 }
 
@@ -106,8 +107,37 @@ fn assert_ai_manager_shift_begun(session: &MissionLoadSession) {
     assert!(manager.fight.parties().is_empty());
 }
 
-/// `EffectsStart`'s boundary: the box-placement vectors have no owner.
-const EFFECTS_STOP: &str = "EffectsStart: C_game::boxes.clear() (GAME 0x5a0cbd, C_game +0x2e80), box_dests (+0x2e90) and box_placement_temp: the box-placement vectors have no session owner";
+/// `EffectsStart`'s boundary after the box-placement clears: the mission's
+/// `C_effects` has no owner.
+const EFFECTS_STOP: &str = "EffectsStart: C_effects::LoadStaticParticles (GAME 0x44ad30, called at 0x5a0d3e through act_mission->effects): the mission's C_effects (effects table, static emitters, particle pools) has no session owner";
+
+/// Stage the three box-placement vectors `EffectsStart` empties, with
+/// borrowed identities whose owners (`BoxPlacementAdd`,
+/// `BoxPlacementDestAdd`, `BoxPlacement_SaveInfo`) are unported.
+fn stage_box_placements(session: &mut MissionLoadSession) {
+    use crate::game_housekeeping::*;
+    let frame = crate::script_scheduler::FrameReferenceId::from_existing;
+    let lists = &mut session.game_lists;
+    lists.boxes.push(BoxPlacementRef::staged(71));
+    lists
+        .box_dests
+        .extend([BoxDestRef::staged(72), BoxDestRef::staged(73)]);
+    lists.box_placement_temp.push(BoxPlacementTemp {
+        frame: frame(74),
+        parent: None,
+        pos: [1.0, 2.0, 3.0],
+        dir: [0.0, 0.0, 1.0],
+    });
+}
+
+fn box_placement_counts(session: &MissionLoadSession) -> [usize; 3] {
+    let lists = session.game_lists();
+    [
+        lists.boxes.len(),
+        lists.box_dests.len(),
+        lists.box_placement_temp.len(),
+    ]
+}
 
 /// `IndicatorsGameInit` without the profile intake's options.
 const SETTINGS_STOP: &str = "IndicatorsGameInit: mafiaIndicators.GameInit (GAME 0x5f73c0): mafiaLoadSave.settings.speedometer_mph (GAME 0x6d4b44) was never set by G_LoadSaveClass::Init's profile intake (AllDefault 0x6051e0 / ProfileLoad 0x6057f0)";
@@ -386,8 +416,9 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
     // light sectors; PhysicsClear, police and traffic init and the
     // sound-arena/lightness/radar clears follow, the (empty) global
     // programs are initialized and GameInitStart finds no program; the HUD
-    // GameInit picks the day dial in miles; the unowned box-placement
-    // vectors stop Init.
+    // GameInit picks the day dial in miles; EffectsStart empties the
+    // box-placement vectors and the unowned C_effects stops Init at
+    // LoadStaticParticles.
     assert_eq!(failure.step, InitStep::EffectsStart);
     assert_eq!(failure.error.0, EFFECTS_STOP);
     assert_eq!(
@@ -512,12 +543,14 @@ fn presented_init_runs_the_reset_span_in_native_order_with_the_hud() {
     let mut attempt = InitAttempt::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("the box-placement clears must stop Init");
+        panic!("LoadStaticParticles must stop Init");
     };
     // Opened without progress, `_show_progress_` is the native no-op and
     // the C_player statics are cleared; the owned spans run on through the
-    // HUD GameInit, which reads the night flag PhysicsClear cleared.
+    // HUD GameInit, which reads the night flag PhysicsClear cleared, and
+    // EffectsStart's box-placement clears (checked with the other lists).
     assert_eq!(failure.step, InitStep::EffectsStart);
+    assert_eq!(failure.error.0, EFFECTS_STOP);
     assert_eq!(
         hud_textures(&session),
         (Some("2intmph.tga"), Some("2intauto.tga"))
@@ -605,6 +638,8 @@ fn presented_init_without_hud_stops_at_score_set_on_keeping_earlier_clears() {
     assert_eq!(manager.groups.free_actors().len(), 1);
     assert_eq!(manager.follow.check_time(), 300);
     assert_eq!(manager.fight.parties().len(), 1);
+    // EffectsStart's box-placement clears are far past the stop.
+    assert_eq!(box_placement_counts(&session), [1, 2, 1]);
     assert_eq!(
         attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(())),
         Err(InitRunError::AlreadyEntered)
@@ -654,6 +689,44 @@ fn sound_and_lightness_without_hud_stops_at_radar_clear_keeping_earlier_clears()
 }
 
 #[test]
+fn effects_start_clears_the_box_vectors_then_stops_at_load_static_particles() {
+    use crate::game_init_order::InitOperations as _;
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+    let mut session = fixture.session_without_hud();
+    session.install_indicators(hud()).unwrap();
+    adopt_fresh_install_settings(&mut session);
+    stage_box_placements(&mut session);
+    // Before the open prefix the step is refused before any clear.
+    assert_eq!(
+        session.execute(InitStep::EffectsStart),
+        Err(crate::game_init_order::SessionInitError(
+            "EffectsStart: game init requires completed open prefix".into()
+        ))
+    );
+    assert_eq!(box_placement_counts(&session), [1, 2, 1]);
+    load(&mut session, &[]).unwrap();
+    let mut sequence = SceneSnapshotSequence::default();
+    let mut attempt = InitAttempt::default();
+    let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
+    let Err(InitRunError::Callback(failure)) = result else {
+        panic!("LoadStaticParticles must stop Init");
+    };
+    // GAME 0x5a0cbd-0x5a0d34: the three erases ran; the C_effects call at
+    // 0x5a0d3e is the boundary, so DiffClear never runs.
+    assert_eq!(failure.step, InitStep::EffectsStart);
+    assert_eq!(failure.error.0, EFFECTS_STOP);
+    assert_eq!(attempt.last(), Some(InitStep::EffectsStart));
+    assert_eq!(box_placement_counts(&session), [0, 0, 0]);
+    // The stopped attempt is not replayed.
+    assert_eq!(
+        attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(())),
+        Err(InitRunError::AlreadyEntered)
+    );
+    // Disposal after the stop: every owner reaches zero.
+    discard(&mut session);
+}
+
+#[test]
 fn presented_init_initializes_the_global_programs_and_runs_game_init_start_once() {
     use crate::mission_content_loading::NamedGlobalProgramOutcome;
     let fixture = programs_fixture();
@@ -663,7 +736,7 @@ fn presented_init_initializes_the_global_programs_and_runs_game_init_start_once(
     let mut attempt = InitAttempt::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("the box-placement clears must stop Init");
+        panic!("LoadStaticParticles must stop Init");
     };
     assert_eq!(failure.step, InitStep::EffectsStart);
     assert_eq!(failure.error.0, EFFECTS_STOP);

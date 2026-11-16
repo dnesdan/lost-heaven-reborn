@@ -2473,6 +2473,77 @@ pub struct GameInitLists {
     pub lightness: Vec<LightnessEntry>,
     /// `invisible_actors` (+0x17c).
     pub invisible_actors: Vec<InvisibleActor>,
+    /// `boxes` (+0x2e80, `std::vector<S_box_placement*>`): borrowed
+    /// identities of the boxes the scripts place. `Done` takes each box out
+    /// through `BoxPlacementDel`; `Init`'s `clear()` drops the pointers only.
+    pub boxes: Vec<BoxPlacementRef>,
+    /// `box_dests` (+0x2e90, `std::vector<S_box_dest*>`): borrowed
+    /// identities of the boxes' destinations. `Done` deletes them; `Init`'s
+    /// `clear()` drops the pointers only.
+    pub box_dests: Vec<BoxDestRef>,
+    /// `box_placement_temp` (+0x30, `std::vector<S_box_placement_temp>`):
+    /// the trivially-destructible records `BoxPlacement_SaveInfo` keeps.
+    pub box_placement_temp: Vec<BoxPlacementTemp>,
+}
+
+impl GameInitLists {
+    /// The box-placement clears that open `Init`'s `EffectsStart` span,
+    /// GAME 0x5a0cbd-0x5a0d34 (`game.cpp:342-344` at pin fe7e746): three
+    /// inline `erase(begin, end)` sequences over `boxes` (+0x2e80, move
+    /// helper 0x564750), `box_dests` (+0x2e90, same helper) and
+    /// `box_placement_temp` (+0x30, move helper 0x5bc870), each followed by
+    /// the range-destroy call 0x4d2040 and the store of the new end into
+    /// the vector's `last` (+0x8). No `delete` runs: the
+    /// pointees of `boxes`/`box_dests` stay with their (unported) owners and
+    /// the temporary records are trivial. Working name, no function credit.
+    pub fn init_box_placement_clear(&mut self) {
+        self.boxes.clear();
+        self.box_dests.clear();
+        self.box_placement_temp.clear();
+    }
+}
+
+/// Borrowed identity of one `C_game::S_box_placement` (mafia-re
+/// game/mission/game.h:322-337 at pin fe7e746). Its allocation and members
+/// belong to `BoxPlacementAdd` (mafia-re's BoxPlacement span GAME
+/// 0x5b2a00-0x5b4547, unported), so
+/// no member is represented here and holding the identity grants no access.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BoxPlacementRef(u32);
+
+/// Borrowed identity of one `C_game::S_box_dest` (game.h:339-343 at pin
+/// fe7e746), allocated by `BoxPlacementDestAdd` (unported); opaque here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BoxDestRef(u32);
+
+#[cfg(test)]
+impl BoxPlacementRef {
+    /// Test staging while `BoxPlacementAdd` stays unported.
+    pub(crate) const fn staged(identity: u32) -> Self {
+        Self(identity)
+    }
+}
+
+#[cfg(test)]
+impl BoxDestRef {
+    /// Test staging while `BoxPlacementDestAdd` stays unported.
+    pub(crate) const fn staged(identity: u32) -> Self {
+        Self(identity)
+    }
+}
+
+/// `C_game::S_box_placement_temp` (mafia-re game/mission/game.h:173-179 at
+/// pin fe7e746, member names mafia-re's): where a box was when
+/// `BoxPlacement_SaveInfo` (GAME 0x5b36b0) kept it. The frames are borrowed;
+/// `parent` is `None` for a native NULL `GetParent()`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoxPlacementTemp {
+    pub frame: crate::script_scheduler::FrameReferenceId,
+    pub parent: Option<crate::script_scheduler::FrameReferenceId>,
+    /// +0x8, the local position.
+    pub pos: [f32; 3],
+    /// +0x14, the local direction.
+    pub dir: [f32; 3],
 }
 
 /// `C_game::S_invisible_actor` (mafia-re game/mission/game.h:182-186 at pin

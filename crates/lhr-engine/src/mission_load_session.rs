@@ -618,6 +618,9 @@ impl crate::game_collision::CollisionLevelScene for SessionCollisionScene<'_> {
 mod owned_source_open;
 pub use owned_source_open::MissionSourceOpenError;
 
+/// The unowned native step after `EffectsStart`'s box clears.
+pub const EFFECTS_START_STOP: &str = "C_effects::LoadStaticParticles (GAME 0x44ad30, called at 0x5a0d3e through act_mission->effects): the mission's C_effects (effects table, static emitters, particle pools) has no session owner";
+
 #[path = "session_program_runtime.rs"]
 mod owned_program_runtime;
 pub use owned_program_runtime::{
@@ -1962,9 +1965,30 @@ impl MissionLoadSession {
             .map_err(|detail| format!("mafiaIndicators.GameInit (GAME 0x5f73c0): {detail}"))
     }
 
+    /// `EffectsStart` in `Init` order (`game.cpp:342-350` at pin fe7e746):
+    /// the box-placement clears at GAME 0x5a0cbd-0x5a0d34
+    /// ([`crate::game_housekeeping::GameInitLists::init_box_placement_clear`]),
+    /// then `act_mission->effects->LoadStaticParticles()` (`mov edx,
+    /// [0x63788c]; mov ecx, [edx+0x6c]; call 0x44ad30` at 0x5a0d35-0x5a0d3e).
+    /// `C_effects` (the effects table, `static_emitters` and the particle
+    /// pools `LoadStaticParticles`/`Mission_Start` fill from
+    /// `missions\<name>\effects.bin` and `tables\effects.tbl`) has no session
+    /// owner, so the step stops there with the three clears kept.
+    pub fn effects_start_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        self.game_lists.init_box_placement_clear();
+        Err(EFFECTS_START_STOP.into())
+    }
+
     /// Adopt the `mafiaLoadSave.settings` that `G_LoadSaveClass::Init`'s
     /// profile intake left before the main menu (see
     /// [`crate::game_loadsave_lifecycle::profile_settings_after_load_save_init`]).
+    /// Temporary host stand-in: the real composition
+    /// ([`crate::game_loadsave_lifecycle::GameLoadSave::init`]) writes
+    /// `settings` through `AllDefault`/`ProfileLoad`, but its profile
+    /// enumeration, menu and G_Stream owners are unported, so the host runs
+    /// this adoption instead. `ProfileChange` (GAME 0x605070) and the
+    /// options menu (`g_m_func.cpp:720`) supersede it once ported.
     /// One process-start intake: a second adoption is refused and keeps the
     /// live owner. Like the rest of `load_save_progress` it survives
     /// disposal.

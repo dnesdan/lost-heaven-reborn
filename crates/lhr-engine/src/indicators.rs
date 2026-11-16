@@ -1598,6 +1598,7 @@ impl LoadSaveEffects for IndicatorsLoadSave<'_> {
     fn all_default(
         &mut self,
         _profile: &mut super::game_loadsave_lifecycle::ProfileState,
+        _settings: &mut Option<super::game_loadsave_lifecycle::ProfileSettings>,
     ) -> Result<(), Self::Error> {
         Err(IndicatorsEffectError::Unavailable("profile defaults"))
     }
@@ -1644,6 +1645,7 @@ impl LoadSaveEffects for IndicatorsLoadSave<'_> {
     fn profile_load(
         &mut self,
         _profile: &mut super::game_loadsave_lifecycle::ProfileState,
+        _settings: &mut Option<super::game_loadsave_lifecycle::ProfileSettings>,
     ) -> Result<(), Self::Error> {
         Err(IndicatorsEffectError::Unavailable("profile load"))
     }
@@ -2231,7 +2233,9 @@ mod tests {
         assert!(adapter.state.is_created());
         adapter.clear_indicator_slot_40a4().unwrap();
         assert_eq!(adapter.state.show_flags(), 0);
-        assert!(adapter.all_default(&mut profile).is_err());
+        let mut settings = None;
+        assert!(adapter.all_default(&mut profile, &mut settings).is_err());
+        assert_eq!(settings, None);
         assert!(adapter.null_timer().is_err());
         assert!(adapter.profile_save(&profile).is_err());
         adapter.destroy_indicators().unwrap();

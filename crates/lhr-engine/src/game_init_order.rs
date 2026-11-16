@@ -281,7 +281,8 @@ where
 /// `cbEnumSectors` walk of the primary sector, the `PhysicsClear` span,
 /// police init, traffic flags, the sound-arena/lightness/radar clears,
 /// the mission-global program `GameInit` and the `GameInitStart` run, the
-/// HUD `GameInit` dial/icon selection, the base-cache `IsOpen` read, and the `MarkInitialized`
+/// HUD `GameInit` dial/icon selection, the `EffectsStart` box-placement
+/// clears up to `LoadStaticParticles`, the base-cache `IsOpen` read, and the `MarkInitialized`
 /// flag write. Every other boundary returns `Err` with its step prefix and
 /// preserves the reached live prefix: the driver stops at the first
 /// unowned step. Actor `GameInit` and rendering never run here. This is the owned
@@ -324,10 +325,9 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::IndicatorsGameInit => self
                 .indicators_game_init_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::EffectsStart => Err(SessionInitError::prefixed(
-                step,
-                "C_game::boxes.clear() (GAME 0x5a0cbd, C_game +0x2e80), box_dests (+0x2e90) and box_placement_temp: the box-placement vectors have no session owner",
-            )),
+            InitStep::EffectsStart => self
+                .effects_start_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
             InitStep::DiffClear => Err(SessionInitError::unavailable(step, "diff pools")),
             InitStep::BloodAndFramePools => {
                 Err(SessionInitError::unavailable(step, "blood/frame pools"))

@@ -54,7 +54,14 @@ impl crate::mission_components::CameraProfile for ProfileState {
 /// `g_indicators.cpp:298`).
 pub trait LoadSaveEffects {
     type Error;
-    fn all_default(&mut self, profile: &mut ProfileState) -> Result<(), Self::Error>;
+    /// `AllDefault` (GAME 0x6051e0). `settings` is the single
+    /// `mafiaLoadSave.settings` owner ([`LoadSaveProgress::settings`]); its
+    /// `DefaultSettings(0xffff)` call writes the represented options there.
+    fn all_default(
+        &mut self,
+        profile: &mut ProfileState,
+        settings: &mut Option<ProfileSettings>,
+    ) -> Result<(), Self::Error>;
     /// HUD owner `create`: `IndicatorsState::create` (GAME 0x5f70e0).
     fn create_indicators(&mut self) -> Result<(), Self::Error>;
     fn resolution_changed(&mut self) -> Result<(), Self::Error>;
@@ -65,7 +72,13 @@ pub trait LoadSaveEffects {
     fn null_timer(&mut self) -> Result<(), Self::Error>;
     fn open_menu_mission(&mut self) -> Result<(), Self::Error>;
     fn execute_profile_select(&mut self) -> Result<i32, Self::Error>;
-    fn profile_load(&mut self, profile: &mut ProfileState) -> Result<(), Self::Error>;
+    /// `ProfileLoad` (GAME 0x6057f0): the chosen profile's options land in
+    /// the same `settings` owner (or `AllDefault`'s, when the read fails).
+    fn profile_load(
+        &mut self,
+        profile: &mut ProfileState,
+        settings: &mut Option<ProfileSettings>,
+    ) -> Result<(), Self::Error>;
     fn profile_save(&mut self, profile: &ProfileState) -> Result<(), Self::Error>;
     /// HUD owner `destroy`: `IndicatorsState::destroy` (GAME 0x5f7250).
     fn destroy_indicators(&mut self) -> Result<(), Self::Error>;
@@ -137,7 +150,7 @@ impl GameLoadSave {
         self.profile.begin_initialization(progress);
         init_effect(
             &mut self.init_interrupted,
-            effects.all_default(&mut self.profile),
+            effects.all_default(&mut self.profile, &mut progress.settings),
         )?;
         init_effect(&mut self.init_interrupted, effects.create_indicators())?;
         tables.load(table_backend).map_err(|error| {
@@ -167,7 +180,7 @@ impl GameLoadSave {
         }
         init_effect(
             &mut self.init_interrupted,
-            effects.profile_load(&mut self.profile),
+            effects.profile_load(&mut self.profile, &mut progress.settings),
         )?;
         apply_controls(controls, &self.profile.bindings, control_backend).map_err(|error| {
             self.init_interrupted = true;
@@ -311,9 +324,16 @@ mod tests {
     }
     impl LoadSaveEffects for Effects {
         type Error = &'static str;
-        fn all_default(&mut self, profile: &mut ProfileState) -> Result<(), Self::Error> {
+        fn all_default(
+            &mut self,
+            profile: &mut ProfileState,
+            settings: &mut Option<ProfileSettings>,
+        ) -> Result<(), Self::Error> {
             self.call("default")?;
             profile.camera_setting = 1;
+            *settings = Some(ProfileSettings {
+                speedometer_mph: true,
+            });
             Ok(())
         }
         fn create_indicators(&mut self) -> Result<(), Self::Error> {
@@ -340,8 +360,15 @@ mod tests {
             self.call("menu")?;
             Ok(self.choice)
         }
-        fn profile_load(&mut self, profile: &mut ProfileState) -> Result<(), Self::Error> {
+        fn profile_load(
+            &mut self,
+            profile: &mut ProfileState,
+            settings: &mut Option<ProfileSettings>,
+        ) -> Result<(), Self::Error> {
             self.call("profile-load")?;
+            *settings = Some(ProfileSettings {
+                speedometer_mph: false,
+            });
             let mut binding = profile.bindings.read(0);
             binding.device = 2;
             binding.code = 1;
@@ -434,6 +461,14 @@ mod tests {
         // The +0x1e8 `last_stolen = 0` store lands in its single owner.
         assert_eq!(progress.last_stolen, None);
         assert_eq!(owner.profile.camera_setting, 1);
+        // `AllDefault` writes the options through the composition into the
+        // single `mafiaLoadSave.settings` owner; the quit leaves them.
+        assert_eq!(
+            progress.settings,
+            Some(ProfileSettings {
+                speedometer_mph: true
+            })
+        );
         assert!(owner.profile.profiles.is_empty());
         assert!(owner.profile_ignore_save);
         assert_eq!(controls.binding(59), Some(owner.profile.bindings.read(59)));
@@ -485,6 +520,13 @@ mod tests {
         assert_eq!(tables.table(DefinitionKind::Materials), None);
         assert_eq!(controls.binding(0), Some(owner.profile.bindings.read(0)));
         assert_eq!(owner.profile.bindings.read(0).device, 2);
+        // `ProfileLoad`'s options replace `AllDefault`'s in the same owner.
+        assert_eq!(
+            progress.settings,
+            Some(ProfileSettings {
+                speedometer_mph: false
+            })
+        );
         assert_eq!(controls.allocation_seed().mouse_refs[0], 1);
         assert!(!owner.profile_ignore_save);
         owner.close(&mut tables, &mut effects).unwrap();
