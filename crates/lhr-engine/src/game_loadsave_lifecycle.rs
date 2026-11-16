@@ -1051,10 +1051,11 @@ pub fn is_car_in(garage: &LoadSaveGarage, car: Option<GarageActor>) -> bool {
 /// 0x6d4628; mafia-re `fe7e746` `game/ui/g_loadsave.h:350-382`): the
 /// progress a new game resets, `steal_cars` (+0x98), the garage (+0xa0
 /// slots, +0x168 `shown_cars`) and `last_stolen` (+0x1e8), and the loading
-/// screen pointer `progress` (+0x5d4). The member names are mafia-re's, not
+/// screen pointer `progress` (+0x5d4), and the options' `speedometer_mph`
+/// byte (`settings`, +0x4c4+0x58). The member names are mafia-re's, not
 /// original symbols; the class name is the PS2 one. This is not a mirrored
-/// layout of the class: profiles, settings, bindings and the replay stay
-/// with their own owners. Every represented `mafiaLoadSave` field has this
+/// layout of the class: profiles, the other options, bindings and the
+/// replay stay with their own owners. Every represented `mafiaLoadSave` field has this
 /// single owner; `G_LoadSaveClass::Init`'s +0x1e8 store reaches it through
 /// [`GameLoadSave::init`].
 ///
@@ -1076,6 +1077,73 @@ pub struct LoadSaveProgress {
     /// through `_show_progress_` and deletes it after its last mark
     /// (game.cpp:971-976, unported). `SaveGameNewGame` leaves it alone.
     pub progress: Option<LoadProgressScreen>,
+    /// +0x4c4: the profile's options (`S_profile_settings`, 0x5c bytes),
+    /// represented only by the byte a reached operation reads. `None` until
+    /// `G_LoadSaveClass::Init`'s profile intake has set them for this
+    /// process (see [`ProfileSettings`]); the constructor's zero bytes
+    /// (GAME 0x605140 `memset`) are never read by a reached operation,
+    /// because natively `Init` runs before any game starts.
+    pub settings: Option<ProfileSettings>,
+}
+
+/// `mafiaLoadSave.settings` (`S_profile_settings` at +0x4c4; mafia-re
+/// `fe7e746` `game/ui/g_loadsave.h:197-233`, the struct and member names are
+/// mafia-re's), represented only by `speedometer_mph` (+0x58, absolute GAME
+/// 0x6d4b44), which `G_IndicatorsClass::GameInit` reads (`mov al,
+/// [0x6d4b44]` at 0x5f73e4/0x5f7441). The other options (the camera words
+/// among them, which [`ProfileState::camera_setting`] carries for the
+/// startup adapter) stay unrepresented here: no reached operation reads
+/// them, so they acquire no second owner.
+///
+/// Natively the bytes come from `G_LoadSaveClass::Init` (GAME 0x604ee0)
+/// before the main menu: `AllDefault` (0x6051e0) calls
+/// `DefaultSettings(0xffff)` (`push 0xffff` at 0x6051fa, `call 0x607ab0`
+/// at 0x6051ff), whose `DEFAULTS_OTHER` arm stores `mov [edx+0x51c], bl`
+/// (0x607ae4, `bl = 1` from `mov bl, 1` at 0x607ad8: `speedometer_mph =
+/// true`); then `ProfileLoad` (0x6057f0) reads the
+/// chosen profile's `savegame\mafiaNNN.sav` (G_Stream, unported) and, when
+/// that read fails, calls `AllDefault` again (g_loadsave.cpp:344-345).
+/// Only the options menu (`g_m_func.cpp:720`, unported) changes the byte
+/// between that intake and a new game.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProfileSettings {
+    /// +0x58: the speedometer shows miles ("Miles per Hour"). Natively a
+    /// byte read with `test al, al`: a future `ProfileLoad` decode must map
+    /// any non-zero byte to true, not only 1.
+    pub speedometer_mph: bool,
+}
+
+/// What `G_LoadSaveClass::Init`'s `ProfileLoad` found for the chosen
+/// profile, as the host observes the installation's `savegame` directory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileFileIntake {
+    /// No `savegame\mafiaNNN.sav` exists: every profile's `OpenRead`
+    /// fails, `load_failed` stays set and `AllDefault` supplies the
+    /// options (a fresh installation).
+    NoProfileFile,
+    /// A profile file exists; its options would come from the G_Stream
+    /// read, which has no owner yet.
+    ProfileFilePresent,
+}
+
+/// The represented options `G_LoadSaveClass::Init` leaves for a new game,
+/// from the profile intake. A present profile file is refused: its
+/// G_Stream decode (`ProfileLoad`, GAME 0x6057f0) is unported, and
+/// defaults are never substituted for its bytes. This descriptive helper
+/// receives no function credit (`AllDefault`/`DefaultSettings` write many
+/// unrepresented options).
+pub fn profile_settings_after_load_save_init(
+    intake: ProfileFileIntake,
+) -> Result<ProfileSettings, &'static str> {
+    match intake {
+        // AllDefault -> DefaultSettings(0xffff): byte +0x51c = 1 (0x607ae4).
+        ProfileFileIntake::NoProfileFile => Ok(ProfileSettings {
+            speedometer_mph: true,
+        }),
+        ProfileFileIntake::ProfileFilePresent => Err(
+            "G_LoadSaveClass::ProfileLoad (GAME 0x6057f0) reads an existing savegame\\mafiaNNN.sav through G_Stream, which has no owner",
+        ),
+    }
 }
 
 /// The `GM_LoadProgress` loading screen behind `mafiaLoadSave.progress`
@@ -1601,6 +1669,37 @@ mod loadsave_gates_tests {
         assert_eq!(
             progress.progress,
             Some(LoadProgressScreen::for_mission_open())
+        );
+    }
+
+    #[test]
+    fn profile_intake_takes_all_default_options_and_refuses_a_profile_file() {
+        // AllDefault -> DefaultSettings(0xffff): `mov [edx+0x51c], bl` (bl = 1).
+        assert_eq!(
+            profile_settings_after_load_save_init(ProfileFileIntake::NoProfileFile),
+            Ok(ProfileSettings {
+                speedometer_mph: true
+            })
+        );
+        // No default stands in for an existing profile's G_Stream bytes.
+        assert!(
+            profile_settings_after_load_save_init(ProfileFileIntake::ProfileFilePresent)
+                .unwrap_err()
+                .contains("ProfileLoad (GAME 0x6057f0)")
+        );
+        // SaveGameNewGame leaves the options alone.
+        let mut progress = LoadSaveProgress {
+            settings: Some(ProfileSettings {
+                speedometer_mph: true,
+            }),
+            ..Default::default()
+        };
+        save_game_new_game(&mut progress, &mut FreerideState::default());
+        assert_eq!(
+            progress.settings,
+            Some(ProfileSettings {
+                speedometer_mph: true
+            })
         );
     }
 

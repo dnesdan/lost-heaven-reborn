@@ -485,6 +485,45 @@ pub fn staged_script_content(
     Ok((objectives, subtitles, note))
 }
 
+/// What `ProfileLoad` (GAME 0x6057f0) would find: it opens the relative
+/// `savegame\mafiaNNN.sav` (its `sprintf` in g_loadsave.cpp `ProfileLoad`) from
+/// the game's working directory, the installation root. Any such file
+/// means a profile whose G_Stream bytes have no owner here.
+fn profile_file_intake(
+    root: &Path,
+) -> Result<lhr_engine::game_loadsave_lifecycle::ProfileFileIntake, String> {
+    use lhr_engine::game_loadsave_lifecycle::ProfileFileIntake;
+    let entries =
+        std::fs::read_dir(root).map_err(|error| format!("{}: {error}", root.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("{}: {error}", root.display()))?;
+        if !entry.file_name().eq_ignore_ascii_case("savegame") || !entry.path().is_dir() {
+            continue;
+        }
+        let directory = entry.path();
+        let files = std::fs::read_dir(&directory)
+            .map_err(|error| format!("{}: {error}", directory.display()))?;
+        for file in files {
+            let file = file.map_err(|error| format!("{}: {error}", directory.display()))?;
+            let name = file.file_name().to_string_lossy().to_ascii_lowercase();
+            let number = name
+                .strip_prefix("mafia")
+                .and_then(|rest| rest.strip_suffix(".sav"));
+            // `ProfileEnumFiles` enumerates slots 000-031 only
+            // (`cmp esi, 0x20`, GAME 0x6054f2) and opens files.
+            if number.is_some_and(|digits| {
+                digits.len() == 3
+                    && digits.bytes().all(|b| b.is_ascii_digit())
+                    && digits.parse::<u32>().is_ok_and(|slot| slot < 0x20)
+            }) && file.path().is_file()
+            {
+                return Ok(ProfileFileIntake::ProfileFilePresent);
+            }
+        }
+    }
+    Ok(ProfileFileIntake::NoProfileFile)
+}
+
 /// Reached `ResetMissionState` stores after the render block, read live.
 fn reset_flags_observation(session: &MissionLoadSession) -> String {
     let game = session.game_state();
@@ -539,6 +578,17 @@ pub fn run(
     let clock = crate::host_local_time::local_timer_clock()
         .map_err(|error| format!("Mission probe HUD clock: {error}"))?;
     session.install_indicators(lhr_engine::indicators::IndicatorsState::constructed(clock))?;
+    // G_LoadSaveClass::Init's profile intake runs before the main menu
+    // natively; the probe takes its options from the installation's
+    // savegame directory. A refused intake leaves them unset, and Init's
+    // HUD GameInit reports it.
+    let profile_intake = profile_file_intake(root).and_then(|intake| {
+        lhr_engine::game_loadsave_lifecycle::profile_settings_after_load_save_init(intake)
+            .map_err(str::to_owned)
+    });
+    if let Ok(settings) = &profile_intake {
+        session.adopt_profile_settings(*settings)?;
+    }
     let world_input = format!("missions/{mission}/scene.i3d");
     let scene2_path = format!("missions/{mission}/scene2.bin");
     let directories: Vec<&[u8]> = model_directories
@@ -678,6 +728,14 @@ pub fn run(
         new_mission.reached(),
         session.mission_numbers(),
         new_mission.init().entered()
+    )
+    .unwrap();
+    writeln!(
+        report,
+        "mafiaLoadSave.settings (G_LoadSaveClass::Init profile intake): {:?}; HUD GameInit dial/icons={:?}/{:?}",
+        profile_intake,
+        session.indicators().and_then(|hud| hud.dial_asset()),
+        session.indicators().and_then(|hud| hud.icons_asset())
     )
     .unwrap();
     let progress = session.load_save_progress();
@@ -1306,5 +1364,36 @@ mod probe_text_tests {
     #[test]
     fn staged_script_content_reports_missing_root() {
         assert!(staged_script_content(Path::new("nonexistent-probe-root"), "mise01").is_err());
+    }
+    #[test]
+    fn profile_intake_finds_only_numbered_profile_files() {
+        use lhr_engine::game_loadsave_lifecycle::ProfileFileIntake;
+        let root = std::env::temp_dir().join(format!("lhr-profile-intake-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        assert_eq!(
+            profile_file_intake(&root),
+            Ok(ProfileFileIntake::NoProfileFile)
+        );
+        let saves = root.join("SaveGame");
+        std::fs::create_dir_all(&saves).unwrap();
+        // A saved game and a foreign name are not profiles.
+        std::fs::write(saves.join("mafia000.000"), b"").unwrap();
+        std::fs::write(saves.join("mafia12.sav"), b"").unwrap();
+        // Slot 032 is past ProfileEnumFiles' 0x20 bound; a directory is not
+        // a profile file.
+        std::fs::write(saves.join("mafia032.sav"), b"").unwrap();
+        std::fs::create_dir_all(saves.join("mafia005.sav")).unwrap();
+        assert_eq!(
+            profile_file_intake(&root),
+            Ok(ProfileFileIntake::NoProfileFile)
+        );
+        std::fs::write(saves.join("MAFIA031.SAV"), b"").unwrap();
+        assert_eq!(
+            profile_file_intake(&root),
+            Ok(ProfileFileIntake::ProfileFilePresent)
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(profile_file_intake(&root).is_err());
     }
 }

@@ -1946,6 +1946,39 @@ impl MissionLoadSession {
         Ok(())
     }
 
+    /// `IndicatorsGameInit` in `Init` order: `mov ecx, 0x6bf980; call
+    /// 0x5f73c0` at 0x5a0cb3-0x5a0cb8 (`game.cpp:341` at pin fe7e746),
+    /// `mafiaIndicators.GameInit()` over the live HUD, `C_game` and
+    /// `mafiaLoadSave` owners ([`crate::indicators::IndicatorsState::game_init`]).
+    /// Without the HUD owner or the profile intake's settings the step stops
+    /// before any store.
+    pub fn indicators_game_init_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        let hud = self
+            .indicators
+            .as_mut()
+            .ok_or("mafiaIndicators.GameInit (GAME 0x5f73c0) mafiaIndicators owner unavailable")?;
+        hud.game_init(&self.game_inline, &self.load_save_progress)
+            .map_err(|detail| format!("mafiaIndicators.GameInit (GAME 0x5f73c0): {detail}"))
+    }
+
+    /// Adopt the `mafiaLoadSave.settings` that `G_LoadSaveClass::Init`'s
+    /// profile intake left before the main menu (see
+    /// [`crate::game_loadsave_lifecycle::profile_settings_after_load_save_init`]).
+    /// One process-start intake: a second adoption is refused and keeps the
+    /// live owner. Like the rest of `load_save_progress` it survives
+    /// disposal.
+    pub fn adopt_profile_settings(
+        &mut self,
+        settings: crate::game_loadsave_lifecycle::ProfileSettings,
+    ) -> Result<(), String> {
+        if self.load_save_progress.settings.is_some() {
+            return Err("mafiaLoadSave.settings already set by the profile intake".into());
+        }
+        self.load_save_progress.settings = Some(settings);
+        Ok(())
+    }
+
     /// The live `C_game::sound_arena` owner.
     pub fn sound_arena(&self) -> &crate::game_housekeeping::SoundArena {
         &self.sound_arena
