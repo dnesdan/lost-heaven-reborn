@@ -71,6 +71,7 @@ fn menu_navigation(code: KeyCode, shift: bool) -> Option<menu::Navigation> {
 
 #[derive(Clone)]
 struct Options {
+    freeride_start_probe: bool,
     mission_load_probe: bool,
     mission_play_probe: bool,
     probe_model_directories: Vec<String>,
@@ -133,6 +134,7 @@ fn options() -> Result<Options, String> {
 }
 fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut result = Options {
+        freeride_start_probe: false,
         mission_load_probe: false,
         mission_play_probe: false,
         probe_model_directories: Vec::new(),
@@ -170,6 +172,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
     while let Some(arg) = args.next() {
         provided_options.push(arg.clone());
         match arg.as_str() {
+            "--freeride-start-probe" => result.freeride_start_probe = true,
             "--mission-load-probe" => result.mission_load_probe = true,
             "--mission-play-probe" => result.mission_play_probe = true,
         "--plain-route" => result.plain_route = true,
@@ -255,6 +258,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
                 "--lab requires --features engine-lab and a native window. It opens scenes/models, environment previews, camera and model tools, presets and actual driving input. F1 panel, F2 pause, F3 16 ms step, F4 reload. --synthetic --lab starts the public gallery; --root may also supply its asset browser. --lab-scene gallery|courtyard|primitives|lights selects a public --synthetic scene, including headless captures. --lab-preset FILE.lhr-lab loads presentation settings for --lab or --headless. --capture omits the Lab overlay. ",
                 "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] [--probe-render-capture PNG] [--probe-refuse-loading-present N] runs the shared CPU load-session diagnostic without a window. A refused loading-screen present (0-based) exercises the Open stop and its disposal. Optional GPU capture renders the actual retained mission Scene, and does not execute gameplay. Other presentation and playback flags are excluded. ",
+                "--freeride-start-probe --root DIRECTORY [--probe-model-dir DIRECTORY ...] diagnoses the actual original freeride startup and its first unavailable dependency. It is not playable, has no substitute mission or car, and exits unsuccessfully while startup is blocked. ",
                 "--mission-play-probe --root DIRECTORY plays the MISE01 slice headless against original data without a window: intro cutscene lock, on-foot walk to the taxi stand, board the staged taxi00.4ds driving world and drive 150 m to Complete. Other presentation and playback flags are excluded. ",
                 "--audio-capture WAV records the actual mixed driving audio and requires --car-driving. ",
                 "--car-driving requires --root and --model and opens the original MISE01 driving world. W accelerates, S brakes, A/D steer, Space applies the handbrake; R reloads and Escape exits. The chase camera is a host view. ",
@@ -309,6 +313,23 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         if result.root.is_none() {
             return Err("--mission-play-probe requires --root".into());
         }
+        return Ok(result);
+    }
+    if result.freeride_start_probe {
+        for option in &provided_options {
+            if !matches!(
+                option.as_str(),
+                "--freeride-start-probe" | "--root" | "--probe-model-dir"
+            ) {
+                return Err(format!(
+                    "{option} is not used by --freeride-start-probe; omit it"
+                ));
+            }
+        }
+        if result.root.is_none() {
+            return Err("--freeride-start-probe requires --root".into());
+        }
+        mission_load_probe::validate_inputs("freeride", &result.probe_model_directories)?;
         return Ok(result);
     }
     if result.mission_load_probe {
@@ -5500,6 +5521,12 @@ impl lhr_engine::clock::ClockBackend for InspectionClock {
 }
 fn run() -> Result<(), String> {
     let options = options()?;
+    if options.freeride_start_probe {
+        return mission_load_probe::run_freeride_start(
+            options.root.as_deref().unwrap(),
+            &options.probe_model_directories,
+        );
+    }
     if options.mission_load_probe {
         return mission_load_probe::run(
             options.root.as_deref().unwrap(),
@@ -6377,6 +6404,48 @@ mod mission_probe_option_tests {
             assert!(parse(&probe_args).is_err(), "accepted probe name: {name:?}");
             assert!(mission_load_probe::validate_inputs(name, &[]).is_err());
         }
+    }
+
+    #[test]
+    fn freeride_probe_has_fixed_original_mission_and_rejects_sandbox_options() {
+        let base = [
+            "--freeride-start-probe",
+            "--root",
+            "/synthetic-installation",
+        ];
+        let options = parse(&base).unwrap();
+        assert!(options.freeride_start_probe);
+        assert!(options.mission.is_none());
+        assert!(options.probe_model_directories.is_empty());
+        assert!(parse(&["--freeride-start-probe"]).is_err());
+        for extra in [
+            vec!["--mission", "MISE01"],
+            vec!["--mission", "freeride"],
+            vec!["--mission-load-probe"],
+            vec!["--mission-play-probe"],
+            vec!["--car-driving"],
+            vec!["--model", "taxi00.4ds"],
+            vec!["--headless"],
+            vec!["--frames", "0"],
+            vec!["--probe-render-capture", "frame.png"],
+            vec!["--probe-refuse-loading-present", "0"],
+        ] {
+            let mut args = base.to_vec();
+            args.extend(extra);
+            assert!(parse(&args).is_err(), "{args:?}");
+        }
+        let mut args = base.to_vec();
+        args.extend([
+            "--probe-model-dir",
+            "models/first",
+            "--probe-model-dir",
+            "models/second",
+        ]);
+        assert_eq!(
+            parse(&args).unwrap().probe_model_directories,
+            ["models/first", "models/second"]
+        );
+        assert!(parse(&["--free-ride", "--root", "/synthetic-installation"]).is_err());
     }
 
     #[test]

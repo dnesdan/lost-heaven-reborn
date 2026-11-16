@@ -51,6 +51,12 @@ pub struct MissionContentOwner {
     terminal_entered: bool,
     terminal_complete: bool,
 }
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SetupActorKind {
+    Player,
+    Car,
+}
 impl Default for MissionContentOwner {
     fn default() -> Self {
         let empty = SourceBacking {
@@ -78,6 +84,28 @@ impl Default for MissionContentOwner {
     }
 }
 impl MissionContentOwner {
+    pub(crate) fn create_setup_actor(
+        &mut self,
+        kind: SetupActorKind,
+    ) -> Result<Option<ActorReferenceId>, ActorCreationError> {
+        if self.stopped || self.terminal_entered {
+            return Err(ActorCreationError {
+                actor: None,
+                source: ActorWorldError::Effect {
+                    stage: "create_setup_actor",
+                    detail: "mission content is stopped or terminal".into(),
+                },
+            });
+        }
+        let native_kind = match kind {
+            SetupActorKind::Player => 2,
+            SetupActorKind::Car => 4,
+        };
+        self.actors
+            .world
+            .create_actor(native_kind, &mut self.memory)
+    }
+
     /// Caller supplies the live mission path before root dispatch. The actual
     /// startup replacement owner is borrowed separately at each invocation.
     pub fn set_program_context(&mut self, path: Option<Vec<u8>>) -> Result<(), String> {

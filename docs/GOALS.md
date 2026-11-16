@@ -1,5 +1,28 @@
 # Reconstruction goals
 
+## Current priority: original Freeride
+
+The user requires the actual original Freeride mode, not a renamed MISE01 or
+standalone driving sandbox. Acceptance requires the original map and startup
+order (including FreerideSetup before Init and FreerideSetupAfter afterward),
+Tommy/car coupling, the game update loop, city dynamics, observed interactive
+control and repeatable cleanup. No Freeride acceptance gate is closed.
+The fresh-session Freeride startup now has its own one-shot driver. Synthetic
+tests cover actual PLAYER/CAR construction, model naming and retained-creator
+cleanup; the reached Setup prefix stops before the live GetCarModel database
+and selection. A headless original-data startup run completes source Open and
+collision loading, reaches that same Setup boundary and disposes all represented
+owners. It is not a full Setup, native Close or playable startup, and receives
+no additional original-function credit.
+Separate original-map driving probes stop at quaternion arithmetic or
+canonical-cache LinkTo numeric-domain boundaries; they use a different intake
+path, not the successful source Open above. The common mission Init
+also remains incomplete. Do not clamp source transforms, skip dependencies or
+silently load another map to conceal these boundaries. The standalone driving
+harness remains a development tool, not Freeride completion.
+
+## Campaign target
+
 Build a standalone Rust engine that runs the original PC campaign from the
 user's own assets. The immediate acceptance target is the playable first
 mission, from the original menu through completion. **All six gates remain

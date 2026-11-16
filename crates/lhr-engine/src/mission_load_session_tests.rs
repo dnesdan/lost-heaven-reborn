@@ -1,5 +1,7 @@
 //! Synthetic composition tests over actual scene, actor and source owners.
 use super::*;
+#[path = "mission_freeride_tests.rs"]
+mod freeride;
 #[path = "mission_init_presentation_tests.rs"]
 mod init_presentation;
 #[path = "session_actor_program_tests.rs"]

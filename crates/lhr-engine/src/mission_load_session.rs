@@ -42,6 +42,14 @@ use std::convert::Infallible;
 mod sector_groups;
 pub use sector_groups::fill_primary_sector_groups;
 
+#[path = "mission_freeride.rs"]
+mod freeride_start;
+pub use freeride_start::{
+    FreerideAttempt, FreerideError, FreerideFailure, FreerideOperations, FreerideRequest,
+    FreerideResult, FreerideRunError, FreerideScope, FreerideSetupError, FreerideSetupProgress,
+    FreerideSetupStep, FreerideStep, FREERIDE_MISSION,
+};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionLoadPhase {
     NotStarted,
@@ -122,6 +130,7 @@ pub enum MissionLoadCallError {
 pub enum MissionDiscardPhase {
     NotStarted,
     PendingVisual,
+    FreerideModels,
     WorldStaging,
     GameDoneLists,
     Collision,
@@ -226,6 +235,7 @@ pub struct MissionOwnedCounts {
 pub enum MissionDiscardCause {
     StartupPatches(ProgramPatchStartupError),
     PendingVisual(ModelError),
+    FreerideModel(ModelError),
     VisualBuffers(ModelError),
     WorldStaging(DriverSceneError<Infallible>),
     Cache {
@@ -432,6 +442,7 @@ pub struct MissionLoadSession {
     load_save_progress: crate::game_loadsave_lifecycle::LoadSaveProgress,
     /// The `freeride` global's `active` byte (GAME 0x6d4558).
     freeride: crate::game_loadsave_lifecycle::FreerideState,
+    freeride_setup: FreerideSetupProgress,
     /// Authoritative represented C_game scalar fields used by source-grounded
     /// inlines. C_game itself and the rest of Init still require live owners.
     game_inline: crate::game_housekeeping::GameInlineState,
@@ -718,6 +729,7 @@ impl MissionLoadSession {
             collision: crate::game_collision::GameCollision::default(),
             load_save_progress: Default::default(),
             freeride: Default::default(),
+            freeride_setup: Default::default(),
             game_inline: crate::game_housekeeping::GameInlineState::default(),
             game_lists: Default::default(),
             crash_object_count: 0,
@@ -1714,6 +1726,9 @@ impl MissionLoadSession {
 
     fn game_init_admission(&self) -> Result<(), String> {
         self.open_terminal_guard()?;
+        if self.freeride_setup.entered() {
+            return Err("game init cannot follow interrupted FreerideSetup".into());
+        }
         if self.phase != MissionLoadPhase::PrefixComplete
             && (self.entered || !self.open_mission_opened)
         {
@@ -2571,6 +2586,9 @@ impl MissionLoadSession {
                 .release_pending_visual_replacement(&mut self.arena)
                 .map_err(MissionDiscardCause::PendingVisual)?;
         }
+        self.discard.phase = MissionDiscardPhase::FreerideModels;
+        self.release_freeride_model_creators()
+            .map_err(MissionDiscardCause::FreerideModel)?;
         self.discard.phase = MissionDiscardPhase::WorldStaging;
         if let Some(progress) = self.world.as_mut() {
             // This disposes only the actual temporary model. Already transferred

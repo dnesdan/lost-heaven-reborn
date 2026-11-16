@@ -575,6 +575,134 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
     )
 }
 
+pub fn run_freeride_start(root: &Path, model_directories: &[String]) -> Result<(), String> {
+    use lhr_engine::mission_load_session::{FreerideAttempt, FreerideRequest, FREERIDE_MISSION};
+    validate_inputs(FREERIDE_MISSION, model_directories)?;
+    let installation = lhr_assets::Installation::open(root).map_err(|error| error.to_string())?;
+    let mut session = MissionLoadSession::new(installation, Pc24PrecisionState::new(false))
+        .map_err(|error| format!("Freeride probe initialization: {error:?}"))?;
+    let clock = crate::host_local_time::local_timer_clock()?;
+    session.install_indicators(lhr_engine::indicators::IndicatorsState::constructed(clock))?;
+    let profile = profile_file_intake(root);
+    let settings = profile.clone().and_then(|intake| {
+        lhr_engine::game_loadsave_lifecycle::profile_settings_after_load_save_init(intake)
+            .map_err(str::to_owned)
+    });
+    let settings_status = match settings {
+        Ok(settings) => {
+            session.adopt_profile_settings(settings)?;
+            "adopted".to_owned()
+        }
+        Err(error) => format!("unavailable: {error}"),
+    };
+    let input = profile.and_then(|intake| {
+        lhr_engine::game_loadsave_controls::profile_bindings_after_load_save_init(intake)
+            .map_err(str::to_owned)
+            .and_then(lhr_engine::session_input::KeyboardMouseInput::from_profile)
+    });
+    let input_status = match input {
+        Ok(input) => {
+            session.adopt_keyboard_mouse_input(input)?;
+            "keyboard/mouse-only host startup".to_owned()
+        }
+        Err(error) => format!("unavailable: {error}"),
+    };
+    let directories: Vec<&[u8]> = model_directories
+        .iter()
+        .map(|path| path.as_bytes())
+        .collect();
+    let mut attempt = FreerideAttempt::default();
+    let mut screen = InspectionScreen {
+        size: PROBE_SIZE,
+        viewport: [0, 0, PROBE_SIZE[0], PROBE_SIZE[1]],
+    };
+    let result = session.start_freeride(
+        &mut attempt,
+        FreerideRequest {
+            model_directories: &directories,
+            projection: PROBE_PROJECTION,
+        },
+        &mut screen,
+        &mut ProbeOpenRender::default(),
+    );
+    let mut report = String::new();
+    writeln!(
+        report,
+        "Original Freeride startup diagnostic; fixed mission: {FREERIDE_MISSION}"
+    )
+    .unwrap();
+    writeln!(report, "Scope: fresh session; original active-mission Close and native repeatable lifecycle are not composed").unwrap();
+    writeln!(report, "Host inputs: 800x600, full viewport, initial PC24 sticky precision flag=false; model directories={model_directories:?}; profile settings={settings_status}; input={input_status}").unwrap();
+    writeln!(
+        report,
+        "No implicit model directory, substitute map, car selection or filename fallback"
+    )
+    .unwrap();
+    writeln!(
+        report,
+        "Startup reached: {:?}; result: {result:?}",
+        attempt.reached()
+    )
+    .unwrap();
+    writeln!(
+        report,
+        "Open reached: {:?}; result: {:?}; failure: {:?}",
+        attempt.open().reached(),
+        attempt.open_result(),
+        session.failure()
+    )
+    .unwrap();
+    writeln!(
+        report,
+        "Freeride active: {}; setup: {:?}",
+        session.freeride().active,
+        session.freeride_setup_progress()
+    )
+    .unwrap();
+    writeln!(
+        report,
+        "GameInit entered: {}; last: {:?}",
+        attempt.init().entered(),
+        attempt.init().last()
+    )
+    .unwrap();
+    writeln!(
+        report,
+        "Owners before terminal disposal: {:?}",
+        session.owned_counts()
+    )
+    .unwrap();
+    let disposal = session.discard_terminal();
+    writeln!(
+        report,
+        "Terminal disposal: {disposal:?}; phase: {:?}; failure: {:?}",
+        session.discard_progress(),
+        session.discard_failure()
+    )
+    .unwrap();
+    writeln!(
+        report,
+        "Owners after terminal disposal: {:?}; held setup model creators: {}",
+        session.owned_counts(),
+        session.freeride_setup_progress().held_model_creators()
+    )
+    .unwrap();
+    writeln!(report, "Freeride gameplay: NOT PLAYABLE; no player/car coupling, successful game ticks, traffic or repeatable Close is claimed. Terminal disposal is host cleanup, not native Close.").unwrap();
+    {
+        use std::io::Write as _;
+        std::io::stdout()
+            .lock()
+            .write_all(report.as_bytes())
+            .map_err(|error| error.to_string())?;
+    }
+    Err(if disposal.is_ok() {
+        "Freeride startup stopped at the reported native dependency; terminal disposal completed"
+            .into()
+    } else {
+        "Freeride startup and terminal disposal stopped; both failures are reported".into()
+    })
+}
+
 pub fn run(
     root: &Path,
     mission: &str,

@@ -6,6 +6,36 @@ The original executable and reverse-engineering tools are not runtime inputs.
 The menu and mission commands inspect current resources; the first mission is not
 playable from start to finish.
 
+## Original Freeride startup diagnostic
+
+```sh
+./scripts/run.sh --freeride-start-probe --root /path/to/Mafia --probe-model-dir Models
+```
+
+This headless diagnostic fixes the original mission name to `freeride`. It
+excludes `--mission`, campaign probes, standalone car-driving, model-selection
+and presentation flags; it supplies no substitute map, chosen car or implicit
+model directory. It exits unsuccessfully while startup is blocked.
+
+The fresh-session sequence is ClosePrevious, original source Open, collision,
+mission-number reset, SaveGameNewGame, FreerideSetup, Init, FreerideSetupAfter,
+GameLoopSingle and Close. Only the reached prefix executes. After a complete
+Open, synthetic tests and a headless run on the original installation reach
+actual PLAYER/CAR construction and actual model roots named `Tommy` and
+`TomyhoAuto`; they stop before GetCarModel because no
+live car database and Freeride selection have been adopted. Init and all later
+steps remain unentered at that stop. Source Open failures stop earlier. The
+original-data run completes collision loading and terminal disposal with zero
+remaining represented owners; its nonzero exit still denotes blocked startup.
+
+The report includes reached steps and retained owners, then explicitly disposes
+the same content and model owners. Disposal is terminal host cleanup, not the
+native active-mission Close or a repeatable gameplay lifecycle. Setup cannot
+be replayed after an interruption. Constructor seeds, device-free input and
+headless presentation remain disclosed host policies. No successful game ticks,
+interactive Freeride, player/car coupling, traffic or runtime parity is claimed.
+The common Init also remains blocked at BloodAndFramePools.
+
 ## Linux — tested with Vulkan
 
 Install a C compiler and linker, `pkg-config`, ALSA development headers, a

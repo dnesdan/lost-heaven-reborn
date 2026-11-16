@@ -13,6 +13,15 @@ playable control remain open. See [coverage](COVERAGE.md),
 `git log` on `rust-engine`. Watch the current state in motion (60 s, with
 in-game audio): [menu, intro, on-foot walk and driving](docs/mise01-current-state.mp4).
 
+Current priority is the **actual original Freeride** map and lifecycle.
+`--freeride-start-probe` follows its own startup order, not the campaign or
+standalone driving harness. A headless run on the original installation completes
+source Open and collision loading, creates the actual player/car actors and named
+model roots, then stops before the unavailable live car database/selection.
+Terminal disposal releases the retained owners. This is not playable Freeride or original-runtime parity;
+player/car coupling, GameInit, city dynamics and the game loop remain open.
+See [startup diagnostics](docs/RUNNING.md#original-freeride-startup-diagnostic).
+
 <!-- rewrite-progress:start -->
 ## Rewrite progress
 
