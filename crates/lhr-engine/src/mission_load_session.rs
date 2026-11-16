@@ -69,6 +69,9 @@ pub enum MissionLoadPhase {
 pub enum MissionLoadInitError {
     Textures(TextureError),
     CacheStrings(StringError),
+    /// `new C_effects` (`C_mission::Init`, GAME 0x53f230): the constructor's
+    /// `tables\effects.tbl` load stopped at a host admission boundary.
+    Effects(String),
 }
 
 #[derive(Debug)]
@@ -120,6 +123,7 @@ pub enum MissionDiscardPhase {
     NotStarted,
     PendingVisual,
     WorldStaging,
+    GameDoneLists,
     Collision,
     Navigation,
     Roads,
@@ -208,6 +212,12 @@ pub struct MissionOwnedCounts {
     /// Session-owned `gifCollision`: installed level and dynamic grid.
     pub collision_levels: usize,
     pub collision_dynamic_grids: usize,
+    /// Session `C_effects`: emitters in use, static emitters and free pool
+    /// entries (`Mission_Done`'s); the loaded table is not a mission owner.
+    pub effects_mission_entries: usize,
+    pub box_placements: usize,
+    pub box_destinations: usize,
+    pub box_placement_temporaries: usize,
 }
 
 #[derive(Debug)]
@@ -229,6 +239,11 @@ pub enum MissionDiscardCause {
     RegisteredScene(DriverSceneError<Infallible>),
     UnregisteredScene(SceneResourceError),
     DriverRegistry(DriverSceneError<Infallible>),
+    /// `C_game::Done`'s `BoxPlacementDel(boxes[i]->frame)` loop (GAME
+    /// 0x5b2ee0, `game.cpp:1347-1348`) is unported; the boxes stay listed.
+    BoxPlacementDel {
+        boxes: usize,
+    },
     RemainingOwners(Box<MissionOwnedCounts>),
 }
 
@@ -265,6 +280,8 @@ impl MissionOwnedCounts {
         roads: Option<&SessionRoads>,
         base_cache: Option<&CityBaseCache>,
         collision: Option<&crate::game_collision::GameCollision>,
+        effects: Option<&crate::session_effects::SessionEffects>,
+        game_lists: Option<&crate::game_housekeeping::GameInitLists>,
     ) -> Result<Self, MissionOwnerDiagnosticsError> {
         let collision_counts = collision.map(|owner| owner.counts()).unwrap_or_default();
         let visual = arena.loaded_visual_resources();
@@ -344,6 +361,10 @@ impl MissionOwnedCounts {
             base_model_sets: base_cache.map_or(0, |cache| cache.model_sets().len()),
             collision_levels: collision_counts.levels,
             collision_dynamic_grids: collision_counts.dynamic_grids,
+            effects_mission_entries: effects.map_or(0, |owner| owner.live_mission_entries()),
+            box_placements: game_lists.map_or(0, |lists| lists.boxes.len()),
+            box_destinations: game_lists.map_or(0, |lists| lists.box_dests.len()),
+            box_placement_temporaries: game_lists.map_or(0, |lists| lists.box_placement_temp.len()),
         })
     }
 }
@@ -453,6 +474,12 @@ pub struct MissionLoadSession {
     posscoll_frames: Vec<crate::actor_registry::PossCollEntry>,
     /// `C_game::sound_arena` (+0x2b3c), the `soundArena` `Init` resets.
     sound_arena: crate::game_housekeeping::SoundArena,
+    /// `act_mission->effects` (`C_mission` +0x6c), constructed by
+    /// `C_mission::Init` (GAME 0x53f230) before any mission. Known
+    /// divergence: natively one owner lives across missions; here each
+    /// session constructs it, loading `tables\effects.tbl`. The table
+    /// survives disposal; `Mission_Done` empties the mission's emitters.
+    effects: crate::session_effects::SessionEffects,
     /// What `Init`'s `GlobalProgramStart` did with the mission-global
     /// programs (initialized once, `GameInitStart` run once).
     game_init_programs: owned_program_runtime::GameInitPrograms,
@@ -619,7 +646,7 @@ mod owned_source_open;
 pub use owned_source_open::MissionSourceOpenError;
 
 /// The unowned native step after `EffectsStart`'s box clears.
-pub const EFFECTS_START_STOP: &str = "C_effects::LoadStaticParticles (GAME 0x44ad30, called at 0x5a0d3e through act_mission->effects): the mission's C_effects (effects table, static emitters, particle pools) has no session owner";
+pub const EFFECTS_START_STOP: &str = "ff_manager.GameInit (GAME 0x4446b0, called at 0x5a0d63 with ecx=0x647b28): the C_ff_manager global and the controls bindings and joystick devices it reads (controls.GetControl, joy[]->GetInfo) have no session owner";
 
 #[path = "session_program_runtime.rs"]
 mod owned_program_runtime;
@@ -634,7 +661,10 @@ impl MissionLoadSession {
         installation: lhr_assets::Installation,
         precision: Pc24PrecisionState,
     ) -> Result<Self, MissionLoadInitError> {
+        let effects = crate::session_effects::SessionEffects::construct(&installation)
+            .map_err(MissionLoadInitError::Effects)?;
         Ok(Self {
+            effects,
             installation,
             startup_patches: ProgramPatchStartup::default(),
             audio: RuntimeAudio::default(),
@@ -907,15 +937,25 @@ impl MissionLoadSession {
     /// Resolve only the current live Scene in this session's actual arena.
     /// Callback redirection to a foreign, stale or non-Scene owner is an error.
     pub fn scene(&self) -> Result<Option<SceneKey>, MissionSceneSelectionError> {
-        self.scene
+        Self::resolve_scene_reference(&self.arena, &self.scene)
+    }
+
+    fn resolve_scene_reference(
+        arena: &ModelArena,
+        selection: &Option<FrameReferenceId>,
+    ) -> Result<Option<SceneKey>, MissionSceneSelectionError> {
+        selection
             .map(|reference| {
                 let key = SceneKey(crate::frame_transform::FrameKey(reference.identity()));
-                if self.arena.lookup_reference(key.root()) != reference {
+                if arena.lookup_reference(key.root()) != reference {
                     return Err(MissionSceneSelectionError::ForeignReference(reference));
                 }
-                self.arena.scene(key).map_err(|error| {
-                    MissionSceneSelectionError::InvalidScene { reference, error }
-                })?;
+                arena
+                    .scene(key)
+                    .map_err(|error| MissionSceneSelectionError::InvalidScene {
+                        reference,
+                        error,
+                    })?;
                 Ok(key)
             })
             .transpose()
@@ -1968,16 +2008,64 @@ impl MissionLoadSession {
     /// `EffectsStart` in `Init` order (`game.cpp:342-350` at pin fe7e746):
     /// the box-placement clears at GAME 0x5a0cbd-0x5a0d34
     /// ([`crate::game_housekeeping::GameInitLists::init_box_placement_clear`]),
-    /// then `act_mission->effects->LoadStaticParticles()` (`mov edx,
-    /// [0x63788c]; mov ecx, [edx+0x6c]; call 0x44ad30` at 0x5a0d35-0x5a0d3e).
-    /// `C_effects` (the effects table, `static_emitters` and the particle
-    /// pools `LoadStaticParticles`/`Mission_Start` fill from
-    /// `missions\<name>\effects.bin` and `tables\effects.tbl`) has no session
-    /// owner, so the step stops there with the three clears kept.
+    /// then over `act_mission` (`mov reg, [0x63788c]`):
+    /// `effects->LoadStaticParticles()` (`[+0x6c]`, `call 0x44ad30` at
+    /// 0x5a0d3e) over `missions\<name>\effects.bin` and the live scene,
+    /// `effects->Mission_Start()` (`call 0x449180` at 0x5a0d4b, result
+    /// unused) and `web_path->DeRiciConns()` (`[+0x2c]`, `call 0x54cd20` at
+    /// 0x5a0d59). The step stops at `ff_manager.GameInit` (`mov ecx,
+    /// 0x647b28; call 0x4446b0` at 0x5a0d5e-0x5a0d63), whose owners are
+    /// unported; every earlier effect is kept on any stop.
     pub fn effects_start_for_init(&mut self) -> Result<(), String> {
         self.game_init_admission()?;
         self.game_lists.init_box_placement_clear();
+        self.load_static_particles_for_init()?;
+        self.effects
+            .mission_start(&self.installation)
+            .map_err(|detail| format!("C_effects::Mission_Start (GAME 0x449180): {detail}"))?;
+        self.navigation
+            .de_rici_conns()
+            .map_err(|detail| format!("C_web_path::DeRiciConns (GAME 0x54cd20): {detail}"))?;
         Err(EFFECTS_START_STOP.into())
+    }
+
+    /// `C_effects::LoadStaticParticles` (GAME 0x44ad30) over the session:
+    /// the path from the `CopyMissionName` copy (`act_mission+0x68`), the
+    /// file through the installation (absence is `ROpen` failing) and
+    /// `FindFrame(name, ENUMF_ALL)` over the live scene
+    /// ([`crate::model_loading::ModelArena::scene_find_frame`]).
+    fn load_static_particles_for_init(&mut self) -> Result<(), String> {
+        let name = self.open_mission_name.as_deref().ok_or(
+            "C_effects::LoadStaticParticles (GAME 0x44ad30): act_mission mission_name unset",
+        )?;
+        let path = crate::session_effects::static_particles_path(name)?;
+        let file = self.installation.read_optional(&path).map_err(|error| {
+            format!("C_effects::LoadStaticParticles (GAME 0x44ad30) source {path}: {error}")
+        })?;
+        let scene_reference = &self.scene;
+        let arena = &self.arena;
+        self.effects
+            .load_static_particles(file.as_deref(), |frame_name| {
+                let scene = Self::resolve_scene_reference(arena, scene_reference)
+                    .map_err(|error| {
+                        format!("C_effects::LoadStaticParticles (GAME 0x44ad30) scene: {error:?}")
+                    })?
+                    .ok_or("FindFrame: act_mission has no scene")?;
+                arena
+                    .scene_find_frame(
+                        scene,
+                        Some(frame_name),
+                        0xffff,
+                        crate::frame_lookup::MAX_LOOKUP_VISITS,
+                    )
+                    .map_err(|error| format!("I3D_scene::FindFrame: {error:?}"))
+            })
+            .map(|_| ())
+    }
+
+    /// The live `C_effects` owner.
+    pub fn effects(&self) -> &crate::session_effects::SessionEffects {
+        &self.effects
     }
 
     /// Adopt the `mafiaLoadSave.settings` that `G_LoadSaveClass::Init`'s
@@ -2154,6 +2242,8 @@ impl MissionLoadSession {
             Some(&self.roads),
             Some(&self.base_cache),
             Some(&self.collision),
+            Some(&self.effects),
+            Some(&self.game_lists),
         )
     }
 
@@ -2426,6 +2516,26 @@ impl MissionLoadSession {
                 .discard_scene_world_staging_cpu(&mut self.arena, &self.resources, progress)
                 .map_err(MissionDiscardCause::WorldStaging)?;
         }
+        // Native `C_game::Done` order over the C_game lists and the effects
+        // owner, all before `gifCollision.GameDone()` and the scene release:
+        // `LightnessClear` (game.cpp:1126), `effects->Mission_Done()`
+        // (game.cpp:1190), then the box placements (game.cpp:1347-1353):
+        // `BoxPlacementDel` for each box from the last, `delete` of each
+        // destination, and the three clears. `invisible_actors` is not
+        // touched by `Done` natively (only `Init` clears it), so it stays.
+        self.discard.phase = MissionDiscardPhase::GameDoneLists;
+        crate::game_housekeeping::lightness_clear(&mut self.game_lists.lightness);
+        self.effects.mission_done();
+        if !self.game_lists.boxes.is_empty() {
+            return Err(MissionDiscardCause::BoxPlacementDel {
+                boxes: self.game_lists.boxes.len(),
+            });
+        }
+        // The destinations are opaque borrowed identities until
+        // `BoxPlacementDestAdd` is ported; dropping them is the clear.
+        self.game_lists.box_dests.clear();
+        self.game_lists.boxes.clear();
+        self.game_lists.box_placement_temp.clear();
         // Native `C_game::Done` clears the level through
         // `gifCollision.GameDone()` (mafia-re game/mission/game.cpp:1379)
         // before the scene closes; the level names that Scene's frames.

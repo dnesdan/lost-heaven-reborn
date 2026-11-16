@@ -107,9 +107,10 @@ fn assert_ai_manager_shift_begun(session: &MissionLoadSession) {
     assert!(manager.fight.parties().is_empty());
 }
 
-/// `EffectsStart`'s boundary after the box-placement clears: the mission's
-/// `C_effects` has no owner.
-const EFFECTS_STOP: &str = "EffectsStart: C_effects::LoadStaticParticles (GAME 0x44ad30, called at 0x5a0d3e through act_mission->effects): the mission's C_effects (effects table, static emitters, particle pools) has no session owner";
+/// `EffectsStart`'s boundary after the box-placement clears,
+/// `LoadStaticParticles`, `Mission_Start` and `DeRiciConns`: the force
+/// feedback manager has no owner.
+const EFFECTS_STOP: &str = "EffectsStart: ff_manager.GameInit (GAME 0x4446b0, called at 0x5a0d63 with ecx=0x647b28): the C_ff_manager global and the controls bindings and joystick devices it reads (controls.GetControl, joy[]->GetInfo) have no session owner";
 
 /// Stage the three box-placement vectors `EffectsStart` empties, with
 /// borrowed identities whose owners (`BoxPlacementAdd`,
@@ -122,12 +123,12 @@ fn stage_box_placements(session: &mut MissionLoadSession) {
     lists
         .box_dests
         .extend([BoxDestRef::staged(72), BoxDestRef::staged(73)]);
-    lists.box_placement_temp.push(BoxPlacementTemp {
-        frame: frame(74),
-        parent: None,
-        pos: [1.0, 2.0, 3.0],
-        dir: [0.0, 0.0, 1.0],
-    });
+    lists.box_placement_temp.push(BoxPlacementTemp::staged(
+        frame(74),
+        None,
+        [1.0, 2.0, 3.0],
+        [0.0, 0.0, 1.0],
+    ));
 }
 
 fn box_placement_counts(session: &MissionLoadSession) -> [usize; 3] {
@@ -543,7 +544,7 @@ fn presented_init_runs_the_reset_span_in_native_order_with_the_hud() {
     let mut attempt = InitAttempt::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("LoadStaticParticles must stop Init");
+        panic!("ff_manager.GameInit must stop Init");
     };
     // Opened without progress, `_show_progress_` is the native no-op and
     // the C_player statics are cleared; the owned spans run on through the
@@ -646,7 +647,16 @@ fn presented_init_without_hud_stops_at_score_set_on_keeping_earlier_clears() {
     );
     assert_shadow_buffer_kept(&session, buffer);
     session.arena.release(sound.frame()).unwrap();
-    discard(&mut session);
+    // The staged box survives the stop; Done's BoxPlacementDel is unported,
+    // so disposal stops there (see disposal_clears_lightness_and_box_lists_in_done_order).
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::Stopped)
+    );
+    assert!(matches!(
+        session.discard_failure().unwrap().cause,
+        MissionDiscardCause::BoxPlacementDel { boxes: 1 }
+    ));
 }
 
 #[test]
@@ -688,14 +698,40 @@ fn sound_and_lightness_without_hud_stops_at_radar_clear_keeping_earlier_clears()
     discard(&mut session);
 }
 
+/// A `check.bin` with one node whose flags word is 0x7777, so
+/// `DeRiciConns`' clear of 0x1000|0x4000 is observable as 0x2777.
+fn write_one_node_check_bin(fixture: &Fixture) {
+    let mut node = [0x77u8; 30];
+    node[24..28].copy_from_slice(&0xf123_4567u32.to_le_bytes());
+    node[28] = 200;
+    node[29] = 0;
+    let mut bytes = 0x01ab_cedfu32.to_le_bytes().to_vec();
+    bytes.extend(1u32.to_le_bytes());
+    bytes.extend(node);
+    std::fs::write(fixture.0.join("missions/synthetic/check.bin"), bytes).unwrap();
+}
+
 #[test]
-fn effects_start_clears_the_box_vectors_then_stops_at_load_static_particles() {
+fn effects_start_runs_the_effects_and_web_path_then_stops_at_ff_manager() {
     use crate::game_init_order::InitOperations as _;
+    use crate::session_effects::StaticParticlesOutcome;
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+    // MISE01's effects.bin: the empty CT_EFFECTS_BIN root chunk.
+    std::fs::write(
+        fixture.0.join("missions/synthetic/effects.bin"),
+        chunk(0x64, &[]),
+    )
+    .unwrap();
+    write_one_node_check_bin(&fixture);
     let mut session = fixture.session_without_hud();
     session.install_indicators(hud()).unwrap();
     adopt_fresh_install_settings(&mut session);
     stage_box_placements(&mut session);
+    // `new C_effects`: no tables\effects.tbl in the fixture, so the
+    // constructor's Load found nothing and marked last_guid -1.
+    assert!(session.effects().effects().is_empty());
+    assert_eq!(session.effects().last_guid(), -1);
+    assert!(!session.effects().started());
     // Before the open prefix the step is refused before any clear.
     assert_eq!(
         session.execute(InitStep::EffectsStart),
@@ -704,26 +740,235 @@ fn effects_start_clears_the_box_vectors_then_stops_at_load_static_particles() {
         ))
     );
     assert_eq!(box_placement_counts(&session), [1, 2, 1]);
+    assert_eq!(session.effects().static_particles(), None);
     load(&mut session, &[]).unwrap();
+    assert_eq!(session.navigation().node_flags(0), Some(0x7777));
+    let counts = session.owned_counts().unwrap();
+    assert_eq!(counts.box_placements, 1);
+    assert_eq!(counts.box_destinations, 2);
+    assert_eq!(counts.box_placement_temporaries, 1);
     let mut sequence = SceneSnapshotSequence::default();
     let mut attempt = InitAttempt::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("LoadStaticParticles must stop Init");
+        panic!("ff_manager.GameInit must stop Init");
     };
-    // GAME 0x5a0cbd-0x5a0d34: the three erases ran; the C_effects call at
-    // 0x5a0d3e is the boundary, so DiffClear never runs.
+    // GAME 0x5a0cbd-0x5a0d34: the three erases; 0x5a0d3e: the root chunk
+    // read to its end; 0x5a0d4b: Mission_Start; 0x5a0d59: DeRiciConns over
+    // the loaded check.bin; 0x5a0d63 is the boundary.
     assert_eq!(failure.step, InitStep::EffectsStart);
     assert_eq!(failure.error.0, EFFECTS_STOP);
     assert_eq!(attempt.last(), Some(InitStep::EffectsStart));
     assert_eq!(box_placement_counts(&session), [0, 0, 0]);
+    let effects = session.effects();
+    assert_eq!(
+        effects.static_particles(),
+        Some(StaticParticlesOutcome::Read { effects: 0 })
+    );
+    assert!(effects.started());
+    assert_eq!(effects.last_guid(), -1);
+    assert_eq!(effects.static_emitter_count(), 0);
+    assert_eq!(session.navigation().node_flags(0), Some(0x2777));
+    assert_eq!(
+        session.owned_counts().unwrap(),
+        crate::mission_load_session::MissionOwnedCounts {
+            box_placements: 0,
+            box_destinations: 0,
+            box_placement_temporaries: 0,
+            ..counts
+        }
+    );
     // The stopped attempt is not replayed.
     assert_eq!(
         attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(())),
         Err(InitRunError::AlreadyEntered)
     );
-    // Disposal after the stop: every owner reaches zero.
+    // Disposal after the stop: Mission_Done ends the started mission and
+    // every owner reaches zero.
     discard(&mut session);
+    assert!(!session.effects().started());
+}
+
+#[test]
+fn static_particles_read_scene_only_for_named_frame_lookup() {
+    use crate::session_effects::StaticParticlesOutcome;
+    let mut entry = vec![0u8; 0x40];
+    entry.extend(0i32.to_le_bytes());
+    let unnamed = chunk(0x64, &chunk(0x3e8, &entry));
+    entry.extend(chunk(0x10, b"part\0"));
+    let named = chunk(0x64, &chunk(0x3e8, &entry));
+    for (file, outcome) in [
+        (None, Some(StaticParticlesOutcome::NotOpened)),
+        (
+            Some(chunk(0x64, &[])),
+            Some(StaticParticlesOutcome::Read { effects: 0 }),
+        ),
+        (
+            Some(unnamed),
+            Some(StaticParticlesOutcome::Read { effects: 1 }),
+        ),
+        (Some(named), None),
+    ] {
+        let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+        if let Some(bytes) = file {
+            std::fs::write(fixture.0.join("missions/synthetic/effects.bin"), bytes).unwrap();
+        }
+        write_one_node_check_bin(&fixture);
+        let mut foreign = fixture.session();
+        load(&mut foreign, &[]).unwrap();
+        for selection in ["absent", "foreign", "non_scene", "stale"] {
+            let mut session = fixture.session();
+            load(&mut session, &[]).unwrap();
+            let original = session.scene_reference().unwrap();
+            let scene = session.scene().unwrap().unwrap();
+            session.scene = match selection {
+                "absent" => None,
+                "foreign" => foreign.scene_reference(),
+                "non_scene" => Some(
+                    session
+                        .arena
+                        .lookup_reference(session.arena.scene(scene).unwrap().sectors[0].frame()),
+                ),
+                "stale" => {
+                    let frame = session.arena.create_sound_frame().unwrap();
+                    let reference = session.arena.lookup_reference(frame);
+                    session.arena.release(frame).unwrap();
+                    Some(reference)
+                }
+                _ => unreachable!(),
+            };
+            let redirected = session.scene_reference();
+            if selection == "absent" {
+                assert_eq!(session.scene().unwrap(), None);
+            } else {
+                assert!(session.scene().is_err(), "{selection}");
+            }
+            stage_box_placements(&mut session);
+            let error = session.effects_start_for_init().unwrap_err();
+            assert_eq!(box_placement_counts(&session), [0, 0, 0]);
+            assert_eq!(session.scene_reference(), redirected);
+            assert_eq!(session.effects().static_particles(), outcome, "{selection}");
+            assert_eq!(
+                session.effects().started(),
+                outcome.is_some(),
+                "{selection}"
+            );
+            if outcome.is_some() {
+                assert_eq!(error, super::super::EFFECTS_START_STOP, "{selection}");
+                assert_eq!(session.navigation().node_flags(0), Some(0x2777));
+            } else {
+                let expected = match selection {
+                    "absent" => "FindFrame: act_mission has no scene",
+                    "foreign" => "scene: ForeignReference",
+                    "non_scene" | "stale" => "scene: InvalidScene",
+                    _ => unreachable!(),
+                };
+                assert!(error.contains(expected), "{selection}: {error}");
+                assert_eq!(session.navigation().node_flags(0), Some(0x7777));
+            }
+            session.scene = Some(original);
+            discard(&mut session);
+        }
+        discard(&mut foreign);
+    }
+}
+
+/// A table with one effect that has a model and a part, and an effects.bin
+/// that starts it: `CreateSParticle` passes its checks and needs the
+/// unported model and emitter owners.
+#[test]
+fn a_creatable_static_effect_stops_at_create_s_particle_before_mission_start() {
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+    std::fs::create_dir_all(fixture.0.join("tables")).unwrap();
+    let effect = [chunk(0x68, b"fx.i3d\0"), chunk(0x65, &[])].concat();
+    std::fs::write(fixture.0.join("tables/effects.tbl"), chunk(0x64, &effect)).unwrap();
+    let mut entry = vec![0u8; 0x40];
+    entry.extend(0i32.to_le_bytes());
+    std::fs::write(
+        fixture.0.join("missions/synthetic/effects.bin"),
+        chunk(0x64, &chunk(0x3e8, &entry)),
+    )
+    .unwrap();
+    write_one_node_check_bin(&fixture);
+    let mut session = fixture.session_without_hud();
+    session.install_indicators(hud()).unwrap();
+    adopt_fresh_install_settings(&mut session);
+    assert_eq!(session.effects().effects().len(), 1);
+    load(&mut session, &[]).unwrap();
+    let mut sequence = SceneSnapshotSequence::default();
+    let mut attempt = InitAttempt::default();
+    let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
+    let Err(InitRunError::Callback(failure)) = result else {
+        panic!("CreateSParticle must stop Init");
+    };
+    assert_eq!(failure.step, InitStep::EffectsStart);
+    assert!(
+        failure
+            .error
+            .0
+            .starts_with("EffectsStart: C_effects::CreateSParticle (GAME 0x44a3a0) for effect 0"),
+        "{}",
+        failure.error.0
+    );
+    // Mission_Start and DeRiciConns after LoadStaticParticles never ran;
+    // nothing was created.
+    assert_eq!(session.navigation().node_flags(0), Some(0x7777));
+    let effects = session.effects();
+    assert!(!effects.started());
+    assert_eq!(effects.static_particles(), None);
+    assert_eq!(effects.static_emitter_count(), 0);
+    // Mission_Done does nothing for the unstarted mission; owners reach zero
+    // and the process-lifetime table stays.
+    discard(&mut session);
+    assert_eq!(session.effects().effects().len(), 1);
+}
+
+/// `C_game::Done` order on disposal: `LightnessClear` and the box
+/// placement clears run before the scene is released; `invisible_actors`
+/// is left as `Done` leaves it. A listed box needs the unported
+/// `BoxPlacementDel` and stops the disposal after `LightnessClear`.
+#[test]
+fn disposal_clears_lightness_and_box_lists_in_done_order() {
+    use crate::game_housekeeping::*;
+    let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
+    for with_box in [false, true] {
+        let mut session = fixture.session();
+        load(&mut session, &[]).unwrap();
+        stage_box_placements(&mut session);
+        if !with_box {
+            session.game_lists.boxes.clear();
+        }
+        let lists = &mut session.game_lists;
+        lists.lightness.push(LightnessEntry { marker: 1 });
+        lists.invisible_actors.push(InvisibleActor {
+            actor: 61,
+            frame: 62,
+        });
+        if !with_box {
+            discard(&mut session);
+            assert_eq!(box_placement_counts(&session), [0, 0, 0]);
+        } else {
+            assert_eq!(
+                session.discard_terminal(),
+                Err(MissionDiscardCallError::Stopped)
+            );
+            let failure = session.discard_failure().unwrap();
+            assert_eq!(failure.phase, MissionDiscardPhase::GameDoneLists);
+            assert!(matches!(
+                failure.cause,
+                MissionDiscardCause::BoxPlacementDel { boxes: 1 }
+            ));
+            // Nothing after the stop ran: the lists and the scene stay.
+            assert_eq!(box_placement_counts(&session), [1, 2, 1]);
+            assert!(session.scene().unwrap().is_some());
+            let remaining = session.owned_counts().unwrap();
+            assert_eq!(remaining.box_placements, 1);
+            assert_eq!(remaining.box_destinations, 2);
+            assert_eq!(remaining.box_placement_temporaries, 1);
+        }
+        assert!(session.game_lists().lightness.is_empty());
+        assert_eq!(session.game_lists().invisible_actors.len(), 1);
+    }
 }
 
 #[test]
@@ -736,7 +981,7 @@ fn presented_init_initializes_the_global_programs_and_runs_game_init_start_once(
     let mut attempt = InitAttempt::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("LoadStaticParticles must stop Init");
+        panic!("ff_manager.GameInit must stop Init");
     };
     assert_eq!(failure.step, InitStep::EffectsStart);
     assert_eq!(failure.error.0, EFFECTS_STOP);

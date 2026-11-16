@@ -502,8 +502,12 @@ class RewriteProgressTests(unittest.TestCase):
         # 0x1eb030 contract -> differential (staged virtual dispatch, REA body).
         # +1 soundArena::Init 0x15fcf0 differential (complete REA body + pin
         # tests; reached from the presented MISE01 C_game::Init).
-        self.assertEqual(game["ported"], 149 + 1022)
-        self.assertEqual(game["verified"], 149 + 528)
+        # +3 EffectsStart differentials (C_effects ctor 0x49080,
+        # Mission_Start 0x49180 and C_web_path::DeRiciConns 0x14cd20),
+        # plus LoadStaticParticles 0x4ad30 contract (creatable effects
+        # retain an explicit unported CreateSParticle dependency).
+        self.assertEqual(game["ported"], 149 + 1026)
+        self.assertEqual(game["verified"], 149 + 531)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

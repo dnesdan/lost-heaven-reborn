@@ -17671,6 +17671,42 @@
       "symbol": "lhr_engine::game_housekeeping::SoundArena::init",
       "tier": "differential",
       "evidence": "REA ev_db81b55a45 Ghidra body 10 insns: rep stosd 0x80 zero dwords at +0x0, then +0x200=0, +0x204=0; called from C_game::Init at 0x5a0c57 with ecx=this+0x2b3c; mafia-re tools.cpp:399-404; pin tests presented Init SoundAndLightness (cleared after staging, kept on RadarClear stop) + MISE01 probe"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49080",
+      "va": "0x449080",
+      "name": "C_effects::C_effects",
+      "symbol": "lhr_engine::mission_effects::effects_create",
+      "tier": "differential",
+      "evidence": "REA ev_31ccda6d70 Ghidra body 0x449080..0x4490f8: in_use/effects/static_emitters vectors zeroed (+0x4..+0x2c), call 0x449380 (Load), then mov [esi+0x30],-1; mafia-re C_effects.cpp:37-42; constructed by C_mission::Init (0x53f230, Mission.cpp:103-104) as the session's C_effects owner (SessionEffects::construct over tables\\effects.tbl through the existing EffectsTable reader); pin tests mission_effects ctor + session_effects constructor/failure + session construction; MISE01 probe loads the original table"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x49180",
+      "va": "0x449180",
+      "name": "C_effects::Mission_Start",
+      "symbol": "lhr_engine::mission_effects::effects_mission_start",
+      "tier": "differential",
+      "evidence": "REA ev_bed94187e7 Ghidra body 0x449180..0x4491cc: QPF/QPC (unobserved), mov byte [esi+0x34],0, mov [esi+0x30],-1, call 0x449380 when effects begin is NULL or (end-begin)>>2 is zero, mov byte [esi+0x34],1, mov al,1; called from C_game::Init at 0x5a0d4b ([[0x63788c]+0x6c], result unused); mafia-re C_effects.cpp:53-67; pin tests (load-only-when-empty, failure keeps started false, CreateSParticle stop precedes it) + MISE01 probe started=true"
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x4ad30",
+      "va": "0x44ad30",
+      "name": "C_effects::LoadStaticParticles",
+      "symbol": "lhr_engine::session_effects::SessionEffects::load_static_particles",
+      "tier": "contract",
+      "evidence": "REA ev_7162c8a9255507010acc012166c947df2fa8bd512830a40a76749e05fec093e6 Ghidra caller body 0x44ad30..0x44b161: path/open, root 0x64, effect chunks 0x3e8, matrix/index reads, optional ReadString/Descend/FindFrame, Descend/CreateSParticle, final Descend/Close; mafia-re C_effects.cpp:285-349 at fe7e746. Synthetic tests pin open/version/chunk errors, empty/no-op effects, frame lookup/over-descend and host admission boundaries. MISE01 reads the original 6-byte effects.bin with zero effects. Contract tier only: creatable effects stop at the unported CreateSParticle model/emitter owners; no full particle creation or original-runtime parity is claimed."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x14cd20",
+      "va": "0x54cd20",
+      "name": "C_web_path::DeRiciConns",
+      "symbol": "lhr_engine::mission_session_navigation::SessionNavigation::de_rici_conns",
+      "tier": "differential",
+      "evidence": "REA ev_361ba3313d Ghidra body 0x54cd20..0x54cd6d: count [ecx+0xc], nodes from the last (stride 0x1e from [ecx+4]), and byte [node+0xd],0xaf, links from the last (count byte +0x1d, array +0x18, stride 8) and byte [link+3],0xaf; called from C_game::Init at 0x5a0d59 ([[0x63788c]+0x2c]); reset by the existing MissionComponent::de_rici_conns, wired through the session navigation owner (absent check.bin = constructor-empty path); mafia-re pathweb.cpp; pin tests (flags 0x7777 -> 0x2777 over a loaded check.bin, refused before the load, absent branch) + MISE01 probe (13857 nodes, 1632 links)"
     }
   ],
   "vm": {

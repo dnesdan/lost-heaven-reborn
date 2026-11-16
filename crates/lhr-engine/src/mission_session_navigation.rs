@@ -219,6 +219,13 @@ impl SessionNavigation {
             .map_or(0, |view| view.node_count())
     }
 
+    /// The live 16-bit flags word of one loaded node (`+0xc`), read through
+    /// the existing graph view; `None` without that node.
+    pub fn node_flags(&self, index: usize) -> Option<u16> {
+        let view = self.component.as_ref()?.web_path()?;
+        view.node(index).map(|node| node.flags())
+    }
+
     /// Total connection count across live nodes; zero unless loaded.
     pub fn link_count(&self) -> u32 {
         let Some(component) = self.component.as_ref() else {
@@ -347,6 +354,28 @@ impl SessionNavigation {
         }
     }
 
+    /// `C_web_path::DeRiciConns` (GAME 0x54cd20) over the loaded graph
+    /// ([`MissionComponent::de_rici_conns`]). Without a component (the
+    /// `check.bin` `ROpen`-failed branch) the native path is the
+    /// constructor-empty one `C_mission::Init` made: zero active nodes, so
+    /// the loop runs zero times. Unattempted, failed or destroyed loaded
+    /// owners are refused rather than treated as an absent graph.
+    pub fn de_rici_conns(&mut self) -> Result<(), String> {
+        match (&self.outcome, self.component.as_mut()) {
+            (SessionNavigationOutcome::Absent { .. }, None) => Ok(()),
+            (SessionNavigationOutcome::Loaded { .. }, Some(component)) => component
+                .de_rici_conns()
+                .map_err(|error| format!("{error:?}")),
+            (SessionNavigationOutcome::NotAttempted, _) => {
+                Err("the Open navigation load was not attempted".into())
+            }
+            (SessionNavigationOutcome::Loaded { .. }, None) => {
+                Err("the loaded navigation owner was destroyed".into())
+            }
+            _ => Err("the Open navigation load has no completed live owner".into()),
+        }
+    }
+
     /// Explicit teardown: destroy the component, free its identity, and
     /// require an empty allocator. Absent/not-attempted loads succeed empty.
     pub fn destroy(&mut self) -> Result<(), SessionNavigationCause> {
@@ -466,6 +495,31 @@ mod tests {
     }
 
     #[test]
+    fn de_rici_conns_resets_the_loaded_graph_and_refuses_before_the_load() {
+        let scratch = Scratch::new();
+        let mut nav = SessionNavigation::new();
+        assert!(nav.de_rici_conns().is_err());
+        scratch.write("check.bin", &payload(&[node(0), node(0)], &[]));
+        nav.load(&scratch.installation(), "check.bin").unwrap();
+        let flags = |nav: &SessionNavigation, index| {
+            let view = nav.component.as_ref().unwrap().web_path().unwrap();
+            view.node(index).unwrap().flags()
+        };
+        assert_eq!((flags(&nav, 0), flags(&nav, 1)), (0x7777, 0x7777));
+        nav.de_rici_conns().unwrap();
+        // GAME 0x54cd3c: `and byte [node+0xd], 0xaf` clears 0x1000|0x4000.
+        assert_eq!((flags(&nav, 0), flags(&nav, 1)), (0x2777, 0x2777));
+        nav.destroy().unwrap();
+        assert!(nav.de_rici_conns().unwrap_err().contains("destroyed"));
+        // The absent branch is the constructor-empty path: nothing to reset.
+        let mut absent = SessionNavigation::new();
+        absent
+            .load(&Scratch::new().installation(), "check.bin")
+            .unwrap();
+        absent.de_rici_conns().unwrap();
+    }
+
+    #[test]
     fn second_load_is_rejected_without_touching_state() {
         let scratch = Scratch::new();
         let mut nav = SessionNavigation::new();
@@ -473,6 +527,25 @@ mod tests {
         let error = nav.load(&scratch.installation(), "check.bin").unwrap_err();
         assert!(matches!(error, SessionNavigationCause::AlreadyAttempted));
         nav.destroy().unwrap();
+    }
+
+    #[test]
+    fn de_rici_conns_refuses_a_source_failure_without_a_component() {
+        let scratch = Scratch::new();
+        scratch.write("blocked", b"not a directory");
+        let mut nav = SessionNavigation::new();
+        assert!(matches!(
+            nav.load(&scratch.installation(), "blocked/check.bin"),
+            Err(SessionNavigationCause::Source(_))
+        ));
+        assert!(matches!(
+            nav.outcome(),
+            SessionNavigationOutcome::SourceUnavailable { .. }
+        ));
+        assert!(nav.de_rici_conns().is_err());
+        assert_eq!(nav.live_allocations(), 0);
+        nav.destroy().unwrap();
+        assert!(nav.de_rici_conns().is_err());
     }
 
     #[test]
@@ -488,6 +561,7 @@ mod tests {
             nav.outcome(),
             SessionNavigationOutcome::Failed { .. }
         ));
+        assert!(nav.de_rici_conns().is_err());
         // The interrupted component refuses teardown; the disposal boundary
         // stays explicit instead of freeing a retained prefix implicitly.
         assert!(nav.destroy().is_err());

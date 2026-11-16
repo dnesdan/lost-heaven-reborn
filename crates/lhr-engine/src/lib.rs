@@ -215,6 +215,7 @@ pub mod script_lookup;
 pub mod script_scheduler;
 pub mod sector_sound_data;
 pub mod selected_loop;
+pub mod session_effects;
 pub mod shadow_pass;
 pub mod singlemesh_binding;
 pub mod singlemesh_bounds;

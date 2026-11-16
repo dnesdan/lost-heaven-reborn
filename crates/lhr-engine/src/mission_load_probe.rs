@@ -529,8 +529,9 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
     let game = session.game_state();
     let lists = session.game_lists();
     let ai = session.ai_manager();
+    let effects = session.effects();
     format!(
-        "score={:?} HUD bonus={:?} camera_rot_repair={} heal_cheat={} stacks_clear={} death_fade_time={} actor_lightness={} lists(stop_sounds, paused_i_shows, free_shadow_names, unknown_140)=({}, {}, {}, {}) AIManager(police unknown_24={:#x} speed_factor={} groups unlock_time={:#x} follow check_time={} records police/groups/follow/fight={}/{}/{}/{}) C_Vehicle sectors light/sound={}/{} sound_play_timer period={} sound_arena cleared={} lightness/invisible_actors={}/{}",
+        "score={:?} HUD bonus={:?} camera_rot_repair={} heal_cheat={} stacks_clear={} death_fade_time={} actor_lightness={} lists(stop_sounds, paused_i_shows, free_shadow_names, unknown_140)=({}, {}, {}, {}) AIManager(police unknown_24={:#x} speed_factor={} groups unlock_time={:#x} follow check_time={} records police/groups/follow/fight={}/{}/{}/{}) C_Vehicle sectors light/sound={}/{} sound_play_timer period={} sound_arena cleared={} lightness/invisible_actors={}/{} boxes/box_dests/box_placement_temp={}/{}/{} C_effects(table={} static_particles={:?} started={} last_guid={} static_emitters={})",
         game.score(),
         session.indicators().map(|hud| hud.bonus_count()),
         game.camera_rot_repair(),
@@ -555,7 +556,15 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
         game.sound_counters().3.period_ms(),
         session.sound_arena().is_cleared(),
         lists.lightness.len(),
-        lists.invisible_actors.len()
+        lists.invisible_actors.len(),
+        lists.boxes.len(),
+        lists.box_dests.len(),
+        lists.box_placement_temp.len(),
+        effects.effects().len(),
+        effects.static_particles(),
+        effects.started(),
+        effects.last_guid(),
+        effects.static_emitter_count()
     )
 }
 

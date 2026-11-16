@@ -282,7 +282,8 @@ where
 /// police init, traffic flags, the sound-arena/lightness/radar clears,
 /// the mission-global program `GameInit` and the `GameInitStart` run, the
 /// HUD `GameInit` dial/icon selection, the `EffectsStart` box-placement
-/// clears up to `LoadStaticParticles`, the base-cache `IsOpen` read, and the `MarkInitialized`
+/// clears, `LoadStaticParticles`, `Mission_Start` and `DeRiciConns` up to
+/// `ff_manager.GameInit`, the base-cache `IsOpen` read, and the `MarkInitialized`
 /// flag write. Every other boundary returns `Err` with its step prefix and
 /// preserves the reached live prefix: the driver stops at the first
 /// unowned step. Actor `GameInit` and rendering never run here. This is the owned

@@ -2535,15 +2535,51 @@ impl BoxDestRef {
 /// `C_game::S_box_placement_temp` (mafia-re game/mission/game.h:173-179 at
 /// pin fe7e746, member names mafia-re's): where a box was when
 /// `BoxPlacement_SaveInfo` (GAME 0x5b36b0) kept it. The frames are borrowed;
-/// `parent` is `None` for a native NULL `GetParent()`.
+/// `parent` is `None` for a native NULL `GetParent()`. Its writer
+/// `BoxPlacement_SaveInfo` is unported, so only tests construct one
+/// ([`BoxPlacementTemp::staged`]); the fields are read through accessors.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BoxPlacementTemp {
-    pub frame: crate::script_scheduler::FrameReferenceId,
-    pub parent: Option<crate::script_scheduler::FrameReferenceId>,
+    frame: crate::script_scheduler::FrameReferenceId,
+    parent: Option<crate::script_scheduler::FrameReferenceId>,
     /// +0x8, the local position.
-    pub pos: [f32; 3],
+    pos: [f32; 3],
     /// +0x14, the local direction.
-    pub dir: [f32; 3],
+    dir: [f32; 3],
+}
+
+impl BoxPlacementTemp {
+    pub fn frame(&self) -> crate::script_scheduler::FrameReferenceId {
+        self.frame
+    }
+    pub fn parent(&self) -> Option<crate::script_scheduler::FrameReferenceId> {
+        self.parent
+    }
+    pub fn pos(&self) -> [f32; 3] {
+        self.pos
+    }
+    pub fn dir(&self) -> [f32; 3] {
+        self.dir
+    }
+}
+
+#[cfg(test)]
+impl BoxPlacementTemp {
+    /// Test staging while `BoxPlacement_SaveInfo` (GAME 0x5b36b0) stays
+    /// unported.
+    pub(crate) const fn staged(
+        frame: crate::script_scheduler::FrameReferenceId,
+        parent: Option<crate::script_scheduler::FrameReferenceId>,
+        pos: [f32; 3],
+        dir: [f32; 3],
+    ) -> Self {
+        Self {
+            frame,
+            parent,
+            pos,
+            dir,
+        }
+    }
 }
 
 /// `C_game::S_invisible_actor` (mafia-re game/mission/game.h:182-186 at pin
