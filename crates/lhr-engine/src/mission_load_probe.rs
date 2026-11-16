@@ -509,9 +509,14 @@ fn profile_file_intake(
             let number = name
                 .strip_prefix("mafia")
                 .and_then(|rest| rest.strip_suffix(".sav"));
+            // `ProfileEnumFiles` enumerates slots 000-031 only
+            // (`cmp esi, 0x20`, GAME 0x6054f2) and opens files.
             if number.is_some_and(|digits| {
-                digits.len() == 3 && digits.bytes().all(|b| b.is_ascii_digit())
-            }) {
+                digits.len() == 3
+                    && digits.bytes().all(|b| b.is_ascii_digit())
+                    && digits.parse::<u32>().is_ok_and(|slot| slot < 0x20)
+            }) && file.path().is_file()
+            {
                 return Ok(ProfileFileIntake::ProfileFilePresent);
             }
         }
@@ -1375,11 +1380,15 @@ mod probe_text_tests {
         // A saved game and a foreign name are not profiles.
         std::fs::write(saves.join("mafia000.000"), b"").unwrap();
         std::fs::write(saves.join("mafia12.sav"), b"").unwrap();
+        // Slot 032 is past ProfileEnumFiles' 0x20 bound; a directory is not
+        // a profile file.
+        std::fs::write(saves.join("mafia032.sav"), b"").unwrap();
+        std::fs::create_dir_all(saves.join("mafia005.sav")).unwrap();
         assert_eq!(
             profile_file_intake(&root),
             Ok(ProfileFileIntake::NoProfileFile)
         );
-        std::fs::write(saves.join("MAFIA003.SAV"), b"").unwrap();
+        std::fs::write(saves.join("MAFIA031.SAV"), b"").unwrap();
         assert_eq!(
             profile_file_intake(&root),
             Ok(ProfileFileIntake::ProfileFilePresent)
