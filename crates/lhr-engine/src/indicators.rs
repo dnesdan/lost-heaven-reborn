@@ -707,6 +707,33 @@ impl IndicatorsState {
         self.icons_asset = Some(plan.icons_asset);
     }
 
+    /// `GameInit` (GAME 0x5f73c0, `g_indicators.cpp:355-387`) over the live
+    /// owners, each read where the original reads it: first
+    /// `act_mission->game->night_mission` (`mov eax, [0x63788c]; mov edx,
+    /// [eax+0x24]; mov al, [edx+0x2d44]` at 0x5f73c0-0x5f73cf, the C_game
+    /// byte [`GameInlineState`] owns), then after the dial's `Release`
+    /// `mafiaLoadSave.settings.speedometer_mph` (`mov al, [0x6d4b44]` at
+    /// 0x5f73e4 by night, 0x5f7441 by day). The selected dial and icon
+    /// textures replace the previous ones; the `ITexture::Release` and
+    /// `igraph->CreateITexture` (`ITC_COLORKEY`, vtable +0x4) device calls
+    /// stay with the device owner, as in [`IndicatorsState::create`].
+    /// Settings that the profile intake never set stop before any store.
+    ///
+    /// [`GameInlineState`]: crate::game_housekeeping::GameInlineState
+    pub fn game_init(
+        &mut self,
+        game: &crate::game_housekeeping::GameInlineState,
+        load_save: &crate::game_loadsave_lifecycle::LoadSaveProgress,
+    ) -> Result<(), &'static str> {
+        let night_mission = game.night_mission();
+        let settings = load_save.settings.as_ref().ok_or(
+            "mafiaLoadSave.settings.speedometer_mph (GAME 0x6d4b44) was never set by G_LoadSaveClass::Init's profile intake (AllDefault 0x6051e0 / ProfileLoad 0x6057f0)",
+        )?;
+        let plan = Self::game_init_texture_plan(night_mission, settings.speedometer_mph);
+        self.apply_game_init_texture_plan(plan);
+        Ok(())
+    }
+
     /// `GameDone` (GAME 0x5f74a0, `g_indicators.cpp:391-402`): map released,
     /// radar edges freed, bonus/intermission/race-start cleared,
     /// `TimerSetInterval(0)` re-applied from the current clock.
@@ -1824,6 +1851,45 @@ mod tests {
         state.apply_game_init_texture_plan(plan);
         assert_eq!(state.dial_asset(), Some("2intnocmph.tga"));
         assert_eq!(state.icons_asset(), Some("2intauton.tga"));
+    }
+
+    #[test]
+    fn game_init_reads_the_live_night_flag_and_profile_speedometer() {
+        use crate::game_housekeeping::GameInlineState;
+        use crate::game_loadsave_lifecycle::{LoadSaveProgress, ProfileSettings};
+        let mut game = GameInlineState::default();
+        let mut load_save = LoadSaveProgress::default();
+        let mut state = IndicatorsState::constructed(staged_clock());
+        // The constructor-zero options were never set by the profile
+        // intake: nothing is stored.
+        assert!(state.game_init(&game, &load_save).is_err());
+        assert_eq!((state.dial_asset(), state.icons_asset()), (None, None));
+        for (night, mph, dial, icons) in [
+            (false, false, "2int.tga", "2intauto.tga"),
+            (false, true, "2intmph.tga", "2intauto.tga"),
+            (true, false, "2intnoc.tga", "2intauton.tga"),
+            (true, true, "2intnocmph.tga", "2intauton.tga"),
+        ] {
+            game.set_night_mission(night);
+            load_save.settings = Some(ProfileSettings {
+                speedometer_mph: mph,
+            });
+            state.game_init(&game, &load_save).unwrap();
+            assert_eq!(
+                (state.dial_asset(), state.icons_asset()),
+                (Some(dial), Some(icons))
+            );
+        }
+        // A later GameInit replaces the textures from the live reads.
+        game.set_night_mission(false);
+        state.game_init(&game, &load_save).unwrap();
+        assert_eq!(state.dial_asset(), Some("2intmph.tga"));
+        // Unset options stop before the store: the previous dial stays.
+        load_save.settings = None;
+        game.set_night_mission(true);
+        assert!(state.game_init(&game, &load_save).is_err());
+        assert_eq!(state.dial_asset(), Some("2intmph.tga"));
+        assert_eq!(state.icons_asset(), Some("2intauto.tga"));
     }
 
     #[test]

@@ -93,6 +93,12 @@ impl MissionContentOwner {
     pub fn programs(&self) -> &[CProgram] {
         &self.programs
     }
+    /// Test staging of one live program (owner, runtime) while the writers
+    /// that would reach that state natively stay unported.
+    #[cfg(test)]
+    pub(crate) fn program_mut_for_tests(&mut self, index: usize) -> Option<&mut CProgram> {
+        self.programs.get_mut(index)
+    }
     pub fn pending_program(&self) -> Option<&CProgram> {
         self.pending_program.as_ref()
     }

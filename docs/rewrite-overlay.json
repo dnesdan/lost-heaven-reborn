@@ -8658,10 +8658,10 @@
       "binary": "Game.exe",
       "rva": "0x1f73c0",
       "va": "0x5f73c0",
-      "name": "G_IndicatorsClass::GameInit (texture-plan scope)",
-      "symbol": "lhr_engine::indicators::IndicatorsState::game_init_texture_plan",
+      "name": "G_IndicatorsClass::GameInit",
+      "symbol": "lhr_engine::indicators::IndicatorsState::game_init",
       "tier": "differential",
-      "evidence": "REA ev_47a6d542cc + Ghidra body 82 insns/17 bbs, GameInit texture-plan; pin tests indicators"
+      "evidence": "REA ev_47a6d542cc + ev_8bb5df3cfe Ghidra body 82 insns/17 bbs: live reads [[0x63788c]+0x24]+0x2d44 night_mission then [0x6d4b44] mafiaLoadSave.settings.speedometer_mph; Init call 0x5a0cb8; device Release/CreateITexture deferred; pin tests indicators + init_presentation"
     },
     {
       "binary": "Game.exe",

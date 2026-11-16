@@ -637,7 +637,13 @@ impl<'a, D: MissionProgramDiagnostic> GameGlobalProgramWorldRunner<SessionProgra
 }
 
 /// `Init`'s script diagnostic boundary: a `MessageBeep` reached while
-/// `GameInitStart` runs has no host owner here, so it stops the run.
+/// `GameInitStart` runs has no host owner here, so it stops the run. The
+/// only `MessageBeep` a program reaches is the FINDACTOR diagnostic, which
+/// needs the program's actor; `C_program::CallSubroutine` (GAME 0x46cbc0,
+/// mafia-re `fe7e746` `game/mission/C_program.cpp:2684-2691`) stores `actor
+/// = NULL` on entry and no command of the run stores it again, so the
+/// `GameInitStart` call never reaches it. The refusal guards that
+/// unreachable path instead of inventing a beep.
 pub struct GameInitProgramDiagnostic;
 
 impl MissionProgramDiagnostic for GameInitProgramDiagnostic {
@@ -662,6 +668,11 @@ impl MissionProgramDiagnostic for GameInitProgramDiagnostic {
 /// initializing or running the same programs a second time.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GameInitPrograms {
+    /// `C_mission::GlobalProgramGameInit` (GAME 0x540520) was entered. Set
+    /// before its first program `Init`, so a failure part-way through (the
+    /// programs after the failing one, in its reverse order, initialized)
+    /// still refuses a second pass over the same programs.
+    pub entered: bool,
     /// `C_mission::GlobalProgramGameInit` (GAME 0x540520) completed.
     pub initialized: bool,
     /// The `GlobalProgramRun("GameInitStart")` result, once reached.
@@ -705,6 +716,13 @@ impl MissionLoadSession {
         if self.game_init_programs.initialized {
             return Err("GlobalProgramGameInit already ran for these programs".into());
         }
+        if self.game_init_programs.entered {
+            return Err(
+                "GlobalProgramGameInit was interrupted for these programs; its partial initialization is not repeated"
+                    .into(),
+            );
+        }
+        self.game_init_programs.entered = true;
         self.initialize_owned_global_programs()
             .map_err(|error| format!("GlobalProgramGameInit (GAME 0x540520): {error:?}"))?;
         self.game_init_programs.initialized = true;
