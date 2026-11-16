@@ -506,7 +506,7 @@ class RewriteProgressTests(unittest.TestCase):
         # Mission_Start 0x49180 and C_web_path::DeRiciConns 0x14cd20),
         # plus LoadStaticParticles 0x4ad30 contract (creatable effects
         # retain an explicit unported CreateSParticle dependency).
-        self.assertEqual(game["ported"], 149 + 1026)
+        self.assertEqual(game["ported"], 149 + 1029)
         self.assertEqual(game["verified"], 149 + 531)
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])

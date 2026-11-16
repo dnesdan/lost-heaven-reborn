@@ -591,12 +591,25 @@ pub fn run(
     // natively; the probe takes its options from the installation's
     // savegame directory. A refused intake leaves them unset, and Init's
     // HUD GameInit reports it.
-    let profile_intake = profile_file_intake(root).and_then(|intake| {
+    let file_intake = profile_file_intake(root);
+    let profile_intake = file_intake.clone().and_then(|intake| {
         lhr_engine::game_loadsave_lifecycle::profile_settings_after_load_save_init(intake)
             .map_err(str::to_owned)
     });
     if let Ok(settings) = &profile_intake {
         session.adopt_profile_settings(*settings)?;
+    }
+    let input_intake = file_intake.and_then(|intake| {
+        lhr_engine::game_loadsave_controls::profile_bindings_after_load_save_init(intake)
+            .map_err(str::to_owned)
+            .and_then(lhr_engine::session_input::KeyboardMouseInput::from_profile)
+    });
+    match input_intake {
+        Ok(input) => {
+            session.adopt_keyboard_mouse_input(input)?;
+            println!("Mission probe input: explicit keyboard/mouse-only startup; joystick discovery and event polling are not composed");
+        }
+        Err(error) => println!("Mission probe input unavailable: {error}"),
     }
     let world_input = format!("missions/{mission}/scene.i3d");
     let scene2_path = format!("missions/{mission}/scene2.bin");
@@ -745,6 +758,15 @@ pub fn run(
         profile_intake,
         session.indicators().and_then(|hud| hud.dial_asset()),
         session.indicators().and_then(|hud| hud.icons_asset())
+    )
+    .unwrap();
+    writeln!(
+        report,
+        "Process input adopted={}; ff_manager.GameInit complete={}; human/car flag bytes={:?}; force-feedback reset value={}",
+        session.input().is_some(),
+        session.force_feedback().game_init_complete(),
+        session.force_feedback().effect_flag_bytes(),
+        session.force_feedback().reset_value()
     )
     .unwrap();
     let progress = session.load_save_progress();

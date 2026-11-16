@@ -63,6 +63,16 @@ execute gameplay. Pass `--probe-model-dir Models` explicitly for model intake;
 its intentional default is an empty directory list, so a run without that
 argument proves no model geometry.
 
+For a fresh installation with no numbered profile save, the probe now applies
+the original 60-row control defaults to a real control/keyboard state in an
+explicit keyboard/mouse-only host mode. Joystick bindings remain in the profile
+but are rejected by the device-free runtime, as `SetControl` requires. No
+joystick discovery or platform input polling is claimed. Existing profiles
+are refused until their G_Stream decoder is available, never replaced with
+defaults. With successful rendering and earlier dependencies, this startup
+path completes force-feedback capability initialization and next stops at
+`DiffClear` (unported diff pools); it still does not enter gameplay.
+
 The live mission owner now binds the `C_mission::Open` mute/restore effects
 and the first `Tick` restore-volume gate to the shared Rust PCM master gain.
 `skip_frames` delays that one-shot Tick effect; an interrupted audio write
@@ -130,8 +140,9 @@ boundary of the composed new-game Init (after `SaveGameNewGame`) when
 the start reaches it, otherwise of the independent ordered Init inspection,
 after the live audio mute. A failed
 or unreached presentation is not retried outside that order. Successful
-presentation advances to the still-unavailable `stop_sounds` owner; it does
-not complete GameInit. Store captures outside the source tree;
+presentation advances through the remaining ordered Init dependencies;
+the fresh-profile keyboard/mouse path described above reaches `DiffClear`,
+not completed GameInit. Store captures outside the source tree;
 the source textures and original game data are not redistributable.
 
 Historically at engine `041eed8`, INTRO's CPU probe completed source loading and

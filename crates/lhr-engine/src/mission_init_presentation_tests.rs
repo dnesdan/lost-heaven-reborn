@@ -109,8 +109,8 @@ fn assert_ai_manager_shift_begun(session: &MissionLoadSession) {
 
 /// `EffectsStart`'s boundary after the box-placement clears,
 /// `LoadStaticParticles`, `Mission_Start` and `DeRiciConns`: the force
-/// feedback manager has no owner.
-const EFFECTS_STOP: &str = "EffectsStart: ff_manager.GameInit (GAME 0x4446b0, called at 0x5a0d63 with ecx=0x647b28): the C_ff_manager global and the controls bindings and joystick devices it reads (controls.GetControl, joy[]->GetInfo) have no session owner";
+/// feedback manager has no adopted process input.
+const EFFECTS_STOP: &str = "EffectsStart: ff_manager.GameInit (GAME 0x4446b0, called at 0x5a0d63): process input has not been adopted from profile startup";
 
 /// Stage the three box-placement vectors `EffectsStart` empties, with
 /// borrowed identities whose owners (`BoxPlacementAdd`,
@@ -787,6 +787,53 @@ fn effects_start_runs_the_effects_and_web_path_then_stops_at_ff_manager() {
     // every owner reaches zero.
     discard(&mut session);
     assert!(!session.effects().started());
+}
+
+#[test]
+fn keyboard_mouse_startup_completes_effects_and_reaches_diff_clear() {
+    use crate::game_loadsave_lifecycle::ProfileFileIntake;
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session_without_hud();
+    session.install_indicators(hud()).unwrap();
+    adopt_fresh_install_settings(&mut session);
+    let bindings = crate::game_loadsave_controls::profile_bindings_after_load_save_init(
+        ProfileFileIntake::NoProfileFile,
+    )
+    .unwrap();
+    session
+        .adopt_keyboard_mouse_input(
+            crate::session_input::KeyboardMouseInput::from_profile(bindings).unwrap(),
+        )
+        .unwrap();
+    load(&mut session, &[]).unwrap();
+    let mut attempt = InitAttempt::default();
+    let mut sequence = SceneSnapshotSequence::default();
+    let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
+    let Err(InitRunError::Callback(failure)) = result else {
+        panic!("diff pools must stop Init")
+    };
+    assert_eq!(failure.step, InitStep::DiffClear);
+    assert_eq!(attempt.last(), Some(InitStep::DiffClear));
+    assert!(session.effects().started());
+    assert!(session.force_feedback().game_init_complete());
+    assert_eq!(session.force_feedback().effect_flag_bytes(), [0, 0]);
+    assert!(!session.game_initialized);
+    let replacement = crate::game_loadsave_controls::profile_bindings_after_load_save_init(
+        ProfileFileIntake::NoProfileFile,
+    )
+    .unwrap();
+    assert!(session
+        .adopt_keyboard_mouse_input(
+            crate::session_input::KeyboardMouseInput::from_profile(replacement).unwrap()
+        )
+        .is_err());
+    discard(&mut session);
+    assert!(session.input().is_some());
+    assert!(!session.effects().started());
+    assert_eq!(
+        session.input().unwrap().controls().binding(1).unwrap().code,
+        0x11
+    );
 }
 
 #[test]

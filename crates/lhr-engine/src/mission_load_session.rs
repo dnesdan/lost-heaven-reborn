@@ -480,6 +480,8 @@ pub struct MissionLoadSession {
     /// session constructs it, loading `tables\effects.tbl`. The table
     /// survives disposal; `Mission_Done` empties the mission's emitters.
     effects: crate::session_effects::SessionEffects,
+    input: Option<crate::session_input::KeyboardMouseInput>,
+    force_feedback: crate::force_feedback::ForceFeedbackState,
     /// What `Init`'s `GlobalProgramStart` did with the mission-global
     /// programs (initialized once, `GameInitStart` run once).
     game_init_programs: owned_program_runtime::GameInitPrograms,
@@ -646,7 +648,7 @@ mod owned_source_open;
 pub use owned_source_open::MissionSourceOpenError;
 
 /// The unowned native step after `EffectsStart`'s box clears.
-pub const EFFECTS_START_STOP: &str = "ff_manager.GameInit (GAME 0x4446b0, called at 0x5a0d63 with ecx=0x647b28): the C_ff_manager global and the controls bindings and joystick devices it reads (controls.GetControl, joy[]->GetInfo) have no session owner";
+pub const EFFECTS_START_STOP: &str = "ff_manager.GameInit (GAME 0x4446b0, called at 0x5a0d63): process input has not been adopted from profile startup";
 
 #[path = "session_program_runtime.rs"]
 mod owned_program_runtime;
@@ -704,6 +706,8 @@ impl MissionLoadSession {
             game_lists: Default::default(),
             shadow_name_buffers: Default::default(),
             indicators: None,
+            input: None,
+            force_feedback: crate::force_feedback::ForceFeedbackState::from_process_state(0, 0, 0),
             ai_manager: Default::default(),
             player_statics: Default::default(),
             load_scene_callback: Default::default(),
@@ -2015,7 +2019,8 @@ impl MissionLoadSession {
     /// unused) and `web_path->DeRiciConns()` (`[+0x2c]`, `call 0x54cd20` at
     /// 0x5a0d59). The step stops at `ff_manager.GameInit` (`mov ecx,
     /// 0x647b28; call 0x4446b0` at 0x5a0d5e-0x5a0d63), whose owners are
-    /// unported; every earlier effect is kept on any stop.
+    /// required; every earlier effect is kept on any stop. With explicit
+    /// keyboard/mouse input it completes without creating joystick effects.
     pub fn effects_start_for_init(&mut self) -> Result<(), String> {
         self.game_init_admission()?;
         self.game_lists.init_box_placement_clear();
@@ -2026,7 +2031,15 @@ impl MissionLoadSession {
         self.navigation
             .de_rici_conns()
             .map_err(|detail| format!("C_web_path::DeRiciConns (GAME 0x54cd20): {detail}"))?;
-        Err(EFFECTS_START_STOP.into())
+        let input = self.input.as_mut().ok_or(EFFECTS_START_STOP)?;
+        input.initialize_force_feedback(&mut self.force_feedback)?;
+        if self.force_feedback.human_effects() {
+            return Err("C_human::InitFFEffects: effect creation is unported".into());
+        }
+        if self.force_feedback.car_effects() {
+            return Err("C_car::InitFFEffects: effect creation is unported".into());
+        }
+        Ok(())
     }
 
     /// `C_effects::LoadStaticParticles` (GAME 0x44ad30) over the session:
@@ -2066,6 +2079,26 @@ impl MissionLoadSession {
     /// The live `C_effects` owner.
     pub fn effects(&self) -> &crate::session_effects::SessionEffects {
         &self.effects
+    }
+
+    /// Process-start input ownership, retained across mission disposal like
+    /// native controls. Replacing a live startup owner is not yet supported.
+    pub fn adopt_keyboard_mouse_input(
+        &mut self,
+        input: crate::session_input::KeyboardMouseInput,
+    ) -> Result<(), String> {
+        if self.input.is_some() {
+            return Err("process input already adopted from profile startup".into());
+        }
+        self.input = Some(input);
+        Ok(())
+    }
+
+    pub fn input(&self) -> Option<&crate::session_input::KeyboardMouseInput> {
+        self.input.as_ref()
+    }
+    pub fn force_feedback(&self) -> &crate::force_feedback::ForceFeedbackState {
+        &self.force_feedback
     }
 
     /// Adopt the `mafiaLoadSave.settings` that `G_LoadSaveClass::Init`'s
