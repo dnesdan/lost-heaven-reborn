@@ -530,7 +530,7 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
     let lists = session.game_lists();
     let ai = session.ai_manager();
     let effects = session.effects();
-    format!(
+    let flags = format!(
         "score={:?} HUD bonus={:?} camera_rot_repair={} heal_cheat={} stacks_clear={} death_fade_time={} actor_lightness={} lists(stop_sounds, paused_i_shows, free_shadow_names, unknown_140)=({}, {}, {}, {}) AIManager(police unknown_24={:#x} speed_factor={} groups unlock_time={:#x} follow check_time={} records police/groups/follow/fight={}/{}/{}/{}) C_Vehicle sectors light/sound={}/{} sound_play_timer period={} sound_arena cleared={} lightness/invisible_actors={}/{} boxes/box_dests/box_placement_temp={}/{}/{} C_effects(table={} static_particles={:?} started={} last_guid={} static_emitters={})",
         game.score(),
         session.indicators().map(|hud| hud.bonus_count()),
@@ -565,6 +565,13 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
         effects.started(),
         effects.last_guid(),
         effects.static_emitter_count()
+    );
+    format!(
+        "{flags} diff_frames/actors={}/{} clear_diff_data={} crash_objects={}",
+        lists.diff_frames.len(),
+        lists.diff_actors.len(),
+        game.clear_diff_data(),
+        session.crash_object_count()
     )
 }
 

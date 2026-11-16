@@ -790,9 +790,16 @@ fn effects_start_runs_the_effects_and_web_path_then_stops_at_ff_manager() {
 }
 
 #[test]
-fn keyboard_mouse_startup_completes_effects_and_reaches_diff_clear() {
+fn keyboard_mouse_startup_clears_diff_state_and_reaches_blood_pools() {
     use crate::game_loadsave_lifecycle::ProfileFileIntake;
-    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let source = scene2(
+        &[
+            chunk(0x4000, &object(9, b"part", &[])),
+            chunk(0xae20, &actor_record(b"part", 1, b"")),
+        ]
+        .concat(),
+    );
+    let fixture = Fixture::new(Some(&world(&[])), Some(&source), None);
     let mut session = fixture.session_without_hud();
     session.install_indicators(hud()).unwrap();
     adopt_fresh_install_settings(&mut session);
@@ -806,14 +813,58 @@ fn keyboard_mouse_startup_completes_effects_and_reaches_diff_clear() {
         )
         .unwrap();
     load(&mut session, &[]).unwrap();
+    let world = &session.loader().unwrap().content.actors.world;
+    let actor = world.owned_actor_references().next().unwrap();
+    let frame = world.lookup_actor_frame(actor).unwrap().unwrap();
+    session.game_lists.diff_frames.extend([frame, frame]);
+    session.game_lists.diff_actors.push(actor);
+    let capacities = (
+        session.game_lists.diff_frames.capacity(),
+        session.game_lists.diff_actors.capacity(),
+    );
+    session.game_inline.set_clear_diff_data();
+    session.crash_object_count = u32::MAX;
+    let counts = session.owned_counts().unwrap();
+    assert_eq!((counts.diff_frames, counts.diff_actors), (2, 1));
     let mut attempt = InitAttempt::default();
     let mut sequence = SceneSnapshotSequence::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("diff pools must stop Init")
+        panic!("blood/frame pools must stop Init")
     };
-    assert_eq!(failure.step, InitStep::DiffClear);
-    assert_eq!(attempt.last(), Some(InitStep::DiffClear));
+    assert_eq!(failure.step, InitStep::BloodAndFramePools);
+    assert_eq!(attempt.last(), Some(InitStep::BloodAndFramePools));
+    assert!(session.game_lists().diff_frames.is_empty());
+    assert!(session.game_lists().diff_actors.is_empty());
+    assert_eq!(
+        (
+            session.game_lists().diff_frames.capacity(),
+            session.game_lists().diff_actors.capacity(),
+        ),
+        capacities
+    );
+    assert!(!session.game_state().clear_diff_data());
+    assert_eq!(session.crash_object_count(), 0);
+    assert!(crate::frame_lookup::ModelFrameLookup::arena_frame(&session.arena, frame).is_ok());
+    assert_eq!(
+        session
+            .loader()
+            .unwrap()
+            .content
+            .actors
+            .world
+            .lookup_actor_frame(actor)
+            .unwrap(),
+        Some(frame)
+    );
+    let after = session.owned_counts().unwrap();
+    assert_eq!((after.diff_frames, after.diff_actors), (0, 0));
+    assert_eq!(after.live_frames, counts.live_frames);
+    assert_eq!(after.mission_actors, counts.mission_actors);
+    assert_eq!(
+        attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(())),
+        Err(InitRunError::AlreadyEntered)
+    );
     assert!(session.effects().started());
     assert!(session.force_feedback().game_init_complete());
     assert_eq!(session.force_feedback().effect_flag_bytes(), [0, 0]);
@@ -834,6 +885,76 @@ fn keyboard_mouse_startup_completes_effects_and_reaches_diff_clear() {
         session.input().unwrap().controls().binding(1).unwrap().code,
         0x11
     );
+}
+
+#[test]
+fn diff_clear_requires_open_and_refuses_terminal_disposal_state() {
+    use crate::game_init_order::InitOperations as _;
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    let frame = crate::script_scheduler::FrameReferenceId::from_existing(37);
+    session.game_lists.diff_frames.push(frame);
+    session.game_inline.set_clear_diff_data();
+    session.crash_object_count = 21;
+    assert_eq!(
+        session.execute(InitStep::DiffClear),
+        Err(crate::game_init_order::SessionInitError(
+            "DiffClear: game init requires completed open prefix".into()
+        ))
+    );
+    assert_eq!(session.game_lists().diff_frames, [frame]);
+    assert!(session.game_state().clear_diff_data());
+    assert_eq!(session.crash_object_count(), 21);
+    load(&mut session, &[]).unwrap();
+    session.execute(InitStep::DiffClear).unwrap();
+    assert!(session.game_lists().diff_frames.is_empty());
+    assert!(!session.game_state().clear_diff_data());
+    assert_eq!(session.crash_object_count(), 0);
+    discard(&mut session);
+    assert!(session.execute(InitStep::DiffClear).is_err());
+}
+
+#[test]
+fn earlier_init_stop_preserves_diff_state_and_refuses_nonempty_diff_teardown() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session_without_hud();
+    session.install_indicators(hud()).unwrap();
+    adopt_fresh_install_settings(&mut session);
+    load(&mut session, &[]).unwrap();
+    let scene_frame = session.scene().unwrap().unwrap().root();
+    let frame = session.arena.lookup_reference(scene_frame);
+    session.game_lists.diff_frames.push(frame);
+    session.game_inline.set_clear_diff_data();
+    session.crash_object_count = 23;
+    let mut attempt = InitAttempt::default();
+    let mut sequence = SceneSnapshotSequence::default();
+    let Err(InitRunError::Callback(failure)) =
+        attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()))
+    else {
+        panic!("missing process input must stop EffectsStart")
+    };
+    assert_eq!(failure.step, InitStep::EffectsStart);
+    assert_eq!(session.game_lists().diff_frames, [frame]);
+    assert!(session.game_state().clear_diff_data());
+    assert_eq!(session.crash_object_count(), 23);
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::Stopped)
+    );
+    assert_eq!(
+        session.discard_progress().phase,
+        MissionDiscardPhase::GameDoneLists
+    );
+    assert!(matches!(
+        session.discard_failure().unwrap().cause,
+        MissionDiscardCause::ClearDiffData {
+            frames: 1,
+            actors: 0
+        }
+    ));
+    assert!(!session.effects().started());
+    assert_eq!(session.game_lists().diff_frames, [frame]);
+    assert!(session.arena.frame(scene_frame).is_ok());
 }
 
 #[test]

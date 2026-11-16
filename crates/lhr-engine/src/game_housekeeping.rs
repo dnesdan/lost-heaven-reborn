@@ -976,6 +976,18 @@ impl GameInlineState {
         self.clear_diff_data
     }
 
+    /// The POD erases and stores at GAME 0x5a0d82-0x5a0de4, inside
+    /// `C_game::Init` (REA ev_67ab357fe5f281740e780f4e3b413abe2cfe2da884f45c533a229c3b1ea9f020).
+    /// Clears borrowed references, not the named frames/actors, then the
+    /// +0x2ad9 byte and `C_crash_obj::count` dword. Working fragment name,
+    /// not a separately reconstructed function or `ClearDiffData`.
+    pub fn init_diff_clear(&mut self, lists: &mut GameInitLists, crash_object_count: &mut u32) {
+        lists.diff_frames.clear();
+        lists.diff_actors.clear();
+        self.clear_diff_data = false;
+        *crash_object_count = 0;
+    }
+
     /// FUNCTION: GAME 0x47b560 (RVA 0x7b560, VA 0x47b560; `game.h:868-873`,
     /// `C_game::GetGameTime`): reads the game's time.
     pub fn get_game_time(&self) -> i32 {
@@ -2451,6 +2463,11 @@ impl ShadowNameBuffers {
 /// none of them releases what the entries name.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GameInitLists {
+    /// `diff_frames` (+0x2adc): borrowed live-owner identities. `LoadDiffData`
+    /// is unported; Init drops references without releasing the frames.
+    pub diff_frames: Vec<crate::script_scheduler::FrameReferenceId>,
+    /// `diff_actors` (+0x2aec): borrowed actor incarnations, not allocations.
+    pub diff_actors: Vec<crate::script_scheduler::ActorReferenceId>,
     pub stop_sounds: Vec<StoppedSound>,
     pub paused_i_shows: Vec<i32>,
     pub free_shadow_names: Vec<ShadowNameBufferId>,

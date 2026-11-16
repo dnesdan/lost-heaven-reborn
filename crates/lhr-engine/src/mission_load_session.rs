@@ -218,6 +218,8 @@ pub struct MissionOwnedCounts {
     pub box_placements: usize,
     pub box_destinations: usize,
     pub box_placement_temporaries: usize,
+    pub diff_frames: usize,
+    pub diff_actors: usize,
 }
 
 #[derive(Debug)]
@@ -243,6 +245,13 @@ pub enum MissionDiscardCause {
     /// 0x5b2ee0, `game.cpp:1347-1348`) is unported; the boxes stay listed.
     BoxPlacementDel {
         boxes: usize,
+    },
+    /// Native Done calls `ClearDiffData` (GAME 0x5af860) at 0x5a408a,
+    /// after `Mission_Done` at 0x5a4083 (REA ev_8310cf2e7dab5297cc3853ba876598295188c280b4e7285985e9c0d2005b7985).
+    /// Nonempty lists require the unported actor/frame deletion continuation.
+    ClearDiffData {
+        frames: usize,
+        actors: usize,
     },
     RemainingOwners(Box<MissionOwnedCounts>),
 }
@@ -365,6 +374,8 @@ impl MissionOwnedCounts {
             box_placements: game_lists.map_or(0, |lists| lists.boxes.len()),
             box_destinations: game_lists.map_or(0, |lists| lists.box_dests.len()),
             box_placement_temporaries: game_lists.map_or(0, |lists| lists.box_placement_temp.len()),
+            diff_frames: game_lists.map_or(0, |lists| lists.diff_frames.len()),
+            diff_actors: game_lists.map_or(0, |lists| lists.diff_actors.len()),
         })
     }
 }
@@ -427,6 +438,11 @@ pub struct MissionLoadSession {
     /// The C_game vectors `Init` empties (`stop_sounds`, `paused_i_shows`,
     /// `free_shadow_names`, `unknown_140`), owned beside `game_inline`.
     game_lists: crate::game_housekeeping::GameInitLists,
+    /// `C_crash_obj::count` (GAME 0x63d6d4), session-scoped like the other
+    /// process statics. Starts at the zeroed process seed; crash actor
+    /// GameInit/GameDone and Tick producers are not composed here. The
+    /// standalone CarRuntime has a separate compatibility context.
+    crash_object_count: u32,
     /// The shadow-name buffers `free_shadow_names` lists by id; a separate
     /// owner so clearing the list never frees a buffer.
     shadow_name_buffers: crate::game_housekeeping::ShadowNameBuffers,
@@ -704,6 +720,7 @@ impl MissionLoadSession {
             freeride: Default::default(),
             game_inline: crate::game_housekeeping::GameInlineState::default(),
             game_lists: Default::default(),
+            crash_object_count: 0,
             shadow_name_buffers: Default::default(),
             indicators: None,
             input: None,
@@ -2042,6 +2059,19 @@ impl MissionLoadSession {
         Ok(())
     }
 
+    /// Reached `DiffClear` fragment of `C_game::Init`, after force-feedback
+    /// and before `blood_manager.GameInit`. No actor/frame destruction runs.
+    pub fn diff_clear_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        self.game_inline
+            .init_diff_clear(&mut self.game_lists, &mut self.crash_object_count);
+        Ok(())
+    }
+
+    pub fn crash_object_count(&self) -> u32 {
+        self.crash_object_count
+    }
+
     /// `C_effects::LoadStaticParticles` (GAME 0x44ad30) over the session:
     /// the path from the `CopyMissionName` copy (`act_mission+0x68`), the
     /// file through the installation (absence is `ROpen` failing) and
@@ -2559,6 +2589,12 @@ impl MissionLoadSession {
         self.discard.phase = MissionDiscardPhase::GameDoneLists;
         crate::game_housekeeping::lightness_clear(&mut self.game_lists.lightness);
         self.effects.mission_done();
+        if !self.game_lists.diff_frames.is_empty() || !self.game_lists.diff_actors.is_empty() {
+            return Err(MissionDiscardCause::ClearDiffData {
+                frames: self.game_lists.diff_frames.len(),
+                actors: self.game_lists.diff_actors.len(),
+            });
+        }
         if !self.game_lists.boxes.is_empty() {
             return Err(MissionDiscardCause::BoxPlacementDel {
                 boxes: self.game_lists.boxes.len(),

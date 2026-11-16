@@ -9804,7 +9804,7 @@
       "name": "C_game::Init (player-HUD step)",
       "symbol": "lhr_engine::indicators::IndicatorsState::apply_player_hud",
       "tier": "contract",
-      "evidence": "Flags=PLAYER + clamped lives/accuracy (GAME 0x5a0810). Marker-only contract; tests green on this tree."
+      "evidence": "Flags=PLAYER + clamped lives/accuracy (GAME 0x5a0810). Marker-only player-HUD contract. Additional bounded Init fragment, no extra function credit: REA ev_67ab357fe5f281740e780f4e3b413abe2cfe2da884f45c533a229c3b1ea9f020 assembly 0x5a0d82..0x5a0de4 clears borrowed diff_frames (+0x2adc) then diff_actors (+0x2aec), stores clear_diff_data byte (+0x2ad9)=0 and C_crash_obj::count dword (0x63d6d4)=0 before blood_manager.GameInit (0x412020). MissionLoadSession::diff_clear_for_init uses the actual lists/flag/counter with open/disposal admission; tests cover dirty nonempty lists, retained live pointees, earlier-stop preservation and refused nonempty ClearDiffData teardown. No completed Init, crash lifecycle or original-runtime parity claimed."
     },
     {
       "binary": "Game.exe",

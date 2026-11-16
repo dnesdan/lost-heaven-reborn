@@ -283,7 +283,8 @@ where
 /// the mission-global program `GameInit` and the `GameInitStart` run, the
 /// HUD `GameInit` dial/icon selection, the `EffectsStart` box-placement
 /// clears, `LoadStaticParticles`, `Mission_Start` and `DeRiciConns` up to
-/// `ff_manager.GameInit`, the base-cache `IsOpen` read, and the `MarkInitialized`
+/// `ff_manager.GameInit`, the borrowed diff-list and crash-counter resets,
+/// the base-cache `IsOpen` read, and the `MarkInitialized`
 /// flag write. Every other boundary returns `Err` with its step prefix and
 /// preserves the reached live prefix: the driver stops at the first
 /// unowned step. Actor `GameInit` and rendering never run here. This is the owned
@@ -329,7 +330,9 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::EffectsStart => self
                 .effects_start_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::DiffClear => Err(SessionInitError::unavailable(step, "diff pools")),
+            InitStep::DiffClear => self
+                .diff_clear_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
             InitStep::BloodAndFramePools => {
                 Err(SessionInitError::unavailable(step, "blood/frame pools"))
             }
