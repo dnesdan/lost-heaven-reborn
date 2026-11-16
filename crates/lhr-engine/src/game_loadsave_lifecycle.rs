@@ -1097,16 +1097,19 @@ pub struct LoadSaveProgress {
 ///
 /// Natively the bytes come from `G_LoadSaveClass::Init` (GAME 0x604ee0)
 /// before the main menu: `AllDefault` (0x6051e0) calls
-/// `DefaultSettings(0xffff)` (`push 0xffff; call 0x607ab0` at 0x6051fa),
-/// whose `DEFAULTS_OTHER` arm stores `mov byte [edx+0x51c], 1` (0x607ae4,
-/// `speedometer_mph = true`); then `ProfileLoad` (0x6057f0) reads the
+/// `DefaultSettings(0xffff)` (`push 0xffff` at 0x6051fa, `call 0x607ab0`
+/// at 0x6051ff), whose `DEFAULTS_OTHER` arm stores `mov [edx+0x51c], bl`
+/// (0x607ae4, `bl = 1` from `mov bl, 1` at 0x607ad8: `speedometer_mph =
+/// true`); then `ProfileLoad` (0x6057f0) reads the
 /// chosen profile's `savegame\mafiaNNN.sav` (G_Stream, unported) and, when
 /// that read fails, calls `AllDefault` again (g_loadsave.cpp:344-345).
 /// Only the options menu (`g_m_func.cpp:720`, unported) changes the byte
 /// between that intake and a new game.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ProfileSettings {
-    /// +0x58: the speedometer shows miles ("Miles per Hour").
+    /// +0x58: the speedometer shows miles ("Miles per Hour"). Natively a
+    /// byte read with `test al, al`: a future `ProfileLoad` decode must map
+    /// any non-zero byte to true, not only 1.
     pub speedometer_mph: bool,
 }
 
@@ -1671,7 +1674,7 @@ mod loadsave_gates_tests {
 
     #[test]
     fn profile_intake_takes_all_default_options_and_refuses_a_profile_file() {
-        // AllDefault -> DefaultSettings(0xffff): `mov byte [edx+0x51c], 1`.
+        // AllDefault -> DefaultSettings(0xffff): `mov [edx+0x51c], bl` (bl = 1).
         assert_eq!(
             profile_settings_after_load_save_init(ProfileFileIntake::NoProfileFile),
             Ok(ProfileSettings {
