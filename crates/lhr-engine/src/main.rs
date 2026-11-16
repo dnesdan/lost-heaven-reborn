@@ -72,6 +72,7 @@ fn menu_navigation(code: KeyCode, shift: bool) -> Option<menu::Navigation> {
 #[derive(Clone)]
 struct Options {
     freeride_start_probe: bool,
+    freeride_selection: Option<lhr_engine::game_loadsave_lifecycle::FreerideState>,
     mission_load_probe: bool,
     mission_play_probe: bool,
     probe_model_directories: Vec<String>,
@@ -132,9 +133,32 @@ struct Options {
 fn options() -> Result<Options, String> {
     parse_options(std::env::args().skip(1))
 }
+fn parse_freeride_selection(
+    raw: &str,
+) -> Result<lhr_engine::game_loadsave_lifecycle::FreerideState, String> {
+    let values: [&str; 6] =
+        raw.split(',').collect::<Vec<_>>().try_into().map_err(|_| {
+            "Freeride selection requires CAR,FLAGS,LOCATION,TRAFFIC,PEDESTRIANS,POLICE"
+        })?;
+    let word = |index: usize| {
+        values[index]
+            .parse::<u32>()
+            .map_err(|_| "Invalid unsigned decimal Freeride selection word")
+    };
+    let density = |index: usize| {
+        values[index]
+            .parse::<f32>()
+            .map_err(|_| "Invalid Freeride density")
+    };
+    let mut state = lhr_engine::game_loadsave_lifecycle::FreerideState::default();
+    state.store_a(word(0)?, word(1)?, density(3)?, density(4)?, density(5)?);
+    state.store_b(word(2)?);
+    Ok(state)
+}
 fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut result = Options {
         freeride_start_probe: false,
+        freeride_selection: None,
         mission_load_probe: false,
         mission_play_probe: false,
         probe_model_directories: Vec::new(),
@@ -173,6 +197,12 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         provided_options.push(arg.clone());
         match arg.as_str() {
             "--freeride-start-probe" => result.freeride_start_probe = true,
+            "--freeride-selection" => {
+                if result.freeride_selection.is_some() {
+                    return Err("--freeride-selection may be supplied only once".into());
+                }
+                result.freeride_selection = Some(parse_freeride_selection(&args.next().ok_or("Missing Freeride selection")?)?);
+            }
             "--mission-load-probe" => result.mission_load_probe = true,
             "--mission-play-probe" => result.mission_play_probe = true,
         "--plain-route" => result.plain_route = true,
@@ -258,7 +288,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
                 "--lab requires --features engine-lab and a native window. It opens scenes/models, environment previews, camera and model tools, presets and actual driving input. F1 panel, F2 pause, F3 16 ms step, F4 reload. --synthetic --lab starts the public gallery; --root may also supply its asset browser. --lab-scene gallery|courtyard|primitives|lights selects a public --synthetic scene, including headless captures. --lab-preset FILE.lhr-lab loads presentation settings for --lab or --headless. --capture omits the Lab overlay. ",
                 "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] [--probe-render-capture PNG] [--probe-refuse-loading-present N] runs the shared CPU load-session diagnostic without a window. A refused loading-screen present (0-based) exercises the Open stop and its disposal. Optional GPU capture renders the actual retained mission Scene, and does not execute gameplay. Other presentation and playback flags are excluded. ",
-                "--freeride-start-probe --root DIRECTORY [--probe-model-dir DIRECTORY ...] diagnoses the actual original freeride startup and its first unavailable dependency. It is not playable, has no substitute mission or car, and exits unsuccessfully while startup is blocked. ",
+                "--freeride-start-probe --root DIRECTORY [--probe-model-dir DIRECTORY ...] [--freeride-selection CAR,FLAGS,LOCATION,TRAFFIC,PEDESTRIANS,POLICE] diagnoses the original freeride startup. Optional selection is explicit diagnostic StoreA/StoreB input (decimal descriptor/flags/location), not a reconstructed menu. No implicit selection or filename fallback. Not playable; exits unsuccessfully while blocked. ",
                 "--mission-play-probe --root DIRECTORY plays the MISE01 slice headless against original data without a window: intro cutscene lock, on-foot walk to the taxi stand, board the staged taxi00.4ds driving world and drive 150 m to Complete. Other presentation and playback flags are excluded. ",
                 "--audio-capture WAV records the actual mixed driving audio and requires --car-driving. ",
                 "--car-driving requires --root and --model and opens the original MISE01 driving world. W accelerates, S brakes, A/D steer, Space applies the handbrake; R reloads and Escape exits. The chase camera is a host view. ",
@@ -295,6 +325,9 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         }
         return Ok(result);
     }
+    if result.freeride_selection.is_some() && !result.freeride_start_probe {
+        return Err("--freeride-selection requires --freeride-start-probe".into());
+    }
     if result.mission_play_probe {
         for option in &provided_options {
             if !matches!(
@@ -319,7 +352,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         for option in &provided_options {
             if !matches!(
                 option.as_str(),
-                "--freeride-start-probe" | "--root" | "--probe-model-dir"
+                "--freeride-start-probe" | "--root" | "--probe-model-dir" | "--freeride-selection"
             ) {
                 return Err(format!(
                     "{option} is not used by --freeride-start-probe; omit it"
@@ -5525,6 +5558,7 @@ fn run() -> Result<(), String> {
         return mission_load_probe::run_freeride_start(
             options.root.as_deref().unwrap(),
             &options.probe_model_directories,
+            options.freeride_selection,
         );
     }
     if options.mission_load_probe {
@@ -6446,6 +6480,55 @@ mod mission_probe_option_tests {
             ["models/first", "models/second"]
         );
         assert!(parse(&["--free-ride", "--root", "/synthetic-installation"]).is_err());
+    }
+
+    #[test]
+    fn freeride_selection_is_explicit_complete_and_probe_only() {
+        let base = [
+            "--freeride-start-probe",
+            "--root",
+            "/synthetic-installation",
+        ];
+        assert!(parse(&base).unwrap().freeride_selection.is_none());
+        let mut args = base.to_vec();
+        args.extend([
+            "--freeride-selection",
+            "4278190081,256,4294967295,NaN,-0,2.5",
+        ]);
+        let state = parse(&args).unwrap().freeride_selection.unwrap();
+        assert_eq!(state.car, 0xff00_0001);
+        assert_eq!(state.flags, 0x100);
+        assert_eq!(state.location, u32::MAX);
+        assert!(state.traffic_density.is_nan());
+        assert_eq!(state.pedestrian_density.to_bits(), (-0.0f32).to_bits());
+        assert_eq!(state.police_density.to_bits(), 2.5f32.to_bits());
+        assert!(!state.active);
+        for invalid in [
+            "1",
+            "1,0,7,1,1",
+            "1,0,7,1,1,1,0",
+            "-1,0,7,1,1,1",
+            "1,0,4294967296,1,1,1",
+            "taxi00.i3d,0,7,1,1,1",
+            "1,0,7,bad,1,1",
+        ] {
+            let mut args = base.to_vec();
+            args.extend(["--freeride-selection", invalid]);
+            assert!(parse(&args).is_err(), "{invalid}");
+        }
+        args.extend(["--freeride-selection", "1,0,7,1,1,1"]);
+        assert!(parse(&args).is_err());
+        assert!(parse(&["--freeride-selection", "1,0,7,1,1,1"]).is_err());
+        assert!(parse(&[
+            "--mission-load-probe",
+            "--root",
+            "/synthetic-installation",
+            "--mission",
+            "freeride",
+            "--freeride-selection",
+            "1,0,7,1,1,1"
+        ])
+        .is_err());
     }
 
     #[test]

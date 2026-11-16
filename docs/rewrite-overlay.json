@@ -9352,9 +9352,9 @@
       "rva": "0x20e920",
       "va": "0x60e920",
       "name": "G_LoadSaveClass::FreerideStoreA",
-      "symbol": "lhr_engine::main_menu::MainMenuFreeride::store_a",
-      "tier": "differential",
-      "evidence": "REA ev_00c71c51e6 + Ghidra body 11 insns/1 bb, FreerideStoreA exact-word store; pin test freeride 1 pass"
+      "symbol": "lhr_engine::game_loadsave_lifecycle::FreerideState::store_a",
+      "tier": "contract",
+      "evidence": "REA ev_0c5d349fdc3e562637469f885db6f855a2271a939e6f5133d413f9cf800eff2b: complete 11-insn body, car/flags and three density words at 0x6d4540/44/4c/50/54. Implementation relocated from the test-only main-menu owner to FreerideState; the menu view borrows that type but production menu/session wiring is not composed. Raw-bit synthetic tests preserve location and active. Prior ev_00c71c51e6 credit belonged to the old symbol; this relocation has no fresh original-runtime differential validation, so the current tier is conservatively contract."
     },
     {
       "binary": "Game.exe",
@@ -17734,6 +17734,24 @@
       "symbol": "lhr_engine::force_feedback::ForceFeedbackState::game_init",
       "tier": "contract",
       "evidence": "REA ev_a75ff6c6299369b9dc4944bb4f236873af70a89f07873fd1d2b471dcb35bd8cb: full 144-byte body; GetControl 1 and 0x26, device word 3, global joy[] GetInfo, byte output +0x14 copied to +0x2c/+0x2d, +0x20 reset with branch-specific store order. Tests pin absent first binding refusal, second binding reuse, callback-time reread, raw flag bytes and failure prefixes. Session uses explicit keyboard/mouse input with real control/profile/keyboard owners, no joystick discovery or effect creation; no full constructor, GameDone or original-runtime parity claimed."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20a6a0",
+      "va": "0x60a6a0",
+      "name": "G_CarDatabase::GetCarModel",
+      "symbol": "lhr_engine::car_database::CarDatabase::get_car_model",
+      "tier": "contract",
+      "evidence": "REA ev_db6ce3f1a46c909e35446fc8fde7199c430dde2bf9942088caa9f158c85d9882, GAME SHA-256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27: complete inclusive body 0x60a6a0..0x60a721; unsigned low-16-bit index/count comparison, stride 0xa8, byte second flag, logical shift 24, optional +10, sprintf %s%02d.i3d, false leaves destination untouched. Synthetic tests pin mask, variants through 265, native C-string extent across nominal fields, output termination/tail preservation, invalid-index no-op and explicit host fault-domain admission. One live session database owns original table bytes. The one-shot complete-file startup adapter does not reconstruct Init, allocation/short-read behavior or native runtime parity."
+    },
+    {
+      "binary": "Game.exe",
+      "rva": "0x20e960",
+      "va": "0x60e960",
+      "name": "G_LoadSaveClass::FreerideStoreB",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::FreerideState::store_b",
+      "tier": "contract",
+      "evidence": "REA ev_319f9fb5a16ae0a88154ba940daf0c65e1825fde4172b0eeb5998fe54ece6e63, same GAME SHA-256 as GetCarModel: 0x60e960 mov eax,[esp+4], mov [0x6d4548],eax, ret 4. A full u32 location store on the single S_freeride owner; tests preserve car/flags, raw density bits and active. Main-menu StoreA now borrows that actual state instead of detached choices. No GM_FreeRide selection, profile-file decode, Setup completion or original-runtime parity is claimed."
     }
   ],
   "vm": {

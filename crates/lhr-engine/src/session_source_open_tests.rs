@@ -1049,7 +1049,7 @@ fn new_game_start_runs_save_game_new_game_then_stops_at_the_init_render() {
             ..Default::default()
         }
     );
-    assert_eq!(session.freeride(), FreerideState::default());
+    assert_eq!(session.freeride(), &FreerideState::default());
     assert!(attempt.init().entered());
     assert_eq!(attempt.init().last(), Some(InitStep::ResetMissionState));
     // The stopped Init did not mark the game initialized.
@@ -1104,7 +1104,13 @@ fn save_game_new_game_step_clears_progress_and_stops_on_a_terminal_session() {
         Err("terminal discard entered".into())
     );
     assert_eq!(session.load_save_progress(), &before);
-    assert_eq!(session.freeride(), FreerideState { active: true });
+    assert_eq!(
+        session.freeride(),
+        &FreerideState {
+            active: true,
+            ..Default::default()
+        }
+    );
 }
 
 #[test]

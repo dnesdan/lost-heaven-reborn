@@ -575,12 +575,34 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
     )
 }
 
-pub fn run_freeride_start(root: &Path, model_directories: &[String]) -> Result<(), String> {
+pub fn run_freeride_start(
+    root: &Path,
+    model_directories: &[String],
+    selection: Option<lhr_engine::game_loadsave_lifecycle::FreerideState>,
+) -> Result<(), String> {
     use lhr_engine::mission_load_session::{FreerideAttempt, FreerideRequest, FREERIDE_MISSION};
     validate_inputs(FREERIDE_MISSION, model_directories)?;
     let installation = lhr_assets::Installation::open(root).map_err(|error| error.to_string())?;
     let mut session = MissionLoadSession::new(installation, Pc24PrecisionState::new(false))
         .map_err(|error| format!("Freeride probe initialization: {error:?}"))?;
+    session
+        .read_car_database_for_startup()
+        .map_err(|error| format!("Freeride probe car database: {error}"))?;
+    let selection_status = if let Some(state) = selection {
+        session
+            .adopt_freeride_selection_host(
+                state.car,
+                state.flags,
+                state.location,
+                state.traffic_density,
+                state.pedestrian_density,
+                state.police_density,
+            )
+            .map_err(|error| format!("Freeride probe diagnostic selection: {error}"))?;
+        "explicit diagnostic StoreA/StoreB input; not native menu execution"
+    } else {
+        "unavailable; no implicit car/location/flags or menu completion"
+    };
     let clock = crate::host_local_time::local_timer_clock()?;
     session.install_indicators(lhr_engine::indicators::IndicatorsState::constructed(clock))?;
     let profile = profile_file_intake(root);
@@ -638,6 +660,8 @@ pub fn run_freeride_start(root: &Path, model_directories: &[String]) -> Result<(
         "No implicit model directory, substitute map, car selection or filename fallback"
     )
     .unwrap();
+    writeln!(report, "Car database host intake: {:?}; cars={}; players={}; bytes={}. Native AllDefault/repeated Init/short reads are not composed.", session.car_database().intake(), session.car_database().car_count(), session.car_database().player_count(), session.car_database().index_storage_bytes()).unwrap();
+    writeln!(report, "Freeride selection: {selection_status}").unwrap();
     writeln!(
         report,
         "Startup reached: {:?}; result: {result:?}",
@@ -688,6 +712,12 @@ pub fn run_freeride_start(root: &Path, model_directories: &[String]) -> Result<(
     )
     .unwrap();
     writeln!(report, "Freeride gameplay: NOT PLAYABLE; no player/car coupling, successful game ticks, traffic or repeatable Close is claimed. Terminal disposal is host cleanup, not native Close.").unwrap();
+    writeln!(
+        report,
+        "Session-owned startup database retained through terminal mission disposal: {} bytes; cross-session application ownership is not composed",
+        session.car_database().index_storage_bytes()
+    )
+    .unwrap();
     {
         use std::io::Write as _;
         std::io::stdout()

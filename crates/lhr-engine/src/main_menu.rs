@@ -49,10 +49,10 @@
 //! body needs exist below as pure state with authored tests (no cargo
 //! execution is claimed): (1) MenuCameraTarget, the lastKameraTargetID latch
 //! (g_menu.h:323) written by SetCameraTargetID 0x5ebe80, (2)
-//! MainMenuFreeride, the freeride_enabled word (g_loadsave.h, +0x1f0) plus
-//! the FreerideStoreA 0x60e920 triple, reusing the checked loadsave/settings
-//! owners (game_loadsave_controls.rs, game_loadsave_lifecycle.rs,
-//! mission_load_session.rs), none of which owns freeride state, and (3)
+//! MainMenuFreeride, a borrowing-ready view for freeride_enabled
+//! (g_loadsave.h, +0x1f0) and game_loadsave_lifecycle.rs's S_freeride type.
+//! Production menu/profile/session borrowing is not composed; current view
+//! instances are test-only, and (3)
 //! MenuComponentLatches, the per-ID COMPF words with real ENABLED bit sense
 //! plus the active-selection latch, consumed by the menu host's list owner
 //! (engine menu.rs MenuStack: FindComponentByID 0x5eb2f0, ActivateByIDOrNext
@@ -189,51 +189,28 @@ pub const FREERIDE_CITY: u32 = 1;
 pub const FREERIDE_COUNTRYSIDE: u32 = 2;
 pub const FREERIDE_EXTREME: u32 = 3;
 
-/// Free-ride choices written by G_LoadSaveClass::FreerideStoreA (GAME
-/// 0x60e920): Tommy's car descriptor, flags, and the free-ride menu
-/// densities. The sibling S_freeride shape (g_loadsave.h) also carries
-/// location and active, which StoreA never writes; they are not modeled
-/// here.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct FreerideChoices {
-    pub car: u32,
-    pub flags: u32,
-    pub traffic_density: f32,
-    pub pedestrian_density: f32,
-    pub police_density: f32,
+/// Borrowing-ready menu view, currently constructed only in tests. The intended
+/// profile-enabled source remains ProfileState::unknown_1f0 (+0x1f0); that
+/// production connection and a mutable session/menu borrow are not composed.
+/// The view itself owns neither a second enabled word nor detached choices.
+#[derive(Debug)]
+pub struct MainMenuFreeride<'a> {
+    pub enabled: &'a u32,
+    pub state: &'a mut crate::game_loadsave_lifecycle::FreerideState,
 }
 
-/// Minimal freeride owner for the main-menu reset: the enabled word plus the
-/// StoreA triple. This does not mirror the C++ class layout; other profile
-/// bytes stay with the eventual profile file owner. Cross-reference: the
-/// enabled word is the same +0x1f0 word as ProfileState.unknown_1f0
-/// (game_loadsave_lifecycle.rs placeholder, never read as levels); the two
-/// u32s must be unified under one authoritative owner by the profile-file
-/// owner in the future.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct MainMenuFreeride {
-    pub enabled: u32,
-    pub choices: FreerideChoices,
-}
-
-impl MainMenuFreeride {
+impl MainMenuFreeride<'_> {
     /// G_LoadSaveClass::FreerideStoreA (GAME 0x60e920) pure stores: car,
     /// flags, traffic, pedestrian and police densities land exactly; the
     /// enabled word is untouched.
     pub fn store_a(&mut self, car: u32, flags: u32, traffic: f32, pedestrians: f32, police: f32) {
-        self.choices = FreerideChoices {
-            car,
-            flags,
-            traffic_density: traffic,
-            pedestrian_density: pedestrians,
-            police_density: police,
-        };
+        self.state.store_a(car, flags, traffic, pedestrians, police);
     }
 
     /// OnCreate gate (g_m_func.cpp:289): while the free ride is at most the
     /// countryside level, Free Ride Extreme is gated (SetDisabled path).
     pub fn extreme_gated(&self) -> bool {
-        self.enabled <= FREERIDE_COUNTRYSIDE
+        *self.enabled <= FREERIDE_COUNTRYSIDE
     }
 }
 
@@ -957,35 +934,47 @@ mod tests {
     }
     #[test]
     fn freeride_store_a_lands_exact_words_and_leaves_enabled_untouched() {
-        let mut freeride = MainMenuFreeride::default();
-        assert_eq!(freeride.enabled, FREERIDE_SMALL_CITY);
-        freeride.enabled = FREERIDE_CITY;
+        let enabled = FREERIDE_CITY;
+        let mut state = crate::game_loadsave_lifecycle::FreerideState {
+            location: u32::MAX,
+            active: true,
+            ..Default::default()
+        };
+        let mut freeride = MainMenuFreeride {
+            enabled: &enabled,
+            state: &mut state,
+        };
         freeride.store_a(1, 0, 1.0, 1.0, 1.0);
-        assert_eq!(freeride.enabled, FREERIDE_CITY);
-        assert_eq!(freeride.choices.car, 1);
-        assert_eq!(freeride.choices.flags, 0);
-        assert_eq!(freeride.choices.traffic_density.to_bits(), 0x3f80_0000);
-        assert_eq!(freeride.choices.pedestrian_density.to_bits(), 0x3f80_0000);
-        assert_eq!(freeride.choices.police_density.to_bits(), 0x3f80_0000);
+        assert_eq!(*freeride.enabled, FREERIDE_CITY);
+        assert_eq!(state.car, 1);
+        assert_eq!(state.flags, 0);
+        assert_eq!(state.traffic_density.to_bits(), 0x3f80_0000);
+        assert_eq!(state.pedestrian_density.to_bits(), 0x3f80_0000);
+        assert_eq!(state.police_density.to_bits(), 0x3f80_0000);
+        assert_eq!(state.location, u32::MAX);
+        assert!(state.active);
     }
     #[test]
     fn extreme_gate_arms_at_or_below_countryside_only() {
-        let mut freeride = MainMenuFreeride::default();
+        let mut state = crate::game_loadsave_lifecycle::FreerideState::default();
         for enabled in [FREERIDE_SMALL_CITY, FREERIDE_CITY, FREERIDE_COUNTRYSIDE] {
-            freeride.enabled = enabled;
+            let freeride = MainMenuFreeride {
+                enabled: &enabled,
+                state: &mut state,
+            };
             assert!(freeride.extreme_gated());
         }
         for enabled in [FREERIDE_EXTREME, FREERIDE_EXTREME + 1, u32::MAX] {
-            freeride.enabled = enabled;
+            let freeride = MainMenuFreeride {
+                enabled: &enabled,
+                state: &mut state,
+            };
             assert!(!freeride.extreme_gated());
         }
         // The gate read mutates nothing.
         assert_eq!(
-            freeride,
-            MainMenuFreeride {
-                enabled: u32::MAX,
-                choices: FreerideChoices::default(),
-            }
+            state,
+            crate::game_loadsave_lifecycle::FreerideState::default()
         );
     }
     #[test]
@@ -1005,7 +994,12 @@ mod tests {
     #[test]
     fn oncreate_prefix_orders_latches_and_returns_zero_from_defaults() {
         let mut camera = MenuCameraTarget::new();
-        let mut freeride = MainMenuFreeride::default();
+        let enabled = FREERIDE_SMALL_CITY;
+        let mut state = crate::game_loadsave_lifecycle::FreerideState::default();
+        let mut freeride = MainMenuFreeride {
+            enabled: &enabled,
+            state: &mut state,
+        };
         let mut components = MenuComponentLatches::default();
         assert_eq!(
             main_menu_oncreate_prefix(&mut camera, &mut freeride, &mut components),
@@ -1014,20 +1008,22 @@ mod tests {
         assert_eq!(camera.camera_target_id(), MENU_CAMERA_START);
         assert!(!components.is_enabled(MAINMENU_ITEM_FREE_RIDE_EXTREME));
         assert!(components.is_enabled(MAINMENU_ITEM_INTRO));
-        assert_eq!(freeride.enabled, FREERIDE_SMALL_CITY);
-        assert_eq!(freeride.choices.car, 1);
-        assert_eq!(freeride.choices.flags, 0);
-        assert_eq!(freeride.choices.traffic_density.to_bits(), 0x3f80_0000);
-        assert_eq!(freeride.choices.pedestrian_density.to_bits(), 0x3f80_0000);
-        assert_eq!(freeride.choices.police_density.to_bits(), 0x3f80_0000);
+        assert_eq!(*freeride.enabled, FREERIDE_SMALL_CITY);
+        assert_eq!(state.car, 1);
+        assert_eq!(state.flags, 0);
+        assert_eq!(state.traffic_density.to_bits(), 0x3f80_0000);
+        assert_eq!(state.pedestrian_density.to_bits(), 0x3f80_0000);
+        assert_eq!(state.police_density.to_bits(), 0x3f80_0000);
         assert_eq!(components.active_id(), Some(MAINMENU_ITEM_INTRO));
     }
     #[test]
     fn oncreate_prefix_skips_the_disable_once_extreme_is_open() {
         let mut camera = MenuCameraTarget::new();
+        let enabled = FREERIDE_EXTREME;
+        let mut state = crate::game_loadsave_lifecycle::FreerideState::default();
         let mut freeride = MainMenuFreeride {
-            enabled: FREERIDE_EXTREME,
-            choices: FreerideChoices::default(),
+            enabled: &enabled,
+            state: &mut state,
         };
         let mut components = MenuComponentLatches::default();
         assert_eq!(
@@ -1044,7 +1040,7 @@ mod tests {
         );
         assert_eq!(camera.camera_target_id(), MENU_CAMERA_START);
         assert!(components.is_enabled(MAINMENU_ITEM_FREE_RIDE_EXTREME));
-        assert_eq!(freeride.choices.car, 1);
+        assert_eq!(state.car, 1);
         assert_eq!(components.active_id(), Some(MAINMENU_ITEM_INTRO));
     }
     #[test]
@@ -1164,7 +1160,12 @@ mod tests {
     #[test]
     fn oncreate_dispatch_matches_prefix_order_with_real_bits() {
         let mut camera = MenuCameraTarget::new();
-        let mut freeride = MainMenuFreeride::default();
+        let enabled = FREERIDE_SMALL_CITY;
+        let mut state = crate::game_loadsave_lifecycle::FreerideState::default();
+        let mut freeride = MainMenuFreeride {
+            enabled: &enabled,
+            state: &mut state,
+        };
         let mut components = MenuComponentLatches::default();
         assert_eq!(
             main_menu_oncreate_dispatch(&mut camera, &mut freeride, &mut components),

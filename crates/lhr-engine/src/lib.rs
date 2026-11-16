@@ -34,6 +34,7 @@ mod canonical_scene2_models;
 pub mod car_actor;
 pub(crate) mod car_actor_tables;
 pub mod car_ai_position;
+pub mod car_database;
 pub mod car_effects;
 pub mod car_ex_actor;
 pub mod car_inspection;

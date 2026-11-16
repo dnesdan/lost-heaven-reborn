@@ -87,6 +87,414 @@ fn open(session: &mut MissionLoadSession) {
     );
 }
 
+fn write_car_index(fixture: &Fixture) {
+    let mut bytes = vec![0; 2 * crate::car_database::CAR_INDEX_RECORD_BYTES];
+    bytes[..6].copy_from_slice(b"unused");
+    bytes[0xa8..0xa8 + 5].copy_from_slice(b"alpha");
+    std::fs::write(fixture.0.join("tables/carindex.def"), bytes).unwrap();
+}
+
+#[test]
+fn startup_database_and_selection_refuse_a_first_call_after_open() {
+    let fixture = fixture();
+    write_car_index(&fixture);
+    let mut session = fixture.session();
+    open(&mut session);
+    assert!(session.entered);
+    assert_eq!(
+        session.car_database().intake(),
+        crate::car_database::IndexIntake::NotStarted
+    );
+    assert_eq!(
+        session.read_car_database_for_startup(),
+        Err("car database intake requires a fresh session".into())
+    );
+    assert_eq!(
+        session.car_database().intake(),
+        crate::car_database::IndexIntake::NotStarted
+    );
+    assert_eq!(session.car_database().index_storage_bytes(), 0);
+    let before = *session.freeride();
+    assert!(!session.freeride_selection_adopted);
+    assert_eq!(
+        session.adopt_freeride_selection_host(1, 0x100, 7, 1.0, 0.0, -0.0),
+        Err("Freeride selection requires fresh, unconfigured session state".into())
+    );
+    assert!(!session.freeride_selection_adopted);
+    assert_eq!(*session.freeride(), before);
+    discard(&mut session);
+}
+
+#[test]
+fn diagnostic_adoption_uses_live_stores_and_cannot_replace_active() {
+    let fixture = fixture();
+    let mut session = fixture.session();
+    session.freeride.active = true;
+    session
+        .adopt_freeride_selection_host(
+            0xff00_0001,
+            0x8000_0100,
+            u32::MAX,
+            f32::from_bits(0x7fc1_2345),
+            -0.0,
+            f32::NEG_INFINITY,
+        )
+        .unwrap();
+    assert!(session.freeride().active);
+    assert_eq!(session.freeride().car, 0xff00_0001);
+    assert_eq!(session.freeride().flags, 0x8000_0100);
+    assert_eq!(session.freeride().location, u32::MAX);
+    assert_eq!(session.freeride().traffic_density.to_bits(), 0x7fc1_2345);
+    assert_eq!(session.freeride().pedestrian_density.to_bits(), 0x8000_0000);
+    assert_eq!(session.freeride().police_density.to_bits(), 0xff80_0000);
+    assert!(session
+        .adopt_freeride_selection_host(0, 0, 0, 0.0, 0.0, 0.0)
+        .is_err());
+    assert!(session.freeride().active);
+    assert_eq!(session.freeride().car, 0xff00_0001);
+    assert_eq!(session.freeride().location, u32::MAX);
+    session.save_game_new_game_for_new_mission().unwrap();
+    assert!(!session.freeride().active);
+    assert_eq!(session.freeride().traffic_density.to_bits(), 0x7fc1_2345);
+    open(&mut session);
+    discard(&mut session);
+}
+
+#[test]
+fn interrupted_database_intake_preserves_table_prefix_and_stops_setup() {
+    let fixture = fixture();
+    write_car_index(&fixture);
+    std::fs::create_dir_all(fixture.0.join("tables/playerindex.def")).unwrap();
+    let mut session = fixture.session();
+    session
+        .adopt_freeride_selection_host(1, 0, 1, 1.0, 1.0, 1.0)
+        .unwrap();
+    let error = session.read_car_database_for_startup().unwrap_err();
+    assert!(error.contains("Players"), "{error}");
+    assert_eq!(
+        session.car_database().intake(),
+        crate::car_database::IndexIntake::Interrupted(crate::car_database::IndexTable::Players)
+    );
+    assert_eq!(session.car_database().car_count(), 2);
+    assert_eq!(session.car_database().player_count(), 0);
+    assert!(session.read_car_database_for_startup().is_err());
+    assert_eq!(session.car_database().car_count(), 2);
+    open(&mut session);
+    assert!(matches!(
+        session.setup_freeride(),
+        Err(FreerideSetupError::CarDatabaseUnavailable)
+    ));
+    assert_eq!(session.freeride_setup_progress().held_model_creators(), 2);
+    assert!(session
+        .freeride_setup_progress()
+        .resolved_car_model()
+        .is_none());
+    assert!(session.caches.model_open_progress().is_none());
+    discard(&mut session);
+}
+
+#[test]
+fn setup_refuses_unterminated_and_oversized_names_before_cache_open() {
+    for unterminated in [true, false] {
+        let fixture = fixture();
+        let mut bytes = vec![b'x'; if unterminated { 0xa8 } else { 2 * 0xa8 }];
+        if !unterminated {
+            *bytes.last_mut().unwrap() = 0;
+        }
+        std::fs::write(fixture.0.join("tables/carindex.def"), bytes).unwrap();
+        let mut session = fixture.session();
+        session.read_car_database_for_startup().unwrap();
+        session
+            .adopt_freeride_selection_host(0, 0, 1, 1.0, 1.0, 1.0)
+            .unwrap();
+        open(&mut session);
+        let result = session.setup_freeride();
+        if unterminated {
+            assert!(
+                matches!(
+                    result,
+                    Err(FreerideSetupError::CarModelLookup(
+                        crate::car_database::CarDatabaseError::UnterminatedCarId
+                    ))
+                ),
+                "{result:?}"
+            );
+        } else {
+            assert!(
+                matches!(
+                    result,
+                    Err(FreerideSetupError::CarModelLookup(
+                        crate::car_database::CarDatabaseError::OutputExtent {
+                            required: 342,
+                            available: 256
+                        }
+                    ))
+                ),
+                "{result:?}"
+            );
+        }
+        assert_eq!(
+            session.freeride_setup_progress().reached().last(),
+            Some(&FreerideSetupStep::ResolveCarModel)
+        );
+        assert_eq!(session.freeride_setup_progress().held_model_creators(), 2);
+        assert!(session
+            .freeride_setup_progress()
+            .resolved_car_model()
+            .is_none());
+        assert!(session.freeride_setup_progress().start_marker().is_none());
+        assert!(session.caches.model_open_progress().is_none());
+        assert!(matches!(
+            session.setup_freeride(),
+            Err(FreerideSetupError::AlreadyEntered)
+        ));
+        discard(&mut session);
+    }
+}
+
+#[test]
+fn database_intake_uses_the_session_source_and_does_not_invent_a_selection() {
+    let fixture = fixture();
+    write_car_index(&fixture);
+    std::fs::write(fixture.0.join("tables/playerindex.def"), [0u8; 36]).unwrap();
+    let mut session = fixture.session();
+    session.read_car_database_for_startup().unwrap();
+    assert_eq!(session.car_database().car_count(), 2);
+    assert_eq!(session.car_database().player_count(), 1);
+    assert!(session.read_car_database_for_startup().is_err());
+    open(&mut session);
+    assert!(matches!(
+        session.setup_freeride(),
+        Err(FreerideSetupError::SelectionUnavailable)
+    ));
+    assert_eq!(session.freeride().car, 0);
+    assert_eq!(session.freeride_setup_progress().held_model_creators(), 2);
+    assert!(session
+        .freeride_setup_progress()
+        .resolved_car_model()
+        .is_none());
+    assert!(session.read_car_database_for_startup().is_err());
+    discard(&mut session);
+    assert_eq!(session.car_database().index_storage_bytes(), 2 * 0xa8 + 36);
+}
+
+#[test]
+fn invalid_selected_car_does_not_open_a_fallback_model_or_replay() {
+    let fixture = fixture();
+    write_car_index(&fixture);
+    let mut session = fixture.session();
+    session.read_car_database_for_startup().unwrap();
+    let mut state = crate::game_loadsave_lifecycle::FreerideState::default();
+    state.store_a(2, 0x100, 1.0, 0.0, -0.0);
+    state.store_b(7);
+    session
+        .adopt_freeride_selection_host(2, 0x100, 7, 1.0, 0.0, -0.0)
+        .unwrap();
+    assert!(session
+        .adopt_freeride_selection_host(2, 0x100, 7, 1.0, 0.0, -0.0)
+        .is_err());
+    session.save_game_new_game_for_new_mission().unwrap();
+    assert_eq!(session.freeride(), &state);
+    open(&mut session);
+    assert!(matches!(
+        session.setup_freeride(),
+        Err(FreerideSetupError::CarModelNotWritten)
+    ));
+    assert_eq!(
+        session.freeride_setup_progress().reached().last(),
+        Some(&FreerideSetupStep::ResolveCarModel)
+    );
+    assert!(session.caches.model_open_progress().is_none());
+    assert!(session
+        .adopt_freeride_selection_host(2, 0x100, 7, 1.0, 0.0, -0.0)
+        .is_err());
+    assert!(matches!(
+        session.setup_freeride(),
+        Err(FreerideSetupError::AlreadyEntered)
+    ));
+    discard(&mut session);
+    assert!(session
+        .adopt_freeride_selection_host(2, 0x100, 7, 1.0, 0.0, -0.0)
+        .is_err());
+}
+
+#[test]
+fn actual_cache_model_open_precedes_location_and_retains_the_same_creators() {
+    let fixture = fixture();
+    write_car_index(&fixture);
+    std::fs::create_dir_all(fixture.0.join("Models")).unwrap();
+    std::fs::write(
+        fixture.0.join("Models/alpha00.4ds"),
+        world(&[dummy_with_culling(0, b"part", 0x11)]),
+    )
+    .unwrap();
+    let mut session = fixture.session();
+    session.read_car_database_for_startup().unwrap();
+    session
+        .adopt_freeride_selection_host(1, 0x100, u32::MAX, 0.5, 0.25, 0.75)
+        .unwrap();
+    let mut attempt = FreerideAttempt::default();
+    let result = session.start_freeride(
+        &mut attempt,
+        FreerideRequest {
+            model_directories: &[b"Models"],
+            projection: projection(),
+        },
+        &mut Screen::default(),
+        &mut NoCameraRender,
+    );
+    assert!(
+        matches!(
+            result,
+            Err(FreerideRunError::Callback(FreerideFailure {
+                step: FreerideStep::FreerideSetup,
+                error: FreerideError::Setup(FreerideSetupError::SceneNamedLookupUnavailable)
+            }))
+        ),
+        "{result:?}"
+    );
+    let progress = session.freeride_setup_progress();
+    assert_eq!(
+        progress.resolved_car_model(),
+        Some(b"alpha00.i3d".as_slice())
+    );
+    assert_eq!(progress.car_cache_result(), Some(0));
+    assert_eq!(progress.start_marker(), Some(b"emeth_-1".as_slice()));
+    assert_eq!(
+        &progress.reached()[8..],
+        &[
+            FreerideSetupStep::OpenCarModel,
+            FreerideSetupStep::LocateStartFrame
+        ]
+    );
+    assert!(!attempt.init().entered());
+    let car_model = progress.car_model().unwrap();
+    assert_eq!(
+        session.arena.frame_name_or_empty(car_model.root()).unwrap(),
+        b"TomyhoAuto"
+    );
+    assert_eq!(session.arena.model(car_model).unwrap().frames.len(), 1);
+    assert_eq!(session.arena.links(car_model.root()).unwrap().parent, None);
+    assert_eq!(session.arena.frame(car_model.root()).unwrap().owner, None);
+    assert_eq!(session.freeride().flags, 0x100);
+    assert!(session
+        .loader
+        .as_ref()
+        .unwrap()
+        .content
+        .actors
+        .world
+        .source(ActorSource::Primary)
+        .is_empty());
+    discard(&mut session);
+    assert_eq!(session.freeride_setup_progress().held_model_creators(), 0);
+}
+
+#[test]
+fn host_cache_failure_retains_prefix_without_reading_the_location() {
+    let fixture = fixture();
+    write_car_index(&fixture);
+    std::fs::create_dir_all(fixture.0.join("Models")).unwrap();
+    std::fs::write(fixture.0.join("Models/alpha00.4ds"), b"broken").unwrap();
+    let mut session = fixture.session();
+    session.read_car_database_for_startup().unwrap();
+    session
+        .adopt_freeride_selection_host(1, 0, 7, 0.0, 0.0, 0.0)
+        .unwrap();
+    let result = session.start_freeride(
+        &mut FreerideAttempt::default(),
+        FreerideRequest {
+            model_directories: &[b"Models"],
+            projection: projection(),
+        },
+        &mut Screen::default(),
+        &mut NoCameraRender,
+    );
+    assert!(
+        matches!(
+            result,
+            Err(FreerideRunError::Callback(FreerideFailure {
+                error: FreerideError::Setup(FreerideSetupError::CarModelCache(_)),
+                ..
+            }))
+        ),
+        "{result:?}"
+    );
+    assert_eq!(
+        session.freeride_setup_progress().reached().last(),
+        Some(&FreerideSetupStep::OpenCarModel)
+    );
+    assert!(session.freeride_setup_progress().start_marker().is_none());
+    assert!(session
+        .freeride_setup_progress()
+        .car_cache_result()
+        .is_none());
+    assert!(matches!(
+        session.setup_freeride(),
+        Err(FreerideSetupError::AlreadyEntered)
+    ));
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::Stopped)
+    );
+    assert_eq!(
+        session.discard_progress().phase,
+        MissionDiscardPhase::Cache(MissionCacheKind::Model)
+    );
+    assert_eq!(
+        session.discard_failure().unwrap().phase,
+        MissionDiscardPhase::Cache(MissionCacheKind::Model)
+    );
+    assert!(matches!(
+        session.discard_failure().unwrap().cause,
+        MissionDiscardCause::Cache {
+            kind: MissionCacheKind::Model,
+            ..
+        }
+    ));
+    assert_eq!(session.freeride_setup_progress().held_model_creators(), 0);
+}
+
+#[test]
+fn native_cache_hresult_is_ignored_before_the_named_lookup_boundary() {
+    let fixture = fixture();
+    write_car_index(&fixture);
+    let mut session = fixture.session();
+    session.read_car_database_for_startup().unwrap();
+    session
+        .adopt_freeride_selection_host(1, 0, 7, 0.0, 0.0, 0.0)
+        .unwrap();
+    let result = start(&mut session, &mut FreerideAttempt::default());
+    assert!(
+        matches!(
+            result,
+            Err(FreerideRunError::Callback(FreerideFailure {
+                error: FreerideError::Setup(FreerideSetupError::SceneNamedLookupUnavailable),
+                ..
+            }))
+        ),
+        "{result:?}"
+    );
+    assert_eq!(
+        session.freeride_setup_progress().car_cache_result(),
+        Some(0x8000_0001u32 as i32)
+    );
+    assert_eq!(
+        session.freeride_setup_progress().start_marker(),
+        Some(b"emeth_7".as_slice())
+    );
+    assert_eq!(
+        session
+            .arena
+            .model(session.freeride_setup_progress().car_model().unwrap())
+            .unwrap()
+            .frames
+            .len(),
+        0
+    );
+    discard(&mut session);
+}
+
 #[test]
 fn native_outer_order_includes_setup_before_init_and_after_before_loop() {
     let expected = [

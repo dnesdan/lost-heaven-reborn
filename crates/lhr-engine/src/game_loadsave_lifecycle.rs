@@ -752,6 +752,8 @@ pub fn race_cars_get_enabled(bits: u32) -> u32 {
 
 /// Car-database owner for the race-car and garage gates. Identity and storage
 /// of database rows stay with the caller; only the looked-up words cross here.
+/// The session's startup CarDatabase does not implement these remaining native
+/// lookups yet; the interface has only test implementations, not another owner.
 pub trait LoadSaveCarDatabase {
     fn race_cars_of(&self, car_index: u32) -> u32;
     fn id_by_params(&self, car: u32, level: u32, color: u32) -> u32;
@@ -1423,13 +1425,39 @@ impl LoadProgressScreen {
 }
 
 /// The `freeride` global (`S_freeride`, PS2 name; GAME 0x6d4540, mafia-re
-/// `game/ui/g_loadsave.cpp:96-97`), represented only by the `active` byte
-/// at +0x18 (GAME 0x6d4558) that `SaveGameNewGame` writes. The free-ride
-/// car, flags, location and densities stay outside this owner.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// `game/ui/g_loadsave.cpp:96-97`). Field spellings are upstream working
+/// names. This is one semantic owner, not a native memory-layout mirror.
+/// Its native process-global lifetime is not composed: the session currently
+/// owns an instance, and production menu/profile borrowing remains unavailable.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FreerideState {
+    pub car: u32,
+    pub flags: u32,
+    pub location: u32,
+    pub traffic_density: f32,
+    pub pedestrian_density: f32,
+    pub police_density: f32,
     /// +0x18: a free ride is on (mafia-re's guessed name).
     pub active: bool,
+}
+
+impl FreerideState {
+    /// FreerideStoreA, GAME RVA 0x20e920: preserve location and active.
+    pub fn store_a(&mut self, car: u32, flags: u32, traffic: f32, pedestrians: f32, police: f32) {
+        self.car = car;
+        self.flags = flags;
+        self.traffic_density = traffic;
+        self.pedestrian_density = pedestrians;
+        self.police_density = police;
+    }
+
+    /// FreerideStoreB, GAME RVA 0x20e960: one complete unsigned word store.
+    /// REA ev_319f9fb5a16ae0a88154ba940daf0c65e1825fde4172b0eeb5998fe54ece6e63,
+    /// same GAME hash as SaveGameNewGame below. StoreA's REA body is
+    /// ev_0c5d349fdc3e562637469f885db6f855a2271a939e6f5133d413f9cf800eff2b.
+    pub fn store_b(&mut self, location: u32) {
+        self.location = location;
+    }
 }
 
 /// FUNCTION: GAME RVA 0x205ff0, VA 0x605ff0 (mafia-re `fe7e746`,
@@ -1450,6 +1478,33 @@ pub fn save_game_new_game(progress: &mut LoadSaveProgress, freeride: &mut Freeri
 #[cfg(test)]
 mod loadsave_gates_tests {
     use super::*;
+
+    #[test]
+    fn freeride_stores_and_new_game_preserve_unrelated_words_and_float_bits() {
+        let mut state = FreerideState {
+            location: 7,
+            active: true,
+            ..Default::default()
+        };
+        state.store_a(
+            0xffab_0001,
+            0x8000_0100,
+            f32::from_bits(0x7fc1_2345),
+            -0.0,
+            f32::INFINITY,
+        );
+        assert_eq!(state.location, 7);
+        assert!(state.active);
+        state.store_b(u32::MAX);
+        save_game_new_game(&mut LoadSaveProgress::default(), &mut state);
+        assert!(!state.active);
+        assert_eq!(state.car, 0xffab_0001);
+        assert_eq!(state.flags, 0x8000_0100);
+        assert_eq!(state.location, u32::MAX);
+        assert_eq!(state.traffic_density.to_bits(), 0x7fc1_2345);
+        assert_eq!(state.pedestrian_density.to_bits(), 0x8000_0000);
+        assert_eq!(state.police_density.to_bits(), 0x7f80_0000);
+    }
 
     struct TestCarDatabase {
         race_bits: u32,
@@ -1690,7 +1745,10 @@ mod loadsave_gates_tests {
             actor: Some(7),
         };
         progress.garage.shown_cars[24] = 0x55;
-        let mut freeride = FreerideState { active: true };
+        let mut freeride = FreerideState {
+            active: true,
+            ..Default::default()
+        };
         save_game_new_game(&mut progress, &mut freeride);
         assert_eq!(progress, LoadSaveProgress::default());
         assert_eq!(freeride, FreerideState::default());

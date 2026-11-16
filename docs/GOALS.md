@@ -9,11 +9,23 @@ Tommy/car coupling, the game update loop, city dynamics, observed interactive
 control and repeatable cleanup. No Freeride acceptance gate is closed.
 The fresh-session Freeride startup now has its own one-shot driver. Synthetic
 tests cover actual PLAYER/CAR construction, model naming and retained-creator
-cleanup; the reached Setup prefix stops before the live GetCarModel database
-and selection. A headless original-data startup run completes source Open and
-collision loading, reaches that same Setup boundary and disposes all represented
-owners. It is not a full Setup, native Close or playable startup, and receives
-no additional original-function credit.
+cleanup. Actual car/player index tables now have one session-owned startup owner.
+The menu view is borrowing-ready over the S_freeride type used by Setup but is
+constructed only in tests: production menu/profile/session borrowing and an
+application-level state owner remain uncomposed. No persistent car or
+location selection is inferred from the profile: native GM_FreeRide is still
+missing. Without explicit diagnostic StoreA/StoreB input, Setup stops before
+GetCarModel. With that input, synthetic tests reach the real car cache Open
+and stop before the unavailable Scene named-frame lookup; original content can
+stop earlier. This input does not reconstruct the menu or close an acceptance gate.
+A headless original-data startup run completes source Open and
+collision loading. Without selection it stops at SelectionUnavailable before
+GetCarModel; with the explicit diagnostic selection it reaches
+SceneNamedLookupUnavailable after car cache Open. Both runs dispose all
+represented mission owners. Neither is a full Setup, native Close or playable
+startup, and this continuation receives no Setup or lifecycle function credit.
+Index intake is a one-shot host adapter,
+not the native AllDefault/repeated database Init or its short-read behavior.
 Separate original-map driving probes stop at quaternion arithmetic or
 canonical-cache LinkTo numeric-domain boundaries; they use a different intake
 path, not the successful source Open above. The common mission Init

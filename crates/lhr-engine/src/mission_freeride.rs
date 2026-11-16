@@ -14,6 +14,10 @@ use crate::script_scheduler::ActorReferenceId;
 
 pub const FREERIDE_MISSION: &str = "freeride";
 
+/// Setup's native stack buffer: SUB ESP,0x124 plus four saved-register
+/// pushes, with the name at ESP+0x34, leaves 0x100 bytes before saved state.
+const FREERIDE_NAME_BUFFER_BYTES: usize = 0x100;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FreerideScope {
     FreshSession,
@@ -169,6 +173,8 @@ pub enum FreerideSetupStep {
     CreateCarModel,
     NameCarModel,
     ResolveCarModel,
+    OpenCarModel,
+    LocateStartFrame,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -187,6 +193,9 @@ pub struct FreerideSetupProgress {
     car: Option<ActorReferenceId>,
     player_model: Option<ModelCreator>,
     car_model: Option<ModelCreator>,
+    resolved_car_model: Option<Vec<u8>>,
+    car_cache_result: Option<i32>,
+    start_marker: Option<Vec<u8>>,
 }
 
 impl FreerideSetupProgress {
@@ -215,6 +224,15 @@ impl FreerideSetupProgress {
             .filter(|creator| creator.held)
             .count()
     }
+    pub fn resolved_car_model(&self) -> Option<&[u8]> {
+        self.resolved_car_model.as_deref()
+    }
+    pub fn car_cache_result(&self) -> Option<i32> {
+        self.car_cache_result
+    }
+    pub fn start_marker(&self) -> Option<&[u8]> {
+        self.start_marker.as_deref()
+    }
 }
 
 #[derive(Debug)]
@@ -230,12 +248,70 @@ pub enum FreerideSetupError {
         step: FreerideSetupStep,
         error: String,
     },
-    /// No live Freeride selection/location or GetCarModel database is adopted.
-    /// A model filename, authored parked car or invented menu value is not one.
+    /// Startup intake was not completed, including a retained host failure.
     CarDatabaseUnavailable,
+    /// Neither a reconstructed menu nor explicit diagnostic input supplied a choice.
+    SelectionUnavailable,
+    /// The native caller ignores GetCarModel's AL at 0x60ea4c..0x60ea51.
+    /// A false return leaves its buffer unwritten; host execution stops rather
+    /// than passing invented or uninitialized filename bytes to cache Open.
+    CarModelNotWritten,
+    /// Source/destination access would leave the defined native buffer domain.
+    CarModelLookup(crate::car_database::CarDatabaseError),
+    /// A host cache failure, not a native HRESULT; reached owners are retained.
+    CarModelCache(String),
+    /// The next native call needs Scene's virtual masked FindChildFrame walk.
+    SceneNamedLookupUnavailable,
 }
 
 impl MissionLoadSession {
+    /// Host startup intake before source Open, using the same loose/DTA source
+    /// owner as the mission. This does not compose AllDefault or the native
+    /// repeated Init calls, allocation failures, or dtaRead short reads.
+    /// Native application state is session-owned here until an application
+    /// owner exists; it survives terminal mission disposal, not a new session.
+    pub fn read_car_database_for_startup(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if self.entered || self.freeride_setup.entered {
+            return Err("car database intake requires a fresh session".into());
+        }
+        self.car_database
+            .read_index_tables(|path| {
+                self.installation
+                    .read_optional(&path.replace('\\', "/"))
+                    .map_err(|error| error.to_string())
+            })
+            .map_err(|error| format!("{error:?}"))
+    }
+
+    pub fn car_database(&self) -> &crate::car_database::CarDatabase {
+        &self.car_database
+    }
+
+    /// Explicit diagnostic input to the real StoreA/StoreB state, not a
+    /// reconstructed GM_FreeRide menu selection or a profile-file decode.
+    /// No model filename, active-byte replacement or implicit choice is accepted.
+    /// StoreA/StoreB update the actual owner before Open; Setup reads it lazily.
+    pub fn adopt_freeride_selection_host(
+        &mut self,
+        car: u32,
+        flags: u32,
+        location: u32,
+        traffic: f32,
+        pedestrians: f32,
+        police: f32,
+    ) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if self.entered || self.freeride_setup.entered || self.freeride_selection_adopted {
+            return Err("Freeride selection requires fresh, unconfigured session state".into());
+        }
+        self.freeride
+            .store_a(car, flags, traffic, pedestrians, police);
+        self.freeride.store_b(location);
+        self.freeride_selection_adopted = true;
+        Ok(())
+    }
+
     pub fn freeride_setup_progress(&self) -> &FreerideSetupProgress {
         &self.freeride_setup
     }
@@ -243,7 +319,7 @@ impl MissionLoadSession {
     /// GAME SHA-256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27,
     /// FreerideSetup RVA 0x20e9d0, REA evidence
     /// ev_c7f08b476d7733f470d1388358a77f9c60cbbdb4f72dea4c2c4cfc1fc0f43bd8.
-    /// Only the prefix before GetCarModel is composed. Constructor seeds remain
+    /// Only the prefix through car cache Open is composed. Constructor seeds remain
     /// the content owner's disclosed host policy, not original startup state.
     pub fn setup_freeride(&mut self) -> Result<(), FreerideSetupError> {
         self.open_terminal_guard()
@@ -351,7 +427,42 @@ impl MissionLoadSession {
         self.freeride_setup
             .reached
             .push(FreerideSetupStep::ResolveCarModel);
-        Err(FreerideSetupError::CarDatabaseUnavailable)
+        if self.car_database.intake() != crate::car_database::IndexIntake::Complete {
+            return Err(FreerideSetupError::CarDatabaseUnavailable);
+        }
+        if !self.freeride_selection_adopted {
+            return Err(FreerideSetupError::SelectionUnavailable);
+        }
+        let mut name = [0u8; FREERIDE_NAME_BUFFER_BYTES];
+        if !self
+            .car_database
+            .get_car_model(self.freeride.car, &mut name, false)
+            .map_err(FreerideSetupError::CarModelLookup)?
+        {
+            return Err(FreerideSetupError::CarModelNotWritten);
+        }
+        let length = name.iter().position(|byte| *byte == 0).unwrap();
+        self.freeride_setup.resolved_car_model = Some(name[..length].to_vec());
+        self.freeride_setup
+            .reached
+            .push(FreerideSetupStep::OpenCarModel);
+        let result = self
+            .caches
+            .open_static_model(
+                &mut self.arena,
+                &self.installation,
+                self.freeride_setup.car_model.unwrap().model,
+                &name[..length],
+                &mut self.cache_memory,
+            )
+            .map_err(|error| FreerideSetupError::CarModelCache(format!("{error:?}")))?;
+        self.freeride_setup.car_cache_result = Some(result);
+        self.freeride_setup.start_marker =
+            Some(format!("emeth_{}", self.freeride.location as i32).into_bytes());
+        self.freeride_setup
+            .reached
+            .push(FreerideSetupStep::LocateStartFrame);
+        Err(FreerideSetupError::SceneNamedLookupUnavailable)
     }
 
     pub(super) fn release_freeride_model_creators(&mut self) -> Result<(), ModelError> {

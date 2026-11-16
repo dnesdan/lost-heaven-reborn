@@ -17,8 +17,14 @@ Current priority is the **actual original Freeride** map and lifecycle.
 `--freeride-start-probe` follows its own startup order, not the campaign or
 standalone driving harness. A headless run on the original installation completes
 source Open and collision loading, creates the actual player/car actors and named
-model roots, then stops before the unavailable live car database/selection.
-Terminal disposal releases the retained owners. This is not playable Freeride or original-runtime parity;
+model roots. Startup now reads the actual car/player index tables. Without an
+explicit selection it stops before GetCarModel; a diagnostic StoreA/StoreB input
+can exercise the real database lookup and car cache Open, not a replacement car.
+The native Freeride menu is not reconstructed. Synthetic continuation stops at
+the unavailable Scene named-frame lookup; original assets can stop earlier.
+Terminal disposal releases the represented mission owners in these successful
+intake runs; interrupted cache teardown can stop explicitly after a released prefix.
+This is not playable Freeride or original-runtime parity;
 player/car coupling, GameInit, city dynamics and the game loop remain open.
 See [startup diagnostics](docs/RUNNING.md#original-freeride-startup-diagnostic).
 
@@ -36,7 +42,7 @@ The cards count each binary's own functions, without the C runtime linked into i
 
 | Binary | Implemented | Verified |
 | --- | ---: | ---: |
-| `Game.exe` | 1178/4914* | 680 |
+| `Game.exe` | 1180/4914* | 679 |
 | `LS3DF.dll` | 1032/1714 | 603 |
 | `rw_data.dll` | 24/62 + 38 covered | 17 |
 | `Setup.exe (supplied configuration)` | 5/172 | 5 |

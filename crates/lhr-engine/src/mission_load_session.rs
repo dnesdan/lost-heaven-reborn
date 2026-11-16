@@ -442,6 +442,8 @@ pub struct MissionLoadSession {
     load_save_progress: crate::game_loadsave_lifecycle::LoadSaveProgress,
     /// The `freeride` global's `active` byte (GAME 0x6d4558).
     freeride: crate::game_loadsave_lifecycle::FreerideState,
+    freeride_selection_adopted: bool,
+    car_database: crate::car_database::CarDatabase,
     freeride_setup: FreerideSetupProgress,
     /// Authoritative represented C_game scalar fields used by source-grounded
     /// inlines. C_game itself and the rest of Init still require live owners.
@@ -729,6 +731,8 @@ impl MissionLoadSession {
             collision: crate::game_collision::GameCollision::default(),
             load_save_progress: Default::default(),
             freeride: Default::default(),
+            freeride_selection_adopted: false,
+            car_database: Default::default(),
             freeride_setup: Default::default(),
             game_inline: crate::game_housekeeping::GameInlineState::default(),
             game_lists: Default::default(),
@@ -1329,9 +1333,9 @@ impl MissionLoadSession {
         &self.load_save_progress
     }
 
-    /// The session's `freeride` owner (only `active` is represented).
-    pub fn freeride(&self) -> crate::game_loadsave_lifecycle::FreerideState {
-        self.freeride
+    /// Read-only inspection of the actual session-owned S_freeride state.
+    pub fn freeride(&self) -> &crate::game_loadsave_lifecycle::FreerideState {
+        &self.freeride
     }
 
     /// The session's `gifCollision` owner.

@@ -14,7 +14,7 @@ playable from start to finish.
 
 This headless diagnostic fixes the original mission name to `freeride`. It
 excludes `--mission`, campaign probes, standalone car-driving, model-selection
-and presentation flags; it supplies no substitute map, chosen car or implicit
+and presentation flags; it supplies no substitute map, default car or implicit
 model directory. It exits unsuccessfully while startup is blocked.
 
 The fresh-session sequence is ClosePrevious, original source Open, collision,
@@ -22,11 +22,36 @@ mission-number reset, SaveGameNewGame, FreerideSetup, Init, FreerideSetupAfter,
 GameLoopSingle and Close. Only the reached prefix executes. After a complete
 Open, synthetic tests and a headless run on the original installation reach
 actual PLAYER/CAR construction and actual model roots named `Tommy` and
-`TomyhoAuto`; they stop before GetCarModel because no
-live car database and Freeride selection have been adopted. Init and all later
+`TomyhoAuto`. Startup reads `tables/carindex.def` and `tables/playerindex.def`
+through the same loose/DTA installation owner. Without a selection it stops
+before GetCarModel: the actual GM_FreeRide menu is not reconstructed, and neither
+the profile nor an invented default supplies a car/location choice. Init and all later
 steps remain unentered at that stop. Source Open failures stop earlier. The
 original-data run completes collision loading and terminal disposal with zero
 remaining represented owners; its nonzero exit still denotes blocked startup.
+
+For dependency diagnostics only, `--freeride-selection
+CAR,FLAGS,LOCATION,TRAFFIC,PEDESTRIANS,POLICE` supplies all six inputs explicitly.
+The first three are unsigned decimal words (CAR is the original database
+descriptor, not a model filename); densities are parsed as f32 without clamping.
+The input writes the real StoreA/StoreB state before Open and survives
+SaveGameNewGame, which only clears active. Setup reads car at GetCarModel,
+location after car cache Open, and has not yet reached flags/density consumers.
+Invalid car indices stop instead of using the native caller's unwritten name
+buffer or inventing a fallback. Synthetic tests reach successful cache Open and
+then the unsupported Scene named-frame lookup; source/numeric/cache errors on
+original assets stop where encountered. This option is not native menu execution,
+an interactive mode, or Freeride acceptance.
+
+Native application database state is session-owned here and retained through
+terminal mission disposal. Cross-session application ownership is not composed.
+Its startup intake does not emulate AllDefault, repeated native database Init,
+native allocation failures or short reads; it preserves completed tables and
+refuses replay after a host failure. Lookup uses the evidenced low-16-bit index,
+top-byte variant and `%s%02d.i3d`, including the optional +10 second-model variant.
+
+The existing LoadSaveCarDatabase interface for race/garage lookups still has only
+test implementations; the startup owner is not connected to those gates yet.
 
 The report includes reached steps and retained owners, then explicitly disposes
 the same content and model owners. Disposal is terminal host cleanup, not the
