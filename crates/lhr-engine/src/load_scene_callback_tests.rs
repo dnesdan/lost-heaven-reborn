@@ -4,7 +4,219 @@ use crate::game_loadsave_lifecycle::{
     LOADPROGRESS_LOGO, LOADPROGRESS_MISSION_NAME, LOADPROGRESS_MISSION_PICTURE, LOADPROGRESS_SIDE,
     LOADPROGRESS_UNKNOWN_1000, LOADPROGRESS_UNKNOWN_2000, LOADPROGRESS_UNKNOWN_3000,
 };
-use crate::menu::LOADPROGRESS_BAR_ID;
+use crate::itexture::{CpuTextureStorage, TextureImageError, TextureImageSource, TextureResources};
+use crate::menu::{MenuComponentCreateContext, LOADPROGRESS_BAR_ID};
+use crate::menu_draw_resources::{MenuComponentResources, MenuTextDatabase};
+use std::cell::Cell;
+use std::rc::Rc;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PresentEvent {
+    Reset,
+    Clear(u32, f32),
+    Begin,
+    Blend,
+    Z(bool),
+    Height,
+    Width,
+    Viewport(MenuNativeViewport),
+    Mesh,
+    Cursor(f32, f32),
+    End,
+    Present,
+}
+
+#[derive(Default)]
+struct PresentDevice {
+    events: Vec<PresentEvent>,
+    refuse_at: Option<usize>,
+    meshes: Vec<Mesh>,
+    after_first_mesh: Option<Box<dyn FnOnce()>>,
+}
+
+impl PresentDevice {
+    fn record(&mut self, event: PresentEvent) -> Result<(), String> {
+        self.events.push(event);
+        if self.refuse_at == Some(self.events.len() - 1) {
+            return Err("device refused operation".to_owned());
+        }
+        Ok(())
+    }
+}
+
+impl LoadingScreenPresentBackend for PresentDevice {
+    fn reset_render_props(&mut self) -> Result<(), String> {
+        self.record(PresentEvent::Reset)
+    }
+
+    fn clear_color_and_depth(&mut self, argb: u32, depth: f32) -> Result<(), String> {
+        self.record(PresentEvent::Clear(argb, depth))
+    }
+
+    fn begin_scene(&mut self) -> Result<(), String> {
+        self.record(PresentEvent::Begin)
+    }
+
+    fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+        self.record(PresentEvent::Blend)
+    }
+
+    fn set_z_buffer(&mut self, enabled: bool) -> Result<(), String> {
+        self.record(PresentEvent::Z(enabled))
+    }
+
+    fn screen_height(&mut self) -> Result<u32, String> {
+        self.record(PresentEvent::Height)?;
+        Ok(480)
+    }
+
+    fn screen_width(&mut self) -> Result<u32, String> {
+        self.record(PresentEvent::Width)?;
+        Ok(640)
+    }
+
+    fn set_viewport(&mut self, viewport: MenuNativeViewport) -> Result<(), String> {
+        self.record(PresentEvent::Viewport(viewport))
+    }
+
+    fn draw_menu_mesh(&mut self, mesh: Mesh) -> Result<(), String> {
+        self.record(PresentEvent::Mesh)?;
+        self.meshes.push(mesh);
+        if self.meshes.len() == 1 {
+            if let Some(after_first_mesh) = self.after_first_mesh.take() {
+                after_first_mesh();
+            }
+        }
+        Ok(())
+    }
+
+    fn draw_cursor(&mut self, x: f32, y: f32) -> Result<(), String> {
+        self.record(PresentEvent::Cursor(x, y))
+    }
+
+    fn end_scene(&mut self) -> Result<(), String> {
+        self.record(PresentEvent::End)
+    }
+
+    fn present_scene(&mut self) -> Result<(), String> {
+        self.record(PresentEvent::Present)
+    }
+}
+
+#[test]
+fn rootless_loading_present_reaches_device_in_order_without_resources() {
+    let mut screen = LoadProgressScreen::new(0, 0.7, None);
+    let mut inputs = Inputs {
+        layout: Some(present_layout()),
+        ..Default::default()
+    };
+    inputs
+        .progress_reply
+        .set(Some(Err("progress lookup must not run")));
+    screen.create(&mut inputs).unwrap();
+    let globals = MenuNativeDrawState::new(0, None, [0, 0]);
+    let expected = [
+        PresentEvent::Reset,
+        PresentEvent::Clear(0, 1.0),
+        PresentEvent::Begin,
+        PresentEvent::Blend,
+        PresentEvent::Z(false),
+        PresentEvent::Z(true),
+        PresentEvent::End,
+        PresentEvent::Present,
+    ];
+    for source in [
+        LoadingScreenSource::MafiaLoadSave,
+        LoadingScreenSource::LoadCallback,
+    ] {
+        let frame = LoadingScreenFrame::from_inputs(source, &screen, &inputs);
+        for refuse_at in 0..=expected.len() {
+            let mut device = PresentDevice {
+                refuse_at: (refuse_at < expected.len()).then_some(refuse_at),
+                ..Default::default()
+            };
+            let result = frame.present(
+                &globals,
+                MenuComponentPrecision::Unestablished,
+                MenuTextPrecision::Unestablished,
+                &mut device,
+            );
+            assert_eq!(
+                device.events,
+                expected[..(refuse_at + 1).min(expected.len())]
+            );
+            if refuse_at < expected.len() {
+                assert!(result.unwrap_err().contains("device refused operation"));
+            } else {
+                assert_eq!(result, Ok(()));
+            }
+            assert_eq!(inputs.progress_lookups.get(), 0);
+        }
+    }
+}
+
+#[test]
+fn loading_present_stops_at_cursor_precision_or_draws_active_cursor() {
+    let screen = LoadProgressScreen::new(0, 0.7, None);
+    let inputs = Inputs::default();
+    let frame =
+        LoadingScreenFrame::from_inputs(LoadingScreenSource::LoadCallback, &screen, &inputs);
+    let globals = MenuNativeDrawState::new(701, Some(frame.menu_identity()), [11, -12]);
+    let viewport = MenuNativeViewport {
+        x: 0,
+        y: 0,
+        width: 640,
+        height: 480,
+        min_z: 0.0,
+        max_z: 1.0,
+    };
+    let expected = [
+        PresentEvent::Reset,
+        PresentEvent::Clear(0, 1.0),
+        PresentEvent::Begin,
+        PresentEvent::Blend,
+        PresentEvent::Z(false),
+        PresentEvent::Height,
+        PresentEvent::Width,
+        PresentEvent::Width,
+        PresentEvent::Height,
+        PresentEvent::Viewport(viewport),
+        PresentEvent::Z(false),
+        PresentEvent::Cursor(11.0, -12.0),
+        PresentEvent::Z(true),
+        PresentEvent::End,
+        PresentEvent::Present,
+    ];
+    let mut device = PresentDevice::default();
+    let error = frame
+        .present(
+            &globals,
+            MenuComponentPrecision::Unestablished,
+            MenuTextPrecision::Unestablished,
+            &mut device,
+        )
+        .unwrap_err();
+    assert!(error.contains("CursorY: PrecisionUnestablished"), "{error}");
+    assert_eq!(device.events, expected[..11]);
+
+    for refuse_at in 0..=expected.len() {
+        let mut device = PresentDevice {
+            refuse_at: (refuse_at < expected.len()).then_some(refuse_at),
+            ..Default::default()
+        };
+        let result = frame.present(
+            &globals,
+            MenuComponentPrecision::Pc24Nearest,
+            MenuTextPrecision::Unestablished,
+            &mut device,
+        );
+        assert_eq!(
+            device.events,
+            expected[..(refuse_at + 1).min(expected.len())]
+        );
+        assert_eq!(result.is_ok(), refuse_at == expected.len());
+    }
+}
 
 fn item(id: u32, kind: [u8; 4]) -> lhr_assets::MenuItem {
     lhr_assets::MenuItem {
@@ -51,9 +263,34 @@ struct Inputs {
     act_mission: Option<Vec<u8>>,
     fail_definition: bool,
     reads: Vec<&'static str>,
+    layout: Option<MenuComponentCreateContext>,
+    resources: Option<MenuDrawResources>,
+    progress_reply: PresentProgressReply,
+    progress_lookups: Cell<usize>,
 }
 
+type PresentProgressReply = Rc<Cell<Option<Result<TextureKey, &'static str>>>>;
+
 impl LoadProgressCreateInputs for Inputs {
+    fn native_layout(&self) -> Option<MenuComponentCreateContext> {
+        self.layout
+    }
+
+    fn component_resources(&mut self) -> Option<&mut dyn MenuComponentResources> {
+        self.resources
+            .as_mut()
+            .map(|resources| resources as &mut dyn MenuComponentResources)
+    }
+
+    fn draw_resources(&self) -> Option<&MenuDrawResources> {
+        self.resources.as_ref()
+    }
+
+    fn progress_texture(&self) -> Result<Option<TextureKey>, String> {
+        self.progress_lookups.set(self.progress_lookups.get() + 1);
+        self.progress_reply.get().transpose().map_err(str::to_owned)
+    }
+
     fn menu_definition(
         &mut self,
         name: &str,
@@ -77,6 +314,174 @@ impl LoadProgressCreateInputs for Inputs {
     }
 }
 
+fn present_layout() -> MenuComponentCreateContext {
+    MenuComponentCreateContext {
+        screen_scale: [1.0; 2],
+        left_margin_x: 0.0,
+        precision: MenuComponentPrecision::Pc24Nearest,
+    }
+}
+
+const FIRST_PROGRESS_PIXEL: [u8; 4] = [1, 2, 3, 255];
+const SECOND_PROGRESS_PIXEL: [u8; 4] = [4, 5, 6, 255];
+
+struct PresentImages;
+
+impl TextureImageSource for PresentImages {
+    fn read_image(&mut self, path: &[u8]) -> Result<Vec<u8>, TextureImageError> {
+        let [red, green, blue, alpha] = if path.ends_with(b"first.tga") {
+            FIRST_PROGRESS_PIXEL
+        } else if path.ends_with(b"second.tga") {
+            SECOND_PROGRESS_PIXEL
+        } else {
+            return Err(TextureImageError::Missing);
+        };
+        let mut image = vec![0; 18];
+        image[2] = 2;
+        image[12] = 1;
+        image[14] = 1;
+        image[16] = 32;
+        image[17] = 0x28;
+        image.extend([blue, green, red, alpha]);
+        Ok(image)
+    }
+}
+
+fn present_progress_fixture() -> (LoadProgressScreen, Inputs, TextureKey) {
+    let mut resources = MenuDrawResources::from_cpu_factory(
+        MenuTextDatabase::new(),
+        TextureResources::new().unwrap(),
+        CpuTextureStorage::default(),
+        PresentImages,
+    )
+    .unwrap();
+    let first = resources
+        .create_alpha_texture(b"first.tga")
+        .unwrap()
+        .unwrap();
+    let second = resources
+        .create_alpha_texture(b"second.tga")
+        .unwrap()
+        .unwrap();
+    assert_ne!(first, second);
+    let mut items = vec![item(1, *b"cniw"), item(LOADPROGRESS_BAR_ID, *b"rabp")];
+    for item in &mut items {
+        item.style = crate::main_menu::COMPONENT_VISIBLE;
+    }
+    let mut inputs = Inputs {
+        definition: Some(lhr_assets::MenuDefinition {
+            version: 1,
+            reserved: 0,
+            items,
+        }),
+        layout: Some(present_layout()),
+        resources: Some(resources),
+        ..Default::default()
+    };
+    inputs.progress_reply.set(Some(Ok(first)));
+    let mut screen = LoadProgressScreen::for_mission_open();
+    screen.create(&mut inputs).unwrap();
+    screen.set_raw_progress(0.5).unwrap();
+    (screen, inputs, second)
+}
+
+const PRESENT_THROUGH_GRAY: [PresentEvent; 12] = [
+    PresentEvent::Reset,
+    PresentEvent::Clear(0, 1.0),
+    PresentEvent::Begin,
+    PresentEvent::Blend,
+    PresentEvent::Z(false),
+    PresentEvent::Height,
+    PresentEvent::Width,
+    PresentEvent::Width,
+    PresentEvent::Height,
+    PresentEvent::Viewport(MenuNativeViewport {
+        x: 0,
+        y: 0,
+        width: 640,
+        height: 480,
+        min_z: 0.0,
+        max_z: 1.0,
+    }),
+    PresentEvent::Z(false),
+    PresentEvent::Mesh,
+];
+
+#[test]
+fn loading_present_resolves_progress_again_after_gray_submission() {
+    let (screen, inputs, second) = present_progress_fixture();
+    let frame =
+        LoadingScreenFrame::from_inputs(LoadingScreenSource::LoadCallback, &screen, &inputs);
+    let reply = Rc::clone(&inputs.progress_reply);
+    let mut device = PresentDevice {
+        after_first_mesh: Some(Box::new(move || reply.set(Some(Ok(second))))),
+        ..Default::default()
+    };
+    assert_eq!(inputs.progress_lookups.get(), 0);
+    frame
+        .present(
+            &MenuNativeDrawState::new(0, None, [0, 0]),
+            MenuComponentPrecision::Unestablished,
+            MenuTextPrecision::Unestablished,
+            &mut device,
+        )
+        .unwrap();
+    assert_eq!(inputs.progress_lookups.get(), 2);
+    assert_eq!(
+        device.events[..PRESENT_THROUGH_GRAY.len()],
+        PRESENT_THROUGH_GRAY
+    );
+    assert_eq!(
+        device.events[PRESENT_THROUGH_GRAY.len()..],
+        [
+            PresentEvent::Mesh,
+            PresentEvent::Z(true),
+            PresentEvent::End,
+            PresentEvent::Present
+        ]
+    );
+    assert_eq!(device.meshes.len(), 2);
+    assert_eq!(
+        device.meshes[0].texture.as_ref().unwrap().rgba,
+        FIRST_PROGRESS_PIXEL
+    );
+    assert_eq!(
+        device.meshes[1].texture.as_ref().unwrap().rgba,
+        SECOND_PROGRESS_PIXEL
+    );
+    assert_eq!(device.meshes[1].vertices[3].uv, [0.5, 1.0]);
+}
+
+#[test]
+fn loading_present_preserves_gray_prefix_when_red_texture_lookup_fails() {
+    let (screen, inputs, _) = present_progress_fixture();
+    let frame =
+        LoadingScreenFrame::from_inputs(LoadingScreenSource::MafiaLoadSave, &screen, &inputs);
+    let reply = Rc::clone(&inputs.progress_reply);
+    let mut device = PresentDevice {
+        after_first_mesh: Some(Box::new(move || {
+            reply.set(Some(Err("red texture refused")))
+        })),
+        ..Default::default()
+    };
+    let error = frame
+        .present(
+            &MenuNativeDrawState::new(0, None, [0, 0]),
+            MenuComponentPrecision::Unestablished,
+            MenuTextPrecision::Unestablished,
+            &mut device,
+        )
+        .unwrap_err();
+    assert!(error.contains("red texture refused"), "{error}");
+    assert_eq!(inputs.progress_lookups.get(), 2);
+    assert_eq!(device.events, PRESENT_THROUGH_GRAY);
+    assert_eq!(device.meshes.len(), 1);
+    assert_eq!(
+        device.meshes[0].texture.as_ref().unwrap().rgba,
+        FIRST_PROGRESS_PIXEL
+    );
+}
+
 #[derive(Debug, PartialEq)]
 enum Call {
     AlphaBlend,
@@ -95,10 +500,8 @@ impl LoadingScreenDevice for Device {
         Ok(())
     }
     fn present_loading_screen(&mut self, frame: LoadingScreenFrame<'_>) -> Result<(), String> {
-        self.calls.push(Call::Present(
-            frame.source,
-            frame.screen.raw_progress().to_bits(),
-        ));
+        self.calls
+            .push(Call::Present(frame.source, frame.raw_progress()?.to_bits()));
         if self.refuse_present {
             return Err("host presentation refused".into());
         }
@@ -126,10 +529,36 @@ fn step(
     callback.cb_load_scene(progress, msg, value.to_bits(), phase, &mut inputs(), device)
 }
 
+fn assert_load_progress_screen_contents(
+    actual: &LoadProgressScreen,
+    expected: &LoadProgressScreen,
+) {
+    assert_eq!(actual.title, expected.title);
+    assert_eq!(actual.mission_part, expected.mission_part);
+    assert_eq!(actual.mission_name, expected.mission_name);
+    assert_eq!(
+        actual.uses_native_components().unwrap(),
+        expected.uses_native_components().unwrap()
+    );
+    assert_eq!(actual.menu_base_for_test(), expected.menu_base_for_test());
+    actual
+        .with_components_for_test(|menu| {
+            expected
+                .with_components_for_test(|expected_menu| {
+                    assert_eq!(menu, expected_menu);
+                    Ok(())
+                })
+                .unwrap();
+            Ok(())
+        })
+        .unwrap();
+}
+
 #[test]
 fn other_messages_return_at_once() {
     let mut callback = LoadSceneCallback::default();
     let mut progress = Some(LoadProgressScreen::for_mission_open());
+    let original_menu = progress.as_ref().unwrap().menu_identity_for_test();
     let mut device = Device::default();
     // CBM_ERROR/CBM_LOG and anything else: no Create, no device, no store.
     for msg in [0, 1, 7, 9, 9_999, 10_001] {
@@ -144,7 +573,9 @@ fn other_messages_return_at_once() {
         .unwrap();
     }
     assert!(device.calls.is_empty());
-    assert_eq!(progress, Some(LoadProgressScreen::for_mission_open()));
+    let screen = progress.as_ref().unwrap();
+    assert_eq!(screen.menu_identity_for_test(), original_menu);
+    assert_load_progress_screen_contents(screen, &LoadProgressScreen::for_mission_open());
     assert_eq!(callback, LoadSceneCallback::default());
 }
 
@@ -172,37 +603,46 @@ fn begin_creates_and_presents_the_mafia_load_save_screen() {
     assert_eq!(callback.last_bit(), 0.0);
     assert_eq!(inputs.reads, ["menu", "load.def", "act_mission"]);
     let screen = progress.as_ref().unwrap();
-    assert_eq!(screen.menu.len(), definition().items.len());
+    assert_eq!(screen.component_count(), Ok(definition().items.len()));
     assert_eq!(
-        device.calls,
-        [Call::Present(LoadingScreenSource::MafiaLoadSave, 0)]
+        screen.staged_mission_picture(),
+        Ok(Some(Some(b"M01.tga".to_vec())))
     );
-    // OnCreate's stores (no title: the title items stay untouched).
-    assert_eq!(
-        screen.menu.staged_string(LOADPROGRESS_SIDE),
-        Some(Some(&b"loadbok.tga"[..]))
-    );
-    assert_eq!(
-        screen.menu.staged_string(LOADPROGRESS_LOGO),
-        Some(Some(&b"mafia.tga"[..]))
-    );
-    assert_eq!(
-        screen.menu.staged_string(LOADPROGRESS_MISSION_PICTURE),
-        Some(Some(&b"M01.tga"[..]))
-    );
-    assert_eq!(screen.menu.get_text_id(LOADPROGRESS_MISSION_NAME), 0x5dc);
-    for id in [
-        LOADPROGRESS_UNKNOWN_1000,
-        LOADPROGRESS_UNKNOWN_2000,
-        LOADPROGRESS_UNKNOWN_3000,
-    ] {
-        assert!(!screen.menu.find_component_by_id(id).unwrap().is_visible());
-    }
-    assert!(screen
-        .menu
-        .find_component_by_id(LOADPROGRESS_SIDE)
-        .unwrap()
-        .is_visible());
+    screen
+        .with_components_for_test(|menu| {
+            assert_eq!(menu.len(), definition().items.len());
+            assert_eq!(
+                device.calls,
+                [Call::Present(LoadingScreenSource::MafiaLoadSave, 0)]
+            );
+            // OnCreate's stores (no title: the title items stay untouched).
+            assert_eq!(
+                menu.staged_string(LOADPROGRESS_SIDE),
+                Some(Some(&b"loadbok.tga"[..]))
+            );
+            assert_eq!(
+                menu.staged_string(LOADPROGRESS_LOGO),
+                Some(Some(&b"mafia.tga"[..]))
+            );
+            assert_eq!(
+                menu.staged_string(LOADPROGRESS_MISSION_PICTURE),
+                Some(Some(&b"M01.tga"[..]))
+            );
+            assert_eq!(menu.get_text_id(LOADPROGRESS_MISSION_NAME), 0x5dc);
+            for id in [
+                LOADPROGRESS_UNKNOWN_1000,
+                LOADPROGRESS_UNKNOWN_2000,
+                LOADPROGRESS_UNKNOWN_3000,
+            ] {
+                assert!(!menu.find_component_by_id(id).unwrap().is_visible());
+            }
+            assert!(menu
+                .find_component_by_id(LOADPROGRESS_SIDE)
+                .unwrap()
+                .is_visible());
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
@@ -226,7 +666,11 @@ fn begin_without_a_screen_creates_the_callbacks_own() {
     // GM_LoadProgress(0, 1.0f, NULL), created.
     assert_eq!(own.mission_part.to_bits(), 0x3f80_0000);
     assert_eq!(own.title, 0);
-    assert_eq!(own.menu.len(), definition().items.len());
+    own.with_components_for_test(|menu| {
+        assert_eq!(menu.len(), definition().items.len());
+        Ok(())
+    })
+    .unwrap();
     assert_eq!(progress, None);
     assert_eq!(callback.last_bit(), 0.0);
     assert_eq!(
@@ -314,7 +758,10 @@ fn steps_map_their_message_and_skip_small_changes() {
     )
     .unwrap();
     assert_eq!(callback.last_bit(), 0.5);
-    assert_eq!(progress.as_ref().unwrap().raw_progress(), 0.5 * 0.7);
+    assert_eq!(
+        progress.as_ref().unwrap().raw_progress().unwrap(),
+        0.5 * 0.7
+    );
     // The mission's message maps (p + 1) / 2.
     step(
         &mut callback,
@@ -373,6 +820,7 @@ fn a_step_without_any_screen_still_sets_the_state_and_last_bit() {
 fn end_keeps_the_mafia_load_save_screen() {
     let mut callback = LoadSceneCallback::default();
     let mut progress = Some(LoadProgressScreen::for_mission_open());
+    let original_menu = progress.as_ref().unwrap().menu_identity_for_test();
     let mut device = Device::default();
     step(
         &mut callback,
@@ -383,7 +831,8 @@ fn end_keeps_the_mafia_load_save_screen() {
         &mut device,
     )
     .unwrap();
-    let created = progress.clone();
+    let mut created = LoadProgressScreen::for_mission_open();
+    created.create(&mut inputs()).unwrap();
     step(
         &mut callback,
         &mut progress,
@@ -393,7 +842,9 @@ fn end_keeps_the_mafia_load_save_screen() {
         &mut device,
     )
     .unwrap();
-    assert_eq!(progress, created);
+    let screen = progress.as_ref().unwrap();
+    assert_eq!(screen.menu_identity_for_test(), original_menu);
+    assert_load_progress_screen_contents(screen, &created);
     assert_eq!(device.calls.len(), 1);
 }
 
@@ -419,7 +870,14 @@ fn a_refused_present_stops_before_the_last_bit_store() {
     .unwrap_err();
     assert_eq!(error, "host presentation refused");
     // Create ran; BEGIN's `last_bit = 0` did not.
-    assert!(!progress.as_ref().unwrap().menu.is_empty());
+    progress
+        .as_ref()
+        .unwrap()
+        .with_components_for_test(|menu| {
+            assert!(!menu.is_empty());
+            Ok(())
+        })
+        .unwrap();
     assert_eq!(callback.last_bit(), 0.3);
     let error = step(
         &mut callback,
@@ -431,7 +889,10 @@ fn a_refused_present_stops_before_the_last_bit_store() {
     )
     .unwrap_err();
     assert_eq!(error, "host presentation refused");
-    assert_eq!(progress.as_ref().unwrap().raw_progress(), 0.8 * 0.7);
+    assert_eq!(
+        progress.as_ref().unwrap().raw_progress().unwrap(),
+        0.8 * 0.7
+    );
     assert_eq!(callback.last_bit(), 0.3);
 }
 
@@ -469,7 +930,12 @@ fn on_create_follows_the_native_order_and_first_match() {
         ..Default::default()
     };
     screen.create(&mut missing).unwrap();
-    assert!(screen.menu.is_empty());
+    screen
+        .with_components_for_test(|menu| {
+            assert!(menu.is_empty());
+            Ok(())
+        })
+        .unwrap();
     assert_eq!(missing.reads, ["menu", "load.def"]);
     // Title, the screen's own mission name, case-insensitive first match,
     // a zero name id leaves the name item alone, a truncated tail entry is
@@ -486,11 +952,16 @@ fn on_create_follows_the_native_order_and_first_match() {
     };
     screen.create(&mut own).unwrap();
     assert_eq!(own.reads, ["menu", "load.def"]);
-    assert_eq!(
-        screen.menu.staged_string(LOADPROGRESS_MISSION_PICTURE),
-        Some(Some(&b"M02.tga"[..]))
-    );
-    assert_eq!(screen.menu.get_text_id(LOADPROGRESS_MISSION_NAME), 0);
+    screen
+        .with_components_for_test(|menu| {
+            assert_eq!(
+                menu.staged_string(LOADPROGRESS_MISSION_PICTURE),
+                Some(Some(&b"M02.tga"[..]))
+            );
+            assert_eq!(menu.get_text_id(LOADPROGRESS_MISSION_NAME), 0);
+            Ok(())
+        })
+        .unwrap();
     // A screen without the title items stages no title text; with the
     // items, SetTextID(0x190, title) and (0x191, 0x2ce).
     let mut titled = definition();
@@ -505,9 +976,14 @@ fn on_create_follows_the_native_order_and_first_match() {
         ..Default::default()
     };
     screen.create(&mut act).unwrap();
-    assert_eq!(screen.menu.get_text_id(0x190), 0x2cf);
-    assert_eq!(screen.menu.get_text_id(0x191), 0x2ce);
-    assert_eq!(screen.menu.get_text_id(LOADPROGRESS_MISSION_NAME), 7);
+    screen
+        .with_components_for_test(|menu| {
+            assert_eq!(menu.get_text_id(0x190), 0x2cf);
+            assert_eq!(menu.get_text_id(0x191), 0x2ce);
+            assert_eq!(menu.get_text_id(LOADPROGRESS_MISSION_NAME), 7);
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
@@ -526,7 +1002,12 @@ fn on_create_rereads_the_act_mission_name_per_entry_and_bounds_its_reads() {
         inputs.reads,
         ["menu", "load.def", "act_mission", "act_mission"]
     );
-    assert_eq!(screen.menu.get_text_id(LOADPROGRESS_MISSION_NAME), 2);
+    screen
+        .with_components_for_test(|menu| {
+            assert_eq!(menu.get_text_id(LOADPROGRESS_MISSION_NAME), 2);
+            Ok(())
+        })
+        .unwrap();
     // NULL act_mission name: the compare stops the screen's creation.
     let mut screen = LoadProgressScreen::for_mission_open();
     let mut inputs = Inputs {

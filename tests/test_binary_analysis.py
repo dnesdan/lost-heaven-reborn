@@ -2,7 +2,9 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -84,7 +86,13 @@ class BinaryAnalysisBoundaryTests(unittest.TestCase):
 
     def test_setup_rejects_nested_tools_symlink_into_checkout(self):
         (self.tools / "ghidra").symlink_to(ROOT, target_is_directory=True)
-        result = subprocess.run([str(ROOT / "scripts/setup_binary_analysis.sh")], env=self.env, capture_output=True, text=True, timeout=10)
+        commands = self.base / "setup-commands"
+        commands.mkdir()
+        for name in ("bash", "dirname", "uname"):
+            (commands / name).symlink_to(shutil.which(name))
+        (commands / "python3").symlink_to(sys.executable)
+        env = dict(self.env, PATH=str(commands))
+        result = subprocess.run([str(ROOT / "scripts/setup_binary_analysis.sh")], env=env, capture_output=True, text=True, timeout=10)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("including through symlinks", result.stderr)
 

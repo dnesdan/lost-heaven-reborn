@@ -73,7 +73,7 @@ impl lhr_engine::load_scene_callback::LoadingScreenDevice for ProbeOpenRender {
             ));
         }
         self.loading_presents += 1;
-        self.last_loading_bar = Some(frame.screen.raw_progress());
+        self.last_loading_bar = Some(frame.raw_progress()?);
         Ok(())
     }
 }
@@ -579,6 +579,7 @@ pub fn run_freeride_start(
     root: &Path,
     model_directories: &[String],
     selection: Option<lhr_engine::game_loadsave_lifecycle::FreerideState>,
+    capture: Option<&Path>,
 ) -> Result<(), String> {
     use lhr_engine::mission_load_session::{FreerideAttempt, FreerideRequest, FREERIDE_MISSION};
     validate_inputs(FREERIDE_MISSION, model_directories)?;
@@ -605,6 +606,16 @@ pub fn run_freeride_start(
     };
     let clock = crate::host_local_time::local_timer_clock()?;
     session.install_indicators(lhr_engine::indicators::IndicatorsState::constructed(clock))?;
+    session
+        .select_loading_menu_startup_language()
+        .map_err(|error| format!("Freeride probe menu language: {error}"))?;
+    if let Err(error) = session.create_loading_indicator_assets() {
+        let disposal = session.discard_terminal();
+        return Err(format!(
+            "Freeride probe indicator asset prefix: {error}; terminal disposal: {disposal:?}; failure: {:?}",
+            session.discard_failure()
+        ));
+    }
     let profile = profile_file_intake(root);
     let settings = profile.clone().and_then(|intake| {
         lhr_engine::game_loadsave_lifecycle::profile_settings_after_load_save_init(intake)
@@ -638,16 +649,42 @@ pub fn run_freeride_start(
         size: PROBE_SIZE,
         viewport: [0, 0, PROBE_SIZE[0], PROBE_SIZE[1]],
     };
-    let result = session.start_freeride(
-        &mut attempt,
-        FreerideRequest {
-            model_directories: &directories,
-            projection: PROBE_PROJECTION,
-        },
-        &mut screen,
-        &mut ProbeOpenRender::default(),
-    );
+    let request = FreerideRequest {
+        model_directories: &directories,
+        projection: PROBE_PROJECTION,
+    };
+    let mut scene_capture = None;
+    let mut render = ProbeOpenRender::default();
+    let result = if let Some(path) = capture {
+        let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
+        let mut present = |frame: PresentedFrame<'_>| {
+            match frame {
+            PresentedFrame::Scene(snapshot) => {
+                let result = capture_retained_mission_frame(snapshot, path);
+                scene_capture = Some(result.clone());
+                result
+            }
+            PresentedFrame::LoadingScreen(_) => Err(
+                "Freeride loading-screen GM_Menu::Draw/Present is not composed; no synthetic acknowledgement".into(),
+            ),
+        }
+        };
+        session.start_freeride_presented(
+            &mut attempt,
+            request,
+            &mut screen,
+            &mut render,
+            lhr_engine::mission_load_session::FreeridePresentation {
+                target: PROBE_RENDER_SIZE,
+                sequence: &mut sequence,
+                present: &mut present,
+            },
+        )
+    } else {
+        session.start_freeride(&mut attempt, request, &mut screen, &mut render)
+    };
     let mut report = String::new();
+    writeln!(report, "Indicator texture/font prefix executed; native ResetValues and live HUD device not established.").unwrap();
     writeln!(
         report,
         "Original Freeride startup diagnostic; fixed mission: {FREERIDE_MISSION}"
@@ -662,6 +699,7 @@ pub fn run_freeride_start(
     .unwrap();
     writeln!(report, "Car database host intake: {:?}; cars={}; players={}; bytes={}. Native AllDefault/repeated Init/short reads are not composed.", session.car_database().intake(), session.car_database().car_count(), session.car_database().player_count(), session.car_database().index_storage_bytes()).unwrap();
     writeln!(report, "Freeride selection: {selection_status}").unwrap();
+    writeln!(report, "Reached GameInit scene capture: {scene_capture:?}; request: {capture:?}. Later GameInit loading-screen Draw/Present is not synthesized.").unwrap();
     writeln!(
         report,
         "Startup reached: {:?}; result: {result:?}",
@@ -822,7 +860,7 @@ pub fn run(
                 // The loading screen has no GM_Menu::Draw owner: counted,
                 // never written over the scene capture.
                 PresentedFrame::LoadingScreen(frame) => {
-                    init_loading_presents.push(frame.screen.raw_progress());
+                    init_loading_presents.push(frame.raw_progress()?);
                     Ok(())
                 }
             },
@@ -873,19 +911,17 @@ pub fn run(
     let loading_screen = session.load_save_progress().progress.as_ref();
     writeln!(
         report,
-        "Loading screen (cbLoadScene 0x5bcc10 over scene->Open): Open presents={} STEP SetState calls={} last Open bar={:?}; callback last_bit={} own screen={}; mafiaLoadSave.progress components={} bar={:?} mission picture={:?}; Init presents bars={:?} (headless: counted, not drawn)",
+        "Loading screen (cbLoadScene 0x5bcc10 over scene->Open): Open presents={} STEP SetState calls={} last Open bar={:?}; callback last_bit={} own screen={}; mafiaLoadSave.progress components={:?} bar={:?} mission picture={:?}; Init presents bars={:?} (headless: counted, not drawn)",
         render.loading_presents,
         render.alpha_blend_states,
         render.last_loading_bar,
         session.load_scene_callback().last_bit(),
         session.load_scene_callback().menu_progress().is_some(),
-        loading_screen.map_or(0, |screen| screen.menu.len()),
+        loading_screen.map(|screen| screen.component_count()),
         loading_screen.map(|screen| screen.raw_progress()),
-        loading_screen
-            .and_then(|screen| screen
-                .menu
-                .staged_string(lhr_engine::game_loadsave_lifecycle::LOADPROGRESS_MISSION_PICTURE))
-            .map(|picture| picture.map(String::from_utf8_lossy)),
+        loading_screen.map(|screen| screen.staged_mission_picture().map(|staged| {
+            staged.map(|picture| picture.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()))
+        })),
         init_loading_presents
     )
     .unwrap();

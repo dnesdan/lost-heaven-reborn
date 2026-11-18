@@ -6,11 +6,11 @@
 //! `game.cpp` line numbers are from that pin. No original-runtime validation
 //! is claimed here.
 //!
-//! Marker-only contract: frames are integer handles, placements keep only the
-//! compared `frame` member, and every native side effect (projector-light
-//! registration, track loading, subroutine execution) runs through a caller
-//! supplied backend. Device, mission and actor owners are DEFERRED and have
-//! no representation in this module:
+//! Legacy callback contracts use integer frame handles and marker placements;
+//! the live Init lists instead retain typed borrowed identities and saved
+//! placement records. Native callback side effects (projector-light
+//! registration, track loading, subroutine execution) use caller-supplied
+//! backends. The following larger ownership boundaries remain DEFERRED:
 //! - `C_game::Done` (GAME 0x5a3c60, `game.cpp:1071`) needs the render device,
 //!   indicators, camera, traffic, garage and actor owners.
 //! - `C_game::ClearDiffData` (GAME 0x5af860, `game.cpp:3143` region) needs the
@@ -2463,6 +2463,17 @@ impl ShadowNameBuffers {
 /// none of them releases what the entries name.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GameInitLists {
+    /// `C_blood_manager` (+0x2d90): the authoritative active-stain list,
+    /// not the (unported) stain allocations.
+    pub blood_manager: BloodManager,
+    /// `frame_placements` (+0x0): saved state of borrowed live frames.
+    /// `AddFramePlacement` and `Done` restoration remain unported.
+    pub frame_placements: Vec<SavedFramePlacement>,
+    /// `hidden_frames` (+0x10): borrowed frames. Init does not turn them on.
+    pub hidden_frames: Vec<crate::script_scheduler::FrameReferenceId>,
+    /// `created_frames` (+0x20): borrowed frames. Init neither unlinks nor
+    /// releases them; those operations belong to Done, not this clear.
+    pub created_frames: Vec<crate::script_scheduler::FrameReferenceId>,
     /// `diff_frames` (+0x2adc): borrowed live-owner identities. `LoadDiffData`
     /// is unported; Init drops references without releasing the frames.
     pub diff_frames: Vec<crate::script_scheduler::FrameReferenceId>,
@@ -2518,6 +2529,137 @@ impl GameInitLists {
         self.box_dests.clear();
         self.box_placement_temp.clear();
     }
+
+    /// The four operations at GAME 0x5a0dea-0x5a0e4f inside `C_game::Init`
+    /// (RVA 0x1a0dea-0x1a0e4f; game.cpp:357-360 at pin fe7e746):
+    /// `blood_manager.GameInit`, then the placement, hidden and created
+    /// vector clears. The native move helpers 0x5bc840/0x564750 copy
+    /// 0x34-byte records/4-byte pointers; the destroy helper 0x4d2040
+    /// is empty. All four clears retain capacity, with no pointee access,
+    /// release, delete, unlink, state restoration or SetOn.
+    /// This is a working-name fragment, not completion of GameInit.
+    pub fn init_blood_and_frame_pools(&mut self) {
+        clear_blood_and_frame_pools(self);
+    }
+}
+
+/// `C_blood_manager`'s active `C_blood*` vector (C_blood.h, pin fe7e746).
+/// AddBlood, Tick and GameDone, including the stain allocation owner, are
+/// unported. Clearing this list must not stand in for their operations.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BloodManager {
+    pub bloods: Vec<BloodRef>,
+}
+
+impl BloodManager {
+    /// `C_blood_manager::GameInit`, GAME 0x412020 (RVA 0x12020;
+    /// game/actors/C_blood.cpp:39 at pin fe7e746): clear the pointer vector
+    /// only. Unlike GameDone (0x412050), it does not delete any stains.
+    pub fn game_init(&mut self) {
+        self.bloods.clear();
+    }
+}
+
+/// A borrowed stain identity, not a native address or a stain object.
+/// The host identity and owner discriminator grant no access to the
+/// allocation. Runtime identity creation/validation stays with the unported
+/// stain owner; only synthetic fixtures can currently create one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BloodRef(u32, u64);
+
+#[cfg(test)]
+impl BloodRef {
+    pub(crate) const fn staged(identity: u32, owner: u64) -> Self {
+        Self(identity, owner)
+    }
+}
+
+/// Full value projection of `C_game::S_frame_placement` (game.h:345-353
+/// at pin fe7e746), separate from the legacy marker [`FramePlacement`].
+/// Native PC records occupy 0x34 bytes (move helper GAME 0x5bc840), but
+/// this host projection is not a native-layout overlay. Frames and parent
+/// are borrowed owner-scoped identities; the saved scalars stay f32 and
+/// quaternion components retain native x/y/z/s order without normalization.
+/// Its writer AddFramePlacement (0x5b0300) remains unported.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SavedFramePlacement {
+    frame: crate::script_scheduler::FrameReferenceId,
+    pos: [f32; 3],
+    rot: [f32; 4],
+    scale: [f32; 3],
+    parent: Option<crate::script_scheduler::FrameReferenceId>,
+    on: bool,
+}
+
+impl SavedFramePlacement {
+    pub fn frame(&self) -> crate::script_scheduler::FrameReferenceId {
+        self.frame
+    }
+    pub fn pos(&self) -> [f32; 3] {
+        self.pos
+    }
+    pub fn rot(&self) -> [f32; 4] {
+        self.rot
+    }
+    pub fn scale(&self) -> [f32; 3] {
+        self.scale
+    }
+    pub fn parent(&self) -> Option<crate::script_scheduler::FrameReferenceId> {
+        self.parent
+    }
+    pub fn on(&self) -> bool {
+        self.on
+    }
+}
+
+#[cfg(test)]
+impl SavedFramePlacement {
+    pub(crate) const fn staged(
+        frame: crate::script_scheduler::FrameReferenceId,
+        pos: [f32; 3],
+        rot: [f32; 4],
+        scale: [f32; 3],
+        parent: Option<crate::script_scheduler::FrameReferenceId>,
+        on: bool,
+    ) -> Self {
+        Self {
+            frame,
+            pos,
+            rot,
+            scale,
+            parent,
+            on,
+        }
+    }
+}
+
+trait BloodAndFramePoolLists {
+    fn blood_manager(&mut self) -> &mut BloodManager;
+    fn frame_placements(&mut self) -> &mut Vec<SavedFramePlacement>;
+    fn hidden_frames(&mut self) -> &mut Vec<crate::script_scheduler::FrameReferenceId>;
+    fn created_frames(&mut self) -> &mut Vec<crate::script_scheduler::FrameReferenceId>;
+}
+
+impl BloodAndFramePoolLists for GameInitLists {
+    fn blood_manager(&mut self) -> &mut BloodManager {
+        &mut self.blood_manager
+    }
+    fn frame_placements(&mut self) -> &mut Vec<SavedFramePlacement> {
+        &mut self.frame_placements
+    }
+    fn hidden_frames(&mut self) -> &mut Vec<crate::script_scheduler::FrameReferenceId> {
+        &mut self.hidden_frames
+    }
+    fn created_frames(&mut self) -> &mut Vec<crate::script_scheduler::FrameReferenceId> {
+        &mut self.created_frames
+    }
+}
+
+fn clear_blood_and_frame_pools(lists: &mut impl BloodAndFramePoolLists) {
+    lists.blood_manager().game_init();
+    lists.frame_placements().clear();
+    lists.hidden_frames().clear();
+    lists.created_frames().clear();
 }
 
 /// Borrowed identity of one `C_game::S_box_placement` (mafia-re
@@ -5621,6 +5763,267 @@ mod tests {
                 growing_projectors: 0,
             }
         );
+    }
+
+    #[test]
+    fn blood_manager_game_init_clears_live_list_without_deleting_stains() {
+        use std::{cell::Cell, rc::Rc};
+
+        struct StainFixture {
+            identity: u32,
+            drops: Rc<Cell<usize>>,
+        }
+
+        impl Drop for StainFixture {
+            fn drop(&mut self) {
+                self.drops.set(self.drops.get() + 1);
+            }
+        }
+
+        let drops = Rc::new(Cell::new(0));
+        let stains = [
+            Box::new(StainFixture {
+                identity: 1,
+                drops: drops.clone(),
+            }),
+            Box::new(StainFixture {
+                identity: 2,
+                drops: drops.clone(),
+            }),
+        ];
+        let mut manager = BloodManager {
+            bloods: Vec::with_capacity(8),
+        };
+        manager.bloods.extend(
+            stains
+                .iter()
+                .map(|stain| BloodRef::staged(stain.identity, 7)),
+        );
+        manager.bloods.push(manager.bloods[0]);
+        let capacity = manager.bloods.capacity();
+
+        manager.game_init();
+        assert!(manager.bloods.is_empty());
+        assert_eq!(manager.bloods.capacity(), capacity);
+        assert_eq!(drops.get(), 0);
+        assert_eq!([stains[0].identity, stains[1].identity], [1, 2]);
+        manager.game_init();
+        assert!(manager.bloods.is_empty());
+        assert_eq!(manager.bloods.capacity(), capacity);
+        drop(manager);
+        assert_eq!(drops.get(), 0);
+        drop(stains);
+        assert_eq!(drops.get(), 2);
+    }
+
+    #[test]
+    fn blood_frame_pool_clears_follow_native_order() {
+        use crate::script_scheduler::FrameReferenceId;
+
+        #[derive(Default)]
+        struct OrderedPools {
+            lists: GameInitLists,
+            trace: Vec<(&'static str, [usize; 4])>,
+        }
+
+        impl OrderedPools {
+            fn record(&mut self, pool: &'static str) {
+                self.trace.push((
+                    pool,
+                    [
+                        self.lists.blood_manager.bloods.len(),
+                        self.lists.frame_placements.len(),
+                        self.lists.hidden_frames.len(),
+                        self.lists.created_frames.len(),
+                    ],
+                ));
+            }
+        }
+
+        impl BloodAndFramePoolLists for OrderedPools {
+            fn blood_manager(&mut self) -> &mut BloodManager {
+                self.record("blood");
+                &mut self.lists.blood_manager
+            }
+            fn frame_placements(&mut self) -> &mut Vec<SavedFramePlacement> {
+                self.record("placements");
+                &mut self.lists.frame_placements
+            }
+            fn hidden_frames(&mut self) -> &mut Vec<FrameReferenceId> {
+                self.record("hidden");
+                &mut self.lists.hidden_frames
+            }
+            fn created_frames(&mut self) -> &mut Vec<FrameReferenceId> {
+                self.record("created");
+                &mut self.lists.created_frames
+            }
+        }
+
+        let frame = FrameReferenceId::from_existing(5);
+        let mut pools = OrderedPools::default();
+        pools
+            .lists
+            .blood_manager
+            .bloods
+            .extend([BloodRef::staged(1, 7), BloodRef::staged(2, 7)]);
+        pools
+            .lists
+            .frame_placements
+            .push(SavedFramePlacement::staged(
+                frame,
+                [1.0, 2.0, 3.0],
+                [4.0, 5.0, 6.0, 7.0],
+                [8.0, 9.0, 10.0],
+                None,
+                false,
+            ));
+        pools.lists.hidden_frames.extend([frame; 3]);
+        pools.lists.created_frames.extend([frame; 2]);
+
+        clear_blood_and_frame_pools(&mut pools);
+
+        assert_eq!(
+            pools.trace,
+            [
+                ("blood", [2, 1, 3, 2]),
+                ("placements", [0, 1, 3, 2]),
+                ("hidden", [0, 0, 3, 2]),
+                ("created", [0, 0, 0, 2]),
+            ]
+        );
+        assert!(pools.lists.blood_manager.bloods.is_empty());
+        assert!(pools.lists.frame_placements.is_empty());
+        assert!(pools.lists.hidden_frames.is_empty());
+        assert!(pools.lists.created_frames.is_empty());
+    }
+
+    #[test]
+    fn blood_frame_pool_init_preserves_live_frames_and_other_lists() {
+        use crate::model_loading::ModelArena;
+
+        let mut arena = ModelArena::default();
+        let parent = arena.create_model().unwrap().root();
+        let child = arena.create_sound_frame().unwrap();
+        let saved_parent = arena.create_model().unwrap().root();
+        arena.graph.link_to(child, Some(parent)).unwrap();
+        arena.set_frame_on(parent, 1).unwrap();
+        arena.set_frame_on(child, 0).unwrap();
+        arena
+            .graph
+            .set_frame_position_xyz(child, 5.5, -2.0, 0.25)
+            .unwrap();
+        let parent_ref = arena.lookup_reference(parent);
+        let child_ref = arena.lookup_reference(child);
+        let saved_parent_ref = arena.lookup_reference(saved_parent);
+        let keys = [parent, child, saved_parent];
+        let states = keys.map(|key| *arena.state(key).unwrap());
+        let links = keys.map(|key| arena.links(key).unwrap());
+        let references = keys.map(|key| arena.frame(key).unwrap().references);
+        let frame_count = arena.live_frame_count();
+
+        let mut lists = GameInitLists {
+            diff_frames: vec![child_ref],
+            paused_i_shows: vec![11],
+            death_actors: vec![12],
+            film_music_streams: vec![13],
+            box_placement_temp: vec![BoxPlacementTemp::staged(
+                parent_ref,
+                Some(child_ref),
+                [1.0, 2.0, 3.0],
+                [4.0, 5.0, 6.0],
+            )],
+            ..GameInitLists::default()
+        };
+        let cleared_lists = lists.clone();
+        lists.blood_manager.bloods = Vec::with_capacity(8);
+        lists
+            .blood_manager
+            .bloods
+            .extend([BloodRef::staged(1, 7), BloodRef::staged(1, 7)]);
+        lists.frame_placements = Vec::with_capacity(8);
+        lists.frame_placements.push(SavedFramePlacement::staged(
+            child_ref,
+            [75.0, 50.0, 25.0],
+            [2.0, 3.0, 4.0, 5.0],
+            [6.0, 7.0, 8.0],
+            Some(saved_parent_ref),
+            true,
+        ));
+        lists.hidden_frames = Vec::with_capacity(8);
+        lists
+            .hidden_frames
+            .extend([child_ref, parent_ref, child_ref]);
+        lists.created_frames = Vec::with_capacity(8);
+        lists
+            .created_frames
+            .extend([parent_ref, child_ref, parent_ref]);
+        let capacities = [
+            lists.blood_manager.bloods.capacity(),
+            lists.frame_placements.capacity(),
+            lists.hidden_frames.capacity(),
+            lists.created_frames.capacity(),
+        ];
+
+        for _ in 0..2 {
+            lists.init_blood_and_frame_pools();
+
+            assert_eq!(lists, cleared_lists);
+            assert_eq!(
+                [
+                    lists.blood_manager.bloods.capacity(),
+                    lists.frame_placements.capacity(),
+                    lists.hidden_frames.capacity(),
+                    lists.created_frames.capacity(),
+                ],
+                capacities
+            );
+            assert_eq!(arena.live_frame_count(), frame_count);
+            for (index, key) in keys.into_iter().enumerate() {
+                assert_eq!(*arena.state(key).unwrap(), states[index]);
+                assert_eq!(arena.links(key).unwrap(), links[index]);
+                assert_eq!(arena.frame(key).unwrap().references, references[index]);
+            }
+        }
+    }
+
+    #[test]
+    fn blood_frame_placement_values_preserve_scalar_bits() {
+        use crate::script_scheduler::FrameReferenceId;
+
+        let frame = FrameReferenceId::from_existing(0);
+        let parent = FrameReferenceId::from_existing(u32::MAX);
+        let position_bits = [0x80000000, 0x00000001, 0x7fc000a1];
+        let rotation_bits = [0x40000000, 0xc0400000, 0x80000000, 0x7fc000b2];
+        let scale_bits = [0xffc000c3, 0x7f800000, 0x80000001];
+        let placement = SavedFramePlacement::staged(
+            frame,
+            position_bits.map(f32::from_bits),
+            rotation_bits.map(f32::from_bits),
+            scale_bits.map(f32::from_bits),
+            Some(parent),
+            true,
+        );
+
+        assert_eq!(placement.frame(), frame);
+        assert_eq!(placement.parent(), Some(parent));
+        assert!(placement.on());
+        assert_eq!(placement.pos().map(f32::to_bits), position_bits);
+        assert_eq!(placement.rot().map(f32::to_bits), rotation_bits);
+        assert_eq!(placement.scale().map(f32::to_bits), scale_bits);
+
+        let disabled = SavedFramePlacement::staged(
+            frame,
+            placement.pos(),
+            placement.rot(),
+            placement.scale(),
+            None,
+            false,
+        );
+        assert_eq!(disabled.parent(), None);
+        assert!(!disabled.on());
+        assert_eq!(disabled.pos().map(f32::to_bits), position_bits);
+        assert_eq!(disabled.rot().map(f32::to_bits), rotation_bits);
+        assert_eq!(disabled.scale().map(f32::to_bits), scale_bits);
     }
 
     #[test]

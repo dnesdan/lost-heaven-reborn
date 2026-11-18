@@ -145,7 +145,7 @@ const SETTINGS_STOP: &str = "IndicatorsGameInit: mafiaIndicators.GameInit (GAME 
 
 /// The options `G_LoadSaveClass::Init` leaves on a fresh installation (no
 /// profile file: `AllDefault`, speedometer in miles).
-fn adopt_fresh_install_settings(session: &mut MissionLoadSession) {
+pub(super) fn adopt_fresh_install_settings(session: &mut MissionLoadSession) {
     use crate::game_loadsave_lifecycle::*;
     let settings = profile_settings_after_load_save_init(ProfileFileIntake::NoProfileFile).unwrap();
     session.adopt_profile_settings(settings).unwrap();
@@ -401,7 +401,7 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
             }
             PresentedFrame::LoadingScreen(frame) => {
                 assert_eq!(frame.source, LoadingScreenSource::MafiaLoadSave);
-                loading_bars.push(frame.screen.raw_progress());
+                loading_bars.push(frame.raw_progress()?);
             }
         }
         Ok(())
@@ -440,7 +440,8 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
             .progress
             .as_ref()
             .unwrap()
-            .raw_progress(),
+            .raw_progress()
+            .unwrap(),
         0.7
     );
     assert_eq!(session.player_statics(), Default::default());
@@ -460,6 +461,104 @@ fn ordered_init_presents_after_mute_and_stops_before_later_owners() {
         }),
         Err(InitRunError::AlreadyEntered)
     );
+    discard(&mut session);
+}
+
+#[test]
+fn managed_loading_init_dispatch_stops_at_player_navi_without_replay() {
+    use crate::menu_shared_resources::MenuSharedTexture;
+    use crate::menu_text_drawing::MenuTextPrecision;
+    use crate::script_scheduler::FrameReferenceId;
+
+    #[derive(Debug, PartialEq)]
+    enum Effect {
+        Scene,
+        Loading(LoadingScreenSource, f32),
+    }
+
+    let fixture = english_managed_loading_fixture();
+    let mut session = fixture.session();
+    adopt_fresh_install_settings(&mut session);
+    session.select_loading_menu_startup_language().unwrap();
+    session
+        .configure_loading_menu_layout(fixture_managed_menu_layout())
+        .unwrap();
+    load_with_progress(&mut session, &[], &mut Screen::default(), true).unwrap();
+    consume_open_restore(&mut session);
+    session
+        .player_statics
+        .set_player_navi_point(Some(FrameReferenceId::from_existing(3)));
+    session.player_statics.set_can_car_damage(true);
+    let statics = session.player_statics();
+    session.vehicle_sectors.add_sector_for_sounds(STALE_SECTOR);
+    let sectors = session.vehicle_sectors().clone();
+    let audio = session.audio().clone();
+    let progress_key = session
+        .menu_shared_resources
+        .texture(MenuSharedTexture::Progress)
+        .unwrap()
+        .unwrap();
+    let mut sequence = SceneSnapshotSequence::default();
+    let mut attempt = InitAttempt::default();
+    let mut effects = Vec::new();
+    let result =
+        attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |frame| match frame {
+            PresentedFrame::Scene(snapshot) => {
+                assert_eq!(audio.master_gain().unwrap(), 0.0);
+                assert_eq!(snapshot.frame.viewport, [0, 0, 64, 64]);
+                effects.push(Effect::Scene);
+                Ok(())
+            }
+            PresentedFrame::LoadingScreen(frame) => {
+                effects.push(Effect::Loading(frame.source, frame.raw_progress().unwrap()));
+                assert_eq!(frame.progress_texture_for_test(), Ok(Some(progress_key)));
+                let draw = frame
+                    .draw_components(u32::MAX, MenuTextPrecision::Unestablished)
+                    .unwrap();
+                draw.result.unwrap();
+                assert_eq!(draw.scene.meshes.len(), 2);
+                for mesh in &draw.scene.meshes {
+                    assert_eq!(mesh.texture.as_ref().unwrap().rgba, [1, 2, 3, 255]);
+                }
+                Err("injected loading presentation failure".into())
+            }
+        });
+    let Err(InitRunError::Callback(failure)) = result else {
+        panic!("loading presentation failure must propagate");
+    };
+    assert_eq!(failure.step, InitStep::PlayerNavi);
+    assert_eq!(
+        failure.error.0,
+        "PlayerNavi: Init _show_progress_(0.0): injected loading presentation failure"
+    );
+    assert_eq!(attempt.last(), Some(InitStep::PlayerNavi));
+    assert_eq!(
+        effects,
+        [
+            Effect::Scene,
+            Effect::Loading(LoadingScreenSource::MafiaLoadSave, 0.7)
+        ]
+    );
+    let screen = session.load_save_progress().progress.as_ref().unwrap();
+    assert_eq!(screen.raw_progress(), Ok(0.7));
+    assert_eq!(session.player_statics(), statics);
+    assert_eq!(session.vehicle_sectors(), &sectors);
+    assert!(!session.traffic_flags().valid_scream());
+    assert!(session.open_restore_volume());
+    assert_eq!(
+        attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| panic!(
+            "replayed Init"
+        )),
+        Err(InitRunError::AlreadyEntered)
+    );
+    let restart =
+        InitAttempt::default().run_with_presentation(&mut session, [64, 64], &mut sequence, |_| {
+            panic!("replayed session")
+        });
+    assert!(
+        matches!(restart, Err(InitRunError::Callback(failure)) if failure.step == InitStep::ResetMissionState && failure.error.0.contains("mission state reset already entered"))
+    );
+    assert_eq!(sequence.next_number(), Ok(2));
     discard(&mut session);
 }
 
@@ -790,7 +889,8 @@ fn effects_start_runs_the_effects_and_web_path_then_stops_at_ff_manager() {
 }
 
 #[test]
-fn keyboard_mouse_startup_clears_diff_state_and_reaches_blood_pools() {
+fn keyboard_mouse_startup_clears_diff_state_and_stops_at_missing_segments() {
+    use crate::game_ai_segments::{CheckSegCluster, SegmentsLoadStage, SegmentsLoadState};
     use crate::game_loadsave_lifecycle::ProfileFileIntake;
     let source = scene2(
         &[
@@ -800,6 +900,7 @@ fn keyboard_mouse_startup_clears_diff_state_and_reaches_blood_pools() {
         .concat(),
     );
     let fixture = Fixture::new(Some(&world(&[])), Some(&source), None);
+    assert!(!fixture.0.join("missions/synthetic/clusters.seg").exists());
     let mut session = fixture.session_without_hud();
     session.install_indicators(hud()).unwrap();
     adopt_fresh_install_settings(&mut session);
@@ -830,10 +931,27 @@ fn keyboard_mouse_startup_clears_diff_state_and_reaches_blood_pools() {
     let mut sequence = SceneSnapshotSequence::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("blood/frame pools must stop Init")
+        panic!("missing clusters.seg must stop Init")
     };
-    assert_eq!(failure.step, InitStep::BloodAndFramePools);
-    assert_eq!(attempt.last(), Some(InitStep::BloodAndFramePools));
+    assert_eq!(failure.step, InitStep::SegmentsLoad);
+    assert_eq!(attempt.last(), Some(InitStep::SegmentsLoad));
+    assert_eq!(
+        failure.error.0,
+        concat!(
+            "SegmentsLoad: AIManager.segments.Load: SegmentsLoadError { ",
+            "stage: Open, failure: Io(Asset(Error(\"original asset unavailable\"))), ",
+            "close_error: None }"
+        )
+    );
+    let segments = &session.ai_manager().segments;
+    assert_eq!(
+        segments.state(),
+        SegmentsLoadState::Interrupted(SegmentsLoadStage::Open)
+    );
+    assert_eq!(segments.clusters(), &[CheckSegCluster::default()]);
+    assert_eq!(segments.num_segments(), 0);
+    assert_eq!(segments.declared_segment_count(), None);
+    assert_eq!(segments.pending_segment(), None);
     assert!(session.game_lists().diff_frames.is_empty());
     assert!(session.game_lists().diff_actors.is_empty());
     assert_eq!(
@@ -862,6 +980,14 @@ fn keyboard_mouse_startup_clears_diff_state_and_reaches_blood_pools() {
     assert_eq!(after.live_frames, counts.live_frames);
     assert_eq!(after.mission_actors, counts.mission_actors);
     assert_eq!(
+        (
+            after.ai_segment_clusters,
+            after.ai_segments,
+            after.ai_pending_segments,
+        ),
+        (1, 0, 0)
+    );
+    assert_eq!(
         attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(())),
         Err(InitRunError::AlreadyEntered)
     );
@@ -881,6 +1007,10 @@ fn keyboard_mouse_startup_clears_diff_state_and_reaches_blood_pools() {
     discard(&mut session);
     assert!(session.input().is_some());
     assert!(!session.effects().started());
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::Cleared
+    );
     assert_eq!(
         session.input().unwrap().controls().binding(1).unwrap().code,
         0x11

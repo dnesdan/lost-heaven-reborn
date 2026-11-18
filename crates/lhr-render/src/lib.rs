@@ -12,11 +12,13 @@ use wgpu::util::DeviceExt;
 mod lab_environment;
 mod lighting;
 mod material;
+mod ordered_screen;
 mod scene_frame;
 pub use lab_environment::{DebugView, LabEnvironment, Weather};
 pub use lighting::{LightingMode, LightingUploadStatistics, MeshLighting};
 use material::PipelineKey;
 pub use material::{AlphaMode, FrontFace, MaterialQueue, OriginalMaterial, RenderMaterial};
+pub use ordered_screen::OrderedScreenBatch;
 pub use scene_frame::{SceneRenderFrame, SceneRenderPass};
 
 #[repr(C)]
@@ -149,6 +151,7 @@ struct Draw {
     index: wgpu::Buffer,
     count: u32,
     material: Arc<GpuMaterial>,
+    ordered_raw_group: Option<wgpu::BindGroup>,
     source: Weak<Texture>,
     parameters: wgpu::BindGroup,
     parameters_buffer: wgpu::Buffer,
@@ -180,6 +183,7 @@ pub struct Renderer {
     inspection_cutout_pipeline: wgpu::RenderPipeline,
     inspection_alpha_cutout: bool,
     overlay_pipeline: wgpu::RenderPipeline,
+    ordered_screen_pipeline: wgpu::RenderPipeline,
     overlay_buffer: wgpu::Buffer,
     overlay_group: wgpu::BindGroup,
     camera_layout: wgpu::BindGroupLayout,
@@ -502,6 +506,13 @@ impl Renderer {
             multiview: None,
             cache: None,
         });
+        let ordered_screen_pipeline = ordered_screen::pipeline(
+            &device,
+            format,
+            &camera_layout,
+            &texture_layout,
+            &material_layout,
+        );
         let overlay_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Screen projection"),
             contents: bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()),
@@ -570,6 +581,7 @@ impl Renderer {
             inspection_cutout_pipeline,
             inspection_alpha_cutout: false,
             overlay_pipeline,
+            ordered_screen_pipeline,
             overlay_buffer,
             overlay_group,
             camera_layout,
@@ -1040,6 +1052,16 @@ impl Renderer {
         height: u32,
         render: impl FnOnce(&wgpu::TextureView) -> Result<wgpu::CommandEncoder, String>,
     ) -> Result<Vec<u8>, String> {
+        self.readback_texture_using(width, height, |texture| {
+            render(&texture.create_view(&Default::default()))
+        })
+    }
+    fn readback_texture_using(
+        &self,
+        width: u32,
+        height: u32,
+        render: impl FnOnce(&wgpu::Texture) -> Result<wgpu::CommandEncoder, String>,
+    ) -> Result<Vec<u8>, String> {
         if width == 0 || height == 0 || width > 8192 || height > 8192 {
             return Err("Capture size outside supported range".into());
         }
@@ -1064,7 +1086,7 @@ impl Renderer {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let mut encoder = render(&texture.create_view(&Default::default()))?;
+        let mut encoder = render(&texture)?;
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -1222,7 +1244,11 @@ fn upload_meshes(
                     wgpu::TextureFormat::Rgba8Unorm
                 },
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
+                view_formats: if srgb {
+                    &[wgpu::TextureFormat::Rgba8Unorm]
+                } else {
+                    &[]
+                },
             });
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
@@ -1288,6 +1314,13 @@ fn upload_meshes(
             );
             material
         };
+        let ordered_raw_group = ordered_screen::raw_texture_group(
+            device,
+            texture_layout,
+            &material.texture,
+            linear,
+            tex.repeat,
+        );
         let parameters_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Per-draw material parameters"),
             contents: bytemuck::cast_slice(&mesh.material.parameters()),
@@ -1328,6 +1361,7 @@ fn upload_meshes(
             lighting_vertices,
             lighting_vertex,
             lighting_parameters: [0., 1., 1.],
+            ordered_raw_group,
             material,
             source: Arc::downgrade(tex),
             parameters,

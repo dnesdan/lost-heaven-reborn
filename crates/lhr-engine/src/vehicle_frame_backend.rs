@@ -7,6 +7,7 @@
 //! Car CRT helpers cover the original initial C locale; locale mutation and its
 //! OS conversion paths are outside this adapter's supported domain.
 use crate::{
+    frame_name_comparison::{enum_name_matches, NameComparisonError},
     frame_transform::{FrameKey, FrameKind},
     model_loading::{ModelArena, ModelError, ModelKey},
     native_transform::SQuat,
@@ -52,6 +53,7 @@ pub enum VehicleFrameError<E> {
     UnsupportedField { frame: FrameKey, offset: u32 },
     UnsupportedEnumeration(u32),
     UnsupportedName(FrameKey),
+    UnsupportedFrameNameLocale,
     NumericDomain(&'static str),
     BodycolAdapterRequired,
     UnavailableFrameMethod(&'static str),
@@ -570,7 +572,7 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
         {
             return Err(E::from(VehicleFrameError::UnsupportedEnumeration(mask)));
         }
-        if pattern.is_some_and(|pattern| !pattern.is_ascii() || pattern.contains(&0)) {
+        if pattern.is_some_and(|pattern| pattern.contains(&0)) {
             return Err(E::from(VehicleFrameError::UnsupportedName(key)));
         }
         let mut next = self
@@ -633,12 +635,22 @@ impl<'a, B: VehicleInitBackend> VehicleFrameBackend<'a, B> {
                             .as_deref()
                         {
                             Some(name) => {
-                                if !name.is_ascii() || name.contains(&0) {
+                                if name.contains(&0) {
                                     return Err(E::from(VehicleFrameError::UnsupportedName(
                                         current,
                                     )));
                                 }
-                                name_matches(pattern, name, mask)
+                                enum_name_matches(self.arena.frame_name_locale, pattern, name, mask)
+                                    .map_err(|error| {
+                                        E::from(match error {
+                                            NameComparisonError::EmbeddedNul => {
+                                                VehicleFrameError::UnsupportedName(current)
+                                            }
+                                            NameComparisonError::UnsupportedLocale => {
+                                                VehicleFrameError::UnsupportedFrameNameLocale
+                                            }
+                                        })
+                                    })?
                             }
                             None => false,
                         }
@@ -685,32 +697,6 @@ fn bounds_word(bounds: crate::mesh_bounds::MeshBoundVolume, index: u32) -> u32 {
         9 => bounds.radius.to_bits(),
         _ => unreachable!(),
     }
-}
-fn name_matches(pattern: &[u8], name: &[u8], mask: u32) -> bool {
-    if mask & 0x10000 == 0 {
-        return if mask & 0x20000 != 0 {
-            pattern == name
-        } else {
-            pattern.eq_ignore_ascii_case(name)
-        };
-    }
-    for index in 0..=pattern.len().min(name.len()) {
-        let a = pattern.get(index).copied().unwrap_or(0);
-        let b = name.get(index).copied().unwrap_or(0);
-        if a == b'*' {
-            return true;
-        }
-        if a != b'?'
-            && if mask & 0x20000 != 0 {
-                a != b
-            } else {
-                !a.eq_ignore_ascii_case(&b)
-            }
-        {
-            return false;
-        }
-    }
-    true
 }
 impl<E> From<VehicleFrameError<E>> for VehicleInitUnavailable<VehicleFrameError<E>> {
     fn from(error: VehicleFrameError<E>) -> Self {
@@ -1530,6 +1516,82 @@ mod tests {
         assert_eq!(backend.read_byte(name), Ok(b'r'));
         assert_eq!(backend.read_word(found[0] + 0x120), Ok(root));
     }
+    #[test]
+    fn body_query_crosses_unrelated_high_byte_names_and_uses_live_original_names() {
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        let body = dummy(&mut arena, model, model.root(), b"body", [0.; 3]);
+        let unrelated = dummy(&mut arena, model, model.root(), b"\xa8OTHER", [0.; 3]);
+        let mut memory = Memory::new();
+        let mut backend = VehicleFrameBackend::new(&mut arena, &mut memory);
+        let root = backend.frame_address(model.root()).unwrap();
+        let mut visited = Vec::new();
+        backend
+            .enumerate_frames(root, b"BODY", 0x21, |backend, address| {
+                visited.push(backend.frame_key(address)?);
+                Ok::<_, VehicleFrameError<&str>>(0)
+            })
+            .unwrap();
+        assert_eq!(visited, [body]);
+        backend.arena_mut().frames[(unrelated.0 - 1) as usize].original_name_bytes =
+            Some(b"\xa8body".to_vec());
+        let mut high_byte_matches = Vec::new();
+        backend
+            .enumerate_frames(root, b"\xa8BODY", 0x21, |backend, address| {
+                high_byte_matches.push(backend.frame_key(address)?);
+                Ok::<_, VehicleFrameError<&str>>(2)
+            })
+            .unwrap();
+        assert_eq!(high_byte_matches, [unrelated]);
+        backend.arena_mut().frames[(unrelated.0 - 1) as usize].original_name_bytes =
+            Some(b"BODY\0bad".to_vec());
+        assert_eq!(
+            backend.enumerate_frames(
+                root,
+                b"BODY",
+                0x21,
+                |_, _| Ok::<_, VehicleFrameError<&str>>(0)
+            ),
+            Err(VehicleFrameError::UnsupportedName(unrelated))
+        );
+    }
+
+    #[test]
+    fn ls3df_locale_is_read_at_each_reached_comparison_and_preserves_the_prefix() {
+        use crate::frame_name_comparison::Ls3dfNameLocale;
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        dummy(&mut arena, model, model.root(), b"BODY", [0.; 3]);
+        let first = dummy(&mut arena, model, model.root(), b"BODY", [0.; 3]);
+        let mut memory = Memory::new();
+        let mut backend = VehicleFrameBackend::new(&mut arena, &mut memory);
+        let root = backend.frame_address(model.root()).unwrap();
+        let mut visited = Vec::new();
+        let result = backend.enumerate_frames(root, b"BODY", 0x21, |backend, address| {
+            visited.push(backend.frame_key(address)?);
+            backend.arena_mut().frame_name_locale = Ls3dfNameLocale::NonDefault;
+            Ok::<_, VehicleFrameError<&str>>(0)
+        });
+        assert_eq!(visited, [first]);
+        assert_eq!(result, Err(VehicleFrameError::UnsupportedFrameNameLocale));
+        assert_eq!(
+            backend.enumerate_frames(
+                root,
+                b"*",
+                0x10021,
+                |_, _| Ok::<_, VehicleFrameError<&str>>(2)
+            ),
+            Ok(2)
+        );
+        assert_eq!(
+            backend.enumerate_frames(root, b"BODY", 0x20021, |_, _| Ok::<
+                _,
+                VehicleFrameError<&str>,
+            >(2)),
+            Ok(2)
+        );
+    }
+
     #[test]
     fn enum_skip_children_cancel_and_unknown_callback_returns_are_distinct() {
         for result in [0, 1, 2, 99] {

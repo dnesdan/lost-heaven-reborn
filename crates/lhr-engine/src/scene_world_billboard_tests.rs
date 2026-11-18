@@ -120,6 +120,401 @@ fn assert_empty_failure(arena: &ModelArena, scene: SceneKey, failure: &CpuSceneW
     assert!(!arena.scenes[arena.scene_index(scene).unwrap()].cpu_world_intake_active);
 }
 
+fn live_source_frame_keys(arena: &ModelArena) -> Vec<FrameKey> {
+    arena
+        .frames
+        .iter()
+        .filter(|frame| frame.alive && frame.source_index.is_some())
+        .map(|frame| frame.key)
+        .collect()
+}
+
+#[test]
+fn reports_reborrow_the_live_arena_through_frame_and_resource_publication() {
+    crate::native_precision::Pc24PrecisionState::default().run(|| {
+        let scratch = Scratch::new();
+        let installation = scratch.install(&world(
+            &[
+                visual(b"sprite", 0, 0, Some((0, 1))),
+                visual(b"child", 1, 1, Some((1, 1))),
+            ],
+            b"",
+        ));
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let primary = arena.scene(scene).unwrap().sectors[0].frame();
+        let identity = arena.lookup_reference(scene.root());
+        let alias = arena.create_dummy_frame().unwrap();
+        arena.set_frame_property(alias, Some(b"outside")).unwrap();
+        let mut created = None;
+        let mut first_frame = None;
+        let mut reports = Vec::new();
+        let progress = arena
+            .load_scene_world_cpu_reporting(
+                scene,
+                &installation,
+                "world.i3d",
+                &mut |arena, entry| {
+                    assert_eq!(arena.lookup_reference(scene.root()), identity);
+                    reports.push(entry);
+                    let prefix = live_source_frame_keys(arena);
+                    match reports.len() {
+                        1 => {
+                            assert_eq!(entry, LoadHierarchyReport::Begin);
+                            assert_eq!(arena.frame_property_or_empty(alias).unwrap(), b"outside");
+                            assert!(prefix.is_empty());
+                            arena.set_frame_property(alias, Some(b"begin")).unwrap();
+                            let key = arena.create_dummy_frame().unwrap();
+                            arena.set_frame_property(key, Some(b"begin")).unwrap();
+                            created = Some(key);
+                        }
+                        2 => {
+                            assert_eq!(entry, LoadHierarchyReport::Step(0.0));
+                            assert!(prefix.is_empty());
+                            assert!(arena.loaded_visual_resources().is_none());
+                            let key = created.unwrap();
+                            assert_eq!(arena.frame_property_or_empty(key).unwrap(), b"begin");
+                            arena.set_frame_property(key, Some(b"material")).unwrap();
+                        }
+                        3 => {
+                            assert_eq!(entry, LoadHierarchyReport::Step(0.5));
+                            assert!(prefix.is_empty());
+                            assert!(arena.loaded_visual_resources().is_none());
+                            let key = created.unwrap();
+                            assert_eq!(arena.frame_property_or_empty(key).unwrap(), b"material");
+                            arena.set_frame_property(key, Some(b"frame-zero")).unwrap();
+                            assert_ne!(arena.graph.frame_flags_word(primary).unwrap() & 0x80, 0);
+                            arena.set_frame_position(primary, [7.0, 9.0, 11.0]).unwrap();
+                            assert_eq!(
+                                arena.graph.frame_local_position(primary).unwrap(),
+                                [0.0, 0.0, 0.0]
+                            );
+                        }
+                        4 => {
+                            assert_eq!(entry, LoadHierarchyReport::Step(0.5));
+                            assert_eq!(prefix.len(), 1);
+                            let key = prefix[0];
+                            assert_eq!(arena.frame(key).unwrap().source_index, Some(0));
+                            assert_eq!(arena.frame(key).unwrap().name_bytes, b"sprite");
+                            assert_eq!(arena.frame(key).unwrap().references, 1);
+                            assert_eq!(arena.frame(key).unwrap().owner, None);
+                            assert_eq!(arena.links(key).unwrap().parent, None);
+                            assert_eq!(arena.frame_object_resources(key).unwrap(), None);
+                            assert!(arena.scene(scene).unwrap().frames().is_empty());
+                            assert_eq!(
+                                arena.frame_property_or_empty(created.unwrap()).unwrap(),
+                                b"frame-zero"
+                            );
+                            arena.set_frame_property(key, Some(b"frame-one")).unwrap();
+                            assert_eq!(arena.graph.frame_flags_word(key).unwrap() & 0x80, 0);
+                            arena.set_frame_position(key, [7.0, 9.0, 11.0]).unwrap();
+                            assert_eq!(
+                                arena.graph.frame_local_position(key).unwrap(),
+                                [7.0, 9.0, 11.0]
+                            );
+                            first_frame = Some(key);
+                        }
+                        5 => {
+                            assert_eq!(entry, LoadHierarchyReport::End);
+                            assert_eq!(prefix.len(), 2);
+                            assert_eq!(Some(prefix[0]), first_frame);
+                            assert_eq!(arena.scene(scene).unwrap().frames(), prefix);
+                            assert_eq!(arena.links(prefix[0]).unwrap().parent, Some(primary));
+                            assert_eq!(arena.links(prefix[1]).unwrap().parent, Some(prefix[0]));
+                            assert_eq!(arena.frame_property_or_empty(alias).unwrap(), b"begin");
+                            assert_eq!(
+                                arena.frame_property_or_empty(prefix[0]).unwrap(),
+                                b"frame-one"
+                            );
+                            assert_eq!(
+                                arena.frame_world_position(prefix[0]).unwrap(),
+                                [7.0, 9.0, 11.0]
+                            );
+                            assert_eq!(
+                                arena.frame_world_position(prefix[1]).unwrap(),
+                                [7.0, 9.0, 11.0]
+                            );
+                            assert_eq!(
+                                arena.frame_world_position(primary).unwrap(),
+                                [0.0, 0.0, 0.0]
+                            );
+                            let object = arena.frame_object_resources(prefix[0]).unwrap().unwrap();
+                            assert!(arena.frame_object_resources(prefix[1]).unwrap().is_some());
+                            arena.publish_runtime_buffers().unwrap();
+                            assert_eq!(
+                                arena
+                                    .loaded_visual_resources()
+                                    .unwrap()
+                                    .inspection_mesh(object, 8)
+                                    .unwrap()
+                                    .unwrap()
+                                    .visual_type,
+                                ObjectVisualType::Billboard
+                            );
+                            arena.set_frame_property(prefix[0], Some(b"end")).unwrap();
+                            arena
+                                .set_frame_property(created.unwrap(), Some(b"end"))
+                                .unwrap();
+                        }
+                        _ => panic!("unexpected report after END: {entry:?}"),
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            reports,
+            [
+                LoadHierarchyReport::Begin,
+                LoadHierarchyReport::Step(0.0),
+                LoadHierarchyReport::Step(0.5),
+                LoadHierarchyReport::Step(0.5),
+                LoadHierarchyReport::End,
+            ]
+        );
+        assert_eq!(progress.phase(), CpuSceneWorldPhase::Complete);
+        assert_eq!(Some(progress.frames()[0]), first_frame);
+        assert_eq!(
+            arena.frame_property_or_empty(progress.frames()[0]).unwrap(),
+            b"end"
+        );
+        assert_eq!(
+            arena.frame_property_or_empty(created.unwrap()).unwrap(),
+            b"end"
+        );
+        assert_eq!(arena.frame_property_or_empty(alias).unwrap(), b"begin");
+        arena.release(created.unwrap()).unwrap();
+        arena.release(alias).unwrap();
+        close_world(&mut arena, scene);
+    });
+}
+
+#[test]
+fn refused_live_reports_keep_the_exact_reached_prefix_without_cleanup_end() {
+    crate::native_precision::Pc24PrecisionState::default().run(|| {
+        let scratch = Scratch::new();
+        let installation = scratch.install(&world(
+            &[
+                visual(b"sprite", 0, 0, Some((0, 1))),
+                visual(b"later", 0, 1, Some((1, 1))),
+            ],
+            b"",
+        ));
+        let expected_reports = [
+            LoadHierarchyReport::Begin,
+            LoadHierarchyReport::Step(0.0),
+            LoadHierarchyReport::Step(0.5),
+            LoadHierarchyReport::Step(0.5),
+            LoadHierarchyReport::End,
+        ];
+        for stop_at in 0..expected_reports.len() {
+            let mut arena = ModelArena::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            let identity = arena.lookup_reference(scene.root());
+            let alias = arena.create_dummy_frame().unwrap();
+            arena.set_frame_property(alias, Some(b"outside")).unwrap();
+            let mut reports = Vec::new();
+            let mut reached_frames = Vec::new();
+            let stop = format!("stop-{stop_at}");
+            let mut failure = arena
+                .load_scene_world_cpu_reporting(
+                    scene,
+                    &installation,
+                    "world.i3d",
+                    &mut |arena, entry| {
+                        assert_eq!(arena.lookup_reference(scene.root()), identity);
+                        let ordinal = reports.len();
+                        assert_eq!(entry, expected_reports[ordinal]);
+                        let previous = if ordinal == 0 {
+                            "outside".to_owned()
+                        } else {
+                            format!("report-{}", ordinal - 1)
+                        };
+                        assert_eq!(
+                            arena.frame_property_or_empty(alias).unwrap(),
+                            previous.as_bytes()
+                        );
+                        let value = format!("report-{ordinal}");
+                        arena
+                            .set_frame_property(alias, Some(value.as_bytes()))
+                            .unwrap();
+                        reached_frames = live_source_frame_keys(arena);
+                        assert_eq!(reached_frames.len(), [0, 0, 0, 1, 2][ordinal]);
+                        for &key in &reached_frames {
+                            assert_eq!(arena.frame(key).unwrap().references, 1);
+                            if entry != LoadHierarchyReport::End {
+                                assert_eq!(arena.frame(key).unwrap().owner, None);
+                                assert_eq!(arena.links(key).unwrap().parent, None);
+                                assert_eq!(arena.frame_object_resources(key).unwrap(), None);
+                            }
+                        }
+                        reports.push(entry);
+                        if ordinal == stop_at {
+                            Err(stop.clone())
+                        } else {
+                            Ok(())
+                        }
+                    },
+                )
+                .unwrap_err();
+            assert!(matches!(
+                failure.error,
+                CpuSceneWorldError::Model(ModelError::LoadCallback(ref message)) if message == &stop
+            ));
+            assert_eq!(reports, expected_reports[..=stop_at]);
+            assert_eq!(
+                arena.frame_property_or_empty(alias).unwrap(),
+                format!("report-{stop_at}").as_bytes()
+            );
+            assert_eq!(failure.progress.frames(), reached_frames);
+            assert_eq!(
+                failure.progress.phase(),
+                [
+                    CpuSceneWorldPhase::Admission,
+                    CpuSceneWorldPhase::Input,
+                    CpuSceneWorldPhase::Geometry,
+                    CpuSceneWorldPhase::Geometry,
+                    CpuSceneWorldPhase::Prepare,
+                ][stop_at]
+            );
+            assert_eq!(
+                failure.progress.creator_references_pending(),
+                matches!(stop_at, 2 | 3)
+            );
+            if stop_at < 4 {
+                assert_eq!(failure.progress.transferred_frames(), 0);
+                assert!(arena.scene(scene).unwrap().frames().is_empty());
+                assert!(arena.loaded_visual_resources().is_none());
+                for &key in &reached_frames {
+                    assert_eq!(arena.frame(key).unwrap().references, 1);
+                    assert_eq!(arena.frame(key).unwrap().owner, None);
+                }
+            } else {
+                assert_eq!(failure.progress.transferred_frames(), 2);
+                assert_eq!(failure.progress.staging_model(), None);
+                assert_eq!(arena.scene(scene).unwrap().frames(), reached_frames);
+                for &key in &reached_frames {
+                    assert_eq!(arena.frame(key).unwrap().owner, Some(scene.into()));
+                    assert!(arena.frame_object_resources(key).unwrap().is_some());
+                }
+            }
+            arena
+                .discard_scene_world_staging_cpu(&mut failure.progress)
+                .unwrap();
+            arena.release(alias).unwrap();
+            close_world(&mut arena, scene);
+        }
+    });
+}
+
+#[test]
+fn error_end_reborrows_the_retained_resource_failure_prefix_without_replay() {
+    crate::native_precision::Pc24PrecisionState::default().run(|| {
+        let scratch = Scratch::new();
+        let installation = scratch.install(&world(
+            &[visual(b"sprite", 0, 0, Some((0, 1)))],
+            b"absent.tga",
+        ));
+        let mut original_error = None;
+        for refuse_end in [false, true] {
+            let mut arena = ModelArena::default();
+            let scene = arena.construct_scene_owner_prefix().unwrap();
+            let primary = arena.scene(scene).unwrap().sectors[0].frame();
+            let identity = arena.lookup_reference(scene.root());
+            let alias = arena.create_dummy_frame().unwrap();
+            arena.set_frame_property(alias, Some(b"outside")).unwrap();
+            let mut reports = Vec::new();
+            let mut retained = None;
+            let mut failure = arena
+                .load_scene_world_cpu_reporting(scene, &installation, "world.i3d", &mut |arena, entry| {
+                    assert_eq!(arena.lookup_reference(scene.root()), identity);
+                    let previous = if reports.is_empty() {
+                        "outside".to_owned()
+                    } else {
+                        format!("report-{}", reports.len() - 1)
+                    };
+                    assert_eq!(arena.frame_property_or_empty(alias).unwrap(), previous.as_bytes());
+                    let value = format!("report-{}", reports.len());
+                    arena.set_frame_property(alias, Some(value.as_bytes())).unwrap();
+                    reports.push(entry);
+                    if entry == LoadHierarchyReport::End {
+                        let prefix = live_source_frame_keys(arena);
+                        assert_eq!(prefix.len(), 1);
+                        let key = prefix[0];
+                        let frame = arena.frame(key).unwrap();
+                        assert_eq!(frame.source_index, Some(0));
+                        assert_eq!(frame.name_bytes, b"sprite");
+                        assert_eq!(frame.references, 1);
+                        let staging = match frame.owner.unwrap() {
+                            crate::scene_ownership::FrameOwner::Model(model) => model,
+                            other => panic!("unexpected owner at resource failure: {other:?}"),
+                        };
+                        assert_eq!(arena.model(staging).unwrap().frames, prefix);
+                        assert_eq!(arena.frame(staging.root()).unwrap().references, 1);
+                        assert_eq!(arena.links(key).unwrap().parent, Some(primary));
+                        assert!(arena.scene(scene).unwrap().frames().is_empty());
+                        assert_eq!(arena.frame_object_resources(key).unwrap(), None);
+                        let resources = arena.loaded_visual_resources().unwrap();
+                        assert_eq!(resources.backend().live_graphics(), 0);
+                        assert_eq!(resources.backend().live_textures(), 0);
+                        assert_eq!(frame.billboard.unwrap().orientation, BillboardOrientation::default());
+                        arena.set_frame_property(key, Some(b"error-end")).unwrap();
+                        retained = Some((key, staging));
+                        if refuse_end {
+                            return Err("error-end-stop".into());
+                        }
+                    } else {
+                        assert!(live_source_frame_keys(arena).is_empty());
+                        assert!(arena.loaded_visual_resources().is_none());
+                    }
+                    Ok(())
+                })
+                .unwrap_err();
+            assert_eq!(
+                reports,
+                [
+                    LoadHierarchyReport::Begin,
+                    LoadHierarchyReport::Step(0.0),
+                    LoadHierarchyReport::Step(0.5),
+                    LoadHierarchyReport::End,
+                ]
+            );
+            if refuse_end {
+                assert!(matches!(
+                    failure.error,
+                    CpuSceneWorldError::Model(ModelError::LoadCallback(ref message))
+                        if message == &format!("error-end-stop (END after {})", original_error.as_ref().unwrap())
+                ));
+            } else {
+                assert!(matches!(
+                    failure.error,
+                    CpuSceneWorldError::Model(ModelError::LoadedVisual(
+                        crate::loaded_visual_resources::LoadedVisualError::Asset(ref message)
+                    )) if message.starts_with("maps/absent.tga:")
+                ));
+                let CpuSceneWorldError::Model(ref error) = failure.error else {
+                    panic!("unexpected driver-domain failure")
+                };
+                original_error = Some(format!("{error:?}"));
+            }
+            let (key, staging) = retained.unwrap();
+            assert_eq!(failure.progress.phase(), CpuSceneWorldPhase::Resources);
+            assert_eq!(failure.progress.frames(), &[key]);
+            assert_eq!(failure.progress.staging_model(), Some(staging));
+            assert_eq!(failure.progress.transferred_frames(), 0);
+            assert!(!failure.progress.creator_references_pending());
+            assert_eq!(arena.frame(key).unwrap().owner, Some(staging.into()));
+            assert_eq!(arena.frame(key).unwrap().references, 1);
+            assert_eq!(arena.frame_property_or_empty(key).unwrap(), b"error-end");
+            assert_eq!(arena.frame_property_or_empty(alias).unwrap(), b"report-3");
+            arena.discard_scene_world_staging_cpu(&mut failure.progress).unwrap();
+            assert!(arena.frame(key).is_err());
+            arena.release(alias).unwrap();
+            close_world(&mut arena, scene);
+        }
+    });
+}
+
 #[test]
 fn installed_world_keeps_billboard_class_suffix_bounds_and_scene_ownership() {
     crate::native_precision::Pc24PrecisionState::default().run(|| {
@@ -394,7 +789,7 @@ fn other_frame_classes_still_stop_before_world_owner_mutation() {
                 source,
                 &[],
                 &mut progress,
-                &mut |_| Ok(())
+                &mut |_, _| Ok(())
             ),
             Err(ModelError::UnsupportedFrame {
                 index: 0,
@@ -557,7 +952,7 @@ fn a_refused_admission_reports_neither_begin_nor_end() {
         let scene = arena.construct_scene_owner_prefix().unwrap();
         let mut reports = Vec::new();
         arena
-            .load_scene_world_cpu_reporting(scene, &installation, "world.i3d", &mut |report| {
+            .load_scene_world_cpu_reporting(scene, &installation, "world.i3d", &mut |_, report| {
                 reports.push(report);
                 Ok(())
             })
@@ -568,7 +963,7 @@ fn a_refused_admission_reports_neither_begin_nor_end() {
         // LoadHierarchy starts, so neither BEGIN nor END is reported.
         let mut second = Vec::new();
         let failure = arena
-            .load_scene_world_cpu_reporting(scene, &installation, "world.i3d", &mut |report| {
+            .load_scene_world_cpu_reporting(scene, &installation, "world.i3d", &mut |_, report| {
                 second.push(report);
                 Ok(())
             })

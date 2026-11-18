@@ -45,9 +45,9 @@ pub use sector_groups::fill_primary_sector_groups;
 #[path = "mission_freeride.rs"]
 mod freeride_start;
 pub use freeride_start::{
-    FreerideAttempt, FreerideError, FreerideFailure, FreerideOperations, FreerideRequest,
-    FreerideResult, FreerideRunError, FreerideScope, FreerideSetupError, FreerideSetupProgress,
-    FreerideSetupStep, FreerideStep, FREERIDE_MISSION,
+    FreerideAttempt, FreerideError, FreerideFailure, FreerideOperations, FreeridePresentation,
+    FreerideRequest, FreerideResult, FreerideRunError, FreerideScope, FreerideSetupError,
+    FreerideSetupProgress, FreerideSetupStep, FreerideStep, FREERIDE_MISSION,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -76,6 +76,7 @@ pub enum MissionLoadPhase {
 #[derive(Debug)]
 pub enum MissionLoadInitError {
     Textures(TextureError),
+    MenuResources(String),
     CacheStrings(StringError),
     /// `new C_effects` (`C_mission::Init`, GAME 0x53f230): the constructor's
     /// `tables\effects.tbl` load stopped at a host admission boundary.
@@ -129,6 +130,7 @@ pub enum MissionLoadCallError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MissionDiscardPhase {
     NotStarted,
+    LoadingMenus,
     PendingVisual,
     FreerideModels,
     WorldStaging,
@@ -229,11 +231,15 @@ pub struct MissionOwnedCounts {
     pub box_placement_temporaries: usize,
     pub diff_frames: usize,
     pub diff_actors: usize,
+    pub ai_segment_clusters: usize,
+    pub ai_segments: usize,
+    pub ai_pending_segments: usize,
 }
 
 #[derive(Debug)]
 pub enum MissionDiscardCause {
     StartupPatches(ProgramPatchStartupError),
+    LoadingMenus(String),
     PendingVisual(ModelError),
     FreerideModel(ModelError),
     VisualBuffers(ModelError),
@@ -301,6 +307,7 @@ impl MissionOwnedCounts {
         collision: Option<&crate::game_collision::GameCollision>,
         effects: Option<&crate::session_effects::SessionEffects>,
         game_lists: Option<&crate::game_housekeeping::GameInitLists>,
+        segments: Option<&crate::game_ai_segments::CheckSegClusters>,
     ) -> Result<Self, MissionOwnerDiagnosticsError> {
         let collision_counts = collision.map(|owner| owner.counts()).unwrap_or_default();
         let visual = arena.loaded_visual_resources();
@@ -386,6 +393,16 @@ impl MissionOwnedCounts {
             box_placement_temporaries: game_lists.map_or(0, |lists| lists.box_placement_temp.len()),
             diff_frames: game_lists.map_or(0, |lists| lists.diff_frames.len()),
             diff_actors: game_lists.map_or(0, |lists| lists.diff_actors.len()),
+            ai_segment_clusters: segments.map_or(0, |owner| owner.clusters().len()),
+            ai_segments: segments.map_or(0, |owner| {
+                owner
+                    .clusters()
+                    .iter()
+                    .map(|cluster| cluster.segments().iter().flatten().count())
+                    .sum()
+            }),
+            ai_pending_segments: segments
+                .map_or(0, |owner| usize::from(owner.pending_segment().is_some())),
         })
     }
 }
@@ -411,13 +428,14 @@ pub enum MissionDiscardCallError {
 /// original destructors. `discard_terminal` is explicit and may stop at a real
 /// unavailable cleanup boundary. A fresh attempt requires a new session.
 pub struct MissionLoadSession {
-    installation: lhr_assets::Installation,
+    installation: std::sync::Arc<lhr_assets::Installation>,
     audio: RuntimeAudio,
     driver: DriverSceneOwner,
     arena: ModelArena,
     resources: SceneResources,
-    textures: TextureResources,
-    texture_storage: CpuTextureStorage,
+    menu_draw_resources: crate::menu_draw_resources::MenuDrawResources,
+    menu_shared_resources: crate::menu_shared_resources::MenuSharedResources,
+    menu_layout: Option<crate::menu::MenuComponentCreateContext>,
     caches: MissionCaches,
     cache_memory: CpuMissionCacheMemory,
     navigation: SessionNavigation,
@@ -451,6 +469,10 @@ pub struct MissionLoadSession {
     /// The C_game vectors `Init` empties (`stop_sounds`, `paused_i_shows`,
     /// `free_shadow_names`, `unknown_140`), owned beside `game_inline`.
     game_lists: crate::game_housekeeping::GameInitLists,
+    game_init_consoles: crate::game_init_consoles::GameInitConsoles,
+    saved_init_fast_find: Option<crate::game_init_consoles::SavedFastFind>,
+    driver_and_consoles_entered: bool,
+    segments_load_entered: bool,
     /// `C_crash_obj::count` (GAME 0x63d6d4), session-scoped like the other
     /// process statics. Starts at the zeroed process seed; crash actor
     /// GameInit/GameDone and Tick producers are not composed here. The
@@ -466,10 +488,10 @@ pub struct MissionLoadSession {
     /// disposal. Absent, `Init` stops at its first HUD effect
     /// (`ScoreSetOn`'s `BonusSetCount`).
     indicators: Option<crate::indicators::IndicatorsState>,
-    /// The `AIManager` global's police/groups/follow/fight members (GAME
-    /// 0x646c80). A process global like `mafiaIndicators`: constructed with
-    /// the session, it owns only vectors of borrowed identities, all empty
-    /// until their unported writers run. Known divergence: natively its
+    /// The `AIManager` global's police/groups/follow/fight and segment owners
+    /// (GAME 0x646c80). Constructed with the session; segment arrays are owned,
+    /// while the other represented vectors hold borrowed identities.
+    /// Known divergence: natively its
     /// scalars and vectors carry over across missions until `C_game`
     /// teardown (`KonecSmeny`/`Destroy`, game.cpp:1279-1282, unported);
     /// here each session starts from the constructor zeros.
@@ -694,6 +716,16 @@ impl MissionLoadSession {
     ) -> Result<Self, MissionLoadInitError> {
         let effects = crate::session_effects::SessionEffects::construct(&installation)
             .map_err(MissionLoadInitError::Effects)?;
+        let installation = std::sync::Arc::new(installation);
+        let menu_draw_resources = crate::menu_draw_resources::MenuDrawResources::from_cpu_factory(
+            crate::menu_draw_resources::MenuTextDatabase::new(),
+            TextureResources::new().map_err(MissionLoadInitError::Textures)?,
+            CpuTextureStorage::default(),
+            crate::host_scene_adapters::SharedInstallationImages(std::sync::Arc::clone(
+                &installation,
+            )),
+        )
+        .map_err(MissionLoadInitError::MenuResources)?;
         Ok(Self {
             effects,
             installation,
@@ -713,8 +745,9 @@ impl MissionLoadSession {
                 arena
             },
             resources: SceneResources::default(),
-            textures: TextureResources::new().map_err(MissionLoadInitError::Textures)?,
-            texture_storage: CpuTextureStorage::default(),
+            menu_draw_resources,
+            menu_shared_resources: crate::menu_shared_resources::MenuSharedResources::new(),
+            menu_layout: None,
             caches: MissionCaches::empty().map_err(MissionLoadInitError::CacheStrings)?,
             cache_memory: CpuMissionCacheMemory::default(),
             navigation: SessionNavigation::new(),
@@ -736,6 +769,10 @@ impl MissionLoadSession {
             freeride_setup: Default::default(),
             game_inline: crate::game_housekeeping::GameInlineState::default(),
             game_lists: Default::default(),
+            game_init_consoles: Default::default(),
+            saved_init_fast_find: None,
+            driver_and_consoles_entered: false,
+            segments_load_entered: false,
             crash_object_count: 0,
             shadow_name_buffers: Default::default(),
             indicators: None,
@@ -1437,10 +1474,92 @@ impl MissionLoadSession {
     pub fn prepare_progress_for_open(&mut self) -> Result<(), String> {
         self.open_terminal_guard()?;
         if self.open_progress_argument && self.load_save_progress.progress.is_none() {
-            self.load_save_progress.progress =
-                Some(crate::game_loadsave_lifecycle::LoadProgressScreen::for_mission_open());
+            use crate::game_loadsave_lifecycle::{LoadProgressScreen, MISSION_OPEN_PROGRESS_PART};
+            let mut inputs = SessionLoadProgressInputs {
+                installation: &self.installation,
+                indicators: self.indicators.as_ref(),
+                mission_name: self.open_mission_name.as_deref(),
+                menu_layout: self.menu_layout,
+                resources: &mut self.menu_draw_resources,
+                shared: &mut self.menu_shared_resources,
+                arena: &mut self.arena,
+                audio: &self.audio,
+            };
+            let screen =
+                LoadProgressScreen::construct_for_load(MISSION_OPEN_PROGRESS_PART, &mut inputs)?;
+            self.load_save_progress.progress = Some(screen);
         }
         Ok(())
+    }
+
+    /// Supply the loading menu's established layout from a host before source
+    /// Open begins. This does not infer any numerical policy from the device.
+    pub fn configure_loading_menu_layout(
+        &mut self,
+        layout: crate::menu::MenuComponentCreateContext,
+    ) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if self.phase != MissionLoadPhase::NotStarted
+            || self.load_save_progress.progress.is_some()
+            || self.load_scene_callback.menu_progress().is_some()
+            || self.menu_layout.is_some()
+        {
+            return Err("loading-menu layout requires a fresh session".into());
+        }
+        if layout.precision == crate::menu::MenuComponentPrecision::Unestablished
+            || !layout
+                .screen_scale
+                .into_iter()
+                .all(|scale| scale.is_finite() && scale > 0.0)
+            || !layout.left_margin_x.is_finite()
+        {
+            return Err("loading-menu layout requires admitted scaling and precision".into());
+        }
+        self.menu_layout = Some(layout);
+        Ok(())
+    }
+
+    /// Select startup language assets from complete images before source Open.
+    pub fn select_loading_menu_startup_language(&mut self) -> Result<(), String> {
+        self.open_terminal_guard()?;
+        if self.phase != MissionLoadPhase::NotStarted {
+            return Err("startup menu language requires a fresh session".into());
+        }
+        let indicators = self
+            .indicators
+            .as_mut()
+            .ok_or("indicators owner unavailable")?;
+        let version = self
+            .installation
+            .read_optional("tables/version.txt")
+            .map_err(|error| format!("startup language version: {error}"))?;
+        crate::menu_startup_language::select_startup_menu_language(
+            &self.installation,
+            crate::original_language::language_code_from_version(
+                version.as_deref().unwrap_or_default(),
+            ),
+            &mut self.menu_draw_resources,
+            indicators,
+        )
+    }
+
+    /// Diagnostic texture/font prefix only, after startup language selection.
+    /// Does not complete Indicators::Create, LoadSave::Init or numeric admission.
+    pub fn create_loading_indicator_assets(&mut self) -> Result<(), String> {
+        if self.discard.phase != MissionDiscardPhase::NotStarted {
+            return Err(
+                "indicator startup assets unavailable after terminal disposal entry".into(),
+            );
+        }
+        if self.phase != MissionLoadPhase::NotStarted {
+            return Err("indicator startup assets require a fresh mission load session".into());
+        }
+        if self.indicators.is_none() {
+            return Err("mafiaIndicators owner is unavailable".into());
+        }
+        self.menu_draw_resources.create_indicator_assets(
+            &mut crate::menu_draw_resources::InstallationFontMetrics(&self.installation),
+        )
     }
 
     /// `OpenWorld` presence over the live installation owner. Full
@@ -1695,6 +1814,11 @@ impl MissionLoadSession {
             installation: &self.installation,
             indicators: self.indicators.as_ref(),
             mission_name: self.open_mission_name.as_deref(),
+            menu_layout: self.menu_layout,
+            resources: &mut self.menu_draw_resources,
+            shared: &mut self.menu_shared_resources,
+            arena: &mut self.arena,
+            audio: &self.audio,
         };
         self.load_scene_callback.cb_load_scene(
             &mut self.load_save_progress.progress,
@@ -1730,7 +1854,7 @@ impl MissionLoadSession {
 
     fn game_init_admission(&self) -> Result<(), String> {
         self.open_terminal_guard()?;
-        if self.freeride_setup.entered() {
+        if self.freeride_setup.entered() && !self.freeride_setup.completed() {
             return Err("game init cannot follow interrupted FreerideSetup".into());
         }
         if self.phase != MissionLoadPhase::PrefixComplete
@@ -1954,11 +2078,14 @@ impl MissionLoadSession {
             .progress
             .as_mut()
             .ok_or("Init _show_progress_ screen vanished after its gate")?;
-        screen.set_progress_game_init(fraction);
-        present(crate::load_scene_callback::LoadingScreenFrame {
-            source: crate::load_scene_callback::LoadingScreenSource::MafiaLoadSave,
+        screen
+            .set_progress_game_init(fraction)
+            .map_err(|error| format!("Init _show_progress_({fraction:?}): {error}"))?;
+        present(crate::load_scene_callback::LoadingScreenFrame::for_init(
             screen,
-        })
+            &self.menu_draw_resources,
+            &self.menu_shared_resources,
+        ))
         .map_err(|error| format!("Init _show_progress_({fraction:?}): {error}"))
     }
 
@@ -2091,6 +2218,75 @@ impl MissionLoadSession {
         self.crash_object_count
     }
 
+    /// GAME Init span 0x5a0dea-0x5a0e4f: blood-manager and borrowed frame
+    /// pools, after DiffClear and before saving the driver fast-find state.
+    pub fn blood_and_frame_pools_for_init(&mut self) -> Result<(), String> {
+        self.game_init_admission()?;
+        self.game_lists.init_blood_and_frame_pools();
+        Ok(())
+    }
+
+    pub fn driver_and_consoles_for_init(&mut self) -> Result<(), String> {
+        self.driver_and_consoles_with_time_for_init(&mut || {
+            Ok(std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|duration| i32::try_from(duration.as_secs()).ok())
+                .map_or(u32::MAX, |seconds| seconds as u32))
+        })
+    }
+
+    pub(crate) fn driver_and_consoles_with_time_for_init(
+        &mut self,
+        time: &mut dyn FnMut() -> Result<u32, String>,
+    ) -> Result<(), String> {
+        self.game_init_admission()?;
+        if self.driver_and_consoles_entered {
+            return Err("driver/consoles Init already entered; no replay".into());
+        }
+        self.driver_and_consoles_entered = true;
+        let mut host = SessionConsoleHost {
+            arena: &mut self.arena,
+            game: &mut self.game_inline,
+            time,
+        };
+        match self.game_init_consoles.driver_and_consoles(&mut host) {
+            Ok(saved) => {
+                self.saved_init_fast_find = Some(saved);
+                Ok(())
+            }
+            Err(error) => {
+                self.saved_init_fast_find = Some(error.saved_fast_find);
+                Err(error.to_string())
+            }
+        }
+    }
+
+    pub fn game_init_consoles(&self) -> &crate::game_init_consoles::GameInitConsoles {
+        &self.game_init_consoles
+    }
+
+    pub fn saved_init_fast_find(&self) -> Option<crate::game_init_consoles::SavedFastFind> {
+        self.saved_init_fast_find
+    }
+
+    pub fn segments_load_for_init(&mut self) -> Result<bool, String> {
+        self.game_init_admission()?;
+        if self.segments_load_entered {
+            return Err("AIManager.segments.Load already entered; no replay".into());
+        }
+        self.segments_load_entered = true;
+        let name = self
+            .open_mission_name
+            .as_deref()
+            .ok_or("AIManager.segments.Load: act_mission mission_name unset")?;
+        let mut io = crate::game_ai_segments_io::InstallationSegmentsIo::new(&self.installation);
+        self.ai_manager
+            .segments
+            .load(name, &mut io)
+            .map_err(|error| format!("AIManager.segments.Load: {error:?}"))
+    }
+
     /// `C_effects::LoadStaticParticles` (GAME 0x44ad30) over the session:
     /// the path from the `CopyMissionName` copy (`act_mission+0x68`), the
     /// file through the installation (absence is `ROpen` failing) and
@@ -2218,7 +2414,7 @@ impl MissionLoadSession {
         &mut self.load_save_progress
     }
 
-    /// The live `AIManager` police/groups/follow/fight owner.
+    /// The live `AIManager` owner, including its owned check-segment clusters.
     pub fn ai_manager(&self) -> &crate::ai_manager::AiManager {
         &self.ai_manager
     }
@@ -2311,12 +2507,16 @@ impl MissionLoadSession {
         self.discard_failure.as_ref()
     }
     pub fn owned_counts(&self) -> Result<MissionOwnedCounts, MissionOwnerDiagnosticsError> {
+        let (textures, storage) = self
+            .menu_draw_resources
+            .cpu_texture_context()
+            .expect("session retains its canonical CPU texture factory");
         MissionOwnedCounts::from_owners(
             &self.arena,
             &self.driver,
             &self.resources,
-            &self.textures,
-            &self.texture_storage,
+            textures,
+            storage,
             &self.cache_memory,
             &self.audio,
             self.loader.as_ref(),
@@ -2326,6 +2526,7 @@ impl MissionLoadSession {
             Some(&self.collision),
             Some(&self.effects),
             Some(&self.game_lists),
+            Some(&self.ai_manager.segments),
         )
     }
 
@@ -2365,12 +2566,16 @@ impl MissionLoadSession {
             .bind_host_sound_backend(&mut self.arena, &self.audio)
             .map_err(MissionLoadCause::SoundBackend)?;
         self.phase = MissionLoadPhase::SceneCreation;
+        let (textures, storage) = self
+            .menu_draw_resources
+            .cpu_texture_context_mut()
+            .expect("session retains its canonical CPU texture factory");
         let scene = match self.driver.create_scene(
             &mut DriverSceneContext {
                 arena: &mut self.arena,
                 resources: &mut self.resources,
-                textures: &mut self.textures,
-                storage: &mut self.texture_storage,
+                textures,
+                storage,
             },
             screen,
             &mut InstallationImages(&self.installation),
@@ -2418,45 +2623,55 @@ impl MissionLoadSession {
             load_save_progress,
             indicators,
             open_mission_name,
+            menu_layout,
+            menu_draw_resources,
+            menu_shared_resources,
+            audio,
             ..
         } = self;
         let mut last_progress = 0.0f32;
-        let mut report =
-            |entry: crate::scene_file_load::LoadHierarchyReport| -> Result<(), String> {
-                let (p, phase) = match entry {
-                    crate::scene_file_load::LoadHierarchyReport::Step(p) => {
-                        if !crate::scene_file_load::load_progress_gate(
-                            &mut last_progress,
-                            p,
-                            crate::scene_file_load::I3DLOAD_PROGRESS,
-                        ) {
-                            return Ok(());
-                        }
-                        (p, crate::load_scene_callback::LOAD_PROGRESS_STEP)
+        let mut report = |arena: &mut ModelArena,
+                          entry: crate::scene_file_load::LoadHierarchyReport|
+         -> Result<(), String> {
+            let (p, phase) = match entry {
+                crate::scene_file_load::LoadHierarchyReport::Step(p) => {
+                    if !crate::scene_file_load::load_progress_gate(
+                        &mut last_progress,
+                        p,
+                        crate::scene_file_load::I3DLOAD_PROGRESS,
+                    ) {
+                        return Ok(());
                     }
-                    crate::scene_file_load::LoadHierarchyReport::Begin => {
-                        (0.0, crate::load_scene_callback::LOAD_PROGRESS_BEGIN)
-                    }
-                    crate::scene_file_load::LoadHierarchyReport::End => {
-                        (1.0, crate::load_scene_callback::LOAD_PROGRESS_END)
-                    }
-                };
-                let mut inputs = SessionLoadProgressInputs {
-                    installation,
-                    indicators: indicators.as_ref(),
-                    mission_name: open_mission_name.as_deref(),
-                };
-                load_scene_callback
-                    .cb_load_scene(
-                        &mut load_save_progress.progress,
-                        crate::load_scene_callback::CBM_PROGRESS,
-                        p.to_bits(),
-                        phase,
-                        &mut inputs,
-                        device,
-                    )
-                    .map_err(|detail| format!("cbLoadScene: {detail}"))
+                    (p, crate::load_scene_callback::LOAD_PROGRESS_STEP)
+                }
+                crate::scene_file_load::LoadHierarchyReport::Begin => {
+                    (0.0, crate::load_scene_callback::LOAD_PROGRESS_BEGIN)
+                }
+                crate::scene_file_load::LoadHierarchyReport::End => {
+                    (1.0, crate::load_scene_callback::LOAD_PROGRESS_END)
+                }
             };
+            let mut inputs = SessionLoadProgressInputs {
+                installation,
+                indicators: indicators.as_ref(),
+                mission_name: open_mission_name.as_deref(),
+                menu_layout: *menu_layout,
+                resources: menu_draw_resources,
+                shared: menu_shared_resources,
+                arena,
+                audio,
+            };
+            load_scene_callback
+                .cb_load_scene(
+                    &mut load_save_progress.progress,
+                    crate::load_scene_callback::CBM_PROGRESS,
+                    p.to_bits(),
+                    phase,
+                    &mut inputs,
+                    device,
+                )
+                .map_err(|detail| format!("cbLoadScene: {detail}"))
+        };
         match driver.load_scene_world_cpu_reporting(
             arena,
             resources,
@@ -2584,6 +2799,9 @@ impl MissionLoadSession {
     }
 
     fn discard_inner(&mut self) -> Result<(), MissionDiscardCause> {
+        self.discard.phase = MissionDiscardPhase::LoadingMenus;
+        self.discard_loading_menus()
+            .map_err(MissionDiscardCause::LoadingMenus)?;
         self.discard.phase = MissionDiscardPhase::PendingVisual;
         if let Some(loader) = self.loader.as_mut() {
             loader
@@ -2617,6 +2835,7 @@ impl MissionLoadSession {
                 actors: self.game_lists.diff_actors.len(),
             });
         }
+        self.ai_manager.segments.clear();
         if !self.game_lists.boxes.is_empty() {
             return Err(MissionDiscardCause::BoxPlacementDel {
                 boxes: self.game_lists.boxes.len(),
@@ -2649,14 +2868,18 @@ impl MissionLoadSession {
         self.discard.phase = MissionDiscardPhase::Scene;
         if let Some(scene) = self.scene().map_err(MissionDiscardCause::SceneOwner)? {
             let registered = self.driver.scenes().contains(&scene);
+            let (textures, storage) = self
+                .menu_draw_resources
+                .cpu_texture_context_mut()
+                .expect("session retains its canonical CPU texture factory");
             if registered {
                 self.driver
                     .release_scene(
                         &mut DriverSceneContext {
                             arena: &mut self.arena,
                             resources: &mut self.resources,
-                            textures: &mut self.textures,
-                            storage: &mut self.texture_storage,
+                            textures,
+                            storage,
                         },
                         scene,
                     )
@@ -2666,12 +2889,7 @@ impl MissionLoadSession {
                 // before registration. Incomplete construction still refuses
                 // this call; no synthetic registry entry or forced release.
                 self.resources
-                    .release_scene(
-                        &mut self.arena,
-                        scene,
-                        &mut self.textures,
-                        &mut self.texture_storage,
-                    )
+                    .release_scene(&mut self.arena, scene, textures, storage)
                     .map_err(MissionDiscardCause::UnregisteredScene)?;
             }
             self.discard.scene_release_executed = true;
@@ -2738,6 +2956,43 @@ impl MissionLoadSession {
             .map_err(MissionDiscardCause::StartupPatches)?;
         Ok(())
     }
+
+    fn discard_loading_menus(&mut self) -> Result<(), String> {
+        let mut inputs = SessionLoadProgressInputs {
+            installation: &self.installation,
+            indicators: self.indicators.as_ref(),
+            mission_name: self.open_mission_name.as_deref(),
+            menu_layout: self.menu_layout,
+            resources: &mut self.menu_draw_resources,
+            shared: &mut self.menu_shared_resources,
+            arena: &mut self.arena,
+            audio: &self.audio,
+        };
+        if self
+            .load_scene_callback
+            .menu_progress()
+            .is_some_and(crate::game_loadsave_lifecycle::LoadProgressScreen::has_shared_instance)
+        {
+            self.load_scene_callback
+                .destroy_menu_progress(&mut inputs)?;
+        }
+        if let Some(screen) = &mut self.load_save_progress.progress {
+            if screen.has_shared_instance() {
+                screen.destroy(&mut inputs)?;
+                self.load_save_progress.progress = None;
+            }
+        }
+        if let Some(step) = self.menu_shared_resources.interrupted_step() {
+            return Err(
+                crate::menu_shared_resources::MenuSharedResourcesError::Interrupted(step)
+                    .to_string(),
+            );
+        }
+        if self.menu_shared_resources.instance_count() != 0 {
+            return Err("loading-menu shared instances remain after screen disposal".into());
+        }
+        self.menu_draw_resources.destroy_indicator_assets()
+    }
 }
 
 /// `C_mission::ShowProgress` loading-bar contract (GAME 0x540950, mafia-re
@@ -2798,14 +3053,71 @@ pub fn forward_mission_progress<S: MissionProgressSink>(
     );
 }
 
+struct SessionConsoleHost<'a> {
+    arena: &'a mut ModelArena,
+    game: &'a mut crate::game_housekeeping::GameInlineState,
+    time: &'a mut dyn FnMut() -> Result<u32, String>,
+}
+
+impl crate::game_init_consoles::DriverAndConsolesHost for SessionConsoleHost<'_> {
+    type TimeError = String;
+
+    fn fast_find_enabled(&mut self) -> bool {
+        self.arena.fast_find_enabled()
+    }
+
+    fn set_fast_find_enabled(&mut self, enabled: bool) {
+        self.arena.set_fast_find_enabled(enabled);
+    }
+
+    fn time_seed(&mut self) -> Result<u32, Self::TimeError> {
+        (self.time)()
+    }
+
+    fn seed_game_random(&mut self, seed: u32) {
+        self.game.seed_random(seed);
+    }
+}
+
 /// The session's `GM_LoadProgress::Create`/`OnCreate` inputs.
 struct SessionLoadProgressInputs<'a> {
     installation: &'a lhr_assets::Installation,
     indicators: Option<&'a crate::indicators::IndicatorsState>,
     mission_name: Option<&'a [u8]>,
+    menu_layout: Option<crate::menu::MenuComponentCreateContext>,
+    resources: &'a mut crate::menu_draw_resources::MenuDrawResources,
+    shared: &'a mut crate::menu_shared_resources::MenuSharedResources,
+    arena: &'a mut ModelArena,
+    audio: &'a RuntimeAudio,
 }
 
 impl crate::game_loadsave_lifecycle::LoadProgressCreateInputs for SessionLoadProgressInputs<'_> {
+    fn shared_lifecycle(
+        &mut self,
+    ) -> Option<&mut dyn crate::game_loadsave_lifecycle::LoadProgressSharedLifecycle> {
+        self.menu_layout.is_some().then_some(self)
+    }
+
+    fn native_layout(&self) -> Option<crate::menu::MenuComponentCreateContext> {
+        self.menu_layout
+    }
+
+    fn component_resources(
+        &mut self,
+    ) -> Option<&mut dyn crate::menu_draw_resources::MenuComponentResources> {
+        Some(self.resources)
+    }
+
+    fn draw_resources(&self) -> Option<&crate::menu_draw_resources::MenuDrawResources> {
+        Some(self.resources)
+    }
+
+    fn progress_texture(&self) -> Result<Option<crate::itexture::TextureKey>, String> {
+        self.shared
+            .texture(crate::menu_shared_resources::MenuSharedTexture::Progress)
+            .map_err(|error| error.to_string())
+    }
+
     fn menu_definition(
         &mut self,
         name: &str,
@@ -2814,7 +3126,9 @@ impl crate::game_loadsave_lifecycle::LoadProgressCreateInputs for SessionLoadPro
             .indicators
             .ok_or("GM_Menu::CreateCompsByDef: mafiaIndicators (GetLanguage, GAME 0x5f70d0) owner unavailable")?
             .get_language();
-        let candidates = lhr_assets::MenuDefinition::menu_file_candidates(name, language)
+        let [first, second, ..] = language.to_le_bytes();
+        let path_language = u32::from(u16::from_be_bytes([first, second]));
+        let candidates = lhr_assets::MenuDefinition::menu_file_candidates(name, path_language)
             .ok_or_else(|| format!("menu name {name} is not admittable"))?;
         for path in candidates {
             let bytes = self
@@ -2841,6 +3155,67 @@ impl crate::game_loadsave_lifecycle::LoadProgressCreateInputs for SessionLoadPro
         self.mission_name
             .map(<[u8]>::to_vec)
             .ok_or_else(|| "act_mission->mission_name is NULL".into())
+    }
+}
+
+impl SessionLoadProgressInputs<'_> {
+    fn with_shared<Output>(
+        &mut self,
+        effect: impl FnOnce(
+            &mut crate::menu_shared_resources::MenuSharedResources,
+            &mut crate::menu_session_resources::MenuSessionResources<'_>,
+        )
+            -> Result<Output, crate::menu_shared_resources::MenuSharedResourcesError>,
+    ) -> Result<Output, String> {
+        let mut host = crate::menu_session_resources::MenuSessionResources::new(
+            self.arena,
+            self.audio,
+            self.resources,
+            self.installation,
+        );
+        effect(self.shared, &mut host).map_err(|error| error.to_string())
+    }
+}
+
+impl crate::game_loadsave_lifecycle::LoadProgressSharedLifecycle for SessionLoadProgressInputs<'_> {
+    fn construct_shared(
+        &mut self,
+    ) -> Result<crate::menu_shared_resources::MenuSharedInstance, String> {
+        self.with_shared(|shared, host| shared.construct(host))
+    }
+
+    fn check_shared_instance(
+        &self,
+        instance: &crate::menu_shared_resources::MenuSharedInstance,
+    ) -> Result<(), String> {
+        self.shared
+            .check_instance(instance)
+            .map_err(|error| error.to_string())
+    }
+
+    fn check_shared(
+        &self,
+        instance: &crate::menu_shared_resources::MenuSharedInstance,
+    ) -> Result<(), String> {
+        self.check_shared_instance(instance)?;
+        if let Some(step) = self.shared.interrupted_step() {
+            return Err(
+                crate::menu_shared_resources::MenuSharedResourcesError::Interrupted(step)
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    fn destroy_shared(
+        &mut self,
+        instance: &mut crate::menu_shared_resources::MenuSharedInstance,
+    ) -> Result<(), String> {
+        self.with_shared(|shared, host| shared.destroy(instance, host))
+    }
+
+    fn play_open_sound(&mut self, closing: bool) -> Result<(), String> {
+        self.with_shared(|shared, host| shared.play_open_sound(host, closing))
     }
 }
 

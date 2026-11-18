@@ -2,6 +2,12 @@
 //! and its inline LightVertex loop, pinned mafia-re29b65b0 T_l.cpp. The current
 //! sector and mesh/LOD/light records come from the same canonical arena.
 //! No native runtime equivalence or independent function credit is claimed.
+//! Spot selection at RVA 0x65cb5 and inline vertex lighting at 0x66940 are
+//! checked against LS3DF e211c85009440d6c032f2074d79184f074a9a046574648745c2594b4cef178a6,
+//! REA ev_bed7dd477e2da690aebcc7f0ab0434cddb17119693b7f4454ae6b80d6edefdbb.
+//! The spot branch is cross-checked with pinned mafia-re fe7e746 T_l.cpp.
+//! They retain the existing checked PC24 arithmetic domain: selection uses
+//! cached sphere/world light data; cone words are read only after vertex clips.
 use crate::frame_transform::{FrameKey, FrameKind};
 use crate::i3d_object::{ObjectCleanupPhase, ObjectVisualType};
 use crate::model_loading::ModelArena;
@@ -74,6 +80,15 @@ struct TemporaryLight {
 }
 #[derive(Clone, Copy, Debug)]
 enum TemporaryLightKind {
+    Spot {
+        source: FrameKey,
+        position: [f32; 3],
+        direction: [f32; 3],
+        near: f32,
+        far: f32,
+        far_squared: f32,
+        reciprocal_range: f32,
+    },
     Point {
         position: [f32; 3],
         near: f32,
@@ -275,6 +290,65 @@ fn prepare_with_billboard_matrix(
                     out.lights[slot] = point;
                 }
             }
+            2 => {
+                let delta = difference(bounds.center, light.sphere_center)?;
+                let squared = squared_prepare(delta)?;
+                let radius = add(bounds.radius, light.sphere_radius)?;
+                if mul(radius, radius)? <= squared {
+                    continue;
+                }
+                let energy = div(
+                    add(
+                        add(light.scaled_color[2], light.scaled_color[1])?,
+                        light.scaled_color[0],
+                    )?,
+                    root(squared)?,
+                )?;
+                let Some(slot) = selected_slot(&out.lights, energy) else {
+                    continue;
+                };
+                let direction = rotated_negative_direction(light.direction, &inverse.elements)?;
+                let position = inverse
+                    .try_transform_point(light.position)
+                    .map_err(|_| numeric())?;
+                let near = mul(scale, light.near_scaled)?;
+                let far = mul(scale, light.far_scaled)?;
+                let range = sub(far, near)?;
+                let reciprocal_range = if range > 0. { div(1., range)? } else { range };
+                let spot = TemporaryLight {
+                    color: [
+                        match material {
+                            Some(material) => mul(material.temp_color[0], light.scaled_color[0])?,
+                            None => mul(light.scaled_color[0], 1.)?,
+                        },
+                        match material {
+                            Some(material) => mul(material.temp_color[1], light.scaled_color[1])?,
+                            None => mul(light.scaled_color[1], 1.)?,
+                        },
+                        match material {
+                            Some(material) => mul(material.temp_color[2], light.scaled_color[2])?,
+                            None => mul(light.scaled_color[2], 1.)?,
+                        },
+                    ],
+                    energy,
+                    kind: TemporaryLightKind::Spot {
+                        source: key,
+                        position,
+                        direction,
+                        near,
+                        far,
+                        far_squared: mul(far, far)?,
+                        reciprocal_range,
+                    },
+                    #[cfg(test)]
+                    key,
+                };
+                if slot == out.lights.len() {
+                    out.lights.push(spot);
+                } else {
+                    out.lights[slot] = spot;
+                }
+            }
             3 => {
                 // PC66177..66249 selects from the same eight slots as point
                 // lights, then rotates the cached UpdateV world direction.
@@ -363,7 +437,12 @@ fn channel(value: f32) -> Out<u8> {
     })
 }
 
-fn vertex(prepared: &Prepared, position: [f32; 3], normal: [f32; 3]) -> Out<[u8; 3]> {
+fn vertex(
+    arena: &ModelArena,
+    prepared: &Prepared,
+    position: [f32; 3],
+    normal: [f32; 3],
+) -> Out<[u8; 3]> {
     let mut color = prepared.ambient;
     for light in &prepared.lights {
         let contribution = match light.kind {
@@ -375,6 +454,48 @@ fn vertex(prepared: &Prepared, position: [f32; 3], normal: [f32; 3]) -> Out<[u8;
                     continue;
                 }
                 cosine
+            }
+            TemporaryLightKind::Spot {
+                source,
+                position: light_position,
+                direction,
+                near,
+                far,
+                far_squared,
+                reciprocal_range,
+            } => {
+                let delta = difference(light_position, position)?;
+                let cosine = dot(delta, normal)?;
+                if cosine.to_bits() & 0x8000_0000 != 0 {
+                    continue;
+                }
+                let squared = dot(delta, delta)?;
+                if (far_squared.to_bits() as i32) < (squared.to_bits() as i32) {
+                    continue;
+                }
+                let distance = root(squared)?;
+                let mut contribution = cosine;
+                if (near.to_bits() as i32) < (distance.to_bits() as i32) {
+                    contribution = mul(contribution, mul(sub(far, distance)?, reciprocal_range)?)?;
+                }
+                let reciprocal_distance = div(1., distance)?;
+                let cone_cosine = mul(dot(direction, delta)?, reciprocal_distance)?;
+                if cone_cosine.to_bits() & 0x8000_0000 != 0 {
+                    continue;
+                }
+                let source = arena
+                    .light(source)
+                    .map_err(|error| format!("null material spot source: {error:?}"))?;
+                if source.outer_cos.to_bits() >= cone_cosine.to_bits() {
+                    continue;
+                }
+                if (source.inner_cos.to_bits() as i32) > (cone_cosine.to_bits() as i32) {
+                    contribution = mul(
+                        contribution,
+                        mul(sub(cone_cosine, source.outer_cos)?, source.cone_reciprocal)?,
+                    )?;
+                }
+                mul(contribution, reciprocal_distance)?
             }
             TemporaryLightKind::Point {
                 position: light_position,
@@ -489,7 +610,7 @@ pub fn null_material_vertex_lighting(
         .try_reserve_exact(positions.len())
         .map_err(|_| "null material lighting allocation".to_string())?;
     for (&position, &normal) in positions.iter().zip(normals) {
-        packed.push(vertex(&prepared, position, normal)?);
+        packed.push(vertex(arena, &prepared, position, normal)?);
     }
     if average {
         if packed.is_empty() {
@@ -632,7 +753,7 @@ pub fn billboard_vertex_lighting(
             .try_reserve_exact(positions.len())
             .map_err(|_| "allocation".to_string())?;
         for (&position, &normal) in positions.iter().zip(normals) {
-            packed.push(vertex(&prepared, position, normal)?);
+            packed.push(vertex(arena, &prepared, position, normal)?);
         }
         if average {
             if packed.is_empty() {
@@ -975,6 +1096,48 @@ mod tests {
     }
 
     #[test]
+    fn billboard_spot_uses_the_live_camera_draw_inverse_for_position_and_direction() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let (mut arena, scene, sector, _model, frame, camera) = billboard_world(None);
+            let source = light(&mut arena, scene, sector, 2, [1.; 3], [-2., 0., 0.]);
+            arena.graph.set_direction(source, [1., 0., 0.], 0.).unwrap();
+            arena.update_frame(source).unwrap();
+            arena.camera_set_position(camera, [10., 0., 0.]).unwrap();
+            let first_matrix = arena.billboard_render_matrix(frame, camera).unwrap();
+            let first = billboard_vertex_lighting(
+                &mut arena,
+                frame,
+                sector,
+                first_matrix,
+                &POSITIONS,
+                &NORMALS,
+                1.,
+            )
+            .unwrap();
+            arena.camera_set_position(camera, [0., 0., 10.]).unwrap();
+            let second_matrix = arena.billboard_render_matrix(frame, camera).unwrap();
+            let second = billboard_vertex_lighting(
+                &mut arena,
+                frame,
+                sector,
+                second_matrix,
+                &POSITIONS,
+                &NORMALS,
+                1.,
+            )
+            .unwrap();
+            assert_ne!(first_matrix, second_matrix);
+            assert_ne!(
+                first,
+                second,
+                "source={:?}; first={first_matrix:?}; second={second_matrix:?}",
+                arena.light(source).unwrap()
+            );
+            assert_eq!(arena.world_matrix(frame).unwrap(), SMatrix::identity());
+        });
+    }
+
+    #[test]
     fn billboard_lighting_rejects_false_selected_extent_and_singular_draw_matrix() {
         crate::native_precision::Pc24PrecisionState::default().run(|| {
             let (mut arena, _scene, sector, _model, frame, camera) = billboard_world(None);
@@ -1130,6 +1293,124 @@ mod tests {
             assert_eq!(colors(&mut arena, frame, sector)[0], [0., 0., 0., 1.]);
         });
     }
+    #[test]
+    fn spot_uses_actual_cached_sphere_direction_and_linear_range() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let (mut arena, scene, sector, _model, frame) = world();
+            let source = light(&mut arena, scene, sector, 2, [1.; 3], [0., 0., 2.]);
+            arena
+                .graph
+                .set_direction(source, [0., 0., -1.], 0.)
+                .unwrap();
+            arena.update_frame(source).unwrap();
+            assert_eq!(
+                colors(&mut arena, frame, sector)[0],
+                [128. / 255., 128. / 255., 128. / 255., 1.]
+            );
+            arena.graph.assign_position(source, [0., 0., 3.]).unwrap();
+            arena.update_frame(source).unwrap();
+            assert_eq!(
+                colors(&mut arena, frame, sector)[0],
+                [64. / 255., 64. / 255., 64. / 255., 1.]
+            );
+            arena.graph.assign_position(source, [0., 0., 4.]).unwrap();
+            arena.update_frame(source).unwrap();
+            assert_eq!(colors(&mut arena, frame, sector)[0], [0., 0., 0., 1.]);
+            arena.graph.assign_position(source, [0., 0., -2.]).unwrap();
+            arena.update_frame(source).unwrap();
+            assert_eq!(colors(&mut arena, frame, sector)[0], [0., 0., 0., 1.]);
+        });
+    }
+
+    #[test]
+    fn spot_selection_does_not_update_a_dirty_light_matrix_or_its_cached_sphere() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let (mut arena, scene, sector, _model, frame) = world();
+            let source = light(&mut arena, scene, sector, 2, [1.; 3], [0., 0., 2.]);
+            arena
+                .graph
+                .set_direction(source, [0., 0., -1.], 0.)
+                .unwrap();
+            arena.update_frame(source).unwrap();
+            let cached = arena.light(source).unwrap().clone();
+            arena
+                .graph
+                .assign_position(source, [100., 100., 100.])
+                .unwrap();
+            let flags = arena.state(source).unwrap().flags;
+            let prepared = prepare(&mut arena, frame, sector).unwrap();
+            assert_eq!(prepared.lights.len(), 1);
+            assert_eq!(prepared.lights[0].key, source);
+            let TemporaryLightKind::Spot { position, .. } = prepared.lights[0].kind else {
+                panic!("expected selected spot")
+            };
+            assert_eq!(position, cached.position);
+            assert_eq!(
+                arena.light(source).unwrap().sphere_center,
+                cached.sphere_center
+            );
+            assert_eq!(arena.state(source).unwrap().flags, flags);
+        });
+    }
+
+    #[test]
+    fn spot_cone_word_boundaries_and_reached_reciprocal_follow_inline_order() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let (mut arena, scene, sector, _model, _frame) = world();
+            let source = light(&mut arena, scene, sector, 2, [1.; 3], [0., 0., 2.]);
+            let prepared = Prepared {
+                ambient: [0.; 3],
+                lights: vec![TemporaryLight {
+                    color: [1.; 3],
+                    energy: 1.,
+                    key: source,
+                    kind: TemporaryLightKind::Spot {
+                        source,
+                        position: [0., 0., 2.],
+                        direction: [0.6, 0., 0.8],
+                        near: 2.,
+                        far: 4.,
+                        far_squared: 16.,
+                        reciprocal_range: 0.5,
+                    },
+                }],
+            };
+            let cache = arena.graph.light_state_mut(source).unwrap();
+            cache.outer_cos = 0.5;
+            cache.inner_cos = 0.9;
+            cache.cone_reciprocal = 2.5;
+            assert_eq!(
+                vertex(&arena, &prepared, [0.; 3], [0., 0., 1.]).unwrap(),
+                [96; 3]
+            );
+            arena.graph.light_state_mut(source).unwrap().outer_cos = 0.8;
+            assert_eq!(
+                vertex(&arena, &prepared, [0.; 3], [0., 0., 1.]).unwrap(),
+                [0; 3]
+            );
+            let cache = arena.graph.light_state_mut(source).unwrap();
+            cache.outer_cos = 0.5;
+            cache.inner_cos = 0.8;
+            cache.cone_reciprocal = f32::NAN;
+            assert_eq!(
+                vertex(&arena, &prepared, [0.; 3], [0., 0., 1.]).unwrap(),
+                [128; 3]
+            );
+            arena.graph.light_state_mut(source).unwrap().inner_cos = 0.9;
+            assert!(vertex(&arena, &prepared, [0.; 3], [0., 0., 1.])
+                .unwrap_err()
+                .contains("PC24 numeric domain"));
+            assert_eq!(
+                vertex(&arena, &prepared, [0.; 3], [0., 0., -1.]).unwrap(),
+                [0; 3]
+            );
+            assert_eq!(
+                vertex(&arena, &prepared, [0., 0., -3.], [0., 0., 1.]).unwrap(),
+                [0; 3]
+            );
+        });
+    }
+
     #[test]
     fn eight_slots_replace_first_weaker_in_source_order_instead_of_weakest() {
         crate::native_precision::Pc24PrecisionState::default().run(|| {

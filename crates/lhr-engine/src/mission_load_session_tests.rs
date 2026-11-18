@@ -2423,6 +2423,31 @@ fn show_progress_session_reads_live_cache_mode() {
     );
 }
 
+fn assert_load_progress_screen_contents(
+    actual: &crate::game_loadsave_lifecycle::LoadProgressScreen,
+    expected: &crate::game_loadsave_lifecycle::LoadProgressScreen,
+) {
+    assert_eq!(actual.title, expected.title);
+    assert_eq!(actual.mission_part, expected.mission_part);
+    assert_eq!(actual.mission_name, expected.mission_name);
+    assert_eq!(
+        actual.uses_native_components().unwrap(),
+        expected.uses_native_components().unwrap()
+    );
+    assert_eq!(actual.menu_base_for_test(), expected.menu_base_for_test());
+    actual
+        .with_components_for_test(|menu| {
+            expected
+                .with_components_for_test(|expected_menu| {
+                    assert_eq!(menu, expected_menu);
+                    Ok(())
+                })
+                .unwrap();
+            Ok(())
+        })
+        .unwrap();
+}
+
 #[test]
 fn open_prepare_progress_creates_the_loading_screen_only_when_asked() {
     use crate::game_loadsave_lifecycle::LoadProgressScreen;
@@ -2435,23 +2460,1043 @@ fn open_prepare_progress_creates_the_loading_screen_only_when_asked() {
     // With it, Open creates GM_LoadProgress(0, 0.7f, NULL).
     let mut session = fixture.session();
     load_with_progress(&mut session, &[], &mut Screen::default(), true).unwrap();
-    assert_eq!(
-        session.load_save_progress().progress,
-        Some(LoadProgressScreen::for_mission_open())
-    );
+    let screen = session.load_save_progress().progress.as_ref().unwrap();
+    let original_menu = screen.menu_identity_for_test();
+    assert_load_progress_screen_contents(screen, &LoadProgressScreen::for_mission_open());
     // The screen is a mafiaLoadSave global: disposal keeps it.
     discard(&mut session);
-    assert!(session.load_save_progress().progress.is_some());
+    let screen = session.load_save_progress().progress.as_ref().unwrap();
+    assert_eq!(screen.menu_identity_for_test(), original_menu);
+    assert_load_progress_screen_contents(screen, &LoadProgressScreen::for_mission_open());
     // A live screen is kept, not replaced (the NULL test at 0x540a7f).
     let mut session = fixture.session();
     let kept = LoadProgressScreen::new(0x2cf, 0.25, Some(b"mise02".to_vec()));
-    session.load_save_progress.progress = Some(kept.clone());
+    let original_menu = kept.menu_identity_for_test();
+    session.load_save_progress.progress = Some(kept);
     load_with_progress(&mut session, &[], &mut Screen::default(), true).unwrap();
-    assert_eq!(session.load_save_progress().progress, Some(kept));
+    let screen = session.load_save_progress().progress.as_ref().unwrap();
+    assert_eq!(screen.menu_identity_for_test(), original_menu);
+    assert_load_progress_screen_contents(
+        screen,
+        &LoadProgressScreen::new(0x2cf, 0.25, Some(b"mise02".to_vec())),
+    );
     // After terminal disposal the step stops before creating a screen.
     session.load_save_progress.progress = None;
     session.open_progress_argument = true;
     discard(&mut session);
     assert!(session.prepare_progress_for_open().is_err());
     assert_eq!(session.load_save_progress().progress, None);
+}
+
+fn fixture_managed_menu_layout() -> crate::menu::MenuComponentCreateContext {
+    crate::menu::MenuComponentCreateContext {
+        screen_scale: [1.0, 1.0],
+        left_margin_x: 0.0,
+        precision: crate::menu::MenuComponentPrecision::Pc24Nearest,
+    }
+}
+
+fn write_managed_menu_definition(fixture: &Fixture, filename: &str, child: (u32, [u8; 4])) {
+    let directory = fixture.0.join("tables/menu");
+    std::fs::create_dir_all(&directory).unwrap();
+    let mut definition = b"Menu".to_vec();
+    for word in [1u32, 2, 0] {
+        definition.extend(word.to_le_bytes());
+    }
+    for (id, kind) in [(1u32, *b"cniw"), child] {
+        definition.extend(id.to_le_bytes());
+        definition.extend(kind);
+        for coordinate in [0.0_f32, 0.0, 20.0, 5.0] {
+            definition.extend(coordinate.to_le_bytes());
+        }
+        definition.extend(0u32.to_le_bytes());
+        definition.extend(crate::main_menu::COMPONENT_VISIBLE.to_le_bytes());
+    }
+    std::fs::write(directory.join(filename), definition).unwrap();
+}
+
+fn write_managed_menu_texture(fixture: &Fixture, filename: &str) {
+    let directory = fixture.0.join("maps");
+    std::fs::create_dir_all(&directory).unwrap();
+    let mut tga = vec![0; 18];
+    tga[2] = 2;
+    tga[12] = 1;
+    tga[14] = 1;
+    tga[16] = 32;
+    tga[17] = 0x20;
+    tga.extend([3, 2, 1, 255]);
+    std::fs::write(directory.join(filename), tga).unwrap();
+}
+
+#[test]
+fn startup_indicator_fonts_use_session_texture_owner_until_terminal_discard() {
+    let fixture = Fixture::new(None, None, None);
+    let tables = fixture.0.join("tables");
+    std::fs::create_dir_all(&tables).unwrap();
+    std::fs::write(tables.join("version.txt"), b"en").unwrap();
+    for (language, suffix) in [("en", b"_pc"), ("cz", b"_cz")] {
+        let mut data = vec![0; 56 + 256 * 2];
+        data[..4].copy_from_slice(b"Lang");
+        data[4..6].copy_from_slice(language.as_bytes());
+        data[40..43].copy_from_slice(suffix);
+        let glyph_offset = 56 + usize::from(b'A') * 2;
+        data[glyph_offset..glyph_offset + 2].copy_from_slice(&23u16.to_le_bytes());
+        std::fs::write(tables.join(format!("lang_{language}.def")), data).unwrap();
+    }
+    for font in 0..4 {
+        write_managed_menu_texture(&fixture, &format!("font{font}_pc.tga"));
+        let mut gmf = vec![0; 0x101c];
+        gmf[..4].copy_from_slice(b"GFnt");
+        gmf[8..12].copy_from_slice(&(1.0 + font as f32).to_le_bytes());
+        std::fs::write(tables.join(format!("font{font}_pc.gmf")), gmf).unwrap();
+    }
+    let mut session = fixture.session();
+    session.select_loading_menu_startup_language().unwrap();
+    session.create_loading_indicator_assets().unwrap();
+    let (textures, storage) = session.menu_draw_resources.cpu_texture_context().unwrap();
+    let keys: Vec<_> = (0..4)
+        .map(|font| {
+            let view = session.menu_draw_resources.font(font).unwrap();
+            assert_eq!(view.metrics.height_scale, 1.0 + font as f32);
+            assert_eq!(view.glyph_map[usize::from(b'A')], 23);
+            let atlas = view.atlas.unwrap();
+            let surface = session.menu_draw_resources.texture_surface(atlas).unwrap();
+            assert_eq!(surface.bgra, [3, 2, 1, 255]);
+            let graphics = textures.texture(atlas).unwrap().graphics.unwrap();
+            assert!(std::ptr::eq(surface, storage.surface(graphics).unwrap()));
+            atlas
+        })
+        .collect();
+    assert!(session.create_loading_indicator_assets().is_err());
+    session.discard_terminal().unwrap();
+    assert!(keys
+        .iter()
+        .all(|key| session.menu_draw_resources.texture_surface(*key).is_err()));
+    assert!(session.create_loading_indicator_assets().is_err());
+}
+
+fn loading_side_texture(
+    screen: &crate::game_loadsave_lifecycle::LoadProgressScreen,
+) -> crate::itexture::TextureKey {
+    screen
+        .with_components_for_test(|menu| {
+            Ok(*menu
+                .find_component_by_id(crate::game_loadsave_lifecycle::LOADPROGRESS_SIDE)
+                .unwrap()
+                .texture_key()
+                .unwrap()
+                .unwrap())
+        })
+        .unwrap()
+}
+
+#[test]
+fn managed_loading_menu_survives_open_and_releases_before_scene_disposal() {
+    use crate::load_scene_callback::{CBM_MISSION_PROGRESS, LOAD_PROGRESS_BEGIN};
+    use crate::menu_shared_resources::MenuSharedSound;
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    session
+        .configure_loading_menu_layout(fixture_managed_menu_layout())
+        .unwrap();
+    load_with_progress(&mut session, &[], &mut Screen::default(), true).unwrap();
+    assert_eq!(session.menu_shared_resources.instance_count(), 1);
+    let screen = session.load_save_progress.progress.as_ref().unwrap();
+    let identity = screen.menu_identity_for_test();
+    assert!(screen.uses_native_components().unwrap());
+    assert!(session.load_scene_callback.menu_progress().is_none());
+    let sound = session
+        .menu_shared_resources
+        .sound(MenuSharedSound::Open)
+        .unwrap()
+        .unwrap();
+    assert!(session.arena.sound(sound).is_ok());
+
+    session
+        .report_load_scene(
+            CBM_MISSION_PROGRESS,
+            0,
+            LOAD_PROGRESS_BEGIN,
+            &mut NoCameraRender,
+        )
+        .unwrap();
+    assert_eq!(session.menu_shared_resources.instance_count(), 1);
+    assert_eq!(
+        session.menu_shared_resources.sound(MenuSharedSound::Open),
+        Ok(Some(sound))
+    );
+    assert_eq!(
+        session
+            .load_save_progress
+            .progress
+            .as_ref()
+            .unwrap()
+            .menu_identity_for_test(),
+        identity
+    );
+
+    discard(&mut session);
+    assert_eq!(session.menu_shared_resources.instance_count(), 0);
+    assert!(session.load_save_progress.progress.is_none());
+    assert!(identity.upgrade().is_none());
+    assert!(session.arena.sound(sound).is_err());
+}
+
+#[test]
+fn managed_loading_menu_callback_rejects_overwrite_then_releases_on_end() {
+    use crate::game_loadsave_lifecycle::LOADPROGRESS_SIDE;
+    use crate::load_scene_callback::{
+        CBM_MISSION_PROGRESS, LOAD_PROGRESS_BEGIN, LOAD_PROGRESS_END,
+    };
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    write_managed_menu_definition(&fixture, "loadprogress.mnu", (LOADPROGRESS_SIDE, *b"ttcr"));
+    write_managed_menu_texture(&fixture, "loadbok.tga");
+    let mut session = fixture.session();
+    session
+        .configure_loading_menu_layout(fixture_managed_menu_layout())
+        .unwrap();
+    load(&mut session, &[]).unwrap();
+    assert_eq!(session.menu_shared_resources.instance_count(), 0);
+    session
+        .report_load_scene(
+            CBM_MISSION_PROGRESS,
+            0,
+            LOAD_PROGRESS_BEGIN,
+            &mut NoCameraRender,
+        )
+        .unwrap();
+    let screen = session.load_scene_callback().menu_progress().unwrap();
+    let identity = screen.menu_identity_for_test();
+    let component_texture = loading_side_texture(screen);
+    assert_eq!(screen.component_count(), Ok(2));
+    assert_eq!(screen.staged_mission_picture(), Ok(None));
+    assert_eq!(
+        session
+            .menu_draw_resources
+            .texture_surface(component_texture)
+            .unwrap()
+            .bgra,
+        [3, 2, 1, 255]
+    );
+    assert_eq!(session.menu_shared_resources.instance_count(), 1);
+    assert_eq!(
+        session.report_load_scene(
+            CBM_MISSION_PROGRESS,
+            0,
+            LOAD_PROGRESS_BEGIN,
+            &mut NoCameraRender,
+        ),
+        Err("loading-menu BEGIN would detach an owned callback screen".into())
+    );
+    assert_eq!(session.menu_shared_resources.instance_count(), 1);
+    assert_eq!(
+        session
+            .load_scene_callback
+            .menu_progress()
+            .unwrap()
+            .menu_identity_for_test(),
+        identity
+    );
+    session
+        .report_load_scene(
+            CBM_MISSION_PROGRESS,
+            0,
+            LOAD_PROGRESS_END,
+            &mut NoCameraRender,
+        )
+        .unwrap();
+    assert_eq!(session.menu_shared_resources.instance_count(), 0);
+    assert!(identity.upgrade().is_none());
+    assert!(session.load_scene_callback().menu_progress().is_none());
+    assert!(session
+        .menu_draw_resources
+        .texture_surface(component_texture)
+        .is_err());
+    discard(&mut session);
+}
+
+#[test]
+fn managed_loading_menu_constructor_error_keeps_shared_prefix_unpublished() {
+    use crate::menu_shared_resources::{MenuSharedResourceStep, MenuSharedSound};
+    let fixture = Fixture::new(None, None, None);
+    let mut session = fixture.session();
+    let mut layout = fixture_managed_menu_layout();
+    layout.precision = crate::menu::MenuComponentPrecision::Unestablished;
+    assert!(session.configure_loading_menu_layout(layout).is_err());
+    session
+        .configure_loading_menu_layout(fixture_managed_menu_layout())
+        .unwrap();
+    session.open_progress_argument = true;
+    let expected = MenuSharedResourceStep::CreateSound(MenuSharedSound::Open);
+    assert!(session
+        .prepare_progress_for_open()
+        .unwrap_err()
+        .contains("CreateSound"));
+    assert_eq!(
+        session.menu_shared_resources.interrupted_step(),
+        Some(expected)
+    );
+    assert_eq!(session.menu_shared_resources.instance_count(), 0);
+    assert!(session.load_save_progress.progress.is_none());
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::Stopped)
+    );
+    assert_eq!(
+        session.discard_progress().phase,
+        MissionDiscardPhase::LoadingMenus
+    );
+    assert_eq!(
+        session.menu_shared_resources.interrupted_step(),
+        Some(expected)
+    );
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::AlreadyEntered)
+    );
+}
+
+#[test]
+fn managed_loading_menu_disposes_component_texture_after_set_on_error() {
+    use crate::game_loadsave_lifecycle::LOADPROGRESS_SIDE;
+    use crate::load_scene_callback::{CBM_MISSION_PROGRESS, LOAD_PROGRESS_BEGIN};
+    use crate::menu_shared_resources::{
+        MenuSharedResourceStep, MenuSharedResourcesError, MenuSharedSound, MenuSharedTexture,
+    };
+
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    write_managed_menu_definition(&fixture, "loadprogress.mnu", (LOADPROGRESS_SIDE, *b"ttcr"));
+    write_managed_menu_texture(&fixture, "loadbok.tga");
+    write_managed_menu_texture(&fixture, "kulicky.tga");
+    let mut session = fixture.session();
+    session
+        .configure_loading_menu_layout(fixture_managed_menu_layout())
+        .unwrap();
+    load(&mut session, &[]).unwrap();
+    session.open_progress_argument = true;
+    session.prepare_progress_for_open().unwrap();
+    let open_sound = session
+        .menu_shared_resources
+        .sound(MenuSharedSound::Open)
+        .unwrap()
+        .unwrap();
+    let progress_texture = session
+        .menu_shared_resources
+        .texture(MenuSharedTexture::Progress)
+        .unwrap()
+        .unwrap();
+    session
+        .audio
+        .release_sound(session.arena.sound(open_sound).unwrap().audio_id())
+        .unwrap();
+
+    let step = MenuSharedResourceStep::SetOn {
+        sound: MenuSharedSound::Open,
+        on: false,
+        immediate: true,
+    };
+    let error = session
+        .report_load_scene(
+            CBM_MISSION_PROGRESS,
+            0,
+            LOAD_PROGRESS_BEGIN,
+            &mut NoCameraRender,
+        )
+        .unwrap_err();
+    assert!(
+        error.starts_with(&format!("menu {step:?}: menu SetOn: ")),
+        "{error}"
+    );
+    assert_eq!(session.menu_shared_resources.interrupted_step(), Some(step));
+    let screen = session.load_save_progress.progress.as_ref().unwrap();
+    let identity = screen.menu_identity_for_test();
+    let component_texture = loading_side_texture(screen);
+    assert_eq!(
+        session
+            .menu_draw_resources
+            .texture_surface(component_texture)
+            .unwrap()
+            .bgra,
+        [3, 2, 1, 255]
+    );
+
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::Stopped)
+    );
+    assert!(
+        matches!(session.discard_failure(), Some(MissionDiscardFailure { phase: MissionDiscardPhase::LoadingMenus, cause: MissionDiscardCause::LoadingMenus(error) }) if *error == MenuSharedResourcesError::Interrupted(step).to_string())
+    );
+    let screen = session.load_save_progress.progress.as_ref().unwrap();
+    assert_eq!(screen.menu_identity_for_test(), identity);
+    assert!(!screen.uses_native_components().unwrap());
+    assert!(screen.has_shared_instance());
+    assert!(session
+        .menu_draw_resources
+        .texture_surface(component_texture)
+        .is_err());
+    assert!(session
+        .menu_draw_resources
+        .texture_surface(progress_texture)
+        .is_ok());
+    assert_eq!(
+        session
+            .menu_shared_resources
+            .retained_sound(MenuSharedSound::Open),
+        Some(open_sound)
+    );
+    assert!(session.arena.sound(open_sound).is_ok());
+    assert_eq!(session.menu_shared_resources.instance_count(), 1);
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::AlreadyEntered)
+    );
+    assert_eq!(session.menu_shared_resources.interrupted_step(), Some(step));
+}
+
+#[test]
+fn managed_loading_menu_end_keeps_release_prefix_without_replay() {
+    use crate::game_loadsave_lifecycle::LOADPROGRESS_SIDE;
+    use crate::load_scene_callback::{
+        CBM_MISSION_PROGRESS, LOAD_PROGRESS_BEGIN, LOAD_PROGRESS_END,
+    };
+    use crate::menu_shared_resources::{
+        MenuSharedResourceStep, MenuSharedResourcesError, MenuSharedSound, MenuSharedTexture,
+    };
+
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    write_managed_menu_definition(&fixture, "loadprogress.mnu", (LOADPROGRESS_SIDE, *b"ttcr"));
+    write_managed_menu_texture(&fixture, "loadbok.tga");
+    for name in ["papir5a.tga", "papir3.tga", "sponka.tga", "kulicky.tga"] {
+        write_managed_menu_texture(&fixture, name);
+    }
+    let mut session = fixture.session();
+    session
+        .configure_loading_menu_layout(fixture_managed_menu_layout())
+        .unwrap();
+    load(&mut session, &[]).unwrap();
+    let mut device = NoCameraRender;
+    session
+        .report_load_scene(CBM_MISSION_PROGRESS, 0, LOAD_PROGRESS_BEGIN, &mut device)
+        .unwrap();
+    let screen = session.load_scene_callback.menu_progress().unwrap();
+    let identity = screen.menu_identity_for_test();
+    let component_texture = loading_side_texture(screen);
+    let [top, bottom, clip, progress] = MenuSharedTexture::ALL.map(|kind| {
+        session
+            .menu_shared_resources
+            .texture(kind)
+            .unwrap()
+            .unwrap()
+    });
+    let sounds = MenuSharedSound::ALL
+        .map(|kind| session.menu_shared_resources.sound(kind).unwrap().unwrap());
+    assert_eq!(session.menu_shared_resources.instance_count(), 1);
+    session.menu_draw_resources.release_texture(bottom).unwrap();
+    for key in [component_texture, top, clip, progress] {
+        assert!(session.menu_draw_resources.texture_surface(key).is_ok());
+    }
+
+    let step = MenuSharedResourceStep::ReleaseTexture(MenuSharedTexture::MenuBottom);
+    let error = session
+        .report_load_scene(CBM_MISSION_PROGRESS, 0, LOAD_PROGRESS_END, &mut device)
+        .unwrap_err();
+    assert!(
+        error.starts_with(&format!(
+            "menu {step:?}: menu ITexture::Release interrupted: "
+        )),
+        "{error}"
+    );
+    assert_eq!(
+        session.report_load_scene(CBM_MISSION_PROGRESS, 0, LOAD_PROGRESS_END, &mut device),
+        Err(MenuSharedResourcesError::InstanceNotLive.to_string())
+    );
+    assert_eq!(session.menu_shared_resources.interrupted_step(), Some(step));
+    assert_eq!(session.menu_shared_resources.instance_count(), 0);
+    assert_eq!(
+        MenuSharedTexture::ALL.map(|kind| session.menu_shared_resources.retained_texture(kind)),
+        [None, Some(bottom), Some(clip), Some(progress)]
+    );
+    assert_eq!(
+        MenuSharedSound::ALL.map(|kind| session.menu_shared_resources.retained_sound(kind)),
+        sounds.map(Some)
+    );
+    for sound in sounds {
+        assert!(session.arena.sound(sound).is_ok());
+    }
+    for key in [component_texture, top, bottom] {
+        assert!(session.menu_draw_resources.texture_surface(key).is_err());
+    }
+    for key in [clip, progress] {
+        assert!(session.menu_draw_resources.texture_surface(key).is_ok());
+    }
+    let screen = session.load_scene_callback.menu_progress().unwrap();
+    assert_eq!(screen.menu_identity_for_test(), identity);
+    assert!(screen.has_shared_instance());
+    assert!(!screen.uses_native_components().unwrap());
+}
+
+#[derive(Debug, PartialEq)]
+enum OpenLoadingEffect {
+    Present(crate::load_scene_callback::LoadingScreenSource, f32),
+    Blend,
+    RenderScene,
+}
+
+const FIXTURE_OPEN_LOADING_EFFECTS: [OpenLoadingEffect; 4] = [
+    OpenLoadingEffect::Present(
+        crate::load_scene_callback::LoadingScreenSource::MafiaLoadSave,
+        0.0,
+    ),
+    OpenLoadingEffect::Blend,
+    OpenLoadingEffect::Present(
+        crate::load_scene_callback::LoadingScreenSource::MafiaLoadSave,
+        0.35,
+    ),
+    OpenLoadingEffect::RenderScene,
+];
+
+#[test]
+fn managed_loading_menu_uses_startup_language_and_draws_live_progress_texture() {
+    use crate::load_scene_callback::{
+        LoadingScreenDevice, LoadingScreenFrame, LoadingScreenPresentBackend, LoadingScreenSource,
+        CBM_MISSION_PROGRESS, LOAD_PROGRESS_BEGIN,
+    };
+    use crate::menu::MenuComponentPrecision;
+    use crate::menu_draw_resources::MenuFontLanguage;
+    use crate::menu_native_drawing::{MenuNativeDrawState, MenuNativeViewport};
+    use crate::menu_shared_resources::MenuSharedTexture;
+    use crate::menu_text_drawing::MenuTextPrecision;
+    use crate::scene_projection::SceneRenderBackend;
+
+    #[derive(Default)]
+    struct DrawProgress {
+        open_effects: Vec<OpenLoadingEffect>,
+        progress: Vec<(f32, crate::itexture::TextureKey)>,
+        submitted: Vec<lhr_render::Mesh>,
+        refuse_second_mesh: bool,
+        update_progress_after_gray: Option<crate::menu_native_drawing::MenuNativeMenuIdentity>,
+        ended: usize,
+        finished: usize,
+    }
+
+    impl SceneRenderBackend for DrawProgress {
+        fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
+            let result = NoCameraRender.render_scene(arena, scene)?;
+            self.open_effects.push(OpenLoadingEffect::RenderScene);
+            Ok(result)
+        }
+    }
+
+    impl LoadingScreenDevice for DrawProgress {
+        fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+            self.open_effects.push(OpenLoadingEffect::Blend);
+            Ok(())
+        }
+
+        fn present_loading_screen(&mut self, frame: LoadingScreenFrame<'_>) -> Result<(), String> {
+            assert_eq!(frame.source, LoadingScreenSource::MafiaLoadSave);
+            let draw = frame.draw_components(
+                u32::MAX,
+                crate::menu_text_drawing::MenuTextPrecision::Unestablished,
+            )?;
+            draw.result?;
+            assert_eq!(draw.scene.meshes.len(), 2);
+            for mesh in &draw.scene.meshes {
+                assert_eq!(mesh.texture.as_ref().unwrap().rgba, [1, 2, 3, 255]);
+            }
+            frame.present(
+                &MenuNativeDrawState::new(0, None, [0, 0]),
+                MenuComponentPrecision::Unestablished,
+                MenuTextPrecision::Unestablished,
+                self,
+            )?;
+            assert_eq!(self.submitted.len(), draw.scene.meshes.len());
+            for (index, (submitted, inspected)) in
+                self.submitted.iter().zip(&draw.scene.meshes).enumerate()
+            {
+                assert_eq!(submitted.vertices.len(), inspected.vertices.len());
+                assert_eq!(submitted.indices, inspected.indices);
+                assert_eq!(submitted.texture.as_ref().unwrap().rgba, [1, 2, 3, 255]);
+                if index == 1 && self.update_progress_after_gray.is_some() {
+                    assert_eq!(inspected.vertices[3].uv, [0.7, 1.0]);
+                    assert_eq!(submitted.vertices[3].uv, [0.75, 1.0]);
+                    assert_eq!(submitted.vertices[3].position[0], 15.0);
+                    continue;
+                }
+                for (submitted_vertex, inspected_vertex) in
+                    submitted.vertices.iter().zip(&inspected.vertices)
+                {
+                    assert_eq!(submitted_vertex.position, inspected_vertex.position);
+                    assert_eq!(submitted_vertex.uv, inspected_vertex.uv);
+                }
+            }
+            let progress = frame.raw_progress()?;
+            self.progress
+                .push((progress, frame.progress_texture_for_test()?.unwrap()));
+            self.open_effects
+                .push(OpenLoadingEffect::Present(frame.source, progress));
+            Ok(())
+        }
+    }
+
+    impl LoadingScreenPresentBackend for DrawProgress {
+        fn reset_render_props(&mut self) -> Result<(), String> {
+            self.submitted.clear();
+            Ok(())
+        }
+
+        fn clear_color_and_depth(&mut self, argb: u32, depth: f32) -> Result<(), String> {
+            assert_eq!((argb, depth), (0, 1.0));
+            Ok(())
+        }
+
+        fn begin_scene(&mut self) -> Result<(), String> {
+            assert!(self.submitted.is_empty());
+            Ok(())
+        }
+
+        fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+            assert!(self.submitted.is_empty());
+            Ok(())
+        }
+
+        fn set_z_buffer(&mut self, enabled: bool) -> Result<(), String> {
+            assert_eq!(self.submitted.len(), if enabled { 2 } else { 0 });
+            Ok(())
+        }
+
+        fn screen_height(&mut self) -> Result<u32, String> {
+            Ok(480)
+        }
+
+        fn screen_width(&mut self) -> Result<u32, String> {
+            Ok(640)
+        }
+
+        fn set_viewport(&mut self, viewport: MenuNativeViewport) -> Result<(), String> {
+            assert_eq!(
+                viewport,
+                MenuNativeViewport {
+                    x: 0,
+                    y: 0,
+                    width: 640,
+                    height: 480,
+                    min_z: 0.0,
+                    max_z: 1.0,
+                },
+            );
+            Ok(())
+        }
+
+        fn draw_menu_mesh(&mut self, mesh: lhr_render::Mesh) -> Result<(), String> {
+            if self.refuse_second_mesh && self.submitted.len() == 1 {
+                return Err("second loading mesh refused".to_owned());
+            }
+            self.submitted.push(mesh);
+            if self.submitted.len() == 1 {
+                if let Some(identity) = &self.update_progress_after_gray {
+                    identity
+                        .upgrade()
+                        .unwrap()
+                        .with_components_mut(|components| {
+                            components.set_float(crate::menu::LOADPROGRESS_BAR_ID, 0.75)
+                        })
+                        .map_err(|error| error.to_string())?;
+                }
+            }
+            Ok(())
+        }
+
+        fn draw_cursor(&mut self, _: f32, _: f32) -> Result<(), String> {
+            Err("loading menu was unexpectedly active".to_owned())
+        }
+
+        fn end_scene(&mut self) -> Result<(), String> {
+            assert_eq!(self.submitted.len(), 2);
+            self.ended += 1;
+            Ok(())
+        }
+
+        fn present_scene(&mut self) -> Result<(), String> {
+            self.finished += 1;
+            Ok(())
+        }
+    }
+
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    write_managed_menu_definition(
+        &fixture,
+        "loadprogress_pl.mnu",
+        (crate::menu::LOADPROGRESS_BAR_ID, *b"rabp"),
+    );
+    std::fs::write(fixture.0.join("tables/version.txt"), b"pl").unwrap();
+    for language in ["pl", "cz"] {
+        let mut data = vec![0; 56 + 256 * 2];
+        data[..4].copy_from_slice(b"Lang");
+        data[4..6].copy_from_slice(language.as_bytes());
+        std::fs::write(fixture.0.join(format!("tables/lang_{language}.def")), data).unwrap();
+    }
+    write_managed_menu_texture(&fixture, "kulicky.tga");
+
+    let mut session = fixture.session();
+    session.select_loading_menu_startup_language().unwrap();
+    assert_eq!(session.indicators.as_ref().unwrap().get_language(), 0x6c70);
+    assert_eq!(
+        &session
+            .menu_draw_resources
+            .language(MenuFontLanguage::Credits)
+            .unwrap()
+            .raw_header[4..6],
+        b"cz"
+    );
+    session
+        .configure_loading_menu_layout(fixture_managed_menu_layout())
+        .unwrap();
+    let mut renderer = DrawProgress::default();
+    let result = session.open_source_in_order(
+        &mut crate::mission_open_order::OpenAttempt::default(),
+        "synthetic",
+        true,
+        &[],
+        projection(),
+        &mut Screen::default(),
+        &mut renderer,
+    );
+    assert_eq!(result, Ok(crate::mission_open_order::OpenResult::Opened));
+    assert_eq!(renderer.open_effects, FIXTURE_OPEN_LOADING_EFFECTS);
+    let key = session
+        .menu_shared_resources
+        .texture(MenuSharedTexture::Progress)
+        .unwrap()
+        .unwrap();
+    assert!(!renderer.progress.is_empty());
+    assert!(renderer
+        .progress
+        .iter()
+        .all(|&(_, drawn_key)| drawn_key == key));
+    let screen = session.load_save_progress.progress.as_ref().unwrap();
+    let identity = screen.menu_identity_for_test();
+    let progress = screen.raw_progress().unwrap();
+    let presented = renderer.progress.len();
+    assert_eq!(
+        session.report_load_scene(CBM_MISSION_PROGRESS, 0, LOAD_PROGRESS_BEGIN, &mut renderer),
+        Err("loading-menu Create would detach live components".into())
+    );
+    let screen = session.load_save_progress.progress.as_ref().unwrap();
+    assert_eq!(screen.menu_identity_for_test(), identity);
+    assert_eq!(screen.raw_progress(), Ok(progress));
+    assert_eq!(session.menu_shared_resources.instance_count(), 1);
+    assert_eq!(renderer.progress.len(), presented);
+    session
+        .player_navi_for_init_presented(&mut |frame| renderer.present_loading_screen(frame))
+        .unwrap();
+    assert_eq!(
+        renderer.progress.get(presented..),
+        Some(&[(0.7f32, key)][..])
+    );
+    assert_eq!(renderer.finished, presented + 1);
+    renderer.refuse_second_mesh = true;
+    let error = session
+        .player_navi_for_init_presented(&mut |frame| renderer.present_loading_screen(frame))
+        .unwrap_err();
+    assert!(error.contains("Components"), "{error}");
+    assert!(error.contains("second loading mesh refused"), "{error}");
+    assert_eq!(renderer.submitted.len(), 1);
+    assert_eq!(renderer.ended, presented + 1);
+    assert_eq!(renderer.finished, presented + 1);
+    assert_eq!(renderer.progress.len(), presented + 1);
+    assert_eq!(
+        session
+            .load_save_progress
+            .progress
+            .as_ref()
+            .unwrap()
+            .menu_identity_for_test(),
+        identity
+    );
+    renderer.refuse_second_mesh = false;
+    renderer.update_progress_after_gray = Some(identity);
+    session
+        .player_navi_for_init_presented(&mut |frame| renderer.present_loading_screen(frame))
+        .unwrap();
+    assert_eq!(renderer.progress.last(), Some(&(0.75, key)));
+    assert_eq!(renderer.ended, presented + 2);
+    assert_eq!(renderer.finished, presented + 2);
+    discard(&mut session);
+    assert_eq!(
+        session
+            .menu_shared_resources
+            .texture(MenuSharedTexture::Progress),
+        Ok(None)
+    );
+}
+
+fn english_managed_loading_fixture() -> Fixture {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    write_managed_menu_definition(
+        &fixture,
+        "loadprogress_en.mnu",
+        (crate::menu::LOADPROGRESS_BAR_ID, *b"rabp"),
+    );
+    std::fs::write(fixture.0.join("tables/version.txt"), b"en").unwrap();
+    let mut language = vec![0; 56 + 256 * 2];
+    language[..6].copy_from_slice(b"Langen");
+    std::fs::write(fixture.0.join("tables/lang_en.def"), language).unwrap();
+    write_managed_menu_texture(&fixture, "kulicky.tga");
+    fixture
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+#[ignore = "requires a Windows desktop and a window-compatible GPU"]
+fn managed_loading_open_and_init_dispatch_on_one_surface_with_explicit_recovery() {
+    use crate::game_init_order::{InitAttempt, InitRunError, InitStep, PresentedFrame};
+    use crate::load_scene_callback::{
+        LoadingScreenDevice, LoadingScreenFrame, LoadingScreenSource,
+    };
+    use crate::loading_surface::{
+        tests::with_swapchain, LoadingOpenSceneBackend, LoadingSurface, OpenLoadingSurface,
+    };
+    use crate::menu::MenuComponentPrecision;
+    use crate::menu_native_drawing::MenuNativeDrawState;
+    use crate::menu_text_drawing::MenuTextPrecision;
+    use crate::scene_projection::SceneRenderBackend;
+    use crate::scene_render::SceneSnapshotSequence;
+    use std::cell::RefCell;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    struct OpenScene;
+
+    impl SceneRenderBackend for OpenScene {
+        fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
+            NoCameraRender.render_scene(arena, scene)
+        }
+    }
+
+    impl LoadingOpenSceneBackend for OpenScene {
+        fn set_loading_step_alpha_blend(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct RecordedOpen<'adapter, 'host, 'window, 'cursor> {
+        device: OpenLoadingSurface<'adapter, 'host, 'window, 'cursor>,
+        effects: Vec<OpenLoadingEffect>,
+    }
+
+    impl SceneRenderBackend for RecordedOpen<'_, '_, '_, '_> {
+        fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
+            let result = self.device.render_scene(arena, scene)?;
+            self.effects.push(OpenLoadingEffect::RenderScene);
+            Ok(result)
+        }
+    }
+
+    impl LoadingScreenDevice for RecordedOpen<'_, '_, '_, '_> {
+        fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+            self.device.set_alpha_blend_state()?;
+            self.effects.push(OpenLoadingEffect::Blend);
+            Ok(())
+        }
+
+        fn present_loading_screen(&mut self, frame: LoadingScreenFrame<'_>) -> Result<(), String> {
+            let effect = OpenLoadingEffect::Present(frame.source, frame.raw_progress()?);
+            self.device.present_loading_screen(frame)?;
+            self.effects.push(effect);
+            Ok(())
+        }
+    }
+
+    fn cursor_mesh(cursor_x: f32, cursor_y: f32) -> lhr_render::Mesh {
+        lhr_render::Mesh {
+            vertices: [
+                [cursor_x, cursor_y, 0.0],
+                [cursor_x + 8.0, cursor_y, 0.0],
+                [cursor_x, cursor_y + 8.0, 0.0],
+            ]
+            .into_iter()
+            .map(|position| lhr_render::Vertex {
+                position,
+                uv: [0.0; 2],
+            })
+            .collect(),
+            indices: vec![0, 1, 2],
+            texture: None,
+            material: lhr_render::RenderMaterial::Legacy,
+        }
+    }
+
+    with_swapchain(|window, swapchain, renderer, config| {
+        let fixture = english_managed_loading_fixture();
+        let mut session = fixture.session();
+        init_presentation::adopt_fresh_install_settings(&mut session);
+        session.select_loading_menu_startup_language().unwrap();
+        session
+            .configure_loading_menu_layout(fixture_managed_menu_layout())
+            .unwrap();
+        let globals = MenuNativeDrawState::new(0, None, [9, 17]);
+        let presenter = || {
+            LoadingSurface::new(
+                window,
+                swapchain,
+                renderer,
+                &globals,
+                MenuComponentPrecision::Pc24Nearest,
+                MenuTextPrecision::Unestablished,
+            )
+        };
+        let mut cursor_calls = vec![];
+        let mut cursor = |x, y| {
+            cursor_calls.push([x, y]);
+            assert!(swapchain
+                .configure(config)
+                .unwrap_err()
+                .contains("active operation"));
+            Err("synthetic cursor failure".into())
+        };
+        let loading = presenter();
+        let mut scene = OpenScene;
+        let mut open = RecordedOpen {
+            device: loading.for_open(&mut scene, Some(&mut cursor)),
+            effects: Vec::new(),
+        };
+        let result = session.open_source_in_order(
+            &mut crate::mission_open_order::OpenAttempt::default(),
+            "synthetic",
+            true,
+            &[],
+            projection(),
+            &mut Screen::default(),
+            &mut open,
+        );
+        assert_eq!(result, Ok(crate::mission_open_order::OpenResult::Opened));
+        assert_eq!(open.effects, FIXTURE_OPEN_LOADING_EFFECTS);
+        assert_eq!(
+            session
+                .load_save_progress()
+                .progress
+                .as_ref()
+                .unwrap()
+                .component_count(),
+            Ok(2)
+        );
+
+        let identity = session
+            .load_save_progress()
+            .progress
+            .as_ref()
+            .unwrap()
+            .menu_identity_for_test();
+        globals.set_active_menu_window(Some(identity));
+        let init_effects = RefCell::new(Vec::new());
+        let mut init_cursor = |cursor_x, cursor_y| {
+            assert_eq!([cursor_x, cursor_y], [9., 17.]);
+            init_effects.borrow_mut().push("Init cursor");
+            Ok(cursor_mesh(cursor_x, cursor_y))
+        };
+        let mut sequence = SceneSnapshotSequence::default();
+        let target = [config.width, config.height];
+        let result = InitAttempt::default().run_with_presentation(
+            &mut session,
+            target,
+            &mut sequence,
+            |frame| {
+                let loading = if let PresentedFrame::LoadingScreen(frame) = &frame {
+                    assert_eq!(frame.source, LoadingScreenSource::MafiaLoadSave);
+                    assert_eq!(frame.raw_progress(), Ok(0.7));
+                    true
+                } else {
+                    false
+                };
+                presenter().present_init(frame, Some(&mut init_cursor), |snapshot| {
+                    assert_eq!(snapshot.frame.viewport, [0, 0, target[0], target[1]]);
+                    init_effects.borrow_mut().push("scene callback");
+                    Ok(())
+                })?;
+                if loading {
+                    init_effects.borrow_mut().push("loading present");
+                }
+                Ok(())
+            },
+        );
+        let Err(InitRunError::Callback(failure)) = result else {
+            panic!("the next unavailable owner must stop Init");
+        };
+        assert_eq!(failure.step, InitStep::EffectsStart, "{}", failure.error);
+        assert_eq!(
+            failure.error.0,
+            format!("EffectsStart: {EFFECTS_START_STOP}")
+        );
+        assert_eq!(
+            *init_effects.borrow(),
+            ["scene callback", "Init cursor", "loading present"]
+        );
+        assert_eq!(sequence.next_number(), Ok(2));
+
+        let error = session
+            .player_navi_for_init_presented(&mut |frame| presenter().present(frame, None))
+            .unwrap_err();
+        assert!(
+            error.contains("loading cursor mesh source is unavailable"),
+            "{error}"
+        );
+        let mut unexpected_cursor = |_, _| panic!("blocked frame reached cursor");
+        let mut assert_blocked = |session: &mut MissionLoadSession| {
+            let error = session
+                .player_navi_for_init_presented(&mut |frame| {
+                    presenter().present(frame, Some(&mut unexpected_cursor))
+                })
+                .unwrap_err();
+            assert!(error.contains("BeginScene: loading swapchain requires successful configuration before acquire"), "{error}");
+        };
+        assert_blocked(&mut session);
+
+        let mut invalid = config.clone();
+        invalid.width = 0;
+        let error = swapchain.configure(&invalid).unwrap_err();
+        assert!(error.starts_with("configure loading swapchain:"), "{error}");
+        assert_blocked(&mut session);
+        swapchain.configure(config).unwrap();
+
+        let error = session
+            .player_navi_for_init_presented(&mut |frame| {
+                presenter().present(frame, Some(&mut cursor))
+            })
+            .unwrap_err();
+        assert!(error.contains("synthetic cursor failure"), "{error}");
+        assert_eq!(cursor_calls, [[9., 17.]]);
+        assert_blocked(&mut session);
+        swapchain.configure(config).unwrap();
+
+        let mut panicking_cursor = |x, y| {
+            assert_eq!([x, y], [9., 17.]);
+            panic!("synthetic cursor panic");
+        };
+        let payload = catch_unwind(AssertUnwindSafe(|| {
+            session.player_navi_for_init_presented(&mut |frame| {
+                presenter().present(frame, Some(&mut panicking_cursor))
+            })
+        }))
+        .unwrap_err();
+        assert_eq!(
+            payload.downcast_ref::<&str>(),
+            Some(&"synthetic cursor panic")
+        );
+        assert_blocked(&mut session);
+        swapchain.configure(config).unwrap();
+
+        let mut visible_cursor_calls = vec![];
+        let mut visible_cursor = |x, y| {
+            visible_cursor_calls.push([x, y]);
+            Ok(cursor_mesh(x, y))
+        };
+        session
+            .player_navi_for_init_presented(&mut |frame| {
+                presenter().present(frame, Some(&mut visible_cursor))
+            })
+            .unwrap();
+        assert_eq!(visible_cursor_calls, [[9., 17.]]);
+        discard(&mut session);
+    });
 }

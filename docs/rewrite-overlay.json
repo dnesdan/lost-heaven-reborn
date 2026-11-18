@@ -8620,24 +8620,6 @@
     },
     {
       "binary": "Game.exe",
-      "rva": "0x1f70e0",
-      "va": "0x5f70e0",
-      "name": "G_IndicatorsClass::Create",
-      "symbol": "lhr_engine::indicators::IndicatorsState::create",
-      "tier": "differential",
-      "evidence": "REA ev_7bcbb381aa + Ghidra body 111 insns/1 bb, Create; pin tests indicators"
-    },
-    {
-      "binary": "Game.exe",
-      "rva": "0x1f7250",
-      "va": "0x5f7250",
-      "name": "G_IndicatorsClass::Destroy",
-      "symbol": "lhr_engine::indicators::IndicatorsState::destroy",
-      "tier": "differential",
-      "evidence": "REA ev_a14647b710 + Ghidra body 126 insns/35 bbs, Destroy; pin tests indicators"
-    },
-    {
-      "binary": "Game.exe",
       "rva": "0x1f6cf0",
       "va": "0x5f6cf0",
       "name": "G_IndicatorsClass::ResetValues",

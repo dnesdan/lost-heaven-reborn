@@ -12,9 +12,9 @@
 //! ALPHASTATE_BLEND)` and `GM_LoadProgress::Present` (GAME 0x5e3d40), go to
 //! the caller's [`LoadingScreenDevice`]: during `C_mission::Open` that is the
 //! Open's own device backend (the one its scene `Render` uses). The menu
-//! drawing inside `Present` (`GM_Menu::Draw`, GAME 0x5ea7e0) needs the
-//! component-class draw owners, so the device receives the live screen as a
-//! read-only [`LoadingScreenFrame`] and nothing here draws it.
+//! drawing inside `Present` (`GM_Menu::Draw`, GAME 0x5ea7e0) uses the
+//! component-class draw owners. The device receives a borrowed
+//! [`LoadingScreenFrame`] and can drive it on its own presentation backend.
 //!
 //! Like the loading screen, the two globals are session-scoped here: a
 //! process-wide `menuProgress`/`last_bit` would outlive the session that
@@ -22,6 +22,13 @@
 #![forbid(unsafe_code)]
 
 use crate::game_loadsave_lifecycle::{LoadProgressCreateInputs, LoadProgressScreen};
+use crate::itexture::TextureKey;
+use crate::menu::MenuComponentPrecision;
+use crate::menu_draw_resources::MenuDrawResources;
+use crate::menu_native_drawing::{MenuNativeDrawState, MenuNativeViewport};
+use crate::menu_shared_resources::{MenuSharedResources, MenuSharedTexture};
+use crate::menu_text_drawing::MenuTextPrecision;
+use lhr_render::Mesh;
 
 /// `CBM_PROGRESS` (I3D.h:296): a loader's progress report.
 pub const CBM_PROGRESS: u32 = 8;
@@ -45,15 +52,154 @@ pub enum LoadingScreenSource {
 }
 
 /// The live screen at a `GM_LoadProgress::Present` (GAME 0x5e3d40), as the
-/// device's `Draw(MENUDRAW_ALL)` would read it. Read-only presentation
-/// data, never a second owner of the screen.
-#[derive(Clone, Copy, Debug)]
+/// device's `Draw(MENUDRAW_ALL)` reads and lays it out. Drawing can update
+/// the actual component positions without transferring screen ownership.
 pub struct LoadingScreenFrame<'a> {
     pub source: LoadingScreenSource,
-    pub screen: &'a LoadProgressScreen,
+    screen: &'a LoadProgressScreen,
+    pub resources: Option<&'a crate::menu_draw_resources::MenuDrawResources>,
+    progress_texture: LoadingProgressTexture<'a>,
 }
 
-/// The device effects the loading screen reaches.
+enum LoadingProgressTexture<'a> {
+    Open(&'a dyn LoadProgressCreateInputs),
+    Init(&'a MenuSharedResources),
+}
+
+impl std::fmt::Debug for LoadingScreenFrame<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LoadingScreenFrame")
+            .field("source", &self.source)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> LoadingScreenFrame<'a> {
+    pub(crate) fn for_init(
+        screen: &'a LoadProgressScreen,
+        resources: &'a MenuDrawResources,
+        shared: &'a MenuSharedResources,
+    ) -> Self {
+        Self {
+            source: LoadingScreenSource::MafiaLoadSave,
+            screen,
+            resources: Some(resources),
+            progress_texture: LoadingProgressTexture::Init(shared),
+        }
+    }
+
+    fn from_inputs(
+        source: LoadingScreenSource,
+        screen: &'a LoadProgressScreen,
+        inputs: &'a dyn LoadProgressCreateInputs,
+    ) -> Self {
+        Self {
+            source,
+            screen,
+            resources: inputs.draw_resources(),
+            progress_texture: LoadingProgressTexture::Open(inputs),
+        }
+    }
+
+    fn resolve_progress_texture(&self) -> Result<Option<TextureKey>, String> {
+        match self.progress_texture {
+            LoadingProgressTexture::Open(inputs) => inputs.progress_texture(),
+            LoadingProgressTexture::Init(shared) => shared
+                .texture(MenuSharedTexture::Progress)
+                .map_err(|error| error.to_string()),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn progress_texture_for_test(&self) -> Result<Option<TextureKey>, String> {
+        self.resolve_progress_texture()
+    }
+
+    pub fn raw_progress(&self) -> Result<f32, String> {
+        self.screen.raw_progress()
+    }
+
+    /// Executes the loading frame on a supplied device without exposing the
+    /// menu or its identity. Device failures stop at the reached operation.
+    /// The caller supplies live Draw globals and both numeric policies.
+    pub fn present(
+        &self,
+        globals: &MenuNativeDrawState,
+        component_precision: MenuComponentPrecision,
+        text_precision: MenuTextPrecision,
+        device: &mut dyn LoadingScreenPresentBackend,
+    ) -> Result<(), String> {
+        device
+            .reset_render_props()
+            .map_err(|error| format!("loading Present ResetRenderProps: {error}"))?;
+        device
+            .clear_color_and_depth(0, 1.0)
+            .map_err(|error| format!("loading Present Clear: {error}"))?;
+        device
+            .begin_scene()
+            .map_err(|error| format!("loading Present BeginScene: {error}"))?;
+        device
+            .set_alpha_blend_state()
+            .map_err(|error| format!("loading Present AlphaBlend: {error}"))?;
+        self.screen.draw_for_present(
+            globals,
+            &|| self.resolve_progress_texture(),
+            component_precision,
+            self.resources,
+            text_precision,
+            device,
+        )?;
+        device
+            .end_scene()
+            .map_err(|error| format!("loading Present EndScene: {error}"))?;
+        device
+            .present_scene()
+            .map_err(|error| format!("loading Present Present: {error}"))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn menu_identity(&self) -> crate::menu_native_drawing::MenuNativeMenuIdentity {
+        self.screen.menu_identity_for_test()
+    }
+
+    pub fn draw_components(
+        &self,
+        draw_flags: u32,
+        text_precision: crate::menu_text_drawing::MenuTextPrecision,
+    ) -> Result<crate::menu_rendering::MenuSceneDraw, String> {
+        let resources = self
+            .resources
+            .ok_or("loading-menu draw resources unavailable")?;
+        Ok(self.screen.draw_components(
+            draw_flags,
+            &|| self.resolve_progress_texture(),
+            resources,
+            text_precision,
+        ))
+    }
+}
+
+/// Device boundary for `GM_LoadProgress::Present` (Game.exe RVA 0x1e3d40,
+/// REA ev_cd1c02bf417b). Meshes arrive in submission order, not as a sortable
+/// scene. No operation exposes the live loading menu or a usable identity.
+pub trait LoadingScreenPresentBackend {
+    fn reset_render_props(&mut self) -> Result<(), String>;
+    fn clear_color_and_depth(&mut self, argb: u32, depth: f32) -> Result<(), String>;
+    fn begin_scene(&mut self) -> Result<(), String>;
+    fn set_alpha_blend_state(&mut self) -> Result<(), String>;
+    fn set_z_buffer(&mut self, enabled: bool) -> Result<(), String>;
+    fn screen_height(&mut self) -> Result<u32, String>;
+    fn screen_width(&mut self) -> Result<u32, String>;
+    fn set_viewport(&mut self, viewport: MenuNativeViewport) -> Result<(), String>;
+    fn draw_menu_mesh(&mut self, mesh: Mesh) -> Result<(), String>;
+    fn draw_cursor(&mut self, x: f32, y: f32) -> Result<(), String>;
+    fn end_scene(&mut self) -> Result<(), String>;
+    fn present_scene(&mut self) -> Result<(), String>;
+}
+
+/// The device effects the loading screen reaches. A composed device can route
+/// both Open and Init frames through [`LoadingScreenFrame::present`].
 pub trait LoadingScreenDevice {
     /// `igraph->SetState(DXS_ALPHA, ALPHASTATE_BLEND)` (vtable +0x44 with
     /// `push 1; push 0` at 0x5bccc6-0x5bcccd), before a STEP's bar update.
@@ -68,7 +214,7 @@ pub trait LoadingScreenDevice {
 
 /// `cbLoadScene`'s globals: `menuProgress` (GAME 0x647b20, NULL at process
 /// start) and `last_bit` (GAME 0x647b1c, zero-initialized static).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct LoadSceneCallback {
     menu_progress: Option<LoadProgressScreen>,
     last_bit: f32,
@@ -83,6 +229,17 @@ impl LoadSceneCallback {
     /// The last bit a STEP showed (or BEGIN's 0.0).
     pub fn last_bit(&self) -> f32 {
         self.last_bit
+    }
+
+    pub(crate) fn destroy_menu_progress(
+        &mut self,
+        inputs: &mut dyn LoadProgressCreateInputs,
+    ) -> Result<(), String> {
+        if let Some(screen) = &mut self.menu_progress {
+            screen.destroy(inputs)?;
+        }
+        self.menu_progress = None;
+        Ok(())
     }
 
     /// `cbLoadScene(msg, prm1, prm2, context)` over `progress`
@@ -131,24 +288,38 @@ impl LoadSceneCallback {
         };
         match phase {
             LOAD_PROGRESS_BEGIN => {
+                if self
+                    .menu_progress
+                    .as_ref()
+                    .is_some_and(LoadProgressScreen::has_shared_instance)
+                {
+                    return Err("loading-menu BEGIN would detach an owned callback screen".into());
+                }
                 match progress.as_mut() {
                     None => {
-                        let screen = self
-                            .menu_progress
-                            .insert(LoadProgressScreen::for_load_callback());
+                        if let Some(screen) = self.menu_progress.as_mut() {
+                            screen.destroy(inputs)?;
+                        }
+                        let screen = LoadProgressScreen::construct_for_load(1.0, inputs)?;
+                        let screen = self.menu_progress.insert(screen);
                         screen.create(inputs)?;
-                        device.present_loading_screen(LoadingScreenFrame {
-                            source: LoadingScreenSource::LoadCallback,
+                        device.present_loading_screen(LoadingScreenFrame::from_inputs(
+                            LoadingScreenSource::LoadCallback,
                             screen,
-                        })?;
+                            inputs,
+                        ))?;
                     }
                     Some(screen) => {
+                        if let Some(own_screen) = self.menu_progress.as_mut() {
+                            own_screen.destroy(inputs)?;
+                        }
                         self.menu_progress = None;
                         screen.create(inputs)?;
-                        device.present_loading_screen(LoadingScreenFrame {
-                            source: LoadingScreenSource::MafiaLoadSave,
+                        device.present_loading_screen(LoadingScreenFrame::from_inputs(
+                            LoadingScreenSource::MafiaLoadSave,
                             screen,
-                        })?;
+                            inputs,
+                        ))?;
                     }
                 }
                 self.last_bit = 0.0;
@@ -159,28 +330,23 @@ impl LoadSceneCallback {
                 }
                 device.set_alpha_blend_state()?;
                 if let Some(screen) = progress.as_mut() {
-                    screen.set_progress_mission_open(bit);
-                    device.present_loading_screen(LoadingScreenFrame {
-                        source: LoadingScreenSource::MafiaLoadSave,
+                    screen.set_progress_mission_open(bit)?;
+                    device.present_loading_screen(LoadingScreenFrame::from_inputs(
+                        LoadingScreenSource::MafiaLoadSave,
                         screen,
-                    })?;
+                        inputs,
+                    ))?;
                 } else if let Some(screen) = self.menu_progress.as_mut() {
-                    screen.set_progress_mission_open(bit);
-                    device.present_loading_screen(LoadingScreenFrame {
-                        source: LoadingScreenSource::LoadCallback,
+                    screen.set_progress_mission_open(bit)?;
+                    device.present_loading_screen(LoadingScreenFrame::from_inputs(
+                        LoadingScreenSource::LoadCallback,
                         screen,
-                    })?;
+                        inputs,
+                    ))?;
                 }
                 self.last_bit = bit;
             }
-            LOAD_PROGRESS_END => {
-                if let Some(mut screen) = self.menu_progress.take() {
-                    // GM_Menu::Destroy: the components, then `delete this`
-                    // (the drop). The destructor's menuCount half stays with
-                    // the menu-resource owner.
-                    screen.menu.destroy();
-                }
-            }
+            LOAD_PROGRESS_END => self.destroy_menu_progress(inputs)?,
             _ => {}
         }
         Ok(())

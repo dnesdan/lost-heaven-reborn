@@ -260,7 +260,10 @@ impl DriverSceneOwner {
         scene: SceneKey,
         installation: &lhr_assets::Installation,
         name: &str,
-        report: &mut dyn FnMut(crate::scene_file_load::LoadHierarchyReport) -> Result<(), String>,
+        report: &mut dyn FnMut(
+            &mut ModelArena,
+            crate::scene_file_load::LoadHierarchyReport,
+        ) -> Result<(), String>,
     ) -> Result<
         crate::model_loading::CpuSceneWorldProgress,
         crate::model_loading::CpuSceneWorldFailure,

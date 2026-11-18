@@ -348,7 +348,7 @@ fn actual_cache_model_open_precedes_location_and_retains_the_same_creators() {
             result,
             Err(FreerideRunError::Callback(FreerideFailure {
                 step: FreerideStep::FreerideSetup,
-                error: FreerideError::Setup(FreerideSetupError::SceneNamedLookupUnavailable)
+                error: FreerideError::Setup(FreerideSetupError::RoofRemovalUnavailable)
             }))
         ),
         "{result:?}"
@@ -364,7 +364,16 @@ fn actual_cache_model_open_precedes_location_and_retains_the_same_creators() {
         &progress.reached()[8..],
         &[
             FreerideSetupStep::OpenCarModel,
-            FreerideSetupStep::LocateStartFrame
+            FreerideSetupStep::LocateStartFrame,
+            FreerideSetupStep::LocateFallbackStartFrame,
+            FreerideSetupStep::UpdateCarModel,
+            FreerideSetupStep::UpdatePlayerModel,
+            FreerideSetupStep::AddCarFrame,
+            FreerideSetupStep::AddPlayerFrame,
+            FreerideSetupStep::ReleaseCarCreator,
+            FreerideSetupStep::ReleasePlayerCreator,
+            FreerideSetupStep::InitializeCar,
+            FreerideSetupStep::RemoveRoof,
         ]
     );
     assert!(!attempt.init().entered());
@@ -375,7 +384,20 @@ fn actual_cache_model_open_precedes_location_and_retains_the_same_creators() {
     );
     assert_eq!(session.arena.model(car_model).unwrap().frames.len(), 1);
     assert_eq!(session.arena.links(car_model.root()).unwrap().parent, None);
-    assert_eq!(session.arena.frame(car_model.root()).unwrap().owner, None);
+    assert_eq!(
+        session.arena.frame(car_model.root()).unwrap().owner,
+        session
+            .scene()
+            .unwrap()
+            .map(crate::scene_ownership::FrameOwner::Scene)
+    );
+    assert_eq!(progress.held_model_creators(), 0);
+    assert_eq!(progress.start_frame(), None);
+    assert!(progress.fallback_attempted());
+    assert_eq!(progress.car_init_result(), Some(false));
+    assert_eq!(progress.player_cache_result(), None);
+    assert_eq!(progress.player_init_result(), None);
+    assert!(!progress.completed());
     assert_eq!(session.freeride().flags, 0x100);
     assert!(session
         .loader
@@ -456,7 +478,7 @@ fn host_cache_failure_retains_prefix_without_reading_the_location() {
 }
 
 #[test]
-fn native_cache_hresult_is_ignored_before_the_named_lookup_boundary() {
+fn native_failure_returns_do_not_abort_setup_and_completed_setup_admits_common_init() {
     let fixture = fixture();
     write_car_index(&fixture);
     let mut session = fixture.session();
@@ -464,13 +486,14 @@ fn native_cache_hresult_is_ignored_before_the_named_lookup_boundary() {
     session
         .adopt_freeride_selection_host(1, 0, 7, 0.0, 0.0, 0.0)
         .unwrap();
-    let result = start(&mut session, &mut FreerideAttempt::default());
+    let mut attempt = FreerideAttempt::default();
+    let result = start(&mut session, &mut attempt);
     assert!(
         matches!(
             result,
             Err(FreerideRunError::Callback(FreerideFailure {
-                error: FreerideError::Setup(FreerideSetupError::SceneNamedLookupUnavailable),
-                ..
+                step: FreerideStep::GameInit,
+                error: FreerideError::Init(_),
             }))
         ),
         "{result:?}"
@@ -483,6 +506,46 @@ fn native_cache_hresult_is_ignored_before_the_named_lookup_boundary() {
         session.freeride_setup_progress().start_marker(),
         Some(b"emeth_7".as_slice())
     );
+    let progress = session.freeride_setup_progress();
+    assert!(progress.completed());
+    assert_eq!(progress.car_init_result(), Some(false));
+    assert_eq!(progress.player_cache_result(), Some(0x8000_0001u32 as i32));
+    assert_eq!(progress.player_init_result(), Some(true));
+    assert_eq!(progress.held_model_creators(), 0);
+    let actors = &session.loader.as_ref().unwrap().content.actors.world;
+    assert_eq!(
+        actors.source(ActorSource::Primary),
+        &[progress.car(), progress.player()]
+    );
+    assert!(actors.source(ActorSource::Active).is_empty());
+    assert_eq!(
+        actors.state(progress.car().unwrap()).unwrap().frame,
+        Some(
+            session
+                .arena
+                .lookup_reference(progress.car_model().unwrap().root())
+        )
+    );
+    assert_eq!(
+        actors.state(progress.player().unwrap()).unwrap().frame,
+        Some(
+            session
+                .arena
+                .lookup_reference(progress.player_model().unwrap().root())
+        )
+    );
+    assert!(attempt.init().entered());
+    assert!(
+        format!("{result:?}").contains("Init Scene::Render after sound mute unavailable"),
+        "{result:?}"
+    );
+    assert_eq!(
+        attempt.init().last(),
+        Some(crate::game_init_order::InitStep::ResetMissionState)
+    );
+    assert!(!attempt
+        .reached()
+        .contains(&FreerideStep::FreerideSetupAfter));
     assert_eq!(
         session
             .arena
@@ -492,6 +555,390 @@ fn native_cache_hresult_is_ignored_before_the_named_lookup_boundary() {
             .len(),
         0
     );
+    discard(&mut session);
+}
+
+#[test]
+fn presented_start_preserves_setup_and_stops_at_the_reached_presentation_failure() {
+    use crate::game_init_order::{InitStep, PresentedFrame};
+    use crate::scene_render::SceneSnapshotSequence;
+    for refuse_scene in [true, false] {
+        let fixture = fixture();
+        write_car_index(&fixture);
+        let mut session = fixture.session();
+        session.read_car_database_for_startup().unwrap();
+        session
+            .adopt_freeride_selection_host(1, 0, 7, 0.0, 0.0, 0.0)
+            .unwrap();
+        let mut attempt = FreerideAttempt::default();
+        let mut sequence = SceneSnapshotSequence::default();
+        let mut presentations = Vec::new();
+        let mut present = |frame: PresentedFrame<'_>| match frame {
+            PresentedFrame::Scene(snapshot) => {
+                assert_eq!(snapshot.frame.viewport, [0, 0, 64, 64]);
+                presentations.push("scene");
+                if refuse_scene {
+                    Err("scene refused".into())
+                } else {
+                    Ok(())
+                }
+            }
+            PresentedFrame::LoadingScreen(frame) => {
+                assert_eq!(frame.raw_progress()?.to_bits(), 0.7f32.to_bits());
+                presentations.push("loading");
+                Err("loading refused".into())
+            }
+        };
+        let result = session.start_freeride_presented(
+            &mut attempt,
+            FreerideRequest {
+                model_directories: &[],
+                projection: projection(),
+            },
+            &mut Screen::default(),
+            &mut NoCameraRender,
+            FreeridePresentation {
+                target: [64, 64],
+                sequence: &mut sequence,
+                present: &mut present,
+            },
+        );
+        assert!(
+            format!("{result:?}").contains(if refuse_scene {
+                "scene refused"
+            } else {
+                "loading refused"
+            }),
+            "{result:?}"
+        );
+        assert_eq!(
+            presentations,
+            if refuse_scene {
+                vec!["scene"]
+            } else {
+                vec!["scene", "loading"]
+            }
+        );
+        assert!(session.freeride_setup_progress().completed());
+        assert_eq!(
+            attempt.init().last(),
+            Some(if refuse_scene {
+                InitStep::ResetMissionState
+            } else {
+                InitStep::PlayerNavi
+            })
+        );
+        assert_eq!(session.audio().master_gain().unwrap(), 0.0);
+        assert!(!attempt
+            .reached()
+            .contains(&FreerideStep::FreerideSetupAfter));
+        assert!(!session.game_initialized);
+        assert!(matches!(
+            start(&mut session, &mut attempt),
+            Err(FreerideRunError::AlreadyEntered)
+        ));
+        discard(&mut session);
+    }
+}
+
+#[test]
+fn presented_start_does_not_present_before_an_interrupted_setup() {
+    let fixture = fixture();
+    write_car_index(&fixture);
+    let mut session = fixture.session();
+    session.read_car_database_for_startup().unwrap();
+    let mut attempt = FreerideAttempt::default();
+    let mut sequence = crate::scene_render::SceneSnapshotSequence::default();
+    let mut presentations = 0;
+    let mut present = |_: crate::game_init_order::PresentedFrame<'_>| {
+        presentations += 1;
+        Ok(())
+    };
+    let result = session.start_freeride_presented(
+        &mut attempt,
+        FreerideRequest {
+            model_directories: &[],
+            projection: projection(),
+        },
+        &mut Screen::default(),
+        &mut NoCameraRender,
+        FreeridePresentation {
+            target: [64, 64],
+            sequence: &mut sequence,
+            present: &mut present,
+        },
+    );
+    assert!(
+        format!("{result:?}").contains("SelectionUnavailable"),
+        "{result:?}"
+    );
+    assert_eq!(presentations, 0);
+    assert!(!attempt.init().entered());
+    discard(&mut session);
+}
+
+#[test]
+fn marker_placement_uses_actual_models_and_exact_fallback_before_scene_transfer() {
+    for (location, marker_name, fallback) in [
+        (7, b"EMETH_7".as_slice(), false),
+        (7, b"emeth_1".as_slice(), true),
+    ] {
+        let fixture = fixture();
+        write_car_index(&fixture);
+        let mut session = fixture.session();
+        session.read_car_database_for_startup().unwrap();
+        session
+            .adopt_freeride_selection_host(1, 0, location, 1.0, 1.0, 1.0)
+            .unwrap();
+        open(&mut session);
+        let scene = session.scene().unwrap().unwrap();
+        let primary = session.arena.scene_primary_sector(scene).unwrap();
+        let marker = session
+            .arena
+            .insert(
+                crate::frame_transform::I3dFrameState::dummy(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                None,
+            )
+            .unwrap();
+        session
+            .arena
+            .set_frame_name(marker, Some(marker_name))
+            .unwrap();
+        session
+            .arena
+            .set_frame_position(marker, [5.0, 2.0, 7.0])
+            .unwrap();
+        session.arena.scene_add_frame(scene, marker).unwrap();
+        session
+            .arena
+            .link_frame(marker, Some(primary.frame()), 0)
+            .unwrap();
+        session.arena.release(marker).unwrap();
+        session.setup_freeride().unwrap();
+        let progress = session.freeride_setup_progress();
+        assert_eq!(
+            progress.start_frame(),
+            Some(session.arena.lookup_reference(marker))
+        );
+        assert_eq!(progress.fallback_attempted(), fallback);
+        assert_eq!(progress.held_model_creators(), 0);
+        assert!(progress.completed());
+        let expected = [
+            FreerideSetupStep::SetCarPosition,
+            FreerideSetupStep::SetCarDirection,
+            FreerideSetupStep::LinkCar,
+            FreerideSetupStep::SetPlayerPosition,
+            FreerideSetupStep::SetPlayerDirection,
+            FreerideSetupStep::LinkPlayer,
+            FreerideSetupStep::UpdateCarModel,
+            FreerideSetupStep::UpdatePlayerModel,
+            FreerideSetupStep::AddCarFrame,
+            FreerideSetupStep::AddPlayerFrame,
+            FreerideSetupStep::ReleaseCarCreator,
+            FreerideSetupStep::ReleasePlayerCreator,
+            FreerideSetupStep::InitializeCar,
+            FreerideSetupStep::OpenPlayerModel,
+            FreerideSetupStep::InitializePlayer,
+            FreerideSetupStep::AddCarActor,
+            FreerideSetupStep::AddPlayerActor,
+        ];
+        assert_eq!(
+            &progress.reached()[progress.reached().len() - expected.len()..],
+            expected
+        );
+        let models = [
+            progress.car_model().unwrap(),
+            progress.player_model().unwrap(),
+        ];
+        for model in models {
+            assert_eq!(
+                session.arena.links(model.root()).unwrap().parent,
+                Some(primary.frame())
+            );
+            assert_eq!(
+                session.arena.frame(model.root()).unwrap().owner,
+                Some(crate::scene_ownership::FrameOwner::Scene(scene))
+            );
+            assert_eq!(
+                session.arena.frame_world_position(model.root()).unwrap(),
+                [5.0, 2.0, 7.0]
+            );
+            assert_eq!(
+                session.arena.frame_world_direction(model.root()).unwrap(),
+                [0.0, 0.0, 1.0]
+            );
+        }
+        assert_eq!(
+            session
+                .loader
+                .as_ref()
+                .unwrap()
+                .content
+                .actors
+                .world
+                .source(ActorSource::Primary)
+                .len(),
+            2
+        );
+        let reached = session.freeride_setup_progress().reached().to_vec();
+        assert!(matches!(
+            session.setup_freeride(),
+            Err(FreerideSetupError::AlreadyEntered)
+        ));
+        assert_eq!(session.freeride_setup_progress().reached(), reached);
+        discard(&mut session);
+        for model in models {
+            assert!(session.arena.model(model).is_err());
+        }
+    }
+}
+
+#[test]
+fn player_cache_host_failure_stops_after_car_init_without_replaying_or_claiming_completion() {
+    let fixture = fixture();
+    write_car_index(&fixture);
+    std::fs::create_dir_all(fixture.0.join("Models")).unwrap();
+    std::fs::write(
+        fixture.0.join("Models/alpha00.4ds"),
+        world(&[dummy_with_culling(0, b"part", 0x11)]),
+    )
+    .unwrap();
+    std::fs::write(fixture.0.join("Models/Tommy.4ds"), b"broken").unwrap();
+    let mut session = fixture.session();
+    session.read_car_database_for_startup().unwrap();
+    session
+        .adopt_freeride_selection_host(1, 0, 7, 0.0, 0.0, 0.0)
+        .unwrap();
+    let mut attempt = FreerideAttempt::default();
+    let result = session.start_freeride(
+        &mut attempt,
+        FreerideRequest {
+            model_directories: &[b"Models"],
+            projection: projection(),
+        },
+        &mut Screen::default(),
+        &mut NoCameraRender,
+    );
+    assert!(
+        matches!(
+            result,
+            Err(FreerideRunError::Callback(FreerideFailure {
+                step: FreerideStep::FreerideSetup,
+                error: FreerideError::Setup(FreerideSetupError::PlayerModelCache(_)),
+            }))
+        ),
+        "{result:?}"
+    );
+    let progress = session.freeride_setup_progress();
+    assert!(!progress.completed());
+    assert_eq!(progress.car_init_result(), Some(false));
+    assert_eq!(progress.player_cache_result(), None);
+    assert_eq!(progress.player_init_result(), None);
+    assert_eq!(progress.held_model_creators(), 0);
+    assert_eq!(
+        progress.reached().last(),
+        Some(&FreerideSetupStep::OpenPlayerModel)
+    );
+    assert!(session
+        .loader
+        .as_ref()
+        .unwrap()
+        .content
+        .actors
+        .world
+        .source(ActorSource::Primary)
+        .is_empty());
+    assert!(!attempt.init().entered());
+    let counts = session.owned_counts().unwrap();
+    let reached = progress.reached().to_vec();
+    assert!(matches!(
+        session.setup_freeride(),
+        Err(FreerideSetupError::AlreadyEntered)
+    ));
+    let mut init = crate::game_init_order::InitAttempt::default();
+    assert!(init.run(&mut session).is_err());
+    assert!(!session.game_init_reset_entered);
+    assert_eq!(session.freeride_setup_progress().reached(), reached);
+    assert_eq!(session.owned_counts().unwrap(), counts);
+    assert_eq!(
+        session.discard_terminal(),
+        Err(MissionDiscardCallError::Stopped)
+    );
+    assert_eq!(
+        session.discard_progress().phase,
+        MissionDiscardPhase::Cache(MissionCacheKind::Model)
+    );
+    assert_eq!(session.freeride_setup_progress().held_model_creators(), 0);
+    assert_eq!(
+        session
+            .loader
+            .as_ref()
+            .unwrap()
+            .content
+            .actors
+            .world
+            .owned_actor_references()
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn lookup_host_failure_retains_creators_and_does_not_attempt_fallback_or_update() {
+    let fixture = fixture();
+    write_car_index(&fixture);
+    let mut session = fixture.session();
+    session.read_car_database_for_startup().unwrap();
+    session
+        .adopt_freeride_selection_host(1, 0, 7, 1.0, 1.0, 1.0)
+        .unwrap();
+    open(&mut session);
+    let scene = session.scene().unwrap().unwrap();
+    let primary = session.arena.scene_primary_sector(scene).unwrap();
+    let marker = session
+        .arena
+        .insert(
+            crate::frame_transform::I3dFrameState::dummy(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+        )
+        .unwrap();
+    session.arena.set_frame_name(marker, Some(&[0x80])).unwrap();
+    session.arena.scene_add_frame(scene, marker).unwrap();
+    session
+        .arena
+        .link_frame(marker, Some(primary.frame()), 0)
+        .unwrap();
+    session.arena.release(marker).unwrap();
+    assert!(matches!(
+        session.setup_freeride(),
+        Err(FreerideSetupError::StartFrameLookup(
+            crate::frame_lookup::FrameLookupError::UnsupportedName
+        ))
+    ));
+    let progress = session.freeride_setup_progress();
+    assert_eq!(
+        progress.reached().last(),
+        Some(&FreerideSetupStep::LocateStartFrame)
+    );
+    assert_eq!(progress.held_model_creators(), 2);
+    assert!(!progress.fallback_attempted());
+    assert_eq!(progress.start_frame(), None);
+    for model in [
+        progress.car_model().unwrap(),
+        progress.player_model().unwrap(),
+    ] {
+        assert_eq!(session.arena.frame(model.root()).unwrap().owner, None);
+    }
+    assert!(matches!(
+        session.setup_freeride(),
+        Err(FreerideSetupError::AlreadyEntered)
+    ));
     discard(&mut session);
 }
 

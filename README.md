@@ -20,8 +20,18 @@ source Open and collision loading, creates the actual player/car actors and name
 model roots. Startup now reads the actual car/player index tables. Without an
 explicit selection it stops before GetCarModel; a diagnostic StoreA/StoreB input
 can exercise the real database lookup and car cache Open, not a replacement car.
-The native Freeride menu is not reconstructed. Synthetic continuation stops at
-the unavailable Scene named-frame lookup; original assets can stop earlier.
+The native Freeride menu is not reconstructed. Setup now uses the actual Scene
+lookup, literal `emeth_1` fallback, placement and scene model ownership, followed
+by the existing car/player initialization, Tommy cache and AddActor owners.
+Synthetic fixtures and original assets with diagnostic selection `1,0,1,1,1,1`
+complete Setup and enter common Init. The actual car and Tommy cache Opens and
+both actor Init calls succeed on that original-data run. LS3DF's initial-C-locale
+byte-name comparison now admits high bytes without decoding or renaming assets;
+embedded NUL and unsupported locale paths remain errors. The default headless
+Init stops at its unavailable Scene render; optional `--probe-render-capture`
+uses the existing GPU presentation bridge at that reached call. On the original
+installation this now renders the retained Scene and stops at PlayerNavi's
+loading-menu Draw/Present, which is not synthesized. Roof-off still stops explicitly.
 Terminal disposal releases the represented mission owners in these successful
 intake runs; interrupted cache teardown can stop explicitly after a released prefix.
 This is not playable Freeride or original-runtime parity;
@@ -42,7 +52,7 @@ The cards count each binary's own functions, without the C runtime linked into i
 
 | Binary | Implemented | Verified |
 | --- | ---: | ---: |
-| `Game.exe` | 1180/4914* | 679 |
+| `Game.exe` | 1178/4914* | 677 |
 | `LS3DF.dll` | 1032/1714 | 603 |
 | `rw_data.dll` | 24/62 + 38 covered | 17 |
 | `Setup.exe (supplied configuration)` | 5/172 | 5 |

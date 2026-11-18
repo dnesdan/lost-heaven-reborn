@@ -323,6 +323,7 @@ impl StaticModelLoadProfile {
 /// owns reference counts, model/scene membership, names and fast-tree links.
 #[derive(Debug, Default)]
 pub struct ModelArena {
+    pub(crate) frame_name_locale: crate::frame_name_comparison::Ls3dfNameLocale,
     pub(crate) presentation_lighting:
         std::cell::RefCell<crate::presentation_lighting::PresentationLighting>,
     pub(crate) graph: I3dFrameGraph,
@@ -2388,11 +2389,11 @@ impl ModelArena {
             root_parent,
             billboards,
             true,
-            &mut |_| Ok(()),
+            &mut |_, _| Ok(()),
         )
     }
     /// [`ModelArena::load_parsed_into_model_for_root_with_billboards`] with
-    /// LoadImage's per-frame `LoadProgress` point: `frame_progress(j)` runs
+    /// LoadImage's per-frame `LoadProgress` point: `frame_progress(arena, j)` runs
     /// before frame `j` is read (load4ds.cpp:128, LS3DF 0x10060eef). An
     /// `Err` is a host stop, not a load error: the loader returns at once
     /// with the frames read so far as untransferred creator references on
@@ -2404,7 +2405,7 @@ impl ModelArena {
         source: Arc<Model>,
         root_parent: Option<FrameKey>,
         billboards: &[lhr_assets::BillboardSource],
-        frame_progress: &mut dyn FnMut(usize) -> Result<(), ModelError>,
+        frame_progress: &mut dyn FnMut(&mut ModelArena, usize) -> Result<(), ModelError>,
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
         self.load_parsed_hierarchy_profile(
             model,
@@ -2422,7 +2423,7 @@ impl ModelArena {
         root_parent: Option<FrameKey>,
         billboards: &[lhr_assets::BillboardSource],
         finalize_root: bool,
-        frame_progress: &mut dyn FnMut(usize) -> Result<(), ModelError>,
+        frame_progress: &mut dyn FnMut(&mut ModelArena, usize) -> Result<(), ModelError>,
     ) -> Result<SharedModelContent, SharedModelLoadFailure> {
         let mut content = SharedModelContent {
             model,
@@ -2450,7 +2451,7 @@ impl ModelArena {
         let mut morph_poses = Vec::new();
         let mut result = Ok(());
         for index in 0..source.frames.len() {
-            if let Err(error) = frame_progress(index) {
+            if let Err(error) = frame_progress(self, index) {
                 return Err(SharedModelLoadFailure {
                     error,
                     partial: content,
@@ -2713,7 +2714,7 @@ impl ModelArena {
                 None,
                 &source.billboards,
                 !companion,
-                &mut |_| Ok(()),
+                &mut |_, _| Ok(()),
             )?;
             if let Err(error) = self.load_plain_visual_resources(model, installation) {
                 return Err(SharedModelLoadFailure {
@@ -3678,6 +3679,33 @@ impl ModelArena {
         self.frame_index(key)?;
         Ok(self.graph.world_matrix(key)?)
     }
+    pub fn frame_world_position(&mut self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        self.frame_index(key)?;
+        Ok(self.graph.frame_world_position(key)?)
+    }
+    pub fn frame_world_direction(&mut self, key: FrameKey) -> Result<[f32; 3], ModelError> {
+        self.frame_index(key)?;
+        Ok(self.graph.frame_world_direction(key)?)
+    }
+    pub fn set_frame_position(
+        &mut self,
+        key: FrameKey,
+        position: [f32; 3],
+    ) -> Result<(), ModelError> {
+        self.frame_index(key)?;
+        self.graph.assign_position(key, position)?;
+        Ok(())
+    }
+    pub fn set_frame_direction(
+        &mut self,
+        key: FrameKey,
+        direction: [f32; 3],
+        roll: f32,
+    ) -> Result<(), ModelError> {
+        self.frame_index(key)?;
+        self.graph.set_direction(key, direction, roll)?;
+        Ok(())
+    }
     /// `I3D_visual::GetRenderMatrix` (LS3DF 0x1002ad00): identity for a
     /// `VISF_WORLD_SPACE` visual without reading the frame matrix, else the
     /// 0x20-gated world matrix.
@@ -4250,6 +4278,135 @@ pub(crate) mod tests {
             instance: None,
             lods: Vec::new(),
         }
+    }
+    #[test]
+    fn frame_progress_reborrows_live_links_and_keeps_untransferred_stop_prefix() {
+        crate::native_precision::Pc24PrecisionState::default().run(|| {
+            let source = Arc::new(Model {
+                materials: vec![],
+                frames: vec![
+                    frame(6, None, [1.0, 0.0, 0.0]),
+                    frame(6, Some(0), [2.0, 0.0, 0.0]),
+                    frame(6, Some(1), [3.0, 0.0, 0.0]),
+                ],
+            });
+            let mut arena = ModelArena::default();
+            let model = arena.create_model().unwrap();
+            let identity = arena.lookup_reference(model.root());
+            let mut reports = Vec::new();
+            let mut marker = None;
+            let mut reached = Vec::new();
+            let failure = arena
+                .load_parsed_into_model_for_root_reporting(
+                    model,
+                    source.clone(),
+                    None,
+                    &[],
+                    &mut |arena, index| {
+                        assert_eq!(arena.lookup_reference(model.root()), identity);
+                        reached = arena
+                            .frames
+                            .iter()
+                            .filter(|loaded| {
+                                loaded.alive
+                                    && loaded
+                                        .source
+                                        .as_ref()
+                                        .is_some_and(|owner| Arc::ptr_eq(owner, &source))
+                            })
+                            .map(|loaded| loaded.key)
+                            .collect();
+                        assert_eq!(reached.len(), index);
+                        assert!(arena.model(model).unwrap().frames.is_empty());
+                        assert_eq!(arena.links(model.root()).unwrap().child, None);
+                        for &key in &reached {
+                            assert_eq!(arena.frame(key).unwrap().references, 1);
+                            assert_eq!(arena.frame(key).unwrap().owner, None);
+                        }
+                        reports.push(index);
+                        match index {
+                            0 => {
+                                let key = arena.create_dummy_frame().unwrap();
+                                arena.set_frame_property(key, Some(b"frame-zero")).unwrap();
+                                marker = Some(key);
+                            }
+                            1 => {
+                                let key = marker.unwrap();
+                                assert_eq!(
+                                    arena.frame_property_or_empty(key).unwrap(),
+                                    b"frame-zero"
+                                );
+                                arena.set_frame_property(key, Some(b"frame-one")).unwrap();
+                                assert_eq!(
+                                    arena.frame_world_position(reached[0]).unwrap(),
+                                    [1.0, 0.0, 0.0]
+                                );
+                                arena
+                                    .set_frame_position(reached[0], [7.0, 0.0, 0.0])
+                                    .unwrap();
+                            }
+                            2 => {
+                                assert_eq!(
+                                    arena.frame_property_or_empty(marker.unwrap()).unwrap(),
+                                    b"frame-one"
+                                );
+                                assert_eq!(
+                                    arena.links(reached[0]).unwrap().child,
+                                    Some(reached[1])
+                                );
+                                assert_eq!(
+                                    arena.links(reached[1]).unwrap().parent,
+                                    Some(reached[0])
+                                );
+                                assert_eq!(
+                                    arena.frame_world_position(reached[1]).unwrap(),
+                                    [9.0, 0.0, 0.0]
+                                );
+                                arena
+                                    .set_frame_property(reached[1], Some(b"stopped"))
+                                    .unwrap();
+                                return Err(ModelError::LoadCallback("frame-stop".into()));
+                            }
+                            other => panic!("unexpected frame callback: {other}"),
+                        }
+                        Ok(())
+                    },
+                )
+                .unwrap_err();
+            assert_eq!(failure.error, ModelError::LoadCallback("frame-stop".into()));
+            assert_eq!(reports, [0, 1, 2]);
+            assert_eq!(failure.partial.model(), model);
+            assert_eq!(failure.partial.frames(), reached);
+            assert_eq!(failure.partial.transferred_frames(), 0);
+            assert!(arena.model(model).unwrap().frames.is_empty());
+            assert_eq!(arena.links(model.root()).unwrap().child, None);
+            assert_eq!(
+                arena.frame_world_position(reached[1]).unwrap(),
+                [9.0, 0.0, 0.0]
+            );
+            assert_eq!(
+                arena.frame_property_or_empty(reached[1]).unwrap(),
+                b"stopped"
+            );
+            assert_eq!(
+                arena.frame_property_or_empty(marker.unwrap()).unwrap(),
+                b"frame-one"
+            );
+            assert_eq!(arena.live_frame_count(), 4);
+            for (index, &key) in reached.iter().enumerate() {
+                let loaded = arena.frame(key).unwrap();
+                assert_eq!(loaded.source_index, Some(index));
+                assert_eq!(loaded.references, 1);
+                assert_eq!(loaded.owner, None);
+                assert!(Arc::ptr_eq(loaded.source.as_ref().unwrap(), &source));
+            }
+            for key in reached.into_iter().rev() {
+                arena.release(key).unwrap();
+            }
+            arena.release(marker.unwrap()).unwrap();
+            arena.release(model.root()).unwrap();
+            assert_eq!(arena.live_frame_count(), 0);
+        });
     }
     #[test]
     fn rva_0x1be40_link_sector_moves_scene_ring() {

@@ -14,7 +14,9 @@ playable from start to finish.
 
 This headless diagnostic fixes the original mission name to `freeride`. It
 excludes `--mission`, campaign probes, standalone car-driving, model-selection
-and presentation flags; it supplies no substitute map, default car or implicit
+and unrelated presentation flags; optional `--probe-render-capture FILE.png`
+attempts the existing GPU presentation at common Init's reached Scene render.
+It supplies no substitute map, default car or implicit
 model directory. It exits unsuccessfully while startup is blocked.
 
 The fresh-session sequence is ClosePrevious, original source Open, collision,
@@ -36,12 +38,42 @@ The first three are unsigned decimal words (CAR is the original database
 descriptor, not a model filename); densities are parsed as f32 without clamping.
 The input writes the real StoreA/StoreB state before Open and survives
 SaveGameNewGame, which only clears active. Setup reads car at GetCarModel,
-location after car cache Open, and has not yet reached flags/density consumers.
+location after car cache Open, and flags only after car Init. Density consumers
+remain unreached.
 Invalid car indices stop instead of using the native caller's unwritten name
-buffer or inventing a fallback. Synthetic tests reach successful cache Open and
-then the unsupported Scene named-frame lookup; source/numeric/cache errors on
-original assets stop where encountered. This option is not native menu execution,
+buffer or inventing a fallback. Scene lookup searches primary-sector children
+by original name with the native `0xffff` mask, then tries literal `emeth_1` only
+when no requested marker exists. Missing both markers skips placement, not Setup.
+Found markers supply position/direction separately for the car and player, then
+the real model owners perform Update, AddFrame and creator Release in native
+order. Car Init, optional roof-off, Tommy cache Open, player Init and AddActor
+follow. Native false Init returns and failure HRESULTs are recorded but ignored;
+host errors retain their reached prefix and stop. Roof-off (`flags & 0x100`) has
+no reconstructed owner and stops explicitly. Synthetic fixtures and the
+original-data run below complete Setup without that flag and enter common Init,
+which stops at the unavailable Scene render in the default headless
+ResetMissionState path, not gameplay.
+On original assets, selection `1,0,1,1,1,1` resolves `fordttud00.i3d` and `emeth_1`,
+places both models and transfers them to the Scene, opens Tommy, initializes
+both actors successfully and adds them in native order. The prior Car Init
+high-byte-name failure is resolved by the evidenced LS3DF initial-C-locale
+comparison, independent of the Game CRT. Names are not decoded, renamed or
+ignored; embedded NUL and unreconstructed locale-dependent comparisons still
+stop. Terminal disposal succeeds with zero represented mission owners.
+Source/numeric/cache errors can stop earlier. This option is not native menu execution,
 an interactive mode, or Freeride acceptance.
+
+With `--probe-render-capture /tmp/freeride-init.png`, the same one-shot startup
+attempts a GPU image of the retained Scene only when Init reaches its render.
+Failure before that call produces no image; a capture failure retains the muted
+prefix and stops. The later loading-menu Draw/Present has no composed owner and
+is explicitly refused, not treated as a successful presentation. A captured
+frame is not a successful game tick or playable control.
+The original-data capture with selection `1,0,1,1,1,1` now succeeds after the
+source-backed spot-light selection/cone branch; Init stops at PlayerNavi's
+loading-screen presentation. Terminal disposal again releases all represented
+mission owners, including the prepared visual buffers. Spot lighting retains
+the existing checked PC24 numeric domain and receives no whole-function credit.
 
 Native application database state is session-owned here and retained through
 terminal mission disposal. Cross-session application ownership is not composed.
@@ -259,6 +291,39 @@ and the headless captures render (construction-site inspection view, textured
 skeletal Tommy). Audio and interactive input on Windows remain unverified.
 `cargo +1.99.1 test --workspace --locked` runs the Rust tests, but does not
 replace all checks in `scripts/test.sh`.
+
+### Full test suite on Windows (Git Bash + WSL)
+
+Run `scripts/test.sh` from Git Bash. The fmt/check/test/clippy steps use the
+native MSVC toolchain from `scripts/common.sh`. The Python suites test Linux
+behaviour (`/proc`, `prctl`, process groups, POSIX modes and symlinks), so they
+always run in WSL. No native Windows Python fallback exists. The WSL,
+distribution, tool and line-ending checks run before the cargo steps and stop
+the run with an error if anything is missing.
+
+- The distribution is selected explicitly, because the WSL default may be
+  `docker-desktop`. The default is `Debian`; override it with
+  `LHR_WSL_DISTRO=<name> scripts/test.sh`. `wsl.exe -l -v` lists the installed
+  distributions.
+- The distribution must provide Bash, Python 3.11+, `git`, `tar`, `grep`,
+  findutils (`find`) and coreutils (`dirname`, `uname`, `env`, `mktemp`,
+  `stat`, `rm`, `mkdir`, `sort`, `cp`, `tr`). On Debian, install them with
+  `sudo apt install bash python3 git tar grep findutils coreutils`.
+  Analysis installation tools such as `curl`, `unzip`, Node and npm are not
+  required by the tests: setup validates the private path before checking
+  installer prerequisites. Its symlink-refusal test uses an isolated PATH
+  containing only the tools needed for that validation. The tests download nothing.
+- WSL copies the working tree into a private `0700` directory on the Linux
+  filesystem and runs the tests there. The copy includes tracked and
+  untracked, non-ignored files, and their bytes are unchanged. The directory
+  is removed afterwards. On the `/mnt/<drive>` mount every file reports mode
+  `0777`, and path resolution is slow enough that `test_rewrite_progress.py`
+  did not finish within 10 minutes. Inside the copy, `core.autocrlf` is
+  disabled for the tests' temporary repositories only.
+- `.gitattributes` keeps `*.sh` at LF. The runner reports any `scripts/*.sh`
+  that still has CRLF, for example from a checkout made before the attribute
+  existed. Re-checkout each unmodified file with
+  `rm scripts/<name>.sh && git checkout -- scripts/<name>.sh`.
 
 ## macOS — build and Metal rendering tested; audio and interaction not yet
 

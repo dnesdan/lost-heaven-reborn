@@ -12,6 +12,80 @@ pub const VEHICLE_MATERIAL_STRIDE: usize = 0x30;
 pub const TYRE_SURFACE_STRIDE: usize = 0x5c;
 const MAX_TABLE_BYTES: usize = 4 * 1024 * 1024;
 
+/// Ordered asset IO used by LoadTyres. A missing open is the native invalid
+/// handle branch; a host error is a separate interrupted operation. Reads
+/// report their actual extent because native dtaRead ignores short reads,
+/// leaving bytes whose values this bounded owner cannot invent.
+pub trait TyreTableFile {
+    type Error;
+    fn open_tyres(&mut self) -> Result<bool, Self::Error>;
+    fn read(&mut self, destination: &mut [u8]) -> Result<usize, Self::Error>;
+    fn close(&mut self) -> Result<(), Self::Error>;
+}
+
+/// A buffered stream retained by the lazy table owner when the native exit
+/// does not close its file. These are file bytes, not a second table owner.
+#[derive(Debug)]
+pub(crate) struct RetainedTyreStream {
+    _bytes: Vec<u8>,
+    _position: usize,
+}
+/// Buffered Installation adapter, not a native DTA handle emulation. Opening
+/// and decompression occur only when LoadTyres reaches open_tyres. The buffer
+/// remains owned on an interrupted read or the native payload-allocation false
+/// exit, which does not close its file. Reopening an active stream is an error.
+pub struct InstallationTyreFile<'a> {
+    installation: &'a Installation,
+    bytes: Option<Vec<u8>>,
+    position: usize,
+}
+impl<'a> InstallationTyreFile<'a> {
+    pub fn new(installation: &'a Installation) -> Self {
+        Self {
+            installation,
+            bytes: None,
+            position: 0,
+        }
+    }
+    pub fn is_open(&self) -> bool {
+        self.bytes.is_some()
+    }
+    pub fn position(&self) -> usize {
+        self.position
+    }
+    pub(crate) fn into_open_stream(self) -> Option<RetainedTyreStream> {
+        self.bytes.map(|bytes| RetainedTyreStream {
+            _bytes: bytes,
+            _position: self.position,
+        })
+    }
+}
+impl TyreTableFile for InstallationTyreFile<'_> {
+    type Error = String;
+    fn open_tyres(&mut self) -> Result<bool, Self::Error> {
+        if self.bytes.is_some() {
+            return Err("Tyre stream is already open".into());
+        }
+        self.bytes = self
+            .installation
+            .read_optional("tables/tyres.bin")
+            .map_err(|error| format!("Original tyre definitions: {error}"))?;
+        self.position = 0;
+        Ok(self.bytes.is_some())
+    }
+    fn read(&mut self, destination: &mut [u8]) -> Result<usize, Self::Error> {
+        let bytes = self.bytes.as_ref().ok_or("Tyre stream is not open")?;
+        let count = destination.len().min(bytes.len() - self.position);
+        destination[..count].copy_from_slice(&bytes[self.position..self.position + count]);
+        self.position += count;
+        Ok(count)
+    }
+    fn close(&mut self) -> Result<(), Self::Error> {
+        self.bytes.take().ok_or("Tyre stream is not open")?;
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DrivingTyreDefinition {
     pub id: u32,
@@ -145,18 +219,15 @@ impl<'a> Cursor<'a> {
         Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
     }
 }
-/// Pointer-free original ConvertTyres field projection. The input extent may
-/// include the file's trailing fields; the original converter reads 18 words.
-/// Provenance: mafia-re `game/vehicles/C_car.cpp:290-316` (PS2 GAME 0x41d770)
-/// computes each curve lane as `angle * 3.14159f / 180.0f`; the port folds
-/// the two operations into one multiply by 0x3c8efa2e. A PC-side byte probe
-/// of LS3DF.dll (SHA-256 e211c850…, REA search_bytes over .text/.rdata/.data)
-/// finds no 0x3c8efa2e, 0x40490fd0 (3.14159f) or 0x43340000 (180.0f)
-/// immediate, and Ghidra 12.1.4 merges PC RVA 0x1d770 into FUN_1001d320
-/// (0x1001d320-0x1001e228), so the fold is pinned against the PS2 two-op
-/// reference, not PC bytes. The correctly rounded fold f32(3.14159/180) is
-/// 0x3c8efa2d (one ULP below the port constant); the kilo lanes are exact
-/// 1000.0 (0x447a0000, PC .rdata VA 0x1009b688).
+/// Pointer-free ConvertTyres projection. Primary REA/Ghidra of Game.exe
+/// SHA-256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27,
+/// RVA 0x1d770: f32 FMUL constants at RVA 0x223614 (0x447a0000) and
+/// 0x2236b4 (0x3c8efa2e), then binary32 stores; range lanes use FSUB.
+/// Evidence ev_a7cc3febb10898a174f09ef6b14e9114e5fc5c3a33252d8df180cb618d7718e1.
+/// The existing guarded PC24/RN finite normal-or-zero arithmetic owner is
+/// retained. Other numeric domains remain errors, not successful conversion.
+/// Source correspondence: mafia-re fe7e746, C_car.cpp:292-316. This static
+/// evidence does not establish runtime equivalence or a different x87 policy.
 pub fn convert_tyre_payload(
     material: u32,
     source: &[u8],

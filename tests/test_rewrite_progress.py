@@ -506,10 +506,10 @@ class RewriteProgressTests(unittest.TestCase):
         # Mission_Start 0x49180 and C_web_path::DeRiciConns 0x14cd20),
         # plus LoadStaticParticles 0x4ad30 contract (creatable effects
         # retain an explicit unported CreateSParticle dependency).
-        self.assertEqual(game["ported"], 149 + 1029 + 2,
-                         "GetCarModel 0x20a6a0 and FreerideStoreB 0x20e960 add two contracts")
-        self.assertEqual(game["verified"], 149 + 530,
-                         "relocated FreerideStoreA is contract-only without fresh runtime validation")
+        self.assertEqual(game["ported"], 149 + 1029 + 2 - 2,
+                         "two Freeride contracts added; two incomplete Indicators entries removed")
+        self.assertEqual(game["verified"], 149 + 530 - 2,
+                         "Indicators Create and Destroy no longer have differential credit")
         self.assertLessEqual(game["verified"], game["ported"])
         self.assertLessEqual(game["ported"], game["total"])
         ls3df = next(card for card in cards if card["name"] == "LS3DF.dll")

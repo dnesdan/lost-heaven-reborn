@@ -17,7 +17,7 @@ use crate::model_loading::ModelArena;
 use crate::original_program::*;
 use crate::player_actor::PlayerSeed;
 use crate::railway_actor::{RailwayAllocation, RailwaySeed, RailwayVectorSlot};
-use crate::script_scheduler::ActorReferenceId;
+use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
 use crate::traffic_generator::{
     TrafficAllocationId, TrafficBackingKind, TrafficGeneratorSeed, TrafficHeap,
 };
@@ -104,6 +104,39 @@ impl MissionContentOwner {
         self.actors
             .world
             .create_actor(native_kind, &mut self.memory)
+    }
+
+    pub(crate) fn init_setup_actor(
+        &mut self,
+        actor: ActorReferenceId,
+        frame: FrameReferenceId,
+        arena: &mut ModelArena,
+        installation: &lhr_assets::Installation,
+    ) -> Result<bool, ActorWorldError> {
+        if self.stopped || self.terminal_entered {
+            return Err(ActorWorldError::Effect {
+                stage: "init_setup_actor",
+                detail: "mission content is stopped or terminal".into(),
+            });
+        }
+        let mut frames =
+            ModelActorFrames::borrow(arena, true).with_car_resources(Some(installation));
+        self.actors.world.init(actor, Some(frame), &mut frames)
+    }
+
+    pub(crate) fn add_setup_actor(
+        &mut self,
+        actor: ActorReferenceId,
+    ) -> Result<(), ActorWorldError> {
+        if self.stopped || self.terminal_entered {
+            return Err(ActorWorldError::Effect {
+                stage: "add_setup_actor",
+                detail: "mission content is stopped or terminal".into(),
+            });
+        }
+        self.actors
+            .world
+            .add_actor(Some(actor), false, &mut self.memory)
     }
 
     /// Caller supplies the live mission path before root dispatch. The actual

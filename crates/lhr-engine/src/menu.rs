@@ -1,6 +1,6 @@
 //! Data-driven original menu layout and atlas text; no game scripts are executed here.
 //!
-//! Marker-only menu-stack contracts (Game.exe menu RVAs 0x1e06e0 OnClick,
+//! Menu-stack contracts (Game.exe menu RVAs 0x1e06e0 OnClick,
 //! 0x1e4a50 OnChange, 0x1e0690 OnCreate, 0x1ea2e0 Create stack; siblings
 //! mafia-re game/ui/g_m_func.cpp:273-354 and game/ui/g_menu.cpp:610-691,
 //! 735-853, 855-901, 903-914, 1046-1139, cited only, never vendored):
@@ -10,11 +10,21 @@
 //! latches). Device owners stay DEFERRED: menu sounds, parent callbacks, the
 //! activeMenuWindow global and menu allocation (MenuOpen), the igraph pump
 //! plus mission/scene owners (ExecuteMenu, TickCamera, Draw device paths),
-//! and the component classes (Draw/Key/Mouse virtuals, text/value storage).
+//! and unsupported component classes. Native loading components share these
+//! owners; the legacy staged APIs remain explicitly uncomposed compatibility.
 use crate::main_menu;
 use lhr_assets::{FontMetrics, Installation, MenuDefinition, Texture as Image};
 use lhr_render::{Mesh, Texture, Vertex};
 use std::sync::Arc;
+
+#[path = "menu_component_drawing.rs"]
+mod component_drawing;
+pub use component_drawing::{
+    MenuComponentChild, MenuComponentCreateContext, MenuComponentDrawCall, MenuComponentDrawCursor,
+    MenuComponentDrawSink, MenuComponentDrawVertex, MenuComponentGeometry, MenuComponentKey,
+    MenuComponentKind, MenuComponentPrecision, MenuComponentPrimitive,
+    MenuComponentPrimitiveTopology, MenuComponentText,
+};
 
 pub const DESIGN: [f32; 2] = [800.0, 600.0];
 /// Host-side reading of the GM_MainMenu::OnClick dispatch (Game.exe VA
@@ -456,22 +466,17 @@ pub enum TickKey {
     TabBackward,
 }
 
-/// Marker-only GM_Component id/flag word (Game.exe GM_Menu::components 0x10;
-/// siblings game/ui/g_menu.h:283-284, game/ui/g_m_comps.h:19-33, cited only).
-/// Class-specific behavior (Draw/Key/Mouse virtuals, text/value storage,
-/// parent/child placement) needs the component-class owners and stays
-/// DEFERRED; owned here are the id, the activation-gating COMPF word, the
-/// text-id latch and the staged child-id list.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The actual component owner. Native payloads cannot be copied or destroyed
+/// through the uncomposed compatibility methods.
+#[derive(Debug, PartialEq)]
 pub struct MenuComponent {
     pub id: u32,
     pub flags: u32,
     /// Text-database id latch (native GM_Component::text_id, g_m_comps.h:140).
     pub text_id: u32,
-    /// Staged child ids (native `GM_Component::children`, sibling
-    /// game/ui/g_m_comps.h:149, cited only; the native stores child pointers,
-    /// the host stages ids, never dereferenced).
-    pub children: Vec<u32>,
+    /// Native links identify allocations, not possibly duplicated design ids.
+    pub children: Vec<MenuComponentChild>,
+    native: Option<component_drawing::NativeMenuComponent>,
 }
 
 impl MenuComponent {
@@ -483,6 +488,7 @@ impl MenuComponent {
             flags: main_menu::DEFAULT_COMPONENT_FLAGS,
             text_id: 0,
             children: Vec::new(),
+            native: None,
         }
     }
 
@@ -500,6 +506,7 @@ impl MenuComponent {
             flags,
             text_id,
             children: Vec::new(),
+            native: None,
         }
     }
 
@@ -511,11 +518,16 @@ impl MenuComponent {
     /// `InsertComponentAfter` wiring stay DEFERRED; the caller places the
     /// result with `insert_child_after`.
     pub fn duplicated(&self) -> Self {
+        assert!(
+            self.native.is_none(),
+            "native component duplication requires resource owners"
+        );
         Self {
             id: self.id.wrapping_add(1),
             flags: self.flags & !main_menu::COMPONENT_ACTIVE,
             text_id: self.text_id,
             children: Vec::new(),
+            native: None,
         }
     }
 
@@ -523,7 +535,11 @@ impl MenuComponent {
     /// reference mafia-re pin fe7e746 `game/ui/g_menu.cpp:560-564`, cited
     /// only): appends the child id (`children.push_back`).
     pub fn insert_child(&mut self, child_id: u32) {
-        self.children.push(child_id);
+        assert!(
+            self.native.is_none(),
+            "native children require owner-scoped links"
+        );
+        self.children.push(MenuComponentChild::Uncomposed(child_id));
     }
 
     /// `GM_Component::InsertComponentAfter` (GAME RVA 0x1ea000, VA 0x5ea000;
@@ -531,10 +547,19 @@ impl MenuComponent {
     /// only): inserts the child id after `after_id`, at the end where it is
     /// absent (the native falls through to `children.insert(end, ...)`).
     pub fn insert_child_after(&mut self, child_id: u32, after_id: u32) {
-        if let Some(position) = self.children.iter().position(|id| *id == after_id) {
-            self.children.insert(position + 1, child_id);
+        assert!(
+            self.native.is_none(),
+            "native children require owner-scoped links"
+        );
+        if let Some(position) = self
+            .children
+            .iter()
+            .position(|child| *child == MenuComponentChild::Uncomposed(after_id))
+        {
+            self.children
+                .insert(position + 1, MenuComponentChild::Uncomposed(child_id));
         } else {
-            self.children.push(child_id);
+            self.children.push(MenuComponentChild::Uncomposed(child_id));
         }
     }
 
@@ -543,6 +568,10 @@ impl MenuComponent {
     /// The text-database pointer resolution (textDatabase.GetText) needs the
     /// text owner and stays DEFERRED.
     pub fn set_text_id(&mut self, text_id: u32) {
+        assert!(
+            self.native.is_none(),
+            "use set_text_id_native with the text resource owner"
+        );
         self.text_id = text_id;
     }
 
@@ -673,15 +702,14 @@ impl MenuInstanceCount {
     }
 }
 
-/// Marker-only GM_Menu component stack (Game.exe GM_Menu 0x30, Create RVA
-/// 0x1ea2e0; siblings game/ui/g_menu.h:150-290, game/ui/g_menu.cpp:610-625,
-/// cited only). Owns only the pure list contracts: intake, lookup, activation
-/// search, and close/exchange latches. Device owners stay DEFERRED: menu
-/// sounds, parent OnCreateChild/OnCloseChild callbacks, the activeMenuWindow
-/// global and menu allocation (MenuOpen), the igraph pump plus mission/scene
-/// owners (ExecuteMenu, TickCamera, Draw device paths), and the component
-/// classes.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// The single component owner for native loading and uncomposed compatibility.
+/// Native construction retains flags, geometry, raw text, typed texture slots
+/// and allocation-scoped parent/child links in these same components. Legacy
+/// intake and value maps are only an uncomposed compatibility path, never a
+/// successful native Create/SetString/Destroy or device Draw lifecycle.
+/// Menu sounds, parent callbacks, allocation/active-menu globals and the global
+/// driver/cursor/viewport Draw branches still require their respective owners.
+#[derive(Debug, Default, PartialEq)]
 pub struct MenuStack {
     components: Vec<MenuComponent>,
     active: Option<u32>,
@@ -691,15 +719,15 @@ pub struct MenuStack {
     /// Staged per-component value latches for the GM_Menu value wrappers
     /// (GAME 0x5eb010-0x5eb190). Only ids with a looked-up component are
     /// staged; reads fall back to the native base-class defaults (NULL/0).
-    /// Device-owned payloads (textures, text-database resolution) stay
-    /// DEFERRED; these maps hold only the admitted host bytes/scalars.
+    /// These maps are never read or written by the native component path.
     staged_texts: std::collections::BTreeMap<u32, Vec<u8>>,
     /// Staged `SetString` values (GAME 0x5eb030), `None` for NULL.
     staged_strings: std::collections::BTreeMap<u32, Option<Vec<u8>>>,
-    /// Staged float values as raw f32 bits (keeps the owner `Eq`; bit-exact).
+    /// Uncomposed staged float values as raw f32 bits.
     staged_floats: std::collections::BTreeMap<u32, u32>,
     staged_dwords: std::collections::BTreeMap<u32, u32>,
     staged_bools: std::collections::BTreeMap<u32, bool>,
+    native: Option<component_drawing::NativeMenuState>,
 }
 
 impl MenuStack {
@@ -707,7 +735,7 @@ impl MenuStack {
         Self::default()
     }
 
-    /// GM_Menu::CreateCompsByDef intake (GAME 0x5ea370; sibling
+    /// Uncomposed GM_Menu::CreateCompsByDef compatibility intake (GAME 0x5ea370; sibling
     /// game/ui/g_menu.cpp:639-691, cited only): `upup` items never become
     /// components. Intake assignment: the first kept item is the root window,
     /// which keeps no ACTIVATABLE bit (windows/parents are not activatable,
@@ -755,12 +783,14 @@ impl MenuStack {
     /// game/ui/g_menu.cpp:1081-1088, cited only): linear search, None for a
     /// missing component.
     pub fn find_component_by_id(&self, id: u32) -> Option<&MenuComponent> {
-        self.components.iter().find(|component| component.id == id)
+        self.components
+            .iter()
+            .find(|component| component.id == id && !component.is_native_destroyed())
     }
     fn find_component_by_id_mut(&mut self, id: u32) -> Option<&mut MenuComponent> {
         self.components
             .iter_mut()
-            .find(|component| component.id == id)
+            .find(|component| component.id == id && !component.is_native_destroyed())
     }
 
     /// GM_Menu::SetDisabled (GAME 0x5eaed0; sibling game/ui/g_menu.cpp:903-914,
@@ -803,7 +833,11 @@ impl MenuStack {
     /// sibling game/ui/g_m_comps.h:108); the host stages a copy, and the
     /// class-specific device effects stay DEFERRED.
     pub fn set_text(&mut self, id: u32, text: Vec<u8>) {
-        if self.find_component_by_id(id).is_some() {
+        if let Some(component) = self.find_component_by_id_mut(id) {
+            if let Some(native) = &mut component.native {
+                native.text = Some(Arc::from(text));
+                return;
+            }
             self.staged_texts.insert(id, text);
         }
     }
@@ -813,7 +847,10 @@ impl MenuStack {
     /// the menu has no such component or nothing was staged (the native NULL
     /// in both cases; text-database resolution stays DEFERRED).
     pub fn get_text(&self, id: u32) -> Option<&[u8]> {
-        self.find_component_by_id(id)?;
+        let component = self.find_component_by_id(id)?;
+        if let Some(native) = &component.native {
+            return native.text.as_deref();
+        }
         self.staged_texts.get(&id).map(Vec::as_slice)
     }
 
@@ -829,6 +866,7 @@ impl MenuStack {
     /// the override (a picture component loading its texture) stay with the
     /// component-class owners (DEFERRED), as for the other value wrappers.
     pub fn set_string(&mut self, id: u32, text: Option<&[u8]>) {
+        self.assert_uncomposed("use set_string_native with the texture resource owner");
         if self.find_component_by_id(id).is_some() {
             self.staged_strings.insert(id, text.map(<[u8]>::to_vec));
         }
@@ -843,12 +881,19 @@ impl MenuStack {
     }
 
     /// GM_Menu::SetFloat (GAME VA 0x5eb070, RVA 0x1eb070; sibling
-    /// game/ui/g_menu.cpp:971-977, cited only): stages the float on the
-    /// looked-up component (progress bars, sliders); no-op where missing.
-    pub fn set_float(&mut self, id: u32, value: f32) {
-        if self.find_component_by_id(id).is_some() {
+    /// game/ui/g_menu.cpp:971-977, cited only): writes the live native component
+    /// or stages an uncomposed value; no-op where missing in a ready menu.
+    pub fn set_float(&mut self, id: u32, value: f32) -> Result<(), String> {
+        if self.native.is_some() {
+            self.require_native_ready()?;
+        }
+        if let Some(component) = self.find_component_by_id_mut(id) {
+            if component.set_native_float(value)? {
+                return Ok(());
+            }
             self.staged_floats.insert(id, value.to_bits());
         }
+        Ok(())
     }
 
     /// GM_Menu::GetFloat (GAME VA 0x5eb090, RVA 0x1eb090; sibling
@@ -856,6 +901,9 @@ impl MenuStack {
     /// the menu has no such component or nothing was staged (the native
     /// base-class default).
     pub fn get_float(&self, id: u32) -> f32 {
+        if self.native.is_some() {
+            return 0.0;
+        }
         if self.find_component_by_id(id).is_none() {
             return 0.0;
         }
@@ -869,6 +917,9 @@ impl MenuStack {
     /// game/ui/g_menu.cpp:988-994, cited only): stages the dword on the
     /// looked-up component; no-op where missing.
     pub fn set_dword(&mut self, id: u32, value: u32) {
+        if self.native.is_some() {
+            return;
+        }
         if self.find_component_by_id(id).is_some() {
             self.staged_dwords.insert(id, value);
         }
@@ -878,6 +929,9 @@ impl MenuStack {
     /// game/ui/g_menu.cpp:996-1003, cited only): the staged dword, 0 where
     /// the menu has no such component or nothing was staged.
     pub fn get_dword(&self, id: u32) -> u32 {
+        if self.native.is_some() {
+            return 0;
+        }
         if self.find_component_by_id(id).is_none() {
             return 0;
         }
@@ -888,6 +942,9 @@ impl MenuStack {
     /// game/ui/g_menu.cpp:1005-1011, cited only): stages the flag on the
     /// looked-up component; no-op where missing.
     pub fn set_bool(&mut self, id: u32, value: bool) {
+        if self.native.is_some() {
+            return;
+        }
         if self.find_component_by_id(id).is_some() {
             self.staged_bools.insert(id, value);
         }
@@ -897,6 +954,9 @@ impl MenuStack {
     /// game/ui/g_menu.cpp:1013-1020, cited only): the staged flag, false
     /// where the menu has no such component or nothing was staged.
     pub fn get_bool(&self, id: u32) -> bool {
+        if self.native.is_some() {
+            return false;
+        }
         if self.find_component_by_id(id).is_none() {
             return false;
         }
@@ -1153,6 +1213,7 @@ impl MenuStack {
     /// callbacks need the menu-class owners: DEFERRED; the re-activated id is
     /// returned for them.
     pub fn menu_exchange(&mut self, definition: &MenuDefinition) -> Option<u32> {
+        self.assert_uncomposed("native menu exchange requires explicit resource-owned destruction");
         let id = self.active.unwrap_or(1);
         let (open_id, closing, close_code) = (self.open_id, self.closing, self.close_code);
         *self = Self::create_from_definition(definition);
@@ -1170,6 +1231,7 @@ impl MenuStack {
     /// menu object itself, which has no host spelling: the caller drops this
     /// stack for that half.
     pub fn destroy(&mut self) {
+        self.assert_uncomposed("use destroy_native with the texture resource owner");
         *self = Self::new();
     }
 
@@ -2139,14 +2201,18 @@ mod tests {
     fn rva_1eb070_set_float_stages_only_for_known_component() {
         // GM_Menu::SetFloat GAME VA 0x5eb070 (RVA 0x1eb070).
         let mut stack = MenuStack::create(&stack_definition());
-        stack.set_float(424242, 0.75);
+        stack.set_float(424242, 0.75).unwrap();
         assert_eq!(stack.get_float(424242), 0.0);
-        stack.set_float(main_menu::MAINMENU_ITEM_NEW_GAME, 0.75);
+        stack
+            .set_float(main_menu::MAINMENU_ITEM_NEW_GAME, 0.75)
+            .unwrap();
         assert_eq!(
             stack.get_float(main_menu::MAINMENU_ITEM_NEW_GAME).to_bits(),
             0.75f32.to_bits()
         );
-        stack.set_float(main_menu::MAINMENU_ITEM_NEW_GAME, -1.5);
+        stack
+            .set_float(main_menu::MAINMENU_ITEM_NEW_GAME, -1.5)
+            .unwrap();
         assert_eq!(
             stack.get_float(main_menu::MAINMENU_ITEM_NEW_GAME).to_bits(),
             (-1.5f32).to_bits()
@@ -2233,7 +2299,9 @@ mod tests {
         // half is the caller dropping the stack.
         let mut stack = MenuStack::create(&stack_definition());
         stack.set_text(main_menu::MAINMENU_ITEM_INTRO, b"intro".to_vec());
-        stack.set_float(main_menu::MAINMENU_ITEM_NEW_GAME, 0.5);
+        stack
+            .set_float(main_menu::MAINMENU_ITEM_NEW_GAME, 0.5)
+            .unwrap();
         stack.set_dword(main_menu::MAINMENU_ITEM_QUIT, 3);
         stack.set_bool(main_menu::MAINMENU_ITEM_QUIT, true);
         stack.menu_close(7);
@@ -2277,7 +2345,8 @@ mod tests {
         // NULL replaces the staged string.
         stack.set_string(id, None);
         assert_eq!(stack.staged_string(id), Some(None));
-        let before = stack.clone();
+        let mut before = MenuStack::create(&stack_definition());
+        before.set_string(id, None);
         stack.set_string(424242, Some(b"x"));
         assert_eq!(stack, before);
         assert_eq!(stack.staged_string(424242), None);
@@ -2334,7 +2403,13 @@ mod tests {
         let mut parent = MenuComponent::new(10);
         parent.insert_child(20);
         parent.insert_child(30);
-        assert_eq!(parent.children, vec![20, 30]);
+        assert_eq!(
+            parent.children,
+            vec![
+                MenuComponentChild::Uncomposed(20),
+                MenuComponentChild::Uncomposed(30)
+            ]
+        );
     }
 
     #[test]
@@ -2345,9 +2420,24 @@ mod tests {
         parent.insert_child(20);
         parent.insert_child(30);
         parent.insert_child_after(25, 20);
-        assert_eq!(parent.children, vec![20, 25, 30]);
+        assert_eq!(
+            parent.children,
+            vec![
+                MenuComponentChild::Uncomposed(20),
+                MenuComponentChild::Uncomposed(25),
+                MenuComponentChild::Uncomposed(30)
+            ]
+        );
         parent.insert_child_after(99, 424242);
-        assert_eq!(parent.children, vec![20, 25, 30, 99]);
+        assert_eq!(
+            parent.children,
+            vec![
+                MenuComponentChild::Uncomposed(20),
+                MenuComponentChild::Uncomposed(25),
+                MenuComponentChild::Uncomposed(30),
+                MenuComponentChild::Uncomposed(99)
+            ]
+        );
     }
 
     #[test]

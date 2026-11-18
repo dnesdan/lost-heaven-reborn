@@ -10,6 +10,14 @@ use crate::game_definition_tables::{
     DefinitionTableBackend, GameDefinitionTables, TableLoadError, TableUnloadError,
 };
 use crate::game_loadsave_controls::{apply_controls, ProfileBindings};
+use crate::itexture::TextureKey;
+use crate::load_scene_callback::LoadingScreenPresentBackend;
+use crate::menu::MenuComponentPrecision;
+use crate::menu_draw_resources::{MenuDrawResourceAccess, MenuDrawResources};
+use crate::menu_native_drawing::{
+    MenuNativeDrawBackend, MenuNativeDrawState, MenuNativeMenu, MenuNativeViewport,
+};
+use crate::menu_text_drawing::MenuTextPrecision;
 
 /// Fields directly read or written by Init, Close, ApplyControls and Reset.
 /// Other profile bytes live in the eventual profile file owner; this structure
@@ -45,8 +53,9 @@ impl crate::mission_components::CameraProfile for ProfileState {
 
 /// Every call is a required actual-owner capability. The PC source ignores
 /// menu-mission Open's native result, but the backend must still perform it.
-/// The three HUD calls are owned by `crate::indicators::IndicatorsState`
-/// (see `crate::indicators::IndicatorsLoadSave`): `create_indicators` is
+/// The HUD calls route through `crate::indicators::IndicatorsLoadSave`:
+/// the texture and font prefix belongs to `MenuDrawResources`, and the
+/// direct slot clear belongs to `IndicatorsState`. `create_indicators` is
 /// `G_IndicatorsClass::Create` (GAME 0x5f70e0, `g_indicators.cpp:256`),
 /// `clear_indicator_slot_40a4` is the direct `show_flags = 0` store at member
 /// 0x40a4 (`G_LoadSaveClass::Init` GAME 0x604ee0, `g_loadsave.cpp:120`), and
@@ -62,7 +71,7 @@ pub trait LoadSaveEffects {
         profile: &mut ProfileState,
         settings: &mut Option<ProfileSettings>,
     ) -> Result<(), Self::Error>;
-    /// HUD owner `create`: `IndicatorsState::create` (GAME 0x5f70e0).
+    /// HUD startup `G_IndicatorsClass::Create` (GAME 0x5f70e0).
     fn create_indicators(&mut self) -> Result<(), Self::Error>;
     fn resolution_changed(&mut self) -> Result<(), Self::Error>;
     /// HUD owner slot clear: `IndicatorsState::clear_flags_slot` (direct
@@ -80,7 +89,7 @@ pub trait LoadSaveEffects {
         settings: &mut Option<ProfileSettings>,
     ) -> Result<(), Self::Error>;
     fn profile_save(&mut self, profile: &ProfileState) -> Result<(), Self::Error>;
-    /// HUD owner `destroy`: `IndicatorsState::destroy` (GAME 0x5f7250).
+    /// HUD teardown `G_IndicatorsClass::Destroy` (GAME 0x5f7250).
     fn destroy_indicators(&mut self) -> Result<(), Self::Error>;
     fn unload_text(&mut self) -> Result<(), Self::Error>;
     fn close_car_database(&mut self) -> Result<(), Self::Error>;
@@ -1107,7 +1116,7 @@ pub fn is_car_in(garage: &LoadSaveGarage, car: Option<GarageActor>) -> bool {
 /// zero and the constructor (GAME 0x605140, g_loadsave.cpp:169-179, per
 /// mafia-re source; its body was not re-read here) stores none of these
 /// fields.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct LoadSaveProgress {
     /// +0x98: the cars `EnableSteal` lets steal, a bit per letter.
     pub steal_cars: u32,
@@ -1197,17 +1206,28 @@ pub fn profile_settings_after_load_save_init(
 /// member stores (GAME 0x5e3aa0, g_m_func.cpp:991-1008): `mission_part`
 /// (+0x30), `title` (+0x38) and `mission_name` (+0x3c, NULL for the active
 /// mission's), and the `GM_Menu` base's component stack. The constructor's
-/// `menuScreenScale` stores (a menu-drawing global read by `Draw` only) and
-/// the `GM_Menu` constructor's `menuCount`/`LoadResources` half stay with
-/// the unported menu-resource owner, so the constructor receives no
-/// function credit.
+/// Runtime composition uses an explicit host layout and a shared-resource
+/// receipt. The constructor's display-scale calculation is a separate input
+/// boundary.
 ///
 /// `menu` is empty from the constructor until [`LoadProgressScreen::create`]
 /// (`GM_Menu::Create`, natively from `cbLoadScene`'s `LOAD_PROGRESS_BEGIN`)
 /// builds the `loadprogress` components. Before that the bar write
 /// (`SetFloat(LOADPROGRESS_BAR)`) finds no component and is the native
 /// no-op of `GM_Menu::SetFloat` over an empty component list.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// A loading screen keeps its menu handle private so inspection cannot detach
+/// its component resources from the screen that destroys them.
+///
+/// ```compile_fail,E0616
+/// use lhr_engine::mission_load_session::MissionLoadSession;
+///
+/// fn retain_menu(session: &MissionLoadSession) {
+///     let screen = session.load_save_progress().progress.as_ref().unwrap();
+///     let _alias = screen.menu.clone();
+/// }
+/// ```
+#[derive(Debug)]
 pub struct LoadProgressScreen {
     /// +0x38: text-database title shown with "press <ESC> to Abort", 0 for
     /// none (mafia-re's name).
@@ -1218,7 +1238,62 @@ pub struct LoadProgressScreen {
     /// (NULL) for `act_mission`'s (mafia-re's name).
     pub mission_name: Option<Vec<u8>>,
     /// The `GM_Menu` base's components (+0x10) with their staged values.
-    pub menu: crate::menu::MenuStack,
+    menu: crate::menu_native_drawing::MenuNativeMenu,
+    shared_instance: Option<crate::menu_shared_resources::MenuSharedInstance>,
+}
+
+struct LoadingMenuDraw<'a> {
+    device: &'a mut dyn LoadingScreenPresentBackend,
+    resources: Option<&'a dyn MenuDrawResourceAccess>,
+    resolve_progress_texture: &'a dyn Fn() -> Result<Option<TextureKey>, String>,
+    text_precision: MenuTextPrecision,
+}
+
+impl MenuNativeDrawBackend for LoadingMenuDraw<'_> {
+    fn set_z_buffer(&mut self, enabled: bool) -> Result<(), String> {
+        self.device.set_z_buffer(enabled)
+    }
+
+    fn screen_height(&mut self) -> Result<u32, String> {
+        self.device.screen_height()
+    }
+
+    fn screen_width(&mut self) -> Result<u32, String> {
+        self.device.screen_width()
+    }
+
+    fn set_viewport(&mut self, viewport: MenuNativeViewport) -> Result<(), String> {
+        self.device.set_viewport(viewport)
+    }
+
+    fn draw_components(
+        &mut self,
+        menu: &MenuNativeMenu,
+        draw_flags: u32,
+        _: Option<&TextureKey>,
+    ) -> Result<(), String> {
+        crate::menu_rendering::submit_menu_native_components(
+            menu,
+            draw_flags,
+            self.resolve_progress_texture,
+            self.resources,
+            self.text_precision,
+            &mut |mesh| self.device.draw_menu_mesh(mesh),
+        )
+    }
+
+    fn draw_cursor(&mut self, x: f32, y: f32) -> Result<(), String> {
+        self.device.draw_cursor(x, y)
+    }
+}
+
+impl PartialEq for LoadProgressScreen {
+    fn eq(&self, other: &Self) -> bool {
+        self.title == other.title
+            && self.mission_part == other.mission_part
+            && self.mission_name == other.mission_name
+            && self.menu.identity() == other.menu.identity()
+    }
 }
 
 /// Mission-open loading screen arguments: `new GM_LoadProgress(0, .7f,
@@ -1248,6 +1323,24 @@ pub const LOADPROGRESS_UNKNOWN_3000: u32 = 3000;
 /// The inputs `GM_Menu::Create` and `GM_LoadProgress::OnCreate` read while
 /// building the screen, each read when the original reads it.
 pub trait LoadProgressCreateInputs {
+    fn shared_lifecycle(&mut self) -> Option<&mut dyn LoadProgressSharedLifecycle> {
+        None
+    }
+
+    fn native_layout(&self) -> Option<crate::menu::MenuComponentCreateContext> {
+        None
+    }
+    fn component_resources(
+        &mut self,
+    ) -> Option<&mut dyn crate::menu_draw_resources::MenuComponentResources> {
+        None
+    }
+    fn draw_resources(&self) -> Option<&crate::menu_draw_resources::MenuDrawResources> {
+        None
+    }
+    fn progress_texture(&self) -> Result<Option<crate::itexture::TextureKey>, String> {
+        Ok(None)
+    }
     /// `CreateCompsByDef(name)` file intake (GAME 0x5ea370): the language's
     /// `tables\menu\<name>_<ll>.mnu`, then `<name>.mnu`. `Ok(None)` is the
     /// native "no file" early return (no components); an unparseable file
@@ -1260,6 +1353,56 @@ pub trait LoadProgressCreateInputs {
     /// `act_mission->mission_name` (`[0x63788c]+0x68`), read per compared
     /// entry while the screen's own `mission_name` is NULL.
     fn act_mission_name(&mut self) -> Result<Vec<u8>, String>;
+}
+
+pub trait LoadProgressSharedLifecycle {
+    fn construct_shared(
+        &mut self,
+    ) -> Result<crate::menu_shared_resources::MenuSharedInstance, String>;
+    fn check_shared_instance(
+        &self,
+        instance: &crate::menu_shared_resources::MenuSharedInstance,
+    ) -> Result<(), String>;
+    fn check_shared(
+        &self,
+        instance: &crate::menu_shared_resources::MenuSharedInstance,
+    ) -> Result<(), String>;
+    fn destroy_shared(
+        &mut self,
+        instance: &mut crate::menu_shared_resources::MenuSharedInstance,
+    ) -> Result<(), String>;
+    fn play_open_sound(&mut self, closing: bool) -> Result<(), String>;
+}
+
+struct LoadProgressComponentResources<'a> {
+    inputs: &'a mut dyn LoadProgressCreateInputs,
+    unavailable: &'static str,
+}
+
+impl crate::menu_draw_resources::MenuComponentResources for LoadProgressComponentResources<'_> {
+    fn text(&mut self, text_id: u32) -> Result<Option<std::sync::Arc<[u8]>>, String> {
+        self.inputs
+            .component_resources()
+            .ok_or(self.unavailable)?
+            .text(text_id)
+    }
+
+    fn create_alpha_texture(
+        &mut self,
+        name: &[u8],
+    ) -> Result<Option<crate::itexture::TextureKey>, String> {
+        self.inputs
+            .component_resources()
+            .ok_or(self.unavailable)?
+            .create_alpha_texture(name)
+    }
+
+    fn release_texture(&mut self, key: crate::itexture::TextureKey) -> Result<(), String> {
+        self.inputs
+            .component_resources()
+            .ok_or(self.unavailable)?
+            .release_texture(key)
+    }
 }
 
 /// `_stricmp` equality of the C string at `field` inside the read `bytes`
@@ -1303,8 +1446,39 @@ impl LoadProgressScreen {
             title,
             mission_part,
             mission_name,
-            menu: crate::menu::MenuStack::new(),
+            menu: Self::empty_menu(),
+            shared_instance: None,
         }
+    }
+
+    fn empty_menu() -> crate::menu_native_drawing::MenuNativeMenu {
+        crate::menu_native_drawing::MenuNativeMenu::new(
+            crate::menu::MenuStack::new(),
+            None,
+            crate::menu_native_drawing::MENUF_DRAW_PARENT,
+        )
+    }
+
+    pub(crate) fn construct_for_load(
+        mission_part: f32,
+        inputs: &mut dyn LoadProgressCreateInputs,
+    ) -> Result<Self, String> {
+        let menu = Self::empty_menu();
+        let shared_instance = inputs
+            .shared_lifecycle()
+            .map(LoadProgressSharedLifecycle::construct_shared)
+            .transpose()?;
+        Ok(Self {
+            title: 0,
+            mission_part,
+            mission_name: None,
+            menu,
+            shared_instance,
+        })
+    }
+
+    pub(crate) fn has_shared_instance(&self) -> bool {
+        self.shared_instance.is_some()
     }
 
     /// `C_mission::Open`'s screen (Mission.cpp:640-641): title 0, the
@@ -1319,25 +1493,201 @@ impl LoadProgressScreen {
         Self::new(0, 1.0, None)
     }
 
-    /// The bar value the menu holds (`GetFloat(LOADPROGRESS_BAR)`): 0.0
-    /// before `Create` or before any write, the native base default.
-    pub fn raw_progress(&self) -> f32 {
-        self.menu.get_float(crate::menu::LOADPROGRESS_BAR_ID)
+    /// Host inspection of the actual progress-bar slot. Native `GetFloat`
+    /// remains the base zero result; the pure staged subset keeps its getter.
+    pub fn raw_progress(&self) -> Result<f32, String> {
+        self.menu
+            .with_components(|menu| {
+                Ok(menu
+                    .progress_value(crate::menu::LOADPROGRESS_BAR_ID)
+                    .unwrap_or_else(|| menu.get_float(crate::menu::LOADPROGRESS_BAR_ID)))
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn uses_native_components(&self) -> Result<bool, String> {
+        self.menu
+            .with_components(|menu| Ok(menu.has_native_lifecycle()))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn component_count(&self) -> Result<usize, String> {
+        self.menu
+            .with_components(|menu| Ok(menu.len()))
+            .map_err(|error| error.to_string())
+    }
+
+    /// Copies the staged picture name, distinguishing an unset value from a
+    /// staged NULL. The bytes carry no component or resource ownership.
+    pub fn staged_mission_picture(&self) -> Result<Option<Option<Vec<u8>>>, String> {
+        self.menu
+            .with_components(|menu| {
+                Ok(menu
+                    .staged_string(LOADPROGRESS_MISSION_PICTURE)
+                    .map(|picture| picture.map(<[u8]>::to_vec)))
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn draw_for_present(
+        &self,
+        globals: &MenuNativeDrawState,
+        resolve_progress_texture: &dyn Fn() -> Result<Option<TextureKey>, String>,
+        precision: MenuComponentPrecision,
+        resources: Option<&MenuDrawResources>,
+        text_precision: MenuTextPrecision,
+        device: &mut dyn LoadingScreenPresentBackend,
+    ) -> Result<(), String> {
+        crate::menu_native_drawing::draw_menu_native(
+            &self.menu,
+            globals,
+            u32::MAX,
+            None,
+            precision,
+            &mut LoadingMenuDraw {
+                device,
+                resources: resources.map(|resources| resources as &dyn MenuDrawResourceAccess),
+                resolve_progress_texture,
+                text_precision,
+            },
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn draw_components(
+        &self,
+        draw_flags: u32,
+        resolve_progress_texture: &dyn Fn() -> Result<Option<TextureKey>, String>,
+        resources: &MenuDrawResources,
+        text_precision: MenuTextPrecision,
+    ) -> crate::menu_rendering::MenuSceneDraw {
+        crate::menu_rendering::draw_menu_native_components_with_progress_texture(
+            &self.menu,
+            draw_flags,
+            resolve_progress_texture,
+            resources,
+            text_precision,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn menu_identity_for_test(
+        &self,
+    ) -> crate::menu_native_drawing::MenuNativeMenuIdentity {
+        self.menu.identity()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn menu_base_for_test(
+        &self,
+    ) -> (
+        Option<crate::menu_native_drawing::MenuNativeMenuIdentity>,
+        u32,
+    ) {
+        (self.menu.parent(), self.menu.flags())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_components_for_test<R>(
+        &self,
+        operation: impl FnOnce(&crate::menu::MenuStack) -> Result<R, String>,
+    ) -> Result<R, crate::menu_native_drawing::MenuNativeMenuAccessError> {
+        self.menu.with_components(operation)
+    }
+
+    pub fn destroy(&mut self, inputs: &mut dyn LoadProgressCreateInputs) -> Result<(), String> {
+        if let Some(instance) = &self.shared_instance {
+            inputs
+                .shared_lifecycle()
+                .ok_or("loading-menu shared owner unavailable")?
+                .check_shared_instance(instance)?;
+        }
+        self.destroy_components(inputs)?;
+        if let Some(instance) = &mut self.shared_instance {
+            inputs
+                .shared_lifecycle()
+                .ok_or("loading-menu shared owner unavailable")?
+                .destroy_shared(instance)?;
+        }
+        Ok(())
+    }
+
+    fn destroy_components(&self, inputs: &mut dyn LoadProgressCreateInputs) -> Result<(), String> {
+        self.menu
+            .with_components_mut(|menu| {
+                if menu.has_native_lifecycle() {
+                    let mut resources = LoadProgressComponentResources {
+                        inputs,
+                        unavailable:
+                            "native loading-menu resource owner is unavailable for destruction",
+                    };
+                    menu.destroy_native(&mut resources)
+                } else {
+                    menu.destroy();
+                    Ok(())
+                }
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    fn set_text_id(
+        &mut self,
+        id: u32,
+        text_id: u32,
+        inputs: &mut dyn LoadProgressCreateInputs,
+    ) -> Result<(), String> {
+        self.menu
+            .with_components_mut(|menu| {
+                if menu.has_native_lifecycle() {
+                    let mut resources = LoadProgressComponentResources {
+                        inputs,
+                        unavailable: "native loading-menu text owner is unavailable",
+                    };
+                    menu.set_text_id_native(id, text_id, &mut resources)
+                } else {
+                    menu.set_text_id(id, text_id);
+                    Ok(())
+                }
+            })
+            .map_err(|error| error.to_string())
+    }
+
+    fn set_string(
+        &mut self,
+        id: u32,
+        string: Option<&[u8]>,
+        inputs: &mut dyn LoadProgressCreateInputs,
+    ) -> Result<(), String> {
+        self.menu
+            .with_components_mut(|menu| {
+                if menu.has_native_lifecycle() {
+                    let mut resources = LoadProgressComponentResources {
+                        inputs,
+                        unavailable: "native loading-menu texture owner is unavailable",
+                    };
+                    menu.set_string_native(id, string, &mut resources)
+                } else {
+                    menu.set_string(id, string);
+                    Ok(())
+                }
+            })
+            .map_err(|error| error.to_string())
     }
 
     /// The inline `SetRawProgress` (`SetFloat(LOADPROGRESS_BAR, progress)`,
     /// g_m_func.h:247; no outline body).
-    pub fn set_raw_progress(&mut self, progress: f32) {
+    pub fn set_raw_progress(&mut self, progress: f32) -> Result<(), String> {
         self.menu
-            .set_float(crate::menu::LOADPROGRESS_BAR_ID, progress);
+            .with_components_mut(|menu| menu.set_float(crate::menu::LOADPROGRESS_BAR_ID, progress))
+            .map_err(|error| error.to_string())
     }
 
     /// `GM_LoadProgress::SetProgressGameInit` (GAME 0x5e3cf0): the credited
     /// [`crate::menu::load_progress_game_init_value`] math over the live
     /// `mission_part`, then the inline `SetRawProgress`.
-    pub fn set_progress_game_init(&mut self, progress: f32) {
+    pub fn set_progress_game_init(&mut self, progress: f32) -> Result<(), String> {
         let raw = crate::menu::load_progress_game_init_value(self.mission_part, progress);
-        self.set_raw_progress(raw);
+        self.set_raw_progress(raw)
     }
 
     /// `GM_LoadProgress::SetProgressMissionOpen` (GAME 0x5e3d20, REA
@@ -1345,28 +1695,80 @@ impl LoadProgressScreen {
     /// `SetFloat(0x12c, ..)` at 0x5e3d30): the credited
     /// [`crate::menu::load_progress_mission_open_value`] over the live
     /// `mission_part`, then the bar write.
-    pub fn set_progress_mission_open(&mut self, progress: f32) {
+    pub fn set_progress_mission_open(&mut self, progress: f32) -> Result<(), String> {
         let raw = crate::menu::load_progress_mission_open_value(self.mission_part, progress);
-        self.set_raw_progress(raw);
+        self.set_raw_progress(raw)
     }
 
     /// `GM_Menu::Create` (GAME 0x5ea2e0, g_menu.cpp:610-625) for this class:
     /// `components.clear()`, `CreateCompsByDef(OnBeforeCreate())` over
     /// `"loadprogress"` (GAME 0x5e3b80), `ActivateByIDOrNext(1)`, then
-    /// [`LoadProgressScreen::on_create`]. The menu-open sound
-    /// (`menuSoundOpen`, created by the unported `LoadResources`) and the
-    /// parent `OnCreateChild` stay with the menu-resource owner, as in
-    /// [`crate::menu::MenuStack::create`]; this screen has no parent, and
-    /// its `OnChange` is the base `return 0`. A failed read stops with the
-    /// components built so far.
+    /// [`LoadProgressScreen::on_create`] and the shared open sound. The
+    /// parentless screen's `OnChange` is the base `return 0`. A failed
+    /// operation stops with the components built so far.
     pub fn create(&mut self, inputs: &mut dyn LoadProgressCreateInputs) -> Result<(), String> {
-        self.menu = crate::menu::MenuStack::new();
-        let name = crate::main_menu::load_progress_definition();
-        if let Some(definition) = inputs.menu_definition(name)? {
-            self.menu = crate::menu::MenuStack::create_from_definition(&definition);
+        if let Some(instance) = &self.shared_instance {
+            inputs
+                .shared_lifecycle()
+                .ok_or("loading-menu shared owner unavailable")?
+                .check_shared(instance)?;
+            self.menu
+                .with_components_mut(crate::menu::MenuStack::prepare_empty_loading_recreate)
+                .map_err(|error| error.to_string())?;
+        } else {
+            self.destroy_components(inputs)?;
         }
-        self.menu.activate_by_id_or_next(1);
-        self.on_create(inputs)
+        let name = crate::main_menu::load_progress_definition();
+        let definition = inputs.menu_definition(name)?;
+        let native_layout = inputs.native_layout();
+        if self.has_shared_instance() && native_layout.is_none() {
+            return Err("loading-menu layout unavailable".into());
+        }
+        if let Some(context) = native_layout {
+            if let Some(definition) = definition {
+                let mut resources = LoadProgressComponentResources {
+                    inputs,
+                    unavailable: "native loading-menu creation requires its resource owner",
+                };
+                self.menu
+                    .with_components_mut(|menu| {
+                        menu.create_components_native(&definition, context, &mut resources)
+                    })
+                    .map_err(|error| error.to_string())?;
+            } else {
+                self.menu
+                    .with_components_mut(|menu| menu.create_empty_native())
+                    .map_err(|error| error.to_string())?;
+            }
+        } else if let Some(definition) = definition {
+            self.menu
+                .with_components_mut(|menu| {
+                    *menu = crate::menu::MenuStack::create_from_definition(&definition);
+                    Ok(())
+                })
+                .map_err(|error| error.to_string())?;
+        }
+        self.menu
+            .with_components_mut(|menu| {
+                menu.activate_by_id_or_next(1);
+                Ok(())
+            })
+            .map_err(|error| error.to_string())?;
+        self.on_create(inputs)?;
+        if self.has_shared_instance() {
+            let closing = self
+                .menu
+                .with_components(|menu| Ok(menu.is_closing()))
+                .map_err(|error| error.to_string())?;
+            inputs
+                .shared_lifecycle()
+                .ok_or("loading-menu shared owner unavailable")?
+                .play_open_sound(closing)?;
+            if self.menu.parent().is_some() {
+                return Err("loading-menu parent OnCreateChild unavailable".into());
+            }
+        }
+        Ok(())
     }
 
     /// `GM_LoadProgress::OnCreate` (GAME 0x5e3b90, g_m_func.cpp:1017-1058).
@@ -1384,12 +1786,11 @@ impl LoadProgressScreen {
     pub fn on_create(&mut self, inputs: &mut dyn LoadProgressCreateInputs) -> Result<(), String> {
         if let Some(texts) = crate::main_menu::load_progress_title_texts(self.title) {
             for (id, text_id) in texts {
-                self.menu.set_text_id(id, text_id);
+                self.set_text_id(id, text_id, inputs)?;
             }
         }
-        self.menu
-            .set_string(LOADPROGRESS_SIDE, Some(b"loadbok.tga"));
-        self.menu.set_string(LOADPROGRESS_LOGO, Some(b"mafia.tga"));
+        self.set_string(LOADPROGRESS_SIDE, Some(b"loadbok.tga"), inputs)?;
+        self.set_string(LOADPROGRESS_LOGO, Some(b"mafia.tga"), inputs)?;
         if let Some(mut bytes) = inputs.load_def()? {
             bytes.truncate(LOAD_DEF_BUFFER);
             let count = bytes.len() / LOAD_DEF_ENTRY;
@@ -1401,12 +1802,11 @@ impl LoadProgressScreen {
                 };
                 if stricmp_eq(&bytes, base, &name)? {
                     let picture = c_string_at(&bytes, base + 0x20)?.to_vec();
-                    self.menu
-                        .set_string(LOADPROGRESS_MISSION_PICTURE, Some(&picture));
+                    self.set_string(LOADPROGRESS_MISSION_PICTURE, Some(&picture), inputs)?;
                     let name_id =
                         u32::from_le_bytes(bytes[base + 0x40..base + 0x44].try_into().unwrap());
                     if name_id != 0 {
-                        self.menu.set_text_id(LOADPROGRESS_MISSION_NAME, name_id);
+                        self.set_text_id(LOADPROGRESS_MISSION_NAME, name_id, inputs)?;
                     }
                     break;
                 }
@@ -1418,7 +1818,12 @@ impl LoadProgressScreen {
             LOADPROGRESS_UNKNOWN_3000,
         ] {
             // SetHidden(id, false) (`push 0` at 0x5e3c98/0x5e3ca4/0x5e3cb2).
-            self.menu.set_hidden(id, false);
+            self.menu
+                .with_components_mut(|menu| {
+                    menu.set_hidden(id, false);
+                    Ok(())
+                })
+                .map_err(|error| error.to_string())?;
         }
         Ok(())
     }
@@ -1765,11 +2170,21 @@ mod loadsave_gates_tests {
             progress: Some(LoadProgressScreen::for_mission_open()),
             ..Default::default()
         };
+        let identity = progress.progress.as_ref().unwrap().menu.identity();
         save_game_new_game(&mut progress, &mut FreerideState::default());
-        assert_eq!(
-            progress.progress,
-            Some(LoadProgressScreen::for_mission_open())
-        );
+        let screen = progress.progress.as_ref().unwrap();
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(screen.title, 0);
+        assert_eq!(screen.mission_part.to_bits(), 0.7f32.to_bits());
+        assert_eq!(screen.mission_name, None);
+        assert!(!screen.uses_native_components().unwrap());
+        screen
+            .menu
+            .with_components(|menu| {
+                assert!(menu.is_empty());
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]
@@ -1818,10 +2233,13 @@ mod loadsave_gates_tests {
         let mut screen = LoadProgressScreen::for_mission_open();
         // Before Create the GM_Menu base has no component: SetFloat is the
         // native no-op and the bar reads the base default.
-        screen.set_progress_game_init(0.0);
-        assert_eq!(screen.raw_progress(), 0.0);
-        assert!(screen.menu.is_empty());
-        screen.menu = crate::menu::MenuStack::create_from_definition(&lhr_assets::MenuDefinition {
+        screen.set_progress_game_init(0.0).unwrap();
+        assert_eq!(screen.raw_progress().unwrap(), 0.0);
+        assert!(screen
+            .menu
+            .with_components(|menu| Ok(menu.is_empty()))
+            .unwrap());
+        let definition = lhr_assets::MenuDefinition {
             version: 1,
             reserved: 0,
             items: vec![lhr_assets::MenuItem {
@@ -1831,15 +2249,732 @@ mod loadsave_gates_tests {
                 text_id: 0,
                 style: 0,
             }],
-        });
-        screen.set_progress_game_init(0.0);
-        assert_eq!(screen.raw_progress().to_bits(), 0.7f32.to_bits());
+        };
+        screen
+            .menu
+            .with_components_mut(|menu| {
+                *menu = crate::menu::MenuStack::create_from_definition(&definition);
+                Ok(())
+            })
+            .unwrap();
+        screen.set_progress_game_init(0.0).unwrap();
+        assert_eq!(screen.raw_progress().unwrap().to_bits(), 0.7f32.to_bits());
         // The live mission_part is read, not the Open constant.
         screen.mission_part = 0.5;
-        screen.set_progress_game_init(0.5);
-        assert_eq!(screen.raw_progress(), 0.75);
-        screen.set_progress_mission_open(0.5);
-        assert_eq!(screen.raw_progress(), 0.25);
+        screen.set_progress_game_init(0.5).unwrap();
+        assert_eq!(screen.raw_progress().unwrap(), 0.75);
+        screen.set_progress_mission_open(0.5).unwrap();
+        assert_eq!(screen.raw_progress().unwrap(), 0.25);
+    }
+
+    struct NativeProgressInputs {
+        definition: lhr_assets::MenuDefinition,
+        definition_missing: bool,
+        resources_available: bool,
+        resource_requests: usize,
+        precision: crate::menu::MenuComponentPrecision,
+        definition_reads: usize,
+        load_def_reads: usize,
+        load_def_error: bool,
+        text_reads: Vec<u32>,
+        text_error: bool,
+        textures: Option<crate::itexture::TextureResources>,
+        released_textures: Vec<crate::itexture::TextureKey>,
+    }
+
+    impl NativeProgressInputs {
+        fn new() -> Self {
+            Self {
+                definition: lhr_assets::MenuDefinition {
+                    version: 1,
+                    reserved: 0,
+                    items: vec![
+                        lhr_assets::MenuItem {
+                            id: 1,
+                            kind: *b"cniw",
+                            rect: [0.0, 0.0, 800.0, 600.0],
+                            text_id: 0,
+                            style: crate::main_menu::COMPONENT_VISIBLE,
+                        },
+                        lhr_assets::MenuItem {
+                            id: crate::menu::LOADPROGRESS_BAR_ID,
+                            kind: *b"rabp",
+                            rect: [20.0, 570.0, 200.0, 8.0],
+                            text_id: 0,
+                            style: crate::main_menu::COMPONENT_VISIBLE,
+                        },
+                    ],
+                },
+                definition_missing: false,
+                resources_available: true,
+                resource_requests: 0,
+                precision: crate::menu::MenuComponentPrecision::Pc24Nearest,
+                definition_reads: 0,
+                load_def_reads: 0,
+                load_def_error: false,
+                text_reads: Vec::new(),
+                text_error: false,
+                textures: None,
+                released_textures: Vec::new(),
+            }
+        }
+    }
+
+    impl crate::menu_draw_resources::MenuComponentResources for NativeProgressInputs {
+        fn text(&mut self, text_id: u32) -> Result<Option<std::sync::Arc<[u8]>>, String> {
+            self.text_reads.push(text_id);
+            if self.text_error {
+                Err("fixture text lookup interrupted".to_owned())
+            } else {
+                Ok(Some(std::sync::Arc::from(b"fixture".as_slice())))
+            }
+        }
+
+        fn create_alpha_texture(
+            &mut self,
+            _: &[u8],
+        ) -> Result<Option<crate::itexture::TextureKey>, String> {
+            self.textures
+                .as_mut()
+                .ok_or_else(|| "unexpected fixture texture creation".to_owned())?
+                .create_texture()
+                .map(Some)
+                .map_err(|error| format!("{error:?}"))
+        }
+
+        fn release_texture(&mut self, key: crate::itexture::TextureKey) -> Result<(), String> {
+            self.released_textures.push(key);
+            Err("unexpected fixture texture release".to_owned())
+        }
+    }
+
+    impl LoadProgressCreateInputs for NativeProgressInputs {
+        fn native_layout(&self) -> Option<crate::menu::MenuComponentCreateContext> {
+            Some(crate::menu::MenuComponentCreateContext {
+                screen_scale: [1.0, 1.0],
+                left_margin_x: 0.0,
+                precision: self.precision,
+            })
+        }
+
+        fn component_resources(
+            &mut self,
+        ) -> Option<&mut dyn crate::menu_draw_resources::MenuComponentResources> {
+            self.resource_requests += 1;
+            if self.resources_available {
+                Some(self)
+            } else {
+                None
+            }
+        }
+
+        fn menu_definition(
+            &mut self,
+            name: &str,
+        ) -> Result<Option<lhr_assets::MenuDefinition>, String> {
+            assert_eq!(name, "loadprogress");
+            self.definition_reads += 1;
+            Ok((!self.definition_missing).then(|| self.definition.clone()))
+        }
+
+        fn load_def(&mut self) -> Result<Option<Vec<u8>>, String> {
+            self.load_def_reads += 1;
+            if self.load_def_error {
+                Err("fixture load.def read interrupted".to_owned())
+            } else {
+                Ok(None)
+            }
+        }
+
+        fn act_mission_name(&mut self) -> Result<Vec<u8>, String> {
+            Err("unexpected fixture mission-name read".to_owned())
+        }
+    }
+
+    #[test]
+    fn loading_menu_missing_definition_creates_an_authoritative_empty_native_owner() {
+        let mut screen = LoadProgressScreen::new(42, 0.7, None);
+        let identity = screen.menu.identity();
+        let mut inputs = NativeProgressInputs::new();
+        inputs.definition_missing = true;
+        inputs.resources_available = false;
+        inputs.precision = crate::menu::MenuComponentPrecision::Unestablished;
+        screen.create(&mut inputs).unwrap();
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        screen
+            .menu
+            .with_components(|menu| {
+                assert!(menu.has_native_lifecycle());
+                assert!(menu.is_empty());
+                assert_eq!(menu.native_root_key()?, None);
+                Ok(())
+            })
+            .unwrap();
+        screen.set_raw_progress(0.5).unwrap();
+        assert_eq!(screen.raw_progress().unwrap(), 0.0);
+        assert_eq!(inputs.definition_reads, 1);
+        assert_eq!(inputs.load_def_reads, 1);
+        assert!(inputs.text_reads.is_empty());
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        screen
+            .menu
+            .with_components(|menu| {
+                assert!(!menu.has_native_lifecycle());
+                assert!(menu.is_empty());
+                Ok(())
+            })
+            .unwrap();
+        screen.create(&mut inputs).unwrap();
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.definition_reads, 2);
+        assert_eq!(inputs.load_def_reads, 2);
+        assert!(inputs.text_reads.is_empty());
+        assert_eq!(inputs.resource_requests, 0);
+    }
+
+    #[test]
+    fn loading_menu_missing_definition_retains_the_empty_owner_on_on_create_error() {
+        let mut screen = LoadProgressScreen::new(42, 0.7, None);
+        let identity = screen.menu.identity();
+        let mut inputs = NativeProgressInputs::new();
+        inputs.definition_missing = true;
+        inputs.resources_available = false;
+        inputs.precision = crate::menu::MenuComponentPrecision::Unestablished;
+        inputs.load_def_error = true;
+        assert_eq!(
+            screen.create(&mut inputs).unwrap_err(),
+            "fixture load.def read interrupted"
+        );
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        screen
+            .menu
+            .with_components(|menu| {
+                assert!(menu.has_native_lifecycle());
+                assert!(menu.is_empty());
+                assert_eq!(menu.native_root_key()?, None);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(inputs.definition_reads, 1);
+        assert_eq!(inputs.load_def_reads, 1);
+        assert!(inputs.text_reads.is_empty());
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.load_def_reads, 1);
+        assert!(inputs.text_reads.is_empty());
+    }
+
+    #[test]
+    fn loading_menu_missing_resource_owner_stops_at_the_reached_lookup() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let identity = screen.menu.identity();
+        let mut inputs = NativeProgressInputs::new();
+        inputs.resources_available = false;
+        inputs.definition.items[0].text_id = 42;
+        assert_eq!(
+            screen.create(&mut inputs).unwrap_err(),
+            "native loading-menu creation requires its resource owner"
+        );
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        screen
+            .menu
+            .with_components(|menu| {
+                assert!(menu.has_native_lifecycle());
+                assert_eq!(menu.len(), 1);
+                assert_eq!(menu.native_root_key()?, None);
+                assert_eq!(menu.find_component_by_id(1).unwrap().text_id, 42);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(inputs.definition_reads, 1);
+        assert_eq!(inputs.load_def_reads, 0);
+        assert!(inputs.text_reads.is_empty());
+        assert_eq!(inputs.resource_requests, 1);
+        assert_eq!(
+            screen.on_create(&mut inputs).unwrap_err(),
+            "native menu component construction/destruction is incomplete"
+        );
+        assert_eq!(inputs.resource_requests, 1);
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert_eq!(inputs.resource_requests, 1);
+        inputs.resources_available = true;
+        screen.create(&mut inputs).unwrap();
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.definition_reads, 2);
+        assert_eq!(inputs.load_def_reads, 1);
+        assert_eq!(inputs.resource_requests, 2);
+        assert_eq!(inputs.text_reads, [42]);
+    }
+
+    #[test]
+    fn loading_menu_textless_components_need_no_resource_owner() {
+        let mut screen = LoadProgressScreen::new(42, 0.7, None);
+        let identity = screen.menu.identity();
+        let mut inputs = NativeProgressInputs::new();
+        inputs.resources_available = false;
+        screen.create(&mut inputs).unwrap();
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.definition_reads, 1);
+        assert_eq!(inputs.load_def_reads, 1);
+        screen.set_text_id(1, 0, &mut inputs).unwrap();
+        screen.set_text_id(999, 42, &mut inputs).unwrap();
+        screen.set_string(1, None, &mut inputs).unwrap();
+        screen.set_raw_progress(0.375).unwrap();
+        assert_eq!(screen.raw_progress().unwrap(), 0.375);
+        assert_eq!(inputs.resource_requests, 0);
+        assert!(inputs.text_reads.is_empty());
+        assert_eq!(
+            screen.set_text_id(1, 42, &mut inputs).unwrap_err(),
+            "native loading-menu text owner is unavailable"
+        );
+        screen
+            .menu
+            .with_components(|menu| {
+                assert_eq!(menu.len(), 2);
+                assert_eq!(menu.find_component_by_id(1).unwrap().text_id, 42);
+                assert!(menu.native_root_key()?.is_some());
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(inputs.resource_requests, 1);
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.resource_requests, 1);
+        assert!(inputs.text_reads.is_empty());
+    }
+
+    #[test]
+    fn loading_menu_numeric_create_error_retains_the_empty_interrupted_native_owner() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let identity = screen.menu.identity();
+        let mut inputs = NativeProgressInputs::new();
+        inputs.resources_available = false;
+        inputs.precision = crate::menu::MenuComponentPrecision::Unestablished;
+        assert_eq!(
+            screen.create(&mut inputs).unwrap_err(),
+            "unsupported unestablished native component precision at multiply"
+        );
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        screen
+            .menu
+            .with_components(|menu| {
+                assert!(menu.has_native_lifecycle());
+                assert!(menu.is_empty());
+                assert_eq!(menu.native_root_key()?, None);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(inputs.definition_reads, 1);
+        assert_eq!(inputs.load_def_reads, 0);
+        assert!(inputs.text_reads.is_empty());
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.resource_requests, 0);
+    }
+
+    #[test]
+    fn loading_menu_identity_survives_native_create_destroy_and_recreate() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let alias = screen.menu.clone();
+        let identity = alias.identity();
+        let mut inputs = NativeProgressInputs::new();
+        screen.create(&mut inputs).unwrap();
+        assert_eq!(screen.menu.identity(), identity);
+        assert!(screen.uses_native_components().unwrap());
+        let first_root = alias
+            .with_components(|menu| menu.native_root_key())
+            .unwrap()
+            .unwrap();
+        screen.set_raw_progress(0.375).unwrap();
+        alias
+            .with_components(|menu| {
+                assert_eq!(
+                    menu.progress_value(crate::menu::LOADPROGRESS_BAR_ID),
+                    Some(0.375)
+                );
+                assert_eq!(menu.get_float(crate::menu::LOADPROGRESS_BAR_ID), 0.0);
+                Ok(())
+            })
+            .unwrap();
+        screen.destroy(&mut inputs).unwrap();
+        assert_eq!(screen.menu.identity(), identity);
+        assert!(!screen.uses_native_components().unwrap());
+        alias
+            .with_components(|menu| {
+                assert!(menu.is_empty());
+                assert_eq!(menu.native_root_key()?, None);
+                Ok(())
+            })
+            .unwrap();
+        screen.create(&mut inputs).unwrap();
+        let second_root = alias
+            .with_components(|menu| menu.native_root_key())
+            .unwrap()
+            .unwrap();
+        assert_ne!(first_root, second_root);
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(screen.raw_progress().unwrap(), 0.0);
+        assert_eq!(inputs.definition_reads, 2);
+        assert_eq!(inputs.load_def_reads, 2);
+    }
+
+    #[test]
+    fn loading_menu_alias_destroy_allows_screen_cleanup_and_recreate() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let alias = screen.menu.clone();
+        let identity = alias.identity();
+        let mut inputs = NativeProgressInputs::new();
+        screen.create(&mut inputs).unwrap();
+        let first_root = alias
+            .with_components(|menu| menu.native_root_key())
+            .unwrap()
+            .unwrap();
+        alias
+            .with_components_mut(|menu| menu.destroy_native(&mut inputs))
+            .unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        screen.destroy(&mut inputs).unwrap();
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert!(alias.with_components(|menu| Ok(menu.is_empty())).unwrap());
+        screen.create(&mut inputs).unwrap();
+        let second_root = alias
+            .with_components(|menu| menu.native_root_key())
+            .unwrap()
+            .unwrap();
+        assert_ne!(first_root, second_root);
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(screen.raw_progress().unwrap(), 0.0);
+        assert_eq!(inputs.definition_reads, 2);
+        assert_eq!(inputs.load_def_reads, 2);
+        assert_eq!(inputs.resource_requests, 0);
+    }
+
+    #[test]
+    fn loading_menu_setters_follow_an_alias_installed_native_lifecycle() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let alias = screen.menu.clone();
+        let identity = alias.identity();
+        let mut inputs = NativeProgressInputs::new();
+        inputs.definition.items.push(lhr_assets::MenuItem {
+            id: LOADPROGRESS_SIDE,
+            kind: *b"ttcr",
+            rect: [0.0, 0.0, 30.0, 40.0],
+            text_id: 0,
+            style: crate::main_menu::COMPONENT_VISIBLE,
+        });
+        let definition = inputs.definition.clone();
+        let context = inputs.native_layout().unwrap();
+        alias
+            .with_components_mut(|menu| {
+                menu.create_components_native(&definition, context, &mut inputs)
+            })
+            .unwrap();
+        assert!(screen.uses_native_components().unwrap());
+        screen.set_text_id(1, 654, &mut inputs).unwrap();
+        assert_eq!(inputs.text_reads, vec![654]);
+        inputs.resources_available = false;
+        assert_eq!(
+            screen
+                .set_string(LOADPROGRESS_SIDE, Some(b"alias.tga"), &mut inputs)
+                .unwrap_err(),
+            "native loading-menu texture owner is unavailable"
+        );
+        alias
+            .with_components(|menu| {
+                assert_eq!(menu.find_component_by_id(1).unwrap().text_id, 654);
+                assert_eq!(menu.staged_string(LOADPROGRESS_SIDE), None);
+                assert_eq!(
+                    menu.find_component_by_id(LOADPROGRESS_SIDE)
+                        .unwrap()
+                        .texture_key()?,
+                    None
+                );
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(inputs.resource_requests, 2);
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.resource_requests, 2);
+        assert_eq!(inputs.definition_reads, 0);
+        assert_eq!(inputs.load_def_reads, 0);
+    }
+
+    #[test]
+    fn loading_menu_setters_and_cleanup_follow_an_alias_installed_legacy_stack() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let alias = screen.menu.clone();
+        let identity = alias.identity();
+        let mut inputs = NativeProgressInputs::new();
+        screen.create(&mut inputs).unwrap();
+        alias
+            .with_components_mut(|menu| {
+                *menu = crate::menu::MenuStack::create_from_definition(&inputs.definition);
+                Ok(())
+            })
+            .unwrap();
+        inputs.resources_available = false;
+        assert!(!screen.uses_native_components().unwrap());
+        screen.set_text_id(1, 655, &mut inputs).unwrap();
+        screen
+            .set_string(1, Some(b"legacy.tga"), &mut inputs)
+            .unwrap();
+        alias
+            .with_components(|menu| {
+                assert!(!menu.has_native_lifecycle());
+                assert_eq!(menu.find_component_by_id(1).unwrap().text_id, 655);
+                assert_eq!(menu.staged_string(1), Some(Some(b"legacy.tga".as_slice())));
+                Ok(())
+            })
+            .unwrap();
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert!(alias.with_components(|menu| Ok(menu.is_empty())).unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.resource_requests, 0);
+        assert!(inputs.text_reads.is_empty());
+    }
+
+    #[test]
+    fn loading_menu_alias_interrupted_destroy_remains_native_without_release_replay() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let alias = screen.menu.clone();
+        let identity = alias.identity();
+        let mut inputs = NativeProgressInputs::new();
+        inputs.definition.items.push(lhr_assets::MenuItem {
+            id: LOADPROGRESS_SIDE,
+            kind: *b"ttcr",
+            rect: [0.0, 0.0, 30.0, 40.0],
+            text_id: 0,
+            style: crate::main_menu::COMPONENT_VISIBLE,
+        });
+        inputs.textures = Some(crate::itexture::TextureResources::new().unwrap());
+        screen.create(&mut inputs).unwrap();
+        let texture = alias
+            .with_components(|menu| {
+                Ok(*menu
+                    .find_component_by_id(LOADPROGRESS_SIDE)
+                    .unwrap()
+                    .texture_key()?
+                    .unwrap())
+            })
+            .unwrap();
+        assert_eq!(
+            alias
+                .with_components_mut(|menu| menu.destroy_native(&mut inputs))
+                .unwrap_err()
+                .to_string(),
+            "unexpected fixture texture release"
+        );
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(inputs.released_textures, vec![texture]);
+        inputs.resources_available = false;
+        for error in [
+            screen.destroy(&mut inputs).unwrap_err(),
+            screen.create(&mut inputs).unwrap_err(),
+        ] {
+            assert_eq!(
+                error,
+                "native texture Release is interrupted; backend reconciliation is required, not replay"
+            );
+        }
+        for error in [
+            screen.set_text_id(1, 656, &mut inputs).unwrap_err(),
+            screen
+                .set_string(LOADPROGRESS_SIDE, Some(b"late.tga"), &mut inputs)
+                .unwrap_err(),
+            screen.set_raw_progress(0.5).unwrap_err(),
+        ] {
+            assert_eq!(
+                error,
+                "native menu component construction/destruction is incomplete"
+            );
+        }
+        assert!(screen.uses_native_components().unwrap());
+        alias
+            .with_components(|menu| {
+                assert!(menu.has_native_lifecycle());
+                assert_eq!(
+                    menu.find_component_by_id(LOADPROGRESS_SIDE)
+                        .unwrap()
+                        .interrupted_texture_key(),
+                    Some(&texture)
+                );
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.released_textures, vec![texture]);
+        assert_eq!(inputs.definition_reads, 1);
+        assert_eq!(inputs.load_def_reads, 1);
+        assert_eq!(inputs.resource_requests, 1);
+        assert!(inputs.text_reads.is_empty());
+    }
+
+    #[test]
+    fn loading_menu_native_lifecycle_query_reports_an_aliased_borrow_conflict() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let alias = screen.menu.clone();
+        let mut inputs = NativeProgressInputs::new();
+        screen.create(&mut inputs).unwrap();
+        alias
+            .with_components_mut(|menu| {
+                assert!(menu.has_native_lifecycle());
+                assert_eq!(
+                    screen.uses_native_components().unwrap_err(),
+                    "native menu components are borrowed"
+                );
+                assert_eq!(
+                    screen.destroy(&mut inputs).unwrap_err(),
+                    "native menu components are borrowed"
+                );
+                assert!(menu.has_native_lifecycle());
+                Ok(())
+            })
+            .unwrap();
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(inputs.resource_requests, 0);
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+    }
+
+    #[test]
+    fn loading_menu_partial_create_preserves_the_allocation_and_root_null_prefix() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let alias = screen.menu.clone();
+        let identity = alias.identity();
+        let mut inputs = NativeProgressInputs::new();
+        inputs.definition.items[0].text_id = 650;
+        inputs.text_error = true;
+        assert_eq!(
+            screen.create(&mut inputs).unwrap_err(),
+            "fixture text lookup interrupted"
+        );
+        assert_eq!(inputs.text_reads, vec![650]);
+        assert_eq!(inputs.load_def_reads, 0);
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        alias
+            .with_components(|menu| {
+                assert_eq!(menu.len(), 1);
+                assert_eq!(menu.native_root_key()?, None);
+                Ok(())
+            })
+            .unwrap();
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.text_reads, vec![650]);
+        assert!(alias.with_components(|menu| Ok(menu.is_empty())).unwrap());
+    }
+
+    #[test]
+    fn loading_menu_partial_progress_create_returns_error_without_scalar_write() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let alias = screen.menu.clone();
+        let identity = alias.identity();
+        let mut inputs = NativeProgressInputs::new();
+        inputs.definition.items[1].text_id = 651;
+        inputs.text_error = true;
+        assert_eq!(
+            screen.create(&mut inputs).unwrap_err(),
+            "fixture text lookup interrupted"
+        );
+        let root = alias
+            .with_components(|menu| {
+                assert_eq!(menu.len(), 2);
+                assert_eq!(
+                    menu.find_component_by_id(crate::menu::LOADPROGRESS_BAR_ID)
+                        .unwrap()
+                        .text_id,
+                    651
+                );
+                menu.native_root_key()
+            })
+            .unwrap();
+        assert!(root.is_some());
+        assert_eq!(
+            screen.set_raw_progress(0.75).unwrap_err(),
+            "native menu component construction/destruction is incomplete"
+        );
+        assert_eq!(screen.raw_progress().unwrap(), 0.0);
+        assert_eq!(screen.menu.identity(), identity);
+        assert!(screen.uses_native_components().unwrap());
+        assert_eq!(inputs.text_reads, vec![651]);
+        assert_eq!(inputs.load_def_reads, 0);
+        alias
+            .with_components(|menu| {
+                assert_eq!(menu.len(), 2);
+                assert_eq!(menu.native_root_key()?, root);
+                assert_eq!(menu.get_float(crate::menu::LOADPROGRESS_BAR_ID), 0.0);
+                Ok(())
+            })
+            .unwrap();
+        screen.destroy(&mut inputs).unwrap();
+        assert!(!screen.uses_native_components().unwrap());
+        assert_eq!(screen.menu.identity(), identity);
+        assert_eq!(inputs.text_reads, vec![651]);
+        assert!(alias.with_components(|menu| Ok(menu.is_empty())).unwrap());
+    }
+
+    #[test]
+    fn loading_menu_borrow_failure_preserves_progress_and_stops_before_intake() {
+        let mut screen = LoadProgressScreen::for_mission_open();
+        let alias = screen.menu.clone();
+        let mut inputs = NativeProgressInputs::new();
+        screen.create(&mut inputs).unwrap();
+        screen.set_raw_progress(0.625).unwrap();
+        alias
+            .with_components_mut(|menu| {
+                assert_eq!(
+                    screen.raw_progress().unwrap_err(),
+                    "native menu components are borrowed"
+                );
+                assert_eq!(
+                    screen.set_raw_progress(0.25).unwrap_err(),
+                    "native menu components are borrowed"
+                );
+                assert_eq!(
+                    screen.create(&mut inputs).unwrap_err(),
+                    "native menu components are borrowed"
+                );
+                assert_eq!(
+                    screen.destroy(&mut inputs).unwrap_err(),
+                    "native menu components are borrowed"
+                );
+                assert!(menu.has_native_lifecycle());
+                assert_eq!(
+                    screen.uses_native_components().unwrap_err(),
+                    "native menu components are borrowed"
+                );
+                assert_eq!(
+                    menu.progress_value(crate::menu::LOADPROGRESS_BAR_ID),
+                    Some(0.625)
+                );
+                assert_eq!(inputs.definition_reads, 1);
+                assert_eq!(inputs.load_def_reads, 1);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(screen.raw_progress().unwrap(), 0.625);
+        screen.destroy(&mut inputs).unwrap();
     }
 
     #[test]

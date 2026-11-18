@@ -288,7 +288,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
                 "--lab requires --features engine-lab and a native window. It opens scenes/models, environment previews, camera and model tools, presets and actual driving input. F1 panel, F2 pause, F3 16 ms step, F4 reload. --synthetic --lab starts the public gallery; --root may also supply its asset browser. --lab-scene gallery|courtyard|primitives|lights selects a public --synthetic scene, including headless captures. --lab-preset FILE.lhr-lab loads presentation settings for --lab or --headless. --capture omits the Lab overlay. ",
                 "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] [--probe-render-capture PNG] [--probe-refuse-loading-present N] runs the shared CPU load-session diagnostic without a window. A refused loading-screen present (0-based) exercises the Open stop and its disposal. Optional GPU capture renders the actual retained mission Scene, and does not execute gameplay. Other presentation and playback flags are excluded. ",
-                "--freeride-start-probe --root DIRECTORY [--probe-model-dir DIRECTORY ...] [--freeride-selection CAR,FLAGS,LOCATION,TRAFFIC,PEDESTRIANS,POLICE] diagnoses the original freeride startup. Optional selection is explicit diagnostic StoreA/StoreB input (decimal descriptor/flags/location), not a reconstructed menu. No implicit selection or filename fallback. Not playable; exits unsuccessfully while blocked. ",
+                "--freeride-start-probe --root DIRECTORY [--probe-model-dir DIRECTORY ...] [--freeride-selection CAR,FLAGS,LOCATION,TRAFFIC,PEDESTRIANS,POLICE] [--probe-render-capture PNG] diagnoses the original freeride startup. Optional selection is explicit diagnostic StoreA/StoreB input (decimal descriptor/flags/location), not a reconstructed menu. Optional GPU capture runs only at common Init's reached Scene render; loading-menu Draw/Present is not synthesized. No implicit selection or filename fallback. Not playable; exits unsuccessfully while blocked. ",
                 "--mission-play-probe --root DIRECTORY plays the MISE01 slice headless against original data without a window: intro cutscene lock, on-foot walk to the taxi stand, board the staged taxi00.4ds driving world and drive 150 m to Complete. Other presentation and playback flags are excluded. ",
                 "--audio-capture WAV records the actual mixed driving audio and requires --car-driving. ",
                 "--car-driving requires --root and --model and opens the original MISE01 driving world. W accelerates, S brakes, A/D steer, Space applies the handbrake; R reloads and Escape exits. The chase camera is a host view. ",
@@ -352,7 +352,11 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         for option in &provided_options {
             if !matches!(
                 option.as_str(),
-                "--freeride-start-probe" | "--root" | "--probe-model-dir" | "--freeride-selection"
+                "--freeride-start-probe"
+                    | "--root"
+                    | "--probe-model-dir"
+                    | "--freeride-selection"
+                    | "--probe-render-capture"
             ) {
                 return Err(format!(
                     "{option} is not used by --freeride-start-probe; omit it"
@@ -5559,6 +5563,7 @@ fn run() -> Result<(), String> {
             options.root.as_deref().unwrap(),
             &options.probe_model_directories,
             options.freeride_selection,
+            options.probe_render_capture.as_deref(),
         );
     }
     if options.mission_load_probe {
@@ -6461,7 +6466,6 @@ mod mission_probe_option_tests {
             vec!["--model", "taxi00.4ds"],
             vec!["--headless"],
             vec!["--frames", "0"],
-            vec!["--probe-render-capture", "frame.png"],
             vec!["--probe-refuse-loading-present", "0"],
         ] {
             let mut args = base.to_vec();
@@ -6480,6 +6484,12 @@ mod mission_probe_option_tests {
             ["models/first", "models/second"]
         );
         assert!(parse(&["--free-ride", "--root", "/synthetic-installation"]).is_err());
+        let mut capture_args = base.to_vec();
+        capture_args.extend(["--probe-render-capture", "frame.png"]);
+        assert_eq!(
+            parse(&capture_args).unwrap().probe_render_capture,
+            Some(PathBuf::from("frame.png"))
+        );
     }
 
     #[test]

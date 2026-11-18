@@ -6,13 +6,15 @@
 //! GAME 0x47aed0/0x47b020 (RVA 0x7aed0/0x7b020) construct/reset the embedded
 //! G_Inventory aggregate. Rust
 //! member names below are descriptive; unknown item/parameter bits have no
-//! invented gameplay meaning. Only the Human GameInit prefix slice
-//! (car/using_car clear, STAND, max-to-current bank copy), the
+//! invented gameplay meaning. The contiguous Human GameInit prefix through
+//! CreatePose/SetPose is owned by game_init_through_pose_setup; it stops
+//! immediately before CreateDynColls. The historical disconnected GameInit
+//! slice remains separate and is not used by that orchestrator. The
 //! Intern_UseCar/Intern_FromCar seat-placement core (seat latch plus the
 //! car/using_car/action writers of this slice only), the Can_EnterToCar
 //! owned-car guard and the Do_StopAnim stop core (STAND plus the alive-gated
-//! anim-id reset and PersonAnim handoff) are owned here; the full GameInit
-//! body plus animation selection, AI and Update stay DEFERRED, as do every
+//! anim-id reset and PersonAnim handoff) are owned here; the GameInit suffix
+//! plus animation selection, AI and Update stay DEFERRED, as do every
 //! collision, animation-machine, frame, camera, indicator, inventory, weapon
 //! and police effect of the three car-function bodies. TestMoveColl's capsule
 //! descent (TestPanak2) has no owner; its collision-independent leaves live
@@ -49,6 +51,17 @@ use crate::mission_options::OPTION_HIGH;
 use crate::original_program::ProgramReader;
 use crate::script_scheduler::{ActorReferenceId, FrameReferenceId};
 
+#[path = "human_actor_game_init.rs"]
+mod game_init;
+pub use game_init::{
+    game_init_through_lower_collision_setup, game_init_through_pose_setup, HumanAnimationPlayback,
+    HumanCarriedFrame, HumanCollisionFrameSlots, HumanDynCollsSetupBackend,
+    HumanDynCollsStorageError, HumanDynamicCollision, HumanDynamicCollisionHandle,
+    HumanDynamicCollisionSlots, HumanDynamicCollisions, HumanGameInitBackend,
+    HumanGameInitBoundary, HumanGameInitError, HumanGameInitFields, HumanGameInitStage,
+    HumanGameInitStatus, HumanGameInitValue, HumanNullReference,
+};
+
 /// The machine constructor leaves its middle DWORD untouched. This explicit
 /// allocation seed does not supply a model, owner, Init or Reset defaults.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -60,6 +73,7 @@ pub struct HumanAnimationMachine {
     owner: Option<ActorReferenceId>,
     model: Option<FrameReferenceId>,
     untouched_word: u32,
+    playback: Option<HumanAnimationPlayback>,
 }
 impl HumanAnimationMachine {
     pub(crate) fn construct(seed: HumanAnimationMachineSeed) -> Self {
@@ -67,6 +81,7 @@ impl HumanAnimationMachine {
             owner: None,
             model: None,
             untouched_word: seed.untouched_word,
+            playback: None,
         }
     }
     pub fn owner(&self) -> Option<ActorReferenceId> {
@@ -77,6 +92,9 @@ impl HumanAnimationMachine {
     }
     pub fn untouched_constructor_word(&self) -> u32 {
         self.untouched_word
+    }
+    pub fn playback(&self) -> Option<&HumanAnimationPlayback> {
+        self.playback.as_ref()
     }
     /// Actual PC4aabe0 is RET. It does not implicitly execute StopAnims,
     /// GameDone, Reset, reference release or model destruction.
@@ -1279,6 +1297,9 @@ pub struct HumanState {
     pub(crate) second_auxiliary: EmptyHumanCollection,
     pub(crate) last_auxiliary: EmptyHumanCollection,
     pub(crate) auxiliary: [HumanAuxiliaryRecord; 2],
+    game_init_fields: HumanGameInitFields,
+    game_init_status: HumanGameInitStatus,
+    dynamic_collisions: HumanDynamicCollisions,
     /// Script-visible car latch for HUMAN_GETOWNER (mafia-re 113b5b6
     /// game/actors/C_human.h:1120 GetCar GAME 0x47b7b0). Populated by the
     /// Intern_UseCar seat core and cleared by the Intern_FromCar placement
@@ -1359,8 +1380,8 @@ pub struct HumanState {
     /// game/actors/C_human.h:1000-1005: track_steps_max @0x6ec,
     /// track_steps @0x6ee, track_texture @0x6f0). Written by cb_coll_tester
     /// (GAME 0x587d30) of this slice; the GameInit/constructor writers that
-    /// zero track_steps (C_human.cpp:3200, :9079) and the track-tick consumer
-    /// (:821-840) stay DEFERRED.
+    /// zero track_steps now include game_init_through_pose_setup; the
+    /// constructor's later writer and track-tick consumer stay DEFERRED.
     track_steps_max: i16,
     track_steps: i16,
     track_texture: u8,
@@ -1384,16 +1405,10 @@ pub struct HumanState {
     /// (C_human.cpp:5392,5414,5431); the Do_Crouched writer stays DEFERRED,
     /// callers stage it via `set_crouching`.
     crouching: bool,
-    /// Box-carried latch staging the box frame pointer (mafia-re 113b5b6
-    /// game/actors/C_human.h:1008: 0x6f8 I3D_frame *box). Same guard role as
-    /// crouching plus the Do_Aimed clear (C_human.cpp:6082); the box frame
-    /// owner stays DEFERRED.
-    carrying_box: bool,
-    /// Dead-body-carried latch staging the dead-body frame pointer (mafia-re
-    /// 113b5b6 game/actors/C_human.h:1010: 0x700 I3D_frame *dead_body). Same
-    /// guard role as the box (C_human.cpp:5392,5414,5431,6082); the body/cart
-    /// owners stay DEFERRED.
-    carrying_dead_body: bool,
+    /// Actual carried-frame slot; legacy boolean staging is explicit and does
+    /// not fabricate a frame. GameInit clears this same slot, not a mirror.
+    carried_box: HumanCarriedFrame,
+    carried_dead_body: HumanCarriedFrame,
     /// Aim latch (mafia-re 113b5b6 game/actors/C_human.h:729-731: 0x1e5
     /// aimed). Written by the Do_Aimed core of this slice; the Do_Shoot,
     /// reload and weapon-change writers stay DEFERRED.
@@ -1680,6 +1695,9 @@ impl HumanState {
             second_auxiliary: EmptyHumanCollection::construct(seed.allocator_tag),
             last_auxiliary: EmptyHumanCollection::construct(seed.allocator_tag),
             auxiliary: seed.auxiliary.map(HumanAuxiliaryRecord::construct),
+            game_init_fields: HumanGameInitFields::default(),
+            game_init_status: HumanGameInitStatus::NotStarted,
+            dynamic_collisions: HumanDynamicCollisions::default(),
             car: None,
             using_car: None,
             action_state: HUMAN_ACTION_STAND,
@@ -1697,8 +1715,8 @@ impl HumanState {
             dir: [0.0; 3],
             turn_speed: 0.0,
             crouching: false,
-            carrying_box: false,
-            carrying_dead_body: false,
+            carried_box: HumanCarriedFrame::Absent,
+            carried_dead_body: HumanCarriedFrame::Absent,
             aimed: false,
             guarding: false,
             changing_weapon: false,
@@ -1772,6 +1790,21 @@ impl HumanState {
     }
     pub fn animation_machine(&self) -> &HumanAnimationMachine {
         &self.animation_machine
+    }
+    pub fn game_init_fields(&self) -> &HumanGameInitFields {
+        &self.game_init_fields
+    }
+    pub fn game_init_fields_mut(&mut self) -> &mut HumanGameInitFields {
+        &mut self.game_init_fields
+    }
+    pub fn game_init_status(&self) -> HumanGameInitStatus {
+        self.game_init_status
+    }
+    pub fn dynamic_collisions(&self) -> &HumanDynamicCollisions {
+        &self.dynamic_collisions
+    }
+    pub fn dynamic_collisions_mut(&mut self) -> &mut HumanDynamicCollisions {
+        &mut self.dynamic_collisions
     }
     pub fn inventory(&self) -> &HumanInventory {
         &self.inventory
@@ -1858,21 +1891,41 @@ impl HumanState {
     pub fn set_crouching(&mut self, crouching: bool) {
         self.crouching = crouching;
     }
-    /// Box-carried latch (box frame owner DEFERRED).
+    /// Presence view of the single authoritative carried-box slot.
     pub fn carrying_box(&self) -> bool {
-        self.carrying_box
+        self.carried_box.is_present()
     }
-    /// Test/host setter for the box-carried latch.
+    /// Legacy host staging; true explicitly leaves frame identity unresolved.
     pub fn set_carrying_box(&mut self, carrying: bool) {
-        self.carrying_box = carrying;
+        self.carried_box = if carrying {
+            HumanCarriedFrame::UnresolvedPresence
+        } else {
+            HumanCarriedFrame::Absent
+        };
     }
-    /// Dead-body-carried latch (body/cart owners DEFERRED).
+    pub fn carried_box(&self) -> HumanCarriedFrame {
+        self.carried_box
+    }
+    pub fn set_carried_box_frame(&mut self, frame: Option<FrameReferenceId>) {
+        self.carried_box = frame.map_or(HumanCarriedFrame::Absent, HumanCarriedFrame::Frame);
+    }
+    /// Presence view of the single authoritative carried-body slot.
     pub fn carrying_dead_body(&self) -> bool {
-        self.carrying_dead_body
+        self.carried_dead_body.is_present()
     }
-    /// Test/host setter for the dead-body-carried latch.
+    /// Legacy host staging; true explicitly leaves frame identity unresolved.
     pub fn set_carrying_dead_body(&mut self, carrying: bool) {
-        self.carrying_dead_body = carrying;
+        self.carried_dead_body = if carrying {
+            HumanCarriedFrame::UnresolvedPresence
+        } else {
+            HumanCarriedFrame::Absent
+        };
+    }
+    pub fn carried_dead_body(&self) -> HumanCarriedFrame {
+        self.carried_dead_body
+    }
+    pub fn set_carried_dead_body_frame(&mut self, frame: Option<FrameReferenceId>) {
+        self.carried_dead_body = frame.map_or(HumanCarriedFrame::Absent, HumanCarriedFrame::Frame);
     }
     /// Aim latch written by the Do_Aimed core.
     pub fn aimed(&self) -> bool {
@@ -2285,18 +2338,10 @@ impl HumanState {
     /// using_car latches to NULL, set action_state to HUMAN_ACTION_STAND
     /// (C_human.h:137), and copy the maximum-property bank over the current
     /// bank (memcpy(properties, max_properties, sizeof(properties))). SCOPE:
-    /// prefix only. The rest of the :3162-3407 body stays DEFERRED with no new
-    /// owner here: orig_model and the C_actor::GameInit prefix, base_frame
-    /// lookup plus frame refcount/DeleteFrame, DebustizeFrame and
-    /// NoShadowFrame, vehicle_action, anim_machine.Init plus next_anim_id, the
-    /// anim/velocity/turn/fall/guard/idle/breath/combat/dead/track/move/hit/
-    /// reload/voice/death/car-use/shot words (incl. stealing_car, last_car,
-    /// locked_car, vehicle_action, car_stance), pose creation and SetPose, sound
-    /// frame creation, shot_skeleton plus notify callback, anims reset, shadow
-    /// registration, weapon models and hand targets, fire words, inventory
-    /// reset plus ChangeWeaponModel, PoseValidate, ground snapping,
-    /// LightnessAdd, and the loc/blob/cutscene/tick words. AI/Update stay
-    /// DEFERRED.
+    /// disconnected historical slice only. game_init_through_pose_setup owns
+    /// the longer contiguous entry-to-CreateDynColls prefix and does not call
+    /// this helper. Production callers must not use this slice as successful
+    /// Human/Player GameInit or replay it after an interrupted live attempt.
     #[allow(dead_code)] // RVA-mapped GameInit core; production caller not wired yet.
     pub(crate) fn apply_game_init_prefix(&mut self) {
         self.car = None;
@@ -2458,7 +2503,7 @@ impl HumanState {
         if self.seated_in_car(car_is_car_actor) {
             return false;
         }
-        let run = run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let run = run && !self.crouching && !self.carrying_box() && !self.carrying_dead_body();
         self.action_state = HUMAN_ACTION_WALK;
         let base = if run { 5.0 } else { 1.7 };
         let speed = base * self.current_properties.speed_factor();
@@ -2502,7 +2547,7 @@ impl HumanState {
         if self.seated_in_car(car_is_car_actor) {
             return false;
         }
-        let run = run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let run = run && !self.crouching && !self.carrying_box() && !self.carrying_dead_body();
         self.action_state = HUMAN_ACTION_WALK;
         self.turn_speed = 0.0;
         let base = if run { 3.0 } else { 1.5 };
@@ -2525,7 +2570,7 @@ impl HumanState {
         if self.seated_in_car(car_is_car_actor) {
             return false;
         }
-        let run = run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let run = run && !self.crouching && !self.carrying_box() && !self.carrying_dead_body();
         self.action_state = HUMAN_ACTION_WALK;
         self.turn_speed = 0.0;
         let base = if run { 3.0 } else { 1.5 };
@@ -2550,7 +2595,7 @@ impl HumanState {
         if self.seated_in_car(car_is_car_actor) {
             return false;
         }
-        let run = run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let run = run && !self.crouching && !self.carrying_box() && !self.carrying_dead_body();
         let side = [-self.dir[2], self.dir[1], self.dir[0]];
         self.action_state = HUMAN_ACTION_WALK;
         self.turn_speed = 0.0;
@@ -2575,7 +2620,7 @@ impl HumanState {
         if self.seated_in_car(car_is_car_actor) {
             return false;
         }
-        let run = run && !self.crouching && !self.carrying_box && !self.carrying_dead_body;
+        let run = run && !self.crouching && !self.carrying_box() && !self.carrying_dead_body();
         let side = [self.dir[2], self.dir[1], -self.dir[0]];
         self.action_state = HUMAN_ACTION_WALK;
         self.turn_speed = 0.0;
@@ -2652,7 +2697,7 @@ impl HumanState {
     /// DEFERRED with explicit markers, no new owner here: collision, tick,
     /// and the Do_Shoot/reload/change writers of the latch.
     pub fn apply_do_aimed(&mut self, aim: bool) {
-        if self.carrying_box || self.carrying_dead_body {
+        if self.carrying_box() || self.carrying_dead_body() {
             self.aimed = false;
             return;
         }
@@ -2679,7 +2724,7 @@ impl HumanState {
     /// markers, no new owner here: the frame and collision owners of the
     /// probe, plus the PersonAnim/Update/Movement writers of the latch.
     pub fn apply_do_crouched(&mut self, crouch: bool, headroom_clear: bool) {
-        if self.carrying_box || self.carrying_dead_body {
+        if self.carrying_box() || self.carrying_dead_body() {
             self.crouching = false;
             return;
         }
@@ -2720,7 +2765,7 @@ impl HumanState {
     /// anim select only. DEFERRED with explicit markers, no new owner here:
     /// the PersonAnim/Update/Movement writers of the word, collision, tick.
     pub fn apply_do_corner_breath(&mut self, view: CornerView) -> bool {
-        if self.carrying_box || self.carrying_dead_body {
+        if self.carrying_box() || self.carrying_dead_body() {
             return false;
         }
         match view {
@@ -2748,7 +2793,7 @@ impl HumanState {
     /// owners yet and stay DEFERRED with an explicit marker; no invented
     /// wait state. Returns true on admission.
     pub fn apply_do_corner_view(&mut self, view: CornerView) -> bool {
-        if self.carrying_box || self.carrying_dead_body {
+        if self.carrying_box() || self.carrying_dead_body() {
             return false;
         }
         match view {
@@ -2783,7 +2828,7 @@ impl HumanState {
     /// no new owner here: the PersonAnim/Update/Movement writers, collision,
     /// tick.
     pub fn apply_do_shock_up(&mut self) {
-        if self.carrying_box || self.carrying_dead_body {
+        if self.carrying_box() || self.carrying_dead_body() {
             return;
         }
         if self.anim_id == ANIM_X_PANIKA_DREP_STATIV
@@ -2807,7 +2852,7 @@ impl HumanState {
     /// handoff. Any other anim_id leaves the state untouched. SCOPE and
     /// DEFERRED markers as in `apply_do_shock_up`.
     pub fn apply_do_shock_stumble(&mut self) {
-        if self.carrying_box || self.carrying_dead_body {
+        if self.carrying_box() || self.carrying_dead_body() {
             return;
         }
         if self.anim_id == ANIM_PANIKA_RUN01A
@@ -2836,7 +2881,7 @@ impl HumanState {
     /// HUMAN_ACTION_WAIT select (C_human.h:1160-1172) stay DEFERRED with an
     /// explicit marker. SCOPE: anim words plus handoff only.
     pub fn apply_do_dead_body_drop(&mut self) {
-        if !self.carrying_dead_body {
+        if !self.carrying_dead_body() {
             return;
         }
         self.anim_id = 0;
@@ -3265,7 +3310,7 @@ impl HumanState {
     /// stage the inventory/weapon owners (DEFERRED). Returns true on
     /// admission.
     pub fn apply_do_corner_fire(&mut self, view: CornerView) -> bool {
-        if self.carrying_box || self.carrying_dead_body {
+        if self.carrying_box() || self.carrying_dead_body() {
             return false;
         }
         if self.weapon_kind == WEAPON_KIND_RIFLE || self.weapon_kind == WEAPON_KIND_FISTS {
@@ -3309,7 +3354,7 @@ impl HumanState {
     /// SetWaitAnim wait words) before the aimed latch. SCOPE and DEFERRED
     /// markers as in `apply_do_corner_fire`. Returns true on admission.
     pub fn apply_do_corner_fire_aimed(&mut self, view: CornerView) -> bool {
-        if self.carrying_box || self.carrying_dead_body {
+        if self.carrying_box() || self.carrying_dead_body() {
             return false;
         }
         if self.weapon_kind == WEAPON_KIND_RIFLE || self.weapon_kind == WEAPON_KIND_FISTS {
@@ -3466,7 +3511,7 @@ impl HumanState {
     /// markers, no new owner here: the PersonAnim/Update/Movement writers of
     /// the word, collision, tick.
     pub fn apply_do_shock_start(&mut self, variant: i32, draw: u32) {
-        if self.carrying_box || self.carrying_dead_body {
+        if self.carrying_box() || self.carrying_dead_body() {
             return;
         }
         let variant = variant.clamp(0, 3);
@@ -3743,7 +3788,7 @@ impl HumanState {
     /// markers, no new owner here: the Movement HUMAN_ACTION_STEPS player
     /// and every PersonAnim effect of the steps.
     pub fn apply_do_shock_down(&mut self, variant: i32) {
-        if self.carrying_box || self.carrying_dead_body {
+        if self.carrying_box() || self.carrying_dead_body() {
             return;
         }
         let clamped = variant.clamp(0, 2);
@@ -4156,7 +4201,7 @@ impl HumanState {
     /// DropOutItems program past the guard stays DEFERRED with the weapon
     /// owner; this leaf only reports whether the carry must be dropped first.
     pub fn holster_requires_carry_drop(&self) -> bool {
-        self.carrying_box || self.carrying_dead_body
+        self.carrying_box() || self.carrying_dead_body()
     }
     /// GAME 0x585d90 (RVA 0x185d90) C_human::Do_WeaponDrop carry gate
     /// (mafia-re 113b5b6 game/actors/C_human.h:611,
@@ -4165,9 +4210,9 @@ impl HumanState {
     /// inventory Remove/DropOutItems/ChangeWeaponModel program runs, whose
     /// owners stay DEFERRED. This leaf only reports the selected arm.
     pub fn weapon_drop_carry_action(&self) -> WeaponDropCarry {
-        if self.carrying_box {
+        if self.carrying_box() {
             WeaponDropCarry::CarryBoxDrop
-        } else if self.carrying_dead_body {
+        } else if self.carrying_dead_body() {
             WeaponDropCarry::CarryDeadBodyDrop
         } else {
             WeaponDropCarry::Inventory
@@ -4183,7 +4228,7 @@ impl HumanState {
     /// box-release call stay DEFERRED; this leaf only reports the selected
     /// arm for the staged `cancel_succeeded` verdict.
     pub fn box_drop_after_cancel(&self, cancel_succeeded: bool) -> BoxDropNext {
-        if !self.carrying_box {
+        if !self.carrying_box() {
             BoxDropNext::NoBox
         } else if cancel_succeeded {
             BoxDropNext::Cancelled
@@ -7494,10 +7539,10 @@ mod human_state_flags_tests {
     fn holster_rva_185c60_diverts_only_while_carrying() {
         let mut human = HumanState::construct(seed());
         assert!(!human.holster_requires_carry_drop());
-        human.carrying_box = true;
+        human.set_carrying_box(true);
         assert!(human.holster_requires_carry_drop());
-        human.carrying_box = false;
-        human.carrying_dead_body = true;
+        human.set_carrying_box(false);
+        human.set_carrying_dead_body(true);
         assert!(human.holster_requires_carry_drop());
     }
     #[test]
@@ -7507,12 +7552,12 @@ mod human_state_flags_tests {
     fn weapon_drop_rva_185d90_selects_carry_arm_in_order() {
         let mut human = HumanState::construct(seed());
         assert_eq!(human.weapon_drop_carry_action(), WeaponDropCarry::Inventory);
-        human.carrying_dead_body = true;
+        human.set_carrying_dead_body(true);
         assert_eq!(
             human.weapon_drop_carry_action(),
             WeaponDropCarry::CarryDeadBodyDrop
         );
-        human.carrying_box = true;
+        human.set_carrying_box(true);
         assert_eq!(
             human.weapon_drop_carry_action(),
             WeaponDropCarry::CarryBoxDrop
@@ -7542,7 +7587,7 @@ mod human_state_flags_tests {
         let mut human = HumanState::construct(seed());
         assert_eq!(human.box_drop_after_cancel(false), BoxDropNext::NoBox);
         assert_eq!(human.box_drop_after_cancel(true), BoxDropNext::NoBox);
-        human.carrying_box = true;
+        human.set_carrying_box(true);
         assert_eq!(human.box_drop_after_cancel(true), BoxDropNext::Cancelled);
         assert_eq!(
             human.box_drop_after_cancel(false),

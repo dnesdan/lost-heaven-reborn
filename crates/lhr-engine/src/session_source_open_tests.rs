@@ -11,6 +11,7 @@ struct Renderer<F> {
     /// Loading-screen device calls: (STEP SetState count, presented bars).
     alpha_blend_states: usize,
     loading_presents: Vec<f32>,
+    loading_menu_identities: Vec<crate::menu_native_drawing::MenuNativeMenuIdentity>,
 }
 
 impl<F> crate::load_scene_callback::LoadingScreenDevice for Renderer<F> {
@@ -22,7 +23,8 @@ impl<F> crate::load_scene_callback::LoadingScreenDevice for Renderer<F> {
         &mut self,
         frame: crate::load_scene_callback::LoadingScreenFrame<'_>,
     ) -> Result<(), String> {
-        self.loading_presents.push(frame.screen.raw_progress());
+        self.loading_presents.push(frame.raw_progress()?);
+        self.loading_menu_identities.push(frame.menu_identity());
         Ok(())
     }
 }
@@ -42,6 +44,7 @@ fn renderer() -> Renderer<impl FnMut(&ModelArena, SceneKey) -> Result<u32, Model
         calls: 0,
         alpha_blend_states: 0,
         loading_presents: Vec::new(),
+        loading_menu_identities: Vec::new(),
         action: |arena: &ModelArena, scene| {
             assert!(arena.scene(scene).is_ok());
             assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
@@ -371,6 +374,7 @@ fn ordered_source_open_retains_real_world_actors_programs_and_restarts_cleanly()
             calls: 0,
             alpha_blend_states: 0,
             loading_presents: Vec::new(),
+            loading_menu_identities: Vec::new(),
             action: |arena: &ModelArena, scene| {
                 assert_eq!(audio.master_gain().unwrap(), 0.0);
                 assert_eq!(arena.scene(scene).unwrap().frames().len(), 1);
@@ -579,6 +583,7 @@ fn ordered_source_open_reads_scene2_once_after_render_callback_changes_it() {
         calls: 0,
         alpha_blend_states: 0,
         loading_presents: Vec::new(),
+        loading_menu_identities: Vec::new(),
         action: |arena: &ModelArena, scene| {
             assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
             std::fs::write(
@@ -615,6 +620,7 @@ fn ordered_source_open_render_error_and_unwind_keep_mute_precision_and_admission
             calls: 0,
             alpha_blend_states: 0,
             loading_presents: Vec::new(),
+            loading_menu_identities: Vec::new(),
             action: |arena: &ModelArena, scene| {
                 assert_eq!(audio.master_gain().unwrap(), 0.0);
                 assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
@@ -669,6 +675,7 @@ fn ordered_source_open_cache_tail_error_keeps_loaded_sources_unadmitted() {
         calls: 0,
         alpha_blend_states: 0,
         loading_presents: Vec::new(),
+        loading_menu_identities: Vec::new(),
         action: |_: &ModelArena, _| {
             std::fs::remove_file(&cache).unwrap();
             std::fs::create_dir(&cache).unwrap();
@@ -984,6 +991,27 @@ fn seed_load_save_progress(session: &mut MissionLoadSession) {
     session.freeride.active = true;
 }
 
+fn assert_mission_open_progress_survives_new_game(
+    actual: &crate::game_loadsave_lifecycle::LoadSaveProgress,
+    presented_menus: &[crate::menu_native_drawing::MenuNativeMenuIdentity],
+) {
+    use crate::game_loadsave_lifecycle::{LoadProgressScreen, LoadSaveProgress};
+    let expected = LoadSaveProgress::default();
+    assert_eq!(actual.steal_cars, expected.steal_cars);
+    assert_eq!(actual.garage, expected.garage);
+    assert_eq!(actual.last_stolen, expected.last_stolen);
+    assert_eq!(actual.settings, expected.settings);
+    let screen = actual.progress.as_ref().unwrap();
+    let original_menu = presented_menus
+        .first()
+        .expect("Open must present its newly created mission-open screen");
+    assert_eq!(&screen.menu_identity_for_test(), original_menu);
+    for presented_menu in presented_menus {
+        assert_eq!(presented_menu, original_menu);
+    }
+    assert_load_progress_screen_contents(screen, &LoadProgressScreen::for_mission_open());
+}
+
 const NEW_GAME_THROUGH_INIT: &[crate::mission_new_game_order::NewMissionStep] = &[
     crate::mission_new_game_order::NewMissionStep::ClosePrevious,
     crate::mission_new_game_order::NewMissionStep::Open,
@@ -996,7 +1024,7 @@ const NEW_GAME_THROUGH_INIT: &[crate::mission_new_game_order::NewMissionStep] = 
 #[test]
 fn new_game_start_runs_save_game_new_game_then_stops_at_the_init_render() {
     use crate::game_init_order::{InitFailure, InitRunError, InitStep, SessionInitError};
-    use crate::game_loadsave_lifecycle::{FreerideState, LoadProgressScreen, LoadSaveProgress};
+    use crate::game_loadsave_lifecycle::FreerideState;
     use crate::mission_new_game_order::{
         NewMissionAttempt, NewMissionError, NewMissionFailure, NewMissionRequest,
         NewMissionRunError, NewMissionStep,
@@ -1042,12 +1070,9 @@ fn new_game_start_runs_save_game_new_game_then_stops_at_the_init_render() {
     // Main's Open (progress true) created the loading screen, which
     // SaveGameNewGame leaves alone.
     assert_eq!(session.mission_numbers(), (0, 0));
-    assert_eq!(
+    assert_mission_open_progress_survives_new_game(
         session.load_save_progress(),
-        &LoadSaveProgress {
-            progress: Some(LoadProgressScreen::for_mission_open()),
-            ..Default::default()
-        }
+        &render.loading_menu_identities,
     );
     assert_eq!(session.freeride(), &FreerideState::default());
     assert!(attempt.init().entered());
@@ -1098,7 +1123,15 @@ fn save_game_new_game_step_clears_progress_and_stops_on_a_terminal_session() {
     open_recorded(&mut session);
     seed_load_save_progress(&mut session);
     discard(&mut session);
-    let before = session.load_save_progress().clone();
+    let progress = session.load_save_progress();
+    assert!(progress.progress.is_none());
+    let before = LoadSaveProgress {
+        steal_cars: progress.steal_cars,
+        garage: progress.garage.clone(),
+        last_stolen: progress.last_stolen,
+        progress: None,
+        settings: progress.settings,
+    };
     assert_eq!(
         session.save_game_new_game_for_new_mission(),
         Err("terminal discard entered".into())
@@ -1116,7 +1149,6 @@ fn save_game_new_game_step_clears_progress_and_stops_on_a_terminal_session() {
 #[test]
 fn presented_new_game_start_reaches_the_same_init_boundary_once() {
     use crate::game_init_order::InitStep;
-    use crate::game_loadsave_lifecycle::LoadSaveProgress;
     use crate::mission_new_game_order::{
         NewMissionAttempt, NewMissionError, NewMissionFailure, NewMissionRequest,
         NewMissionRunError, NewMissionStep,
@@ -1125,6 +1157,7 @@ fn presented_new_game_start_reaches_the_same_init_boundary_once() {
     let mut session = fixture.session();
     seed_load_save_progress(&mut session);
     let mut attempt = NewMissionAttempt::default();
+    let mut render = renderer();
     let mut sequence = crate::scene_render::SceneSnapshotSequence::default();
     let mut presented = 0;
     let result = session.start_new_game_mission_presented(
@@ -1135,7 +1168,7 @@ fn presented_new_game_start_reaches_the_same_init_boundary_once() {
             projection: projection(),
         },
         &mut Screen::default(),
-        &mut renderer(),
+        &mut render,
         [64, 48],
         &mut sequence,
         |_snapshot| {
@@ -1162,12 +1195,9 @@ fn presented_new_game_start_reaches_the_same_init_boundary_once() {
     );
     assert_eq!(attempt.reached(), NEW_GAME_THROUGH_INIT);
     assert_eq!(attempt.init().last(), Some(InitStep::ResetMissionState));
-    assert_eq!(
+    assert_mission_open_progress_survives_new_game(
         session.load_save_progress(),
-        &LoadSaveProgress {
-            progress: Some(crate::game_loadsave_lifecycle::LoadProgressScreen::for_mission_open()),
-            ..Default::default()
-        }
+        &render.loading_menu_identities,
     );
     assert!(!session.freeride().active);
     discard(&mut session);
@@ -1277,18 +1307,21 @@ fn open_reports_the_scene_load_to_the_mafia_load_save_screen() {
     // with the definition's components and load.def's picture and name
     // for the act mission ("synthetic", _stricmp-equal to "SYNTHETIC").
     let screen = session.load_save_progress().progress.as_ref().unwrap();
-    assert_eq!(screen.menu.len(), 4);
-    assert_eq!(screen.raw_progress(), 0.5 * 0.7);
-    assert_eq!(
-        screen.menu.staged_string(LOADPROGRESS_MISSION_PICTURE),
-        Some(Some(&b"S.tga"[..]))
-    );
-    assert_eq!(
-        screen
-            .menu
-            .get_text_id(crate::game_loadsave_lifecycle::LOADPROGRESS_MISSION_NAME),
-        0x77
-    );
+    screen
+        .with_components_for_test(|menu| {
+            assert_eq!(menu.len(), 4);
+            assert_eq!(screen.raw_progress().unwrap(), 0.5 * 0.7);
+            assert_eq!(
+                menu.staged_string(LOADPROGRESS_MISSION_PICTURE),
+                Some(Some(&b"S.tga"[..]))
+            );
+            assert_eq!(
+                menu.get_text_id(crate::game_loadsave_lifecycle::LOADPROGRESS_MISSION_NAME),
+                0x77
+            );
+            Ok(())
+        })
+        .unwrap();
     assert_eq!(render.calls, 1);
     discard(&mut session);
 }
@@ -1429,7 +1462,7 @@ impl crate::load_scene_callback::LoadingScreenDevice for RefusingDevice {
         if self.refuse_at == Some(self.presents.len()) {
             return Err("host refused the present".into());
         }
-        self.presents.push(frame.screen.raw_progress());
+        self.presents.push(frame.raw_progress()?);
         Ok(())
     }
 }
@@ -1490,7 +1523,8 @@ fn a_refused_first_step_stops_the_world_before_its_frame() {
             .progress
             .as_ref()
             .unwrap()
-            .raw_progress(),
+            .raw_progress()
+            .unwrap(),
         0.25 * 0.7
     );
     assert_eq!(session.load_scene_callback().last_bit(), 0.0);
@@ -1706,7 +1740,8 @@ fn a_refused_material_step_stops_before_that_material_and_disposes() {
             .progress
             .as_ref()
             .unwrap()
-            .raw_progress(),
+            .raw_progress()
+            .unwrap(),
         0.125 * 0.7
     );
     let progress = session.world_progress().unwrap();

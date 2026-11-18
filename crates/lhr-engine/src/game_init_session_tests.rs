@@ -261,7 +261,9 @@ fn unpresented_player_navi_with_a_loading_screen_stops_at_its_present() {
     fixture.write("missions/mise01/cache.bin", &cache_bytes());
     let mut session = fixture.session();
     open_mise01(&mut session);
-    session.load_save_progress_mut().progress = Some(LoadProgressScreen::for_mission_open());
+    let screen = LoadProgressScreen::for_mission_open();
+    let original_menu = screen.menu_identity_for_test();
+    session.load_save_progress_mut().progress = Some(screen);
     seed_player_statics(&mut session);
     let seeded = session.player_statics();
     let error = session.execute(InitStep::PlayerNavi).unwrap_err();
@@ -276,10 +278,25 @@ fn unpresented_player_navi_with_a_loading_screen_stops_at_its_present() {
     );
     // The later stores are not reached and the screen stays live.
     assert_eq!(session.player_statics(), seeded);
+    let screen = session.load_save_progress().progress.as_ref().unwrap();
+    assert_eq!(screen.menu_identity_for_test(), original_menu);
+    assert_eq!(screen.title, 0);
     assert_eq!(
-        session.load_save_progress().progress,
-        Some(LoadProgressScreen::for_mission_open())
+        screen.mission_part,
+        crate::game_loadsave_lifecycle::MISSION_OPEN_PROGRESS_PART
     );
+    assert_eq!(screen.mission_name, None);
+    assert!(!screen.uses_native_components().unwrap());
+    assert_eq!(
+        screen.menu_base_for_test(),
+        (None, crate::menu_native_drawing::MENUF_DRAW_PARENT)
+    );
+    screen
+        .with_components_for_test(|menu| {
+            assert_eq!(menu, &crate::menu::MenuStack::new());
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[test]
@@ -321,4 +338,247 @@ fn mark_initialized_arms_the_guard_against_rerun() {
         session.reset_game_mission_state_for_init(),
         Err("game already initialized".into())
     );
+}
+
+fn segments_test_session(fixture: &Fixture) -> MissionLoadSession {
+    fixture.write("missions/mise01/scene.4ds", &[]);
+    fixture.write("missions/mise01/scene2.bin", &scene2(&[]));
+    fixture.write("missions/mise01/cache.bin", &cache_bytes());
+    let mut session = fixture.session();
+    open_mise01(&mut session);
+    session
+}
+
+fn segments_test_header(count: u32) -> Vec<u8> {
+    let mut bytes = b"AISEG-V1.1-JIPO\0".to_vec();
+    bytes.extend(count.to_le_bytes());
+    bytes
+}
+
+fn segments_test_record(position: [u32; 3], indices: &[u32], data: [u8; 16]) -> Vec<u8> {
+    let mut bytes = 4u32.to_le_bytes().to_vec();
+    bytes.extend(0x9876_5432u32.to_le_bytes());
+    for bits in position {
+        bytes.extend(bits.to_le_bytes());
+    }
+    bytes.extend(u32::try_from(indices.len()).unwrap().to_le_bytes());
+    for index in indices {
+        bytes.extend(index.to_le_bytes());
+    }
+    bytes.extend(data);
+    bytes
+}
+
+#[test]
+fn segments_init_uses_the_live_ai_owner_and_terminal_cleanup_clears_it() {
+    use crate::game_ai_segments::SegmentsLoadState;
+    let fixture = Fixture::new();
+    let position = [0x8000_0000, 0x7fc0_1234, 0x3f80_0000];
+    let indices = [0, u32::MAX, 7];
+    let data = [0xa5; 16];
+    let mut bytes = segments_test_header(1);
+    bytes.extend(segments_test_record(position, &indices, data));
+    fixture.write("missions/mise01/clusters.seg", &bytes);
+    let mut session = segments_test_session(&fixture);
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::Cleared
+    );
+    assert_eq!(session.segments_load_for_init(), Ok(true));
+    let owner = &session.ai_manager().segments;
+    assert_eq!(owner.state(), SegmentsLoadState::Loaded);
+    assert_eq!(owner.declared_segment_count(), Some(1));
+    assert_eq!(owner.num_segments(), 1);
+    let segment = owner.get_segment(0).unwrap();
+    assert_eq!(segment.flags(), 4);
+    assert_eq!(segment.unknown_word(), Some(0x9876_5432));
+    assert_eq!(segment.position_bits(), Some(position));
+    assert_eq!(segment.indices(), indices);
+    assert_eq!(segment.data().unwrap().bytes(), data);
+    let counts = session.owned_counts().unwrap();
+    assert_eq!(counts.ai_segment_clusters, 1);
+    assert_eq!(counts.ai_segments, 1);
+    assert_eq!(counts.ai_pending_segments, 0);
+    session.ai_manager_mut().game_init_police_begin_shift();
+    assert_eq!(
+        session
+            .ai_manager()
+            .segments
+            .get_segment(0)
+            .unwrap()
+            .indices(),
+        indices
+    );
+    session.discard_terminal().unwrap();
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::Cleared
+    );
+    assert_eq!(session.owned_counts().unwrap(), Default::default());
+}
+
+#[test]
+fn segments_rejected_header_is_false_but_not_an_init_error() {
+    use crate::game_ai_segments::SegmentsLoadState;
+    let fixture = Fixture::new();
+    fixture.write("missions/mise01/clusters.seg", &[0x5a; 16]);
+    let mut session = segments_test_session(&fixture);
+    assert_eq!(session.segments_load_for_init(), Ok(false));
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::RejectedHeader
+    );
+    assert_eq!(session.owned_counts().unwrap().ai_segment_clusters, 1);
+    session.discard_terminal().unwrap();
+    assert_eq!(session.owned_counts().unwrap(), Default::default());
+
+    let mut session = segments_test_session(&fixture);
+    assert_eq!(session.execute(InitStep::SegmentsLoad), Ok(()));
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::RejectedHeader
+    );
+    assert!(session
+        .execute(InitStep::CarTables)
+        .unwrap_err()
+        .0
+        .starts_with("CarTables:"));
+    session.discard_terminal().unwrap();
+}
+
+#[test]
+fn segments_missing_file_preserves_initialized_cluster_and_refuses_replay() {
+    use crate::game_ai_segments::{SegmentsLoadStage, SegmentsLoadState};
+    let fixture = Fixture::new();
+    let mut session = segments_test_session(&fixture);
+    let error = session.execute(InitStep::SegmentsLoad).unwrap_err();
+    assert!(
+        error
+            .0
+            .starts_with("SegmentsLoad: AIManager.segments.Load:"),
+        "{error}"
+    );
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::Interrupted(SegmentsLoadStage::Open)
+    );
+    let counts = session.owned_counts().unwrap();
+    assert_eq!(
+        (
+            counts.ai_segment_clusters,
+            counts.ai_segments,
+            counts.ai_pending_segments
+        ),
+        (1, 0, 0)
+    );
+    fixture.write("missions/mise01/clusters.seg", &segments_test_header(0));
+    assert_eq!(
+        session.segments_load_for_init(),
+        Err("AIManager.segments.Load already entered; no replay".into())
+    );
+    assert_eq!(session.owned_counts().unwrap(), counts);
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::Interrupted(SegmentsLoadStage::Open)
+    );
+    session.discard_terminal().unwrap();
+    assert_eq!(session.owned_counts().unwrap(), Default::default());
+}
+
+#[test]
+fn segments_short_record_keeps_installed_and_pending_prefix_until_cleanup() {
+    use crate::game_ai_segments::{SegmentsLoadStage, SegmentsLoadState};
+    let fixture = Fixture::new();
+    let mut bytes = segments_test_header(2);
+    bytes.extend(segments_test_record([1, 2, 3], &[4, 9], [0x17; 16]));
+    bytes.extend(4u32.to_le_bytes());
+    bytes.extend(0xabcd_1234u32.to_le_bytes());
+    bytes.extend(0x9988_7766u32.to_le_bytes());
+    fixture.write("missions/mise01/clusters.seg", &bytes);
+    let mut session = segments_test_session(&fixture);
+    let error = session.execute(InitStep::SegmentsLoad).unwrap_err();
+    assert!(
+        error
+            .0
+            .contains("ShortNativeRead { requested: 12, received: 4 }"),
+        "{error}"
+    );
+    let owner = &session.ai_manager().segments;
+    assert_eq!(
+        owner.state(),
+        SegmentsLoadState::Interrupted(SegmentsLoadStage::Position { segment: 1 })
+    );
+    assert_eq!(owner.declared_segment_count(), Some(2));
+    assert_eq!(owner.get_segment(0).unwrap().indices(), [4, 9]);
+    assert_eq!(
+        owner.pending_segment().unwrap().unknown_word(),
+        Some(0xabcd_1234)
+    );
+    assert_eq!(owner.pending_segment().unwrap().position_bits(), None);
+    let counts = session.owned_counts().unwrap();
+    assert_eq!(
+        (
+            counts.ai_segment_clusters,
+            counts.ai_segments,
+            counts.ai_pending_segments
+        ),
+        (1, 1, 1)
+    );
+    session.discard_terminal().unwrap();
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::Cleared
+    );
+    assert_eq!(session.owned_counts().unwrap(), Default::default());
+}
+
+#[test]
+fn segments_completed_load_is_not_replaced_by_another_init_attempt() {
+    let fixture = Fixture::new();
+    let mut bytes = segments_test_header(1);
+    bytes.extend(segments_test_record([5, 6, 7], &[11], [0x29; 16]));
+    fixture.write("missions/mise01/clusters.seg", &bytes);
+    let mut session = segments_test_session(&fixture);
+    assert_eq!(session.execute(InitStep::SegmentsLoad), Ok(()));
+    let counts = session.owned_counts().unwrap();
+    fixture.write("missions/mise01/clusters.seg", &segments_test_header(0));
+    assert!(session
+        .execute(InitStep::SegmentsLoad)
+        .unwrap_err()
+        .0
+        .contains("already entered; no replay"));
+    assert_eq!(
+        session
+            .ai_manager()
+            .segments
+            .get_segment(0)
+            .unwrap()
+            .indices(),
+        [11]
+    );
+    assert_eq!(session.owned_counts().unwrap(), counts);
+    session.discard_terminal().unwrap();
+}
+
+#[test]
+fn segments_admission_failure_does_not_consume_the_load_attempt() {
+    let fixture = Fixture::new();
+    fixture.write("missions/mise01/clusters.seg", &segments_test_header(0));
+    let mut session = fixture.session();
+    assert_eq!(
+        session.segments_load_for_init(),
+        Err("game init requires completed open prefix".into())
+    );
+    assert!(session.ai_manager().segments.clusters().is_empty());
+    fixture.write("missions/mise01/scene.4ds", &[]);
+    fixture.write("missions/mise01/scene2.bin", &scene2(&[]));
+    fixture.write("missions/mise01/cache.bin", &cache_bytes());
+    open_mise01(&mut session);
+    assert_eq!(session.segments_load_for_init(), Ok(true));
+    session.discard_terminal().unwrap();
+    let progress = *session.discard_progress();
+    assert!(session.segments_load_for_init().is_err());
+    assert!(session.ai_manager().segments.clusters().is_empty());
+    assert_eq!(session.discard_progress(), &progress);
+    assert_eq!(session.owned_counts().unwrap(), Default::default());
 }

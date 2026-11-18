@@ -60,9 +60,6 @@ impl<B: VehicleInitBackend> CarInitBackend for VehicleFrameBackend<'_, B> {
                 name.push(byte);
                 address = address.wrapping_add(1);
             }
-            if !name.is_ascii() {
-                return Err(VehicleFrameError::UnsupportedName(root));
-            }
             Some(name)
         };
         // The original Model constructor installs vtable1009c160, whose +0x38
@@ -425,6 +422,44 @@ mod tests {
         assert_eq!(backend.arena().frame(child).unwrap().references, 1);
         backend.arena_mut().release(child).unwrap();
         assert!(backend.arena().frame(child).is_err());
+    }
+
+    #[test]
+    fn car_find_accepts_byte_patterns_only_in_the_supported_ls3df_locale() {
+        use crate::frame_name_comparison::Ls3dfNameLocale;
+        let mut arena = ModelArena::default();
+        let model = arena.create_model().unwrap();
+        arena.set_frame_name(model.root(), Some(b"car")).unwrap();
+        let body = dummy(&mut arena, model, model.root(), b"\xa8Body", [0.; 3]);
+        arena.propagate_model_name(model).unwrap();
+        let mut heap = VehicleFrameMemory::default();
+        let mut backend = VehicleFrameBackend::new(&mut arena, &mut heap);
+        let root = backend.frame_address(model.root()).unwrap();
+        let body_address = backend.frame_address(body).unwrap();
+        let (mut state, mut scratch) = state();
+        let mut view = state.car_live_memory(&mut scratch).unwrap();
+        for (index, byte) in b"\xa8BODY\0".iter().copied().enumerate() {
+            view.write_byte(STACK + 0xe4 + index as u32, byte).unwrap();
+        }
+        assert_eq!(
+            backend.find_car_frame(
+                state.car_live_memory(&mut scratch).unwrap(),
+                root,
+                STACK + 0xe4,
+                0xffff
+            ),
+            Ok(body_address)
+        );
+        backend.arena_mut().frame_name_locale = Ls3dfNameLocale::NonDefault;
+        assert_eq!(
+            backend.find_car_frame(
+                state.car_live_memory(&mut scratch).unwrap(),
+                root,
+                STACK + 0xe4,
+                0xffff
+            ),
+            Err(VehicleFrameError::UnsupportedFrameNameLocale)
+        );
     }
 
     #[test]

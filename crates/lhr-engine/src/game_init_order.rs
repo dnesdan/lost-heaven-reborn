@@ -207,7 +207,6 @@ impl InitAttempt {
 /// retained scene at the `ResetMissionState` render boundary, or the live
 /// loading screen at a `GM_LoadProgress::Present` (GAME 0x5e3d40) reached
 /// through `_show_progress_`. One callback, one host presentation path.
-#[derive(Clone, Copy)]
 pub enum PresentedFrame<'a> {
     Scene(&'a crate::scene_render::CanonicalSceneSnapshot),
     LoadingScreen(crate::load_scene_callback::LoadingScreenFrame<'a>),
@@ -333,13 +332,16 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
             InitStep::DiffClear => self
                 .diff_clear_for_init()
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::BloodAndFramePools => {
-                Err(SessionInitError::unavailable(step, "blood/frame pools"))
-            }
-            InitStep::DriverAndConsoles => {
-                Err(SessionInitError::unavailable(step, "driver consoles"))
-            }
-            InitStep::SegmentsLoad => Err(SessionInitError::unavailable(step, "segments load")),
+            InitStep::BloodAndFramePools => self
+                .blood_and_frame_pools_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::DriverAndConsoles => self
+                .driver_and_consoles_for_init()
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
+            InitStep::SegmentsLoad => self
+                .segments_load_for_init()
+                .map(|_| ())
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
             InitStep::CarTables => Err(SessionInitError::unavailable(step, "car tables")),
             InitStep::HydrantsAndWheels => {
                 Err(SessionInitError::unavailable(step, "hydrants/wheels"))

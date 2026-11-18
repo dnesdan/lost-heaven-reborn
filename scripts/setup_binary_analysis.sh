@@ -5,9 +5,7 @@ umask 077
 repo="$(cd -- "$(dirname -- "$0")/.." && pwd -P)"
 [[ $# == 0 ]] || { echo 'Usage: scripts/setup_binary_analysis.sh' >&2; exit 2; }
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || { echo 'This installer supports Linux x86_64.' >&2; exit 1; }
-for command in python3 git curl tar unzip node npm; do
-    command -v "$command" >/dev/null || { echo "Missing prerequisite: $command" >&2; exit 1; }
-done
+command -v python3 >/dev/null || { echo 'Missing prerequisite: python3' >&2; exit 1; }
 tools="$(python3 - "$repo" "${LHR_TOOLS_DIR:-/workspace/lhr-tools}" <<'PY'
 import pathlib, sys
 repo, path = map(lambda s: pathlib.Path(s).resolve(), sys.argv[1:])
@@ -19,6 +17,9 @@ for candidate in [path, path / 'ghidra', path / 'rea', path / '.cache/npm-rea',
 print(path)
 PY
 )"
+for command in git curl tar unzip node npm; do
+    command -v "$command" >/dev/null || { echo "Missing prerequisite: $command" >&2; exit 1; }
+done
 mkdir -p -- "$tools/ghidra" "$tools/.cache/npm-rea"
 owned_partials=()
 cleanup_partials() { local path; for path in "${owned_partials[@]}"; do rm -f -- "$path"; done; }

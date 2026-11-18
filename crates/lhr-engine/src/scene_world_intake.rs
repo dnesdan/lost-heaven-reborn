@@ -100,7 +100,7 @@ impl ModelArena {
         installation: &lhr_assets::Installation,
         name: &str,
     ) -> Result<CpuSceneWorldProgress, CpuSceneWorldFailure> {
-        self.load_scene_world_cpu_reporting(scene, installation, name, &mut |_| Ok(()))
+        self.load_scene_world_cpu_reporting(scene, installation, name, &mut |_, _| Ok(()))
     }
     /// The world intake with LoadHierarchy's progress reports: `Begin`
     /// once the host admission passed (LoadHierarchy's BEGIN follows its
@@ -135,7 +135,7 @@ impl ModelArena {
         scene: SceneKey,
         installation: &lhr_assets::Installation,
         name: &str,
-        report: &mut dyn FnMut(LoadHierarchyReport) -> Result<(), String>,
+        report: &mut dyn FnMut(&mut ModelArena, LoadHierarchyReport) -> Result<(), String>,
     ) -> Result<CpuSceneWorldProgress, CpuSceneWorldFailure> {
         let mut progress = CpuSceneWorldProgress::empty(self, scene);
         let mut begun = false;
@@ -152,7 +152,7 @@ impl ModelArena {
                 ));
             }
             begun = true;
-            report(LoadHierarchyReport::Begin).map_err(ModelError::LoadCallback)?;
+            report(self, LoadHierarchyReport::Begin).map_err(ModelError::LoadCallback)?;
             progress.phase = CpuSceneWorldPhase::Input;
             let path = original_static_geometry_path(name.as_bytes())?;
             let bytes = installation
@@ -170,9 +170,12 @@ impl ModelArena {
             ));
             let materials = source.model.materials.len();
             for index in 0..materials {
-                report(LoadHierarchyReport::Step(
-                    crate::scene_file_load::load_image_material_progress(index, materials),
-                ))
+                report(
+                    self,
+                    LoadHierarchyReport::Step(
+                        crate::scene_file_load::load_image_material_progress(index, materials),
+                    ),
+                )
                 .map_err(ModelError::LoadCallback)?;
             }
             self.load_scene_world_parsed_cpu(
@@ -181,11 +184,11 @@ impl ModelArena {
                 Arc::new(source.model),
                 &source.billboards,
                 &mut progress,
-                &mut |entry| {
+                &mut |arena, entry| {
                     if entry == LoadHierarchyReport::End {
                         end_reported = true;
                     }
-                    report(entry)
+                    report(arena, entry)
                 },
             )
         })();
@@ -195,7 +198,7 @@ impl ModelArena {
                 let error = match error {
                     ModelError::LoadCallback(_) => error,
                     error if end_reported || !begun => error,
-                    error => match report(LoadHierarchyReport::End) {
+                    error => match report(self, LoadHierarchyReport::End) {
                         Ok(()) => error,
                         Err(stop) => {
                             ModelError::LoadCallback(format!("{stop} (END after {error:?})"))
@@ -216,7 +219,7 @@ impl ModelArena {
         source: Arc<Model>,
         billboards: &[lhr_assets::BillboardSource],
         progress: &mut CpuSceneWorldProgress,
-        report: &mut dyn FnMut(LoadHierarchyReport) -> Result<(), String>,
+        report: &mut dyn FnMut(&mut ModelArena, LoadHierarchyReport) -> Result<(), String>,
     ) -> Result<(), ModelError> {
         let si = self.scene_index(scene)?;
         let primary = self.scenes[si].sectors[0];
@@ -245,10 +248,13 @@ impl ModelArena {
             source,
             Some(primary.frame()),
             billboards,
-            &mut |index| {
-                report(LoadHierarchyReport::Step(
-                    crate::scene_file_load::load_image_frame_progress(index, frames),
-                ))
+            &mut |arena, index| {
+                report(
+                    arena,
+                    LoadHierarchyReport::Step(crate::scene_file_load::load_image_frame_progress(
+                        index, frames,
+                    )),
+                )
                 .map_err(ModelError::LoadCallback)
             },
         ) {
@@ -295,7 +301,7 @@ impl ModelArena {
         self.mark_loaded_model_root(primary.frame())?;
         // LoadHierarchy's success END (Load.cpp:202-204), before
         // I3D_scene::Open's MakeReadySectors below.
-        report(LoadHierarchyReport::End).map_err(ModelError::LoadCallback)?;
+        report(self, LoadHierarchyReport::End).map_err(ModelError::LoadCallback)?;
         // Traverse actual primary child/next identities; never manufacture map
         // entries or sector registration from parsed metadata alone.
         let mut stack = Vec::new();
@@ -406,7 +412,7 @@ mod tests {
                 source,
                 &[],
                 &mut progress,
-                &mut |_| Ok(()),
+                &mut |_, _| Ok(()),
             )
             .unwrap_err();
         assert_eq!(error, ModelError::NativeModelOpenResult(0x80000002));

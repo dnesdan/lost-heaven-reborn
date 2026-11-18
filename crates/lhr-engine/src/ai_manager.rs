@@ -318,11 +318,11 @@ impl AiFightManager {
 }
 
 /// The `AIManager` global (GAME 0x646c80, 0x130 bytes), represented by the
-/// four members `C_game::Init` resets. `segments`, `wayfind` and `sight`
-/// stay outside this owner; `AIManager.segments.Load` remains its own
-/// unowned `Init` step.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// police/groups/follow/fight members and the owned check-segment clusters.
+/// `wayfind` and `sight` remain outside this represented owner.
+#[derive(Debug, Default, PartialEq)]
 pub struct AiManager {
+    pub segments: crate::game_ai_segments::CheckSegClusters,
     /// +0x90.
     pub police: AiPoliceNastenka,
     /// +0xc4.

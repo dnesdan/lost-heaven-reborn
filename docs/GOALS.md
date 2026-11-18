@@ -15,15 +15,27 @@ constructed only in tests: production menu/profile/session borrowing and an
 application-level state owner remain uncomposed. No persistent car or
 location selection is inferred from the profile: native GM_FreeRide is still
 missing. Without explicit diagnostic StoreA/StoreB input, Setup stops before
-GetCarModel. With that input, synthetic tests reach the real car cache Open
-and stop before the unavailable Scene named-frame lookup; original content can
-stop earlier. This input does not reconstruct the menu or close an acceptance gate.
+GetCarModel. With that input, Setup composes the existing scene lookup, optional
+placement, model Update/AddFrame/Release, actor Init, Tommy cache Open and AddActor
+owners in native order. Missing both start markers skips placement; host errors
+stop without fallback or replay. Synthetic fixtures and original-data selection
+`1,0,1,1,1,1` complete Setup and enter common Init, which stops at the unavailable
+Scene render in the default headless ResetMissionState path. Optional GPU capture
+now renders the retained original Scene through the existing presented Init path,
+including evidenced spot-light selection/cone falloff, then stops at PlayerNavi's
+loading-menu Draw/Present. It is not acknowledged without an owner. Native false Init returns and
+cache failure HRESULTs do not abort Setup; this does not prove usable actors.
+The roof-off flag still stops at its unreconstructed operation after car Init.
+This input does not reconstruct the menu or close an acceptance gate.
 A headless original-data startup run completes source Open and
 collision loading. Without selection it stops at SelectionUnavailable before
 GetCarModel; with the explicit diagnostic selection it reaches
-SceneNamedLookupUnavailable after car cache Open. Both runs dispose all
-represented mission owners. Neither is a full Setup, native Close or playable
-startup, and this continuation receives no Setup or lifecycle function credit.
+the common Init render after successful car/Tommy cache Opens, marker lookup,
+both model placements, scene ownership transfer, both actor Init calls and
+AddActor. The LS3DF initial-C-locale name domain is owned separately from the
+Game CRT; nondefault locale paths remain unsupported. Both runs dispose all
+represented mission owners. Neither original-data run is native Close or
+playable startup, and this continuation receives no Setup or lifecycle function credit.
 Index intake is a one-shot host adapter,
 not the native AllDefault/repeated database Init or its short-read behavior.
 Separate original-map driving probes stop at quaternion arithmetic or

@@ -46,3 +46,11 @@ impl crate::itexture::TextureImageSource for InstallationImages<'_> {
         })
     }
 }
+
+pub struct SharedInstallationImages(pub std::sync::Arc<lhr_assets::Installation>);
+
+impl crate::itexture::TextureImageSource for SharedInstallationImages {
+    fn read_image(&mut self, path: &[u8]) -> Result<Vec<u8>, crate::itexture::TextureImageError> {
+        InstallationImages(self.0.as_ref()).read_image(path)
+    }
+}

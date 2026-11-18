@@ -1,4 +1,4 @@
-//! PC `G_IndicatorsClass` HUD owner (PS2 name), marker-only contract scope.
+//! PC `G_IndicatorsClass` HUD state (PS2 name) and startup asset adapter.
 //!
 //! Game.exe SHA-256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27,
 //! base 0x400000; addresses below are GAME RVAs. Reference: mafia-re 113b5b6
@@ -12,8 +12,8 @@
 //! Owned here: `show_flags` 0x40a4 + `show_flags_stack` 0x40a8 with the
 //! `Set/Add/Remove/IsShown/Push/PopFlags` inline semantics (GAME
 //! 0x47a070-0x47a2a0, `g_indicators.h:456-491`), `SetSymbol`/`SetProgress`
-//! (GAME 0x47a300/0x47a340), the lifecycle (`constructed`/`create`/`destroy`/
-//! `game_init` texture-plan + `game_done`/`reset_values`), the typed state
+//! (GAME 0x47a300/0x47a340), the lifecycle state (`constructed`, `game_init`
+//! texture-plan, `game_done`, represented `reset_values`), the typed state
 //! setters below, `TimerSetTime` (GAME 0x5f7500) / `TimerSetInterval` (GAME
 //! 0x5f7540) / `TimerGetInterval` (GAME 0x5f7620), the pure layout math of
 //! `ResolutionChanged` (GAME 0x601520, `g_indicators.cpp:3512`) over staged
@@ -25,10 +25,10 @@
 //! `tables\menu\<name>_<lang>.mnu` file lookup lives in
 //! `crate::original_language` (`GM_Menu::CreateCompsByDef`, GAME 0x5ea370).
 //!
-//! DEFERRED with explicit markers (no credit): `DrawAll` rendering and every
-//! `igraph`/`ITexture` device effect (texture loads/releases, `LoadFont`
-//! file reads at GAME 0x5f6f30, `LanguageSelect` file reads at GAME
-//! 0x5f7000, `SetOverlayTexture` loads, viewport/scene work in
+//! Startup CPU texture/font intake borrows the canonical `MenuDrawResources`.
+//! Deferred: `DrawAll`, live-device presentation, the unrepresented suffix
+//! of `ResetValues`, `GameInit` texture replacement, `SetOverlayTexture` loads,
+//! viewport/scene work in
 //! `ParheliaSetCenter`, widescreen/fade vertex and timing state machines,
 //! blood/crew quads, radar road-edge and car-object payloads, console/
 //! subtitle/mission-help/race text content and its text-database lookups).
@@ -42,6 +42,7 @@
 
 use crate::game_init_order::{InitOperations, InitStep};
 use crate::game_loadsave_lifecycle::LoadSaveEffects;
+use crate::menu_draw_resources::{MenuDrawResources, MenuFontMetricsSource};
 
 // INDF_* flag bits (`g_indicators.h:33-65`; the names are mafia-re working
 // guesses, the values are evidenced).
@@ -401,8 +402,6 @@ pub struct IndicatorsState {
     show_flags: u32,
     show_flags_stack: Vec<u32>,
     language: u32,
-    created: bool,
-    hud_textures_present: bool,
     dial_asset: Option<&'static str>,
     icons_asset: Option<&'static str>,
     map_texture_present: bool,
@@ -507,8 +506,6 @@ impl IndicatorsState {
             show_flags: 0,
             show_flags_stack: Vec::new(),
             language: 0,
-            created: false,
-            hud_textures_present: false,
             dial_asset: None,
             icons_asset: None,
             map_texture_present: false,
@@ -653,29 +650,6 @@ impl IndicatorsState {
         self.bonus_set_count(BONUS_NONE);
     }
 
-    /// `Create` (GAME 0x5f70e0, `g_indicators.cpp:256-294`): `texture_map`
-    /// cleared, `ResetValues` applied; every `igraph->CreateITexture` load
-    /// and `LoadFont` file read stays with the device owner and is tracked
-    /// only as presence.
-    pub fn create(&mut self, clock: TimerClock) {
-        self.map_texture_present = false;
-        self.hud_textures_present = true;
-        self.created = true;
-        self.reset_values(clock);
-    }
-
-    /// `Destroy` (GAME 0x5f7250, `g_indicators.cpp:298-351`): releases what
-    /// `Create` made, in native order; the actual `Release` calls stay with
-    /// the device owner.
-    pub fn destroy(&mut self) {
-        self.hud_textures_present = false;
-        self.dial_asset = None;
-        self.icons_asset = None;
-        self.map_texture_present = false;
-        self.fade_texture_present = false;
-        self.created = false;
-    }
-
     /// Pure `GameInit` branch (GAME 0x5f73c0, `g_indicators.cpp:355-387`):
     /// night mission picks the `noc` dial/icon variants, the profile
     /// speedometer unit picks the `mph` dial variant.
@@ -716,7 +690,7 @@ impl IndicatorsState {
     /// 0x5f73e4 by night, 0x5f7441 by day). The selected dial and icon
     /// textures replace the previous ones; the `ITexture::Release` and
     /// `igraph->CreateITexture` (`ITC_COLORKEY`, vtable +0x4) device calls
-    /// stay with the device owner, as in [`IndicatorsState::create`].
+    /// are not composed by this state adapter.
     /// Settings that the profile intake never set stop before any store.
     ///
     /// [`GameInlineState`]: crate::game_housekeeping::GameInlineState
@@ -1365,12 +1339,6 @@ impl IndicatorsState {
     pub fn show_flags_stack_depth(&self) -> usize {
         self.show_flags_stack.len()
     }
-    pub fn is_created(&self) -> bool {
-        self.created
-    }
-    pub fn hud_textures_present(&self) -> bool {
-        self.hud_textures_present
-    }
     pub fn dial_asset(&self) -> Option<&'static str> {
         self.dial_asset
     }
@@ -1528,9 +1496,10 @@ impl IndicatorsState {
 }
 
 /// Non-HUD capability requested from the indicator-scoped load/save adapter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IndicatorsEffectError {
     Unavailable(&'static str),
+    Assets(String),
 }
 
 impl std::fmt::Display for IndicatorsEffectError {
@@ -1539,6 +1508,7 @@ impl std::fmt::Display for IndicatorsEffectError {
             IndicatorsEffectError::Unavailable(what) => {
                 write!(f, "indicators load/save adapter cannot provide {what}")
             }
+            IndicatorsEffectError::Assets(error) => f.write_str(error),
         }
     }
 }
@@ -1565,25 +1535,31 @@ impl std::fmt::Display for IndicatorsStubError {
 
 impl std::error::Error for IndicatorsStubError {}
 
-/// Real `LoadSaveEffects` backend for the three HUD-owned calls
-/// (`G_LoadSaveClass::Init` GAME 0x604ee0 at `g_loadsave.cpp:116-120`,
-/// `Close` GAME 0x605030 at `g_loadsave.cpp:143`). Every other capability
-/// (profile defaults/tables, controls, enumeration, timer nulling, menu
-/// mission, profile file, text and car-database teardown) reports its
-/// unavailable owner instead of mocking success.
+/// Partial `LoadSaveEffects` adapter. Create can reach the asset prefix, but
+/// cannot complete ResetValues. Destroy releases the represented startup slots.
+/// Other uncomposed capabilities report unavailable rather than succeeding.
 pub struct IndicatorsLoadSave<'a> {
     state: &'a mut IndicatorsState,
     display: Option<(u32, u32)>,
-    clock: TimerClock,
+    assets: Option<(&'a mut MenuDrawResources, &'a mut dyn MenuFontMetricsSource)>,
 }
 
 impl<'a> IndicatorsLoadSave<'a> {
-    pub fn new(state: &'a mut IndicatorsState, clock: TimerClock) -> Self {
+    pub fn new(state: &'a mut IndicatorsState) -> Self {
         Self {
             state,
             display: None,
-            clock,
+            assets: None,
         }
+    }
+
+    pub fn with_assets(
+        mut self,
+        resources: &'a mut MenuDrawResources,
+        metrics: &'a mut dyn MenuFontMetricsSource,
+    ) -> Self {
+        self.assets = Some((resources, metrics));
+        self
     }
 
     pub fn with_display(mut self, screen_sx: u32, screen_sy: u32) -> Self {
@@ -1604,8 +1580,18 @@ impl LoadSaveEffects for IndicatorsLoadSave<'_> {
     }
 
     fn create_indicators(&mut self) -> Result<(), Self::Error> {
-        self.state.create(self.clock);
-        Ok(())
+        let (resources, metrics) =
+            self.assets
+                .as_mut()
+                .ok_or(IndicatorsEffectError::Unavailable(
+                    "canonical indicator texture/font owner",
+                ))?;
+        resources
+            .create_indicator_assets(*metrics)
+            .map_err(IndicatorsEffectError::Assets)?;
+        Err(IndicatorsEffectError::Unavailable(
+            "complete Indicators::ResetValues",
+        ))
     }
 
     fn resolution_changed(&mut self) -> Result<(), Self::Error> {
@@ -1658,8 +1644,15 @@ impl LoadSaveEffects for IndicatorsLoadSave<'_> {
     }
 
     fn destroy_indicators(&mut self) -> Result<(), Self::Error> {
-        self.state.destroy();
-        Ok(())
+        let (resources, _) = self
+            .assets
+            .as_mut()
+            .ok_or(IndicatorsEffectError::Unavailable(
+                "canonical indicator texture/font owner",
+            ))?;
+        resources
+            .destroy_indicator_assets()
+            .map_err(IndicatorsEffectError::Assets)
     }
 
     fn unload_text(&mut self) -> Result<(), Self::Error> {
@@ -1807,21 +1800,6 @@ mod tests {
         assert_eq!(name, None);
         // Top bits of the flag word stay clear.
         assert_eq!(state.show_flags() & 0xffff_0000, 0);
-    }
-
-    #[test]
-    fn create_destroy_lifecycle_tracks_device_presence() {
-        let mut state = IndicatorsState::constructed(staged_clock());
-        assert!(!state.is_created());
-        state.create(staged_clock());
-        assert!(state.is_created());
-        assert!(state.hud_textures_present());
-        assert!(!state.map_texture_present());
-        assert_eq!(state.lives(), 100);
-        state.destroy();
-        assert!(!state.is_created());
-        assert!(!state.hud_textures_present());
-        assert_eq!(state.dial_asset(), None);
     }
 
     #[test]
@@ -2226,11 +2204,15 @@ mod tests {
             ),
             profiles: Vec::new(),
         };
-        let clock = staged_clock();
-        let mut adapter = IndicatorsLoadSave::new(&mut state, clock).with_display(800, 600);
-        adapter.create_indicators().unwrap();
+        let mut adapter = IndicatorsLoadSave::new(&mut state).with_display(800, 600);
+        assert_eq!(
+            adapter.create_indicators(),
+            Err(IndicatorsEffectError::Unavailable(
+                "canonical indicator texture/font owner"
+            ))
+        );
         adapter.resolution_changed().unwrap();
-        assert!(adapter.state.is_created());
+        assert_eq!(adapter.state.show_flags(), INDF_PLAYER);
         adapter.clear_indicator_slot_40a4().unwrap();
         assert_eq!(adapter.state.show_flags(), 0);
         let mut settings = None;
@@ -2238,10 +2220,14 @@ mod tests {
         assert_eq!(settings, None);
         assert!(adapter.null_timer().is_err());
         assert!(adapter.profile_save(&profile).is_err());
-        adapter.destroy_indicators().unwrap();
-        assert!(!adapter.state.is_created());
+        assert_eq!(
+            adapter.destroy_indicators(),
+            Err(IndicatorsEffectError::Unavailable(
+                "canonical indicator texture/font owner"
+            ))
+        );
         // Without staged dimensions the resolution step refuses.
-        let mut bare = IndicatorsLoadSave::new(adapter.state, clock);
+        let mut bare = IndicatorsLoadSave::new(adapter.state);
         assert!(bare.resolution_changed().is_err());
     }
 

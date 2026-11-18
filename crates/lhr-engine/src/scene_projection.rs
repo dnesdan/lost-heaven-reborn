@@ -11,6 +11,7 @@
 //! camera ports).
 #![forbid(unsafe_code)]
 
+use crate::frame_lookup::{find_child_frame, FrameLookupError, MAX_LOOKUP_VISITS};
 use crate::frame_transform::FrameError;
 use crate::model_loading::{ModelArena, ModelError};
 use crate::native_precision::{add, div, mul, sqrt, sub};
@@ -54,6 +55,42 @@ pub const NOT_INITIALIZED: u32 = 0x80000009;
 pub type UnmappedPoint<E> = Result<([f32; 3], [f32; 3]), SceneProjectionError<E>>;
 
 impl ModelArena {
+    /// Read-only FindChildFrame dispatch through Scene's virtual EnumFrames
+    /// (LS3DF RVAs 0x1c330/0x49180, mafia-re fe7e746). Unlike FindFrame,
+    /// sector roots are excluded. The existing filtered subtree walker owns
+    /// original-name matching, first-hit cancellation and per-subtree bounds.
+    /// Native lastDestroyedFrame reset is not modeled: this callback cannot
+    /// destroy frames and arena keys are never reused. No function credit.
+    pub fn scene_find_child_frame(
+        &self,
+        scene: SceneKey,
+        name: Option<&[u8]>,
+        flags: u32,
+        visits: usize,
+    ) -> Result<Option<crate::frame_transform::FrameKey>, FrameLookupError> {
+        let sectors = self
+            .scene(scene)
+            .map_err(|_| FrameLookupError::MissingPrimaryRoot)?
+            .sectors;
+        if visits == 0 || visits > MAX_LOOKUP_VISITS {
+            return Err(FrameLookupError::InvalidBudget);
+        }
+        for (sector, gate) in [
+            (sectors[0], 0),
+            (sectors[1], ENUMF_BACKDROP),
+            (sectors[2], ENUMF_OMNI),
+            (sectors[3], ENUMF_NEAR),
+        ] {
+            if gate != 0 && flags & gate == 0 {
+                continue;
+            }
+            if let Some(found) = find_child_frame(self, sector.frame(), name, flags, visits)? {
+                return Ok(Some(found));
+            }
+        }
+        Ok(None)
+    }
+
     /// I3D_scene::Render (0x49160): resolve, then delegate once. Errors leave
     /// no partial backend state; a rejecting backend is never retried here.
     pub fn scene_render_with_backend(
@@ -247,6 +284,100 @@ mod tests {
             }
             Ok(0x4000_0001)
         }
+    }
+
+    #[test]
+    fn scene_child_lookup_excludes_sector_roots_and_preserves_scope_order() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let sectors = arena.scene(scene).unwrap().sectors;
+        arena
+            .set_frame_name(sectors[0].frame(), Some(b"emeth_1"))
+            .unwrap();
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"emeth_1"), 0xffff, 32),
+            Ok(None)
+        );
+        let mut children = Vec::new();
+        for sector in sectors {
+            let child = arena
+                .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
+                .unwrap();
+            arena.set_frame_name(child, Some(b"EmEtH_1")).unwrap();
+            arena.scene_add_frame(scene, child).unwrap();
+            arena.link_frame(child, Some(sector.frame()), 0).unwrap();
+            arena.release(child).unwrap();
+            children.push(child);
+        }
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"emeth_1"), 0xffff, 32),
+            Ok(Some(children[0]))
+        );
+        arena
+            .set_frame_name(children[0], Some(b"unmatched"))
+            .unwrap();
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"emeth_1"), 0xffff, 32),
+            Ok(None)
+        );
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"emeth_1"), 0xffff | ENUMF_BACKDROP, 32),
+            Ok(Some(children[1]))
+        );
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"emeth_1"), 0xffff | ENUMF_OMNI, 32),
+            Ok(Some(children[2]))
+        );
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"emeth_1"), 0xffff | ENUMF_NEAR, 32),
+            Ok(Some(children[3]))
+        );
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"emeth_1"), 0x1cffff, 32),
+            Ok(Some(children[1]))
+        );
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"emeth_1"), 0xffff, 0),
+            Err(FrameLookupError::InvalidBudget)
+        );
+    }
+
+    #[test]
+    fn scene_child_lookup_uses_original_names_preorder_and_stops_on_host_errors() {
+        let mut arena = ModelArena::default();
+        let scene = arena.construct_scene_owner_prefix().unwrap();
+        let primary = arena.scene_primary_sector(scene).unwrap();
+        let model = arena.create_model().unwrap();
+        arena.rename_original_model(model, Some(b"prefix")).unwrap();
+        arena.scene_add_frame(scene, model.root()).unwrap();
+        arena
+            .link_frame(model.root(), Some(primary.frame()), 0)
+            .unwrap();
+        let child = arena
+            .insert(I3dFrameState::dummy(), None, Vec::new(), Vec::new(), None)
+            .unwrap();
+        arena.set_frame_name(child, Some(b"marker")).unwrap();
+        arena.link_frame(child, Some(model.root()), 0).unwrap();
+        arena.set_frame_model_name(child, b"changed").unwrap();
+        assert_ne!(arena.frame_name_or_empty(child).unwrap(), b"marker");
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"MARKER"), 0xffff, 32),
+            Ok(Some(child))
+        );
+        assert_eq!(
+            arena.scene_find_child_frame(scene, None, 0xffff, 32),
+            Ok(Some(model.root()))
+        );
+        arena.set_frame_name(model.root(), Some(&[0x80])).unwrap();
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"marker"), 0xffff, 32),
+            Err(FrameLookupError::UnsupportedName)
+        );
+        arena.set_frame_name(model.root(), Some(b"parent")).unwrap();
+        assert_eq!(
+            arena.scene_find_child_frame(scene, Some(b"marker"), 0xffff, 1),
+            Err(FrameLookupError::VisitLimit)
+        );
     }
 
     #[test]

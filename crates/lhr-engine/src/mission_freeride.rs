@@ -5,7 +5,8 @@
 #![forbid(unsafe_code)]
 
 use super::*;
-use crate::actor_world::ActorCreationError;
+use crate::actor_world::{ActorCreationError, ActorWorldError};
+use crate::frame_transform::FrameKey;
 use crate::game_init_order::{InitAttempt, InitRunError, SessionInitError};
 use crate::mission_content_loading::SetupActorKind;
 use crate::mission_open_order::{OpenAttempt, OpenResult};
@@ -13,6 +14,16 @@ use crate::model_loading::ModelKey;
 use crate::script_scheduler::ActorReferenceId;
 
 pub const FREERIDE_MISSION: &str = "freeride";
+
+/// Host presentation over the same live scene at common Init's reached render.
+/// A refused scene or loading-screen presentation stops the one-shot attempt.
+/// This view owns no gameplay state and never substitutes for Setup or Init.
+pub struct FreeridePresentation<'a> {
+    pub target: [u32; 2],
+    pub sequence: &'a mut crate::scene_render::SceneSnapshotSequence,
+    pub present:
+        &'a mut dyn FnMut(crate::game_init_order::PresentedFrame<'_>) -> Result<(), String>,
+}
 
 /// Setup's native stack buffer: SUB ESP,0x124 plus four saved-register
 /// pushes, with the name at ESP+0x34, leaves 0x100 bytes before saved state.
@@ -175,6 +186,25 @@ pub enum FreerideSetupStep {
     ResolveCarModel,
     OpenCarModel,
     LocateStartFrame,
+    LocateFallbackStartFrame,
+    SetCarPosition,
+    SetCarDirection,
+    LinkCar,
+    SetPlayerPosition,
+    SetPlayerDirection,
+    LinkPlayer,
+    UpdateCarModel,
+    UpdatePlayerModel,
+    AddCarFrame,
+    AddPlayerFrame,
+    ReleaseCarCreator,
+    ReleasePlayerCreator,
+    InitializeCar,
+    RemoveRoof,
+    OpenPlayerModel,
+    InitializePlayer,
+    AddCarActor,
+    AddPlayerActor,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -188,6 +218,7 @@ struct ModelCreator {
 #[derive(Debug, Default)]
 pub struct FreerideSetupProgress {
     entered: bool,
+    completed: bool,
     reached: Vec<FreerideSetupStep>,
     player: Option<ActorReferenceId>,
     car: Option<ActorReferenceId>,
@@ -195,12 +226,20 @@ pub struct FreerideSetupProgress {
     car_model: Option<ModelCreator>,
     resolved_car_model: Option<Vec<u8>>,
     car_cache_result: Option<i32>,
+    car_init_result: Option<bool>,
+    player_cache_result: Option<i32>,
+    player_init_result: Option<bool>,
     start_marker: Option<Vec<u8>>,
+    start_frame: Option<FrameReferenceId>,
+    fallback_attempted: bool,
 }
 
 impl FreerideSetupProgress {
     pub fn entered(&self) -> bool {
         self.entered
+    }
+    pub fn completed(&self) -> bool {
+        self.completed
     }
     pub fn reached(&self) -> &[FreerideSetupStep] {
         &self.reached
@@ -230,8 +269,23 @@ impl FreerideSetupProgress {
     pub fn car_cache_result(&self) -> Option<i32> {
         self.car_cache_result
     }
+    pub fn car_init_result(&self) -> Option<bool> {
+        self.car_init_result
+    }
+    pub fn player_cache_result(&self) -> Option<i32> {
+        self.player_cache_result
+    }
+    pub fn player_init_result(&self) -> Option<bool> {
+        self.player_init_result
+    }
     pub fn start_marker(&self) -> Option<&[u8]> {
         self.start_marker.as_deref()
+    }
+    pub fn start_frame(&self) -> Option<FrameReferenceId> {
+        self.start_frame
+    }
+    pub fn fallback_attempted(&self) -> bool {
+        self.fallback_attempted
     }
 }
 
@@ -260,8 +314,17 @@ pub enum FreerideSetupError {
     CarModelLookup(crate::car_database::CarDatabaseError),
     /// A host cache failure, not a native HRESULT; reached owners are retained.
     CarModelCache(String),
-    /// The next native call needs Scene's virtual masked FindChildFrame walk.
-    SceneNamedLookupUnavailable,
+    /// The scene-owned filtered traversal stopped; no fallback masks a host error.
+    StartFrameLookup(crate::frame_lookup::FrameLookupError),
+    /// An actual actor-owner operation stopped after its retained effects.
+    ActorOperation {
+        step: FreerideSetupStep,
+        error: ActorWorldError,
+    },
+    /// C_car::OdjebajTuStrechu (GAME RVA 0x2ba70) has no reconstructed owner.
+    RoofRemovalUnavailable,
+    /// A host failure opening Tommy.i3d, not the ignored native HRESULT.
+    PlayerModelCache(String),
 }
 
 impl MissionLoadSession {
@@ -319,8 +382,10 @@ impl MissionLoadSession {
     /// GAME SHA-256 08398317c8dc423dbb3e559f0ba53c207a8eaf5bcefa915dff83b7a86416ab27,
     /// FreerideSetup RVA 0x20e9d0, REA evidence
     /// ev_c7f08b476d7733f470d1388358a77f9c60cbbdb4f72dea4c2c4cfc1fc0f43bd8.
-    /// Only the prefix through car cache Open is composed. Constructor seeds remain
-    /// the content owner's disclosed host policy, not original startup state.
+    /// Existing owners compose the reached Setup operations; the conditional
+    /// roof removal remains unavailable. Constructor seeds remain the content
+    /// owner's disclosed host policy, not original startup state. Native Init
+    /// bools and cache HRESULTs are recorded, not promoted to host failures.
     pub fn setup_freeride(&mut self) -> Result<(), FreerideSetupError> {
         self.open_terminal_guard()
             .map_err(FreerideSetupError::Admission)?;
@@ -462,7 +527,225 @@ impl MissionLoadSession {
         self.freeride_setup
             .reached
             .push(FreerideSetupStep::LocateStartFrame);
-        Err(FreerideSetupError::SceneNamedLookupUnavailable)
+        let mut start_frame = self.find_freeride_start_frame(
+            self.freeride_setup.start_marker.as_deref().unwrap(),
+            FreerideSetupStep::LocateStartFrame,
+        )?;
+        if start_frame.is_none() {
+            self.freeride_setup.fallback_attempted = true;
+            self.freeride_setup
+                .reached
+                .push(FreerideSetupStep::LocateFallbackStartFrame);
+            start_frame = self.find_freeride_start_frame(
+                b"emeth_1",
+                FreerideSetupStep::LocateFallbackStartFrame,
+            )?;
+        }
+        self.freeride_setup.start_frame =
+            start_frame.map(|frame| self.arena.lookup_reference(frame));
+        if let Some(start_frame) = start_frame {
+            for (model, position_step, direction_step, link_step) in [
+                (
+                    self.freeride_setup.car_model.unwrap().model,
+                    FreerideSetupStep::SetCarPosition,
+                    FreerideSetupStep::SetCarDirection,
+                    FreerideSetupStep::LinkCar,
+                ),
+                (
+                    self.freeride_setup.player_model.unwrap().model,
+                    FreerideSetupStep::SetPlayerPosition,
+                    FreerideSetupStep::SetPlayerDirection,
+                    FreerideSetupStep::LinkPlayer,
+                ),
+            ] {
+                self.freeride_setup.reached.push(position_step);
+                let position = self
+                    .arena
+                    .frame_world_position(start_frame)
+                    .map_err(|error| Self::freeride_model_error(position_step, error))?;
+                self.arena
+                    .set_frame_position(model.root(), position)
+                    .map_err(|error| Self::freeride_model_error(position_step, error))?;
+                self.freeride_setup.reached.push(direction_step);
+                let direction = self
+                    .arena
+                    .frame_world_direction(start_frame)
+                    .map_err(|error| Self::freeride_model_error(direction_step, error))?;
+                self.arena
+                    .set_frame_direction(model.root(), direction, 0.0)
+                    .map_err(|error| Self::freeride_model_error(direction_step, error))?;
+                self.freeride_setup.reached.push(link_step);
+                let scene = self.freeride_scene(link_step)?;
+                let primary = self
+                    .arena
+                    .scene_primary_sector(scene)
+                    .map_err(|error| Self::freeride_model_error(link_step, error))?;
+                self.arena
+                    .link_frame(model.root(), Some(primary.frame()), 0)
+                    .map_err(|error| Self::freeride_model_error(link_step, error))?;
+            }
+        }
+        for (model, step) in [
+            (
+                self.freeride_setup.car_model.unwrap().model,
+                FreerideSetupStep::UpdateCarModel,
+            ),
+            (
+                self.freeride_setup.player_model.unwrap().model,
+                FreerideSetupStep::UpdatePlayerModel,
+            ),
+        ] {
+            self.freeride_setup.reached.push(step);
+            self.arena
+                .update_frame(model.root())
+                .map_err(|error| Self::freeride_model_error(step, error))?;
+        }
+        for (model, step) in [
+            (
+                self.freeride_setup.car_model.unwrap().model,
+                FreerideSetupStep::AddCarFrame,
+            ),
+            (
+                self.freeride_setup.player_model.unwrap().model,
+                FreerideSetupStep::AddPlayerFrame,
+            ),
+        ] {
+            self.freeride_setup.reached.push(step);
+            let scene = self.freeride_scene(step)?;
+            self.arena
+                .scene_add_frame(scene, model.root())
+                .map_err(|error| Self::freeride_model_error(step, error))?;
+        }
+        for (creator, step) in [
+            (
+                &mut self.freeride_setup.car_model,
+                FreerideSetupStep::ReleaseCarCreator,
+            ),
+            (
+                &mut self.freeride_setup.player_model,
+                FreerideSetupStep::ReleasePlayerCreator,
+            ),
+        ] {
+            self.freeride_setup.reached.push(step);
+            let creator = creator.as_mut().unwrap();
+            self.arena
+                .release(creator.model.root())
+                .map_err(|error| Self::freeride_model_error(step, error))?;
+            creator.held = false;
+        }
+        self.freeride_setup
+            .reached
+            .push(FreerideSetupStep::InitializeCar);
+        let result = self
+            .loader
+            .as_mut()
+            .unwrap()
+            .content
+            .init_setup_actor(
+                self.freeride_setup.car.unwrap(),
+                self.freeride_setup.car_model.unwrap().reference,
+                &mut self.arena,
+                &self.installation,
+            )
+            .map_err(|error| FreerideSetupError::ActorOperation {
+                step: FreerideSetupStep::InitializeCar,
+                error,
+            })?;
+        self.freeride_setup.car_init_result = Some(result);
+        if self.freeride.flags & 0x100 != 0 {
+            self.freeride_setup
+                .reached
+                .push(FreerideSetupStep::RemoveRoof);
+            return Err(FreerideSetupError::RoofRemovalUnavailable);
+        }
+        self.freeride_setup
+            .reached
+            .push(FreerideSetupStep::OpenPlayerModel);
+        let result = self
+            .caches
+            .open_static_model(
+                &mut self.arena,
+                &self.installation,
+                self.freeride_setup.player_model.unwrap().model,
+                b"Tommy.i3d",
+                &mut self.cache_memory,
+            )
+            .map_err(|error| FreerideSetupError::PlayerModelCache(format!("{error:?}")))?;
+        self.freeride_setup.player_cache_result = Some(result);
+        self.freeride_setup
+            .reached
+            .push(FreerideSetupStep::InitializePlayer);
+        let result = self
+            .loader
+            .as_mut()
+            .unwrap()
+            .content
+            .init_setup_actor(
+                self.freeride_setup.player.unwrap(),
+                self.freeride_setup.player_model.unwrap().reference,
+                &mut self.arena,
+                &self.installation,
+            )
+            .map_err(|error| FreerideSetupError::ActorOperation {
+                step: FreerideSetupStep::InitializePlayer,
+                error,
+            })?;
+        self.freeride_setup.player_init_result = Some(result);
+        for (actor, step) in [
+            (
+                self.freeride_setup.car.unwrap(),
+                FreerideSetupStep::AddCarActor,
+            ),
+            (
+                self.freeride_setup.player.unwrap(),
+                FreerideSetupStep::AddPlayerActor,
+            ),
+        ] {
+            self.freeride_setup.reached.push(step);
+            self.loader
+                .as_mut()
+                .unwrap()
+                .content
+                .add_setup_actor(actor)
+                .map_err(|error| FreerideSetupError::ActorOperation { step, error })?;
+        }
+        self.freeride_setup.completed = true;
+        Ok(())
+    }
+
+    fn freeride_model_error(step: FreerideSetupStep, error: ModelError) -> FreerideSetupError {
+        FreerideSetupError::Model {
+            step,
+            error: format!("{error:?}"),
+        }
+    }
+
+    fn freeride_scene(&self, step: FreerideSetupStep) -> Result<SceneKey, FreerideSetupError> {
+        self.scene()
+            .map_err(|error| FreerideSetupError::Model {
+                step,
+                error: format!("{error:?}"),
+            })?
+            .ok_or_else(|| FreerideSetupError::Model {
+                step,
+                error: "Scene unavailable".into(),
+            })
+    }
+
+    fn find_freeride_start_frame(
+        &self,
+        name: &[u8],
+        step: FreerideSetupStep,
+    ) -> Result<Option<FrameKey>, FreerideSetupError> {
+        let scene = self.freeride_scene(step)?;
+        self.arena
+            .scene_find_child_frame(
+                scene,
+                Some(name),
+                0xffff,
+                crate::frame_lookup::MAX_LOOKUP_VISITS,
+            )
+            .map_err(FreerideSetupError::StartFrameLookup)
     }
 
     pub(super) fn release_freeride_model_creators(&mut self) -> Result<(), ModelError> {
@@ -501,18 +784,45 @@ impl MissionLoadSession {
             request,
             screen,
             renderer,
+            presentation: None,
+        })
+    }
+
+    /// Compose the native startup with the existing presented common Init.
+    /// Presentation is invoked only after successful Setup, at its native call.
+    pub fn start_freeride_presented<S, R>(
+        &mut self,
+        attempt: &mut FreerideAttempt,
+        request: FreerideRequest<'_>,
+        screen: &mut S,
+        renderer: &mut R,
+        presentation: FreeridePresentation<'_>,
+    ) -> Result<FreerideResult, FreerideRunError<FreerideError>>
+    where
+        S: DriverSceneScreen,
+        S::Error: std::fmt::Debug,
+        R: crate::scene_projection::SceneRenderBackend
+            + crate::load_scene_callback::LoadingScreenDevice,
+    {
+        attempt.run(&mut SessionFreeride {
+            session: self,
+            request,
+            screen,
+            renderer,
+            presentation: Some(presentation),
         })
     }
 }
 
-struct SessionFreeride<'a, S, R> {
+struct SessionFreeride<'a, 'presentation, S, R> {
     session: &'a mut MissionLoadSession,
     request: FreerideRequest<'a>,
     screen: &'a mut S,
     renderer: &'a mut R,
+    presentation: Option<FreeridePresentation<'presentation>>,
 }
 
-impl<S, R> FreerideOperations for SessionFreeride<'_, S, R>
+impl<S, R> FreerideOperations for SessionFreeride<'_, '_, S, R>
 where
     S: DriverSceneScreen,
     S::Error: std::fmt::Debug,
@@ -556,6 +866,15 @@ where
             .map_err(FreerideError::Open)
     }
     fn game_init(&mut self, attempt: &mut InitAttempt) -> Result<(), Self::Error> {
-        attempt.run(self.session).map_err(FreerideError::Init)
+        match self.presentation.as_mut() {
+            Some(presentation) => attempt.run_with_presentation(
+                self.session,
+                presentation.target,
+                presentation.sequence,
+                &mut *presentation.present,
+            ),
+            None => attempt.run(self.session),
+        }
+        .map_err(FreerideError::Init)
     }
 }
