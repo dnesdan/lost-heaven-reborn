@@ -123,6 +123,9 @@ pub struct MenuComponentText<'a> {
 /// Ordered, borrowed commands; a failed sink preserves its already reached prefix.
 pub trait MenuComponentDrawSink {
     fn primitive(&mut self, primitive: MenuComponentPrimitive<'_>) -> Result<(), String>;
+    fn progress_primitive(&mut self, primitive: MenuComponentPrimitive<'_>) -> Result<(), String> {
+        self.primitive(primitive)
+    }
     fn text(&mut self, text: MenuComponentText<'_>) -> Result<(), String>;
 }
 
@@ -239,6 +242,7 @@ impl MenuComponentDrawCall {
                 vertices,
                 texture,
             } => (|| {
+                let is_progress = matches!(texture, NativeDrawTexture::Progress(_));
                 let texture = match texture {
                     NativeDrawTexture::Fixed(texture) => texture,
                     NativeDrawTexture::Progress(texture) => {
@@ -256,14 +260,19 @@ impl MenuComponentDrawCall {
                         texture
                     }
                 };
-                sink.primitive(MenuComponentPrimitive {
+                let primitive = MenuComponentPrimitive {
                     component: self.component,
                     component_id: self.component_id,
                     draw_flags: self.draw_flags,
                     topology,
                     vertices: &vertices,
                     texture: texture.as_ref(),
-                })
+                };
+                if is_progress {
+                    sink.progress_primitive(primitive)
+                } else {
+                    sink.primitive(primitive)
+                }
             })(),
             NativeDrawArguments::Text {
                 bytes,

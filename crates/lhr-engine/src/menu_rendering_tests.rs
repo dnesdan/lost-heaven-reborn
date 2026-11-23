@@ -734,15 +734,18 @@ fn incremental_lines_keep_the_100_quad_cap_including_accents() {
 }
 
 #[test]
-fn null_font_atlas_stays_untextured_without_invented_resources() {
+fn missing_font_atlas_stops_at_first_nonempty_glyph_batch() {
     let mut resources = Resources::new();
     resources.atlas = false;
     let components = packet_components();
     let component = components.find_component_by_id(5).unwrap();
     let mut sink = resources.sink(PRECISION);
-    sink.text(text(component, b"A~B", 0)).unwrap();
-    assert_eq!(sink.scene.meshes.len(), 2);
-    assert!(sink.scene.meshes.iter().all(|mesh| mesh.texture.is_none()));
+    sink.text(text(component, b"", 0)).unwrap();
+    assert_eq!(
+        sink.text(text(component, b"A~B", 0)).unwrap_err(),
+        "missing atlas texture for menu font 0"
+    );
+    assert!(sink.scene.meshes.is_empty());
     assert_eq!(
         *resources.accesses.borrow(),
         [Access::Font(0), Access::Font(0)]

@@ -453,6 +453,57 @@ fn loading_present_resolves_progress_again_after_gray_submission() {
 }
 
 #[test]
+fn loading_present_rejects_a_missing_named_progress_texture_at_each_layer() {
+    for missing_on_red in [false, true] {
+        let (screen, mut inputs, _) = present_progress_fixture();
+        let missing = inputs
+            .resources
+            .as_mut()
+            .unwrap()
+            .create_alpha_texture(MenuSharedTexture::Progress.filename())
+            .unwrap();
+        assert_eq!(missing, None);
+        let reply = Rc::clone(&inputs.progress_reply);
+        let mut device = PresentDevice::default();
+        if missing_on_red {
+            device.after_first_mesh = Some(Box::new(move || reply.set(missing.map(Ok))));
+        } else {
+            reply.set(missing.map(Ok));
+        }
+        let frame =
+            LoadingScreenFrame::from_inputs(LoadingScreenSource::MafiaLoadSave, &screen, &inputs);
+        let error = frame
+            .present(
+                &MenuNativeDrawState::new(0, None, [0, 0]),
+                MenuComponentPrecision::Unestablished,
+                MenuTextPrecision::Unestablished,
+                &mut device,
+            )
+            .unwrap_err();
+        assert!(
+            error.contains("missing loading progress texture: kulicky.tga"),
+            "{error}"
+        );
+        if missing_on_red {
+            assert_eq!(inputs.progress_lookups.get(), 2);
+            assert_eq!(device.events, PRESENT_THROUGH_GRAY);
+            assert_eq!(device.meshes.len(), 1);
+            assert_eq!(
+                device.meshes[0].texture.as_ref().unwrap().rgba,
+                FIRST_PROGRESS_PIXEL
+            );
+        } else {
+            assert_eq!(inputs.progress_lookups.get(), 1);
+            assert_eq!(
+                device.events,
+                &PRESENT_THROUGH_GRAY[..PRESENT_THROUGH_GRAY.len() - 1]
+            );
+            assert!(device.meshes.is_empty());
+        }
+    }
+}
+
+#[test]
 fn loading_present_preserves_gray_prefix_when_red_texture_lookup_fails() {
     let (screen, inputs, _) = present_progress_fixture();
     let frame =

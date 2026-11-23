@@ -145,6 +145,7 @@ impl<'a> MenuSceneSink<'a> {
     fn glyphs(
         &mut self,
         quads: &[MenuGlyphQuad],
+        font: u32,
         texture: Option<Arc<Texture>>,
     ) -> Result<(), String> {
         let Some(first) = quads.first() else {
@@ -173,16 +174,24 @@ impl<'a> MenuSceneSink<'a> {
         }
         u32::try_from(indices.len())
             .map_err(|_| "UnsupportedMenuMeshSize: glyph indices exceed u32".to_owned())?;
+        let atlas = texture.ok_or_else(|| format!("missing atlas texture for menu font {font}"))?;
         self.emit(Mesh {
             vertices,
             indices,
-            texture,
+            texture: Some(atlas),
             material: menu_material(argb),
         })
     }
 }
 
 impl MenuComponentDrawSink for MenuSceneSink<'_> {
+    fn progress_primitive(&mut self, primitive: MenuComponentPrimitive<'_>) -> Result<(), String> {
+        if primitive.texture.is_none() {
+            return Err("missing loading progress texture: kulicky.tga".into());
+        }
+        self.primitive(primitive)
+    }
+
     fn primitive(&mut self, primitive: MenuComponentPrimitive<'_>) -> Result<(), String> {
         if primitive.topology == MenuComponentPrimitiveTopology::LineStrip {
             return Err(
@@ -258,7 +267,9 @@ impl MenuComponentDrawSink for MenuSceneSink<'_> {
                         }
                         texture = self.texture(font.atlas.as_ref())?;
                     }
-                    MenuTextDrawOp::GlyphQuads { quads } => self.glyphs(&quads, texture.clone())?,
+                    MenuTextDrawOp::GlyphQuads { quads } => {
+                        self.glyphs(&quads, text.font, texture.clone())?
+                    }
                     MenuTextDrawOp::ClearTexture => texture = None,
                     MenuTextDrawOp::Underline { .. } => {
                         return Err(

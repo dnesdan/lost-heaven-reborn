@@ -171,10 +171,9 @@ explicit keyboard/mouse-only host mode. Joystick bindings remain in the profile
 but are rejected by the device-free runtime, as `SetControl` requires. No
 joystick discovery or platform input polling is claimed. Existing profiles
 are refused until their G_Stream decoder is available, never replaced with
-defaults. With successful rendering and earlier dependencies, this startup
-path completes force-feedback capability initialization and stops at
-the next `BloodAndFramePools` dependency (`blood_manager.GameInit` remains
-unported); it still does not enter gameplay. `DiffClear` now empties the actual
+defaults. With the earlier dependencies satisfied, Init can complete
+force-feedback capability initialization and `blood_manager.GameInit`.
+Neither step starts gameplay. `DiffClear` empties the actual
 borrowed frame/actor lists and resets the pending-diff flag and crash-object
 counter without deleting the referenced objects. `LoadDiffData`, runtime crash
 actor updates and nonempty `ClearDiffData` teardown remain uncomposed.
