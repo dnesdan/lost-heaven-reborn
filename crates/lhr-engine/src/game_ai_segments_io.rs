@@ -1,7 +1,7 @@
 //! Installation-backed IO for ordered `clusters.seg` loading.
 //!
 //! This is a decompressed-file-buffer boundary, not a native archive stream.
-//! `open` calls `Installation::read_original_path` once; existing source selection,
+//! `open` calls `Installation::read_optional_original_path` once; existing source selection,
 //! admission checks, decompression and internal stream cleanup happen there.
 //! Their errors remain open errors, with no native handle exposed for retention.
 //! Internal stream cleanup, including `NativeStream`'s close-on-drop behavior,
@@ -49,6 +49,7 @@ impl SegmentsFile {
 pub enum SegmentsIoError {
     UnsupportedArchiveMode,
     NonAsciiPath,
+    MissingOriginalAsset(String),
     Asset(lhr_assets::Error),
 }
 
@@ -59,6 +60,9 @@ impl fmt::Display for SegmentsIoError {
                 formatter.write_str("segments IO requires archive-enabled lookup")
             }
             Self::NonAsciiPath => formatter.write_str("non-ASCII original filename unsupported"),
+            Self::MissingOriginalAsset(name) => {
+                write!(formatter, "segments source not found: {name}")
+            }
             Self::Asset(error) => write!(formatter, "segments source: {error}"),
         }
     }
@@ -87,8 +91,9 @@ impl SegmentsIo for InstallationSegmentsIo<'_> {
         }
         let bytes = self
             .installation
-            .read_original_path(name)
-            .map_err(SegmentsIoError::Asset)?;
+            .read_optional_original_path(name)
+            .map_err(SegmentsIoError::Asset)?
+            .ok_or_else(|| SegmentsIoError::MissingOriginalAsset(name.to_owned()))?;
         Ok(SegmentsFile { bytes, position: 0 })
     }
 
@@ -263,7 +268,7 @@ mod tests {
         io.close(file).unwrap();
         assert!(matches!(
             io.open(ORIGINAL_PATH, true),
-            Err(SegmentsIoError::Asset(_))
+            Err(SegmentsIoError::MissingOriginalAsset(name)) if name.as_bytes() == ORIGINAL_PATH
         ));
         directory.write_loose(b"installation remains live");
         assert_eq!(
@@ -388,15 +393,15 @@ mod tests {
         let mut io = InstallationSegmentsIo::new(&installation);
         let error = io.open(ORIGINAL_PATH, true).unwrap_err();
         assert!(
-            matches!(&error, SegmentsIoError::Asset(error) if error.0 == "original asset unavailable")
+            matches!(&error, SegmentsIoError::MissingOriginalAsset(name) if name.as_bytes() == ORIGINAL_PATH)
         );
-        assert!(std::error::Error::source(&error).is_some());
+        assert!(std::error::Error::source(&error).is_none());
         let mut segments = CheckSegClusters::new();
         let error = segments.load(b"SYNTHETIC", &mut io).unwrap_err();
         assert_eq!(error.stage, SegmentsLoadStage::Open);
         assert!(matches!(
             error.failure,
-            SegmentsLoadFailure::Io(SegmentsIoError::Asset(_))
+            SegmentsLoadFailure::Io(SegmentsIoError::MissingOriginalAsset(name)) if name.as_bytes() == ORIGINAL_PATH
         ));
         assert!(error.close_error.is_none());
         assert_eq!(
@@ -410,6 +415,19 @@ mod tests {
         ));
         segments.clear();
         assert!(segments.load(b"SYNTHETIC", &mut io).unwrap());
+    }
+
+    #[test]
+    fn obstructed_loose_path_is_not_a_missing_source() {
+        let directory = Directory::new();
+        fs::write(directory.path.join("Missions"), b"not a directory").unwrap();
+        let installation = Installation::open(&directory.path).unwrap();
+        let mut io = InstallationSegmentsIo::new(&installation);
+        let error = io.open(ORIGINAL_PATH, true).unwrap_err();
+        assert!(
+            matches!(&error, SegmentsIoError::Asset(source) if source.0 == "loose asset parent is not directory")
+        );
+        assert!(std::error::Error::source(&error).is_some());
     }
 
     #[test]

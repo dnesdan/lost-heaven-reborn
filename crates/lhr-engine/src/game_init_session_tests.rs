@@ -458,6 +458,12 @@ fn segments_missing_file_preserves_initialized_cluster_and_refuses_replay() {
             .starts_with("SegmentsLoad: AIManager.segments.Load:"),
         "{error}"
     );
+    assert!(
+        error
+            .0
+            .contains(r#"MissingOriginalAsset("Missions\\mise01\\clusters.seg")"#),
+        "{error}"
+    );
     assert_eq!(
         session.ai_manager().segments.state(),
         SegmentsLoadState::Interrupted(SegmentsLoadStage::Open)

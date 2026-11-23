@@ -89,12 +89,22 @@ Render and global blend step remain diagnostic. The report counts scheduled
 presents, not observed frames. A reached error stops startup without replay.
 On Windows with Direct3D 12, the original-data selection above scheduled 25
 Open loading frames, the Init scene and one Init loading frame at 800×600
-with layout `1,1,0`. In the November 23, 2026 run, `GameInitStart` completed,
-including the call to `TraffSndSect` and `FREERIDE_TRAFFSETUP` (389). Init
-then stopped at `SegmentsLoad`: the AI segment loader reported `original asset
-unavailable` while opening its input. This does not establish why the open
-failed. Terminal disposal completed; no player/car coupling or gameplay tick
-was reached.
+with layout `1,1,0`. On November 23, 2026, the first run completed
+`GameInitStart`, including `TraffSndSect` and `FREERIDE_TRAFFSETUP` (389),
+then stopped at `SegmentsLoad` with `original asset unavailable`.
+
+A catalog check found `scene2.bin` for Freeride and `clusters.seg` for other
+missions, but no `Missions\freeride\clusters.seg` in the 13 registered archives
+present in this installation or in the loose mission directory. A second DX12
+run with the same inputs reported `MissingOriginalAsset` for that exact path
+at open. Errors reading a selected source remain distinct from absence. The
+second run scheduled the same frames and completed terminal disposal; it did
+not reach player/car coupling or a gameplay tick.
+
+The original Init ignores the loader's Boolean result, but the loader reads
+the header without checking whether open or read succeeded. No stock run has
+established that it returns normally for this missing file. Rust stops at
+open rather than substituting another mission's data or skipping the step.
 
 `SETTRAFFSECTORSND` (317) registers a matching primary scene sector for vehicle
 sounds; it does not start audio or traffic. With the fresh profile used in this

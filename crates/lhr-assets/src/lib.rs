@@ -1267,10 +1267,15 @@ impl Installation {
     /// Archive precedence, selected-source errors and loose-path checks are the
     /// same as `read`. Original non-ASCII filename encodings remain unavailable.
     pub fn read_original_path(&self, name: &str) -> Result<Vec<u8>> {
+        self.read_optional_original_path(name)?
+            .ok_or_else(|| Error("original asset unavailable".into()))
+    }
+    /// Like `read_original_path`, but returns `None` only for an absent asset.
+    pub fn read_optional_original_path(&self, name: &str) -> Result<Option<Vec<u8>>> {
         if !name.is_ascii() {
             return err("non-ASCII original filename unsupported");
         }
-        self.read(&name.replace('\\', "/"))
+        self.read_optional(&name.replace('\\', "/"))
     }
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
         self.read_optional(name)?
@@ -3459,6 +3464,15 @@ mod animation_archive_tests {
             b"original"
         );
         assert!(installation.read(original).is_err());
+        let missing = r"ANIMS\absent.5ds";
+        assert_eq!(
+            installation.read_optional_original_path(missing).unwrap(),
+            None
+        );
+        assert_eq!(
+            installation.read_original_path(missing).unwrap_err().0,
+            "original asset unavailable"
+        );
         for invalid in [
             r"anims\..\outside",
             r"C:\outside",
@@ -3467,6 +3481,10 @@ mod animation_archive_tests {
         ] {
             assert!(
                 installation.read_original_path(invalid).is_err(),
+                "{invalid}"
+            );
+            assert!(
+                installation.read_optional_original_path(invalid).is_err(),
                 "{invalid}"
             );
         }

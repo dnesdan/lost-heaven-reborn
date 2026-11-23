@@ -939,7 +939,7 @@ fn keyboard_mouse_startup_clears_diff_state_and_stops_at_missing_segments() {
         failure.error.0,
         concat!(
             "SegmentsLoad: AIManager.segments.Load: SegmentsLoadError { ",
-            "stage: Open, failure: Io(Asset(Error(\"original asset unavailable\"))), ",
+            r#"stage: Open, failure: Io(MissingOriginalAsset("Missions\\synthetic\\clusters.seg")), "#,
             "close_error: None }"
         )
     );
