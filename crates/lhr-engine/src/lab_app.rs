@@ -631,7 +631,7 @@ mod tests {
             clock_backend: lhr_engine::runtime::PlatformClock::default(),
             options,
             window: None,
-            surface: None,
+            swapchain: None,
             renderer: None,
             lab: Some(state),
             native_lab: None,

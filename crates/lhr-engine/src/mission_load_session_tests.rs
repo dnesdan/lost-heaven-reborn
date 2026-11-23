@@ -3433,6 +3433,19 @@ fn managed_loading_open_and_init_dispatch_on_one_surface_with_explicit_recovery(
             ["scene callback", "Init cursor", "loading present"]
         );
         assert_eq!(sequence.next_number(), Ok(2));
+        assert!(swapchain
+            .present_redraw(window, renderer, config, |texture| {
+                assert_eq!([texture.width(), texture.height()], target);
+                let view = texture.create_view(&Default::default());
+                let encoder = renderer.render_screen(
+                    &view,
+                    target[0],
+                    target[1],
+                    [target[0] as f32, target[1] as f32],
+                );
+                Ok(vec![encoder.finish()])
+            })
+            .unwrap());
 
         let error = session
             .player_navi_for_init_presented(&mut |frame| presenter().present(frame, None))
@@ -3451,6 +3464,15 @@ fn managed_loading_open_and_init_dispatch_on_one_surface_with_explicit_recovery(
             assert!(error.contains("BeginScene: loading swapchain requires successful configuration before acquire"), "{error}");
         };
         assert_blocked(&mut session);
+        let error = swapchain
+            .present_redraw(window, renderer, config, |_| {
+                panic!("aborted loading frame did not block redraw")
+            })
+            .unwrap_err();
+        assert!(
+            error.contains("requires successful configuration before acquire"),
+            "{error}"
+        );
 
         let mut invalid = config.clone();
         invalid.width = 0;

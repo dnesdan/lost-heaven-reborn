@@ -24,6 +24,7 @@ mod lab_scene;
 mod lab_state;
 #[path = "mission_load_probe.rs"]
 mod mission_load_probe;
+use lhr_engine::loading_surface::LoadingSwapchain;
 use lhr_engine::menu;
 #[path = "neighborhood.rs"]
 mod neighborhood;
@@ -3697,7 +3698,7 @@ struct App {
     clock_backend: lhr_engine::runtime::PlatformClock,
     options: Options,
     window: Option<Arc<Window>>,
-    surface: Option<wgpu::Surface<'static>>,
+    swapchain: Option<LoadingSwapchain<'static>>,
     renderer: Option<Renderer>,
     lab: Option<engine_lab::State>,
     native_lab: Option<engine_lab::NativeLab>,
@@ -3822,7 +3823,10 @@ impl App {
         // owners. Unsupported source content leaves the current view usable.
         let prepared = (|| -> Result<_, String> {
             let adapter = self.adapter.as_ref().ok_or("Graphics adapter absent")?;
-            let surface = self.surface.as_ref().ok_or("Presentation surface absent")?;
+            let swapchain = self
+                .swapchain
+                .as_ref()
+                .ok_or("Presentation swapchain absent")?;
             let mut config = self
                 .config
                 .clone()
@@ -3832,7 +3836,7 @@ impl App {
             } else {
                 config.format.add_srgb_suffix()
             };
-            if surface.get_capabilities(adapter).formats.contains(&desired) {
+            if swapchain.supports_format(adapter, desired) {
                 config.format = desired;
             } else if canonical.is_some() || car.is_some() {
                 return Err("Canonical Scene requires an unorm presentation target".into());
@@ -3895,10 +3899,19 @@ impl App {
             let cleanup = close_retained_materials(&mut animation, &mut runtime);
             return Err(format!("{error}; new material cleanup: {cleanup:?}"));
         }
-        self.surface
-            .as_ref()
-            .unwrap()
-            .configure(&renderer.device, &config);
+        if let Err(error) = self
+            .swapchain
+            .as_mut()
+            .expect("presentation swapchain checked during preparation")
+            .configure_for_device(&renderer.device, &config)
+        {
+            self.error = Some(error.clone());
+            let cleanup = close_car(&mut car);
+            let material_cleanup = close_retained_materials(&mut animation, &mut runtime);
+            return Err(format!(
+                "{error}; new car cleanup: {cleanup:?}; new material cleanup: {material_cleanup:?}"
+            ));
+        }
         self.native_lab = self.lab.as_ref().map(|_| {
             let window = self.window.as_ref().unwrap();
             let format = config.format;
@@ -4591,14 +4604,18 @@ impl ApplicationHandler for App {
         }
         renderer
             .set_inspection_alpha_cutout(self.options.car_inspection || self.options.car_driving);
-        surface.configure(&renderer.device, &config);
+        let swapchain = LoadingSwapchain::new(surface, &renderer.device);
+        if let Err(error) = swapchain.configure(&config) {
+            self.fail(event_loop, &error);
+            return;
+        }
         self.native_lab = self
             .lab
             .as_ref()
             .map(|_| engine_lab::NativeLab::new(&window, &renderer, config.format));
         self.adapter = Some(adapter);
         self.window = Some(window);
-        self.surface = Some(surface);
+        self.swapchain = Some(swapchain);
         self.renderer = Some(renderer);
         self.config = Some(config);
     }
@@ -4855,12 +4872,12 @@ impl ApplicationHandler for App {
             }
             WindowEvent::Resized(size) => {
                 if size.width > 0 && size.height > 0 {
-                    if let (Some(config), Some(surface), Some(renderer)) =
-                        (&mut self.config, &self.surface, &self.renderer)
-                    {
+                    if let (Some(config), Some(swapchain)) = (&mut self.config, &self.swapchain) {
                         config.width = size.width;
                         config.height = size.height;
-                        surface.configure(&renderer.device, config);
+                        if let Err(error) = swapchain.configure(config) {
+                            self.fail(event_loop, &error);
+                        }
                     }
                 }
             }
@@ -5111,70 +5128,58 @@ impl ApplicationHandler for App {
                 {
                     native.prepare_textures(renderer, ui);
                 }
-                if let (Some(surface), Some(renderer), Some(config)) =
-                    (&self.surface, &self.renderer, &self.config)
+                if let (Some(window), Some(swapchain), Some(renderer), Some(config)) =
+                    (&self.window, &self.swapchain, &self.renderer, &self.config)
                 {
-                    match surface.get_current_texture() {
-                        Ok(frame) => {
-                            let view = frame.texture.create_view(&Default::default());
-                            let mut encoder = if let Some(scene_frame) = &self.scene_frame {
-                                let result = if self.mode == AppMode::Menu {
-                                    renderer.render_scene_frame_with_overlay(
-                                        &view,
-                                        config.width,
-                                        config.height,
-                                        scene_frame,
-                                        menu::DESIGN,
-                                    )
-                                } else {
-                                    renderer.render_scene_frame(
-                                        &view,
-                                        config.width,
-                                        config.height,
-                                        scene_frame,
-                                    )
-                                };
-                                match result {
-                                    Ok(encoder) => encoder,
-                                    Err(error) => {
-                                        self.fail(event_loop, &error);
-                                        return;
-                                    }
-                                }
-                            } else if self.mode == AppMode::Menu {
-                                renderer.render_with_overlay(
+                    let result = swapchain.present_redraw(window, renderer, config, |texture| {
+                        let view = texture.create_view(&Default::default());
+                        let mut encoder = if let Some(scene_frame) = &self.scene_frame {
+                            if self.mode == AppMode::Menu {
+                                renderer.render_scene_frame_with_overlay(
                                     &view,
                                     config.width,
                                     config.height,
-                                    &self.camera,
+                                    scene_frame,
                                     menu::DESIGN,
                                 )
                             } else {
-                                renderer.render(&view, config.width, config.height, &self.camera)
-                            };
-                            let callbacks = match (&mut self.native_lab, &lab_frame) {
-                                (Some(native), Some(ui)) => {
-                                    native.paint(renderer, &mut encoder, &view, ui)
-                                }
-                                _ => Vec::new(),
-                            };
-                            renderer.queue.submit(
-                                callbacks
-                                    .into_iter()
-                                    .chain(std::iter::once(encoder.finish())),
-                            );
-                            frame.present();
+                                renderer.render_scene_frame(
+                                    &view,
+                                    config.width,
+                                    config.height,
+                                    scene_frame,
+                                )
+                            }?
+                        } else if self.mode == AppMode::Menu {
+                            renderer.render_with_overlay(
+                                &view,
+                                config.width,
+                                config.height,
+                                &self.camera,
+                                menu::DESIGN,
+                            )
+                        } else {
+                            renderer.render(&view, config.width, config.height, &self.camera)
+                        };
+                        let mut commands = match (&mut self.native_lab, &lab_frame) {
+                            (Some(native), Some(ui)) => {
+                                native.paint(renderer, &mut encoder, &view, ui)
+                            }
+                            _ => Vec::new(),
+                        };
+                        commands.push(encoder.finish());
+                        Ok(commands)
+                    });
+                    match result {
+                        Ok(true) => {
                             if let (Some(native), Some(_)) = (&mut self.native_lab, &lab_frame) {
                                 native.frame_presented();
                             }
                             self.count += 1;
                         }
-                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                            surface.configure(&renderer.device, config)
-                        }
-                        Err(wgpu::SurfaceError::Timeout) => {}
-                        Err(_) => {
-                            self.fail(event_loop, "Presentation failed");
+                        Ok(false) => {}
+                        Err(error) => {
+                            self.fail(event_loop, &error);
                             return;
                         }
                     }
@@ -5971,7 +5976,7 @@ fn run() -> Result<(), String> {
         clock_backend,
         options,
         window: None,
-        surface: None,
+        swapchain: None,
         renderer: None,
         lab,
         native_lab: None,

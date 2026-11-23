@@ -20,7 +20,7 @@ use winit::window::Window;
 /// Supply the reached cursor mesh in loading-frame pixel coordinates.
 pub type LoadingCursor<'host> = dyn FnMut(f32, f32) -> Result<Mesh, String> + 'host;
 
-/// Owns the surface and its recovery state across Open and Init presenters.
+/// Owns the surface and its recovery state across loading and ordinary draws.
 /// The host must configure it on the renderer's device before presenting.
 pub struct LoadingSwapchain<'window> {
     owner: SwapchainOwner<wgpu::Surface<'window>>,
@@ -42,10 +42,37 @@ impl<'window> LoadingSwapchain<'window> {
     /// refuses recovery. The surface is leaked until process exit rather than
     /// running a teardown that could panic; the host must restart the process.
     pub fn configure(&self, config: &wgpu::SurfaceConfiguration) -> Result<(), String> {
+        self.configure_using(&self.device, config)
+    }
+
+    /// Replace the configured device only after its configuration succeeds.
+    pub fn configure_for_device(
+        &mut self,
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> Result<(), String> {
+        self.configure_using(device, config)?;
+        self.device = device.clone();
+        Ok(())
+    }
+
+    pub fn supports_format(&self, adapter: &wgpu::Adapter, format: wgpu::TextureFormat) -> bool {
+        self.owner
+            .surface()
+            .get_capabilities(adapter)
+            .formats
+            .contains(&format)
+    }
+
+    fn configure_using(
+        &self,
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> Result<(), String> {
         self.owner.state.configure(|| {
-            run_with_cleanup(ConfigureErrorScopes::new(&self.device), |scopes| {
+            run_with_cleanup(ConfigureErrorScopes::new(device), |scopes| {
                 scopes.push();
-                self.owner.surface().configure(&self.device, config);
+                self.owner.surface().configure(device, config);
                 let mut error = None;
                 while scopes.remaining != 0 {
                     error = error.or(scopes.pop());
@@ -55,6 +82,39 @@ impl<'window> LoadingSwapchain<'window> {
                     None => Ok(()),
                 }
             })
+        })
+    }
+
+    fn require_device(&self, device: &wgpu::Device) -> Result<(), String> {
+        if *device != self.device {
+            return Err("loading renderer and swapchain must use the same device".into());
+        }
+        Ok(())
+    }
+
+    /// Encode one ordinary redraw on the same surface as loading frames.
+    /// Returns false on a timeout or a successful Lost/Outdated reconfigure;
+    /// neither case calls the encoder or retries that frame. An earlier
+    /// aborted frame still requires an explicit successful configuration.
+    pub fn present_redraw(
+        &self,
+        window: &Window,
+        renderer: &Renderer,
+        config: &wgpu::SurfaceConfiguration,
+        encode: impl FnOnce(&wgpu::Texture) -> Result<Vec<wgpu::CommandBuffer>, String>,
+    ) -> Result<bool, String> {
+        self.require_device(&renderer.device)?;
+        run_with_cleanup(None, |frame| {
+            *frame = self.owner.state.acquire_for_redraw(
+                || self.owner.surface().get_current_texture(),
+                || self.configure(config),
+            )?;
+            let Some(acquired) = frame.as_ref() else {
+                return Ok(false);
+            };
+            let commands = encode(&acquired.frame.texture)?;
+            submit_and_present(frame, &renderer.queue, window, commands)?;
+            Ok(true)
         })
     }
 }
@@ -140,6 +200,28 @@ struct SwapchainState {
 const RESTART_REQUIRED: &str =
     "loading swapchain requires a process restart after an interrupted backend operation";
 
+#[derive(Debug)]
+enum AcquireError {
+    NeedsConfigure,
+    Active,
+    RestartRequired,
+    Surface(wgpu::SurfaceError),
+}
+
+impl std::fmt::Display for AcquireError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NeedsConfigure => formatter
+                .write_str("loading swapchain requires successful configuration before acquire"),
+            Self::Active => {
+                formatter.write_str("loading swapchain already has an active operation")
+            }
+            Self::RestartRequired => formatter.write_str(RESTART_REQUIRED),
+            Self::Surface(error) => write!(formatter, "acquire loading swapchain image: {error}"),
+        }
+    }
+}
+
 impl SwapchainState {
     fn configure(&self, configure: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
         match self.phase.get() {
@@ -158,17 +240,11 @@ impl SwapchainState {
     fn acquire<Frame>(
         &self,
         acquire: impl FnOnce() -> Result<Frame, wgpu::SurfaceError>,
-    ) -> Result<AcquiredFrame<'_, Frame>, String> {
+    ) -> Result<AcquiredFrame<'_, Frame>, AcquireError> {
         match self.phase.get() {
-            SwapchainPhase::NeedsConfigure => {
-                return Err(
-                    "loading swapchain requires successful configuration before acquire".into(),
-                );
-            }
-            SwapchainPhase::Active => {
-                return Err("loading swapchain already has an active operation".into());
-            }
-            SwapchainPhase::RestartRequired => return Err(RESTART_REQUIRED.into()),
+            SwapchainPhase::NeedsConfigure => return Err(AcquireError::NeedsConfigure),
+            SwapchainPhase::Active => return Err(AcquireError::Active),
+            SwapchainPhase::RestartRequired => return Err(AcquireError::RestartRequired),
             SwapchainPhase::Ready => {}
         }
         let operation = SwapchainOperation::begin(self);
@@ -178,8 +254,24 @@ impl SwapchainState {
                 if error == wgpu::SurfaceError::Timeout {
                     operation.ready();
                 }
-                Err(format!("acquire loading swapchain image: {error}"))
+                Err(AcquireError::Surface(error))
             }
+        }
+    }
+
+    fn acquire_for_redraw<Frame>(
+        &self,
+        acquire: impl FnOnce() -> Result<Frame, wgpu::SurfaceError>,
+        reconfigure: impl FnOnce() -> Result<(), String>,
+    ) -> Result<Option<AcquiredFrame<'_, Frame>>, String> {
+        match self.acquire(acquire) {
+            Ok(frame) => Ok(Some(frame)),
+            Err(AcquireError::Surface(wgpu::SurfaceError::Timeout)) => Ok(None),
+            Err(AcquireError::Surface(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated)) => {
+                reconfigure()?;
+                Ok(None)
+            }
+            Err(error) => Err(error.to_string()),
         }
     }
 }
@@ -231,6 +323,25 @@ impl<Frame> AcquiredFrame<'_, Frame> {
         present(frame);
         operation.ready();
     }
+}
+
+fn submit_and_present(
+    frame: &mut Option<AcquiredFrame<'_, wgpu::SurfaceTexture>>,
+    queue: &wgpu::Queue,
+    window: &Window,
+    commands: impl IntoIterator<Item = wgpu::CommandBuffer>,
+) -> Result<(), String> {
+    frame
+        .as_mut()
+        .ok_or("loading swapchain image was not acquired")?
+        .mark_submission_started();
+    queue.submit(commands);
+    window.pre_present_notify();
+    frame
+        .take()
+        .ok_or("loading swapchain image was not acquired")?
+        .present(wgpu::SurfaceTexture::present);
+    Ok(())
 }
 
 fn run_with_cleanup<Resource, Output>(
@@ -400,14 +511,13 @@ impl LoadingScreenPresentBackend for SurfaceFrame<'_, '_, '_, '_> {
     }
 
     fn begin_scene(&mut self) -> Result<(), String> {
-        if *self.device != self.swapchain.device {
-            return Err("loading renderer and swapchain must use the same device".into());
-        }
+        self.swapchain.require_device(self.device)?;
         let owner = &self.swapchain.owner;
         self.frame = Some(
             owner
                 .state
-                .acquire(|| owner.surface().get_current_texture())?,
+                .acquire(|| owner.surface().get_current_texture())
+                .map_err(|error| error.to_string())?,
         );
         Ok(())
     }
@@ -464,19 +574,8 @@ impl LoadingScreenPresentBackend for SurfaceFrame<'_, '_, '_, '_> {
             .encoder
             .take()
             .ok_or("loading swapchain pass was not encoded")?;
-        let frame = self
-            .frame
-            .as_mut()
-            .ok_or("loading swapchain image was not acquired")?;
         let commands = encoder.finish();
-        frame.mark_submission_started();
-        self.queue.submit([commands]);
-        self.window.pre_present_notify();
-        self.frame
-            .take()
-            .ok_or("loading swapchain image was not acquired")?
-            .present(wgpu::SurfaceTexture::present);
-        Ok(())
+        submit_and_present(&mut self.frame, self.queue, self.window, [commands])
     }
 }
 
@@ -518,6 +617,7 @@ mod recovery_tests {
             state
                 .acquire::<()>(|| panic!("must not acquire"))
                 .err()
+                .map(|error| error.to_string())
                 .as_deref(),
             Some("loading swapchain requires successful configuration before acquire")
         );
@@ -530,7 +630,10 @@ mod recovery_tests {
                 Err(RESTART_REQUIRED.into())
             );
             assert_eq!(
-                state.acquire::<()>(|| panic!("must not acquire")).err(),
+                state
+                    .acquire::<()>(|| panic!("must not acquire"))
+                    .err()
+                    .map(|error| error.to_string()),
                 Some(RESTART_REQUIRED.into())
             );
         }
@@ -543,7 +646,10 @@ mod recovery_tests {
         state.configure(|| Ok(())).unwrap();
         let error = wgpu::SurfaceError::Timeout;
         assert_eq!(
-            state.acquire::<()>(|| Err(error.clone())).err(),
+            state
+                .acquire::<()>(|| Err(error.clone()))
+                .err()
+                .map(|error| error.to_string()),
             Some(format!("acquire loading swapchain image: {error}"))
         );
         let frame = state.acquire(|| Ok(42)).unwrap();
@@ -557,10 +663,87 @@ mod recovery_tests {
         state.configure(|| Ok(())).unwrap();
         let error = wgpu::SurfaceError::Other;
         assert_eq!(
-            state.acquire::<()>(|| Err(error.clone())).err(),
+            state
+                .acquire::<()>(|| Err(error.clone()))
+                .err()
+                .map(|error| error.to_string()),
             Some(format!("acquire loading swapchain image: {error}"))
         );
         assert_awaiting_configuration(&state);
+    }
+
+    #[test]
+    fn redraw_skips_timeout_and_reconfigures_lost_or_outdated_without_reacquiring() {
+        let state = SwapchainState::default();
+        state.configure(|| Ok(())).unwrap();
+        let acquired = Cell::new(0);
+        let configured = Cell::new(0);
+        for (error, expected_configurations) in [
+            (wgpu::SurfaceError::Timeout, 0),
+            (wgpu::SurfaceError::Lost, 1),
+            (wgpu::SurfaceError::Outdated, 2),
+        ] {
+            let acquisitions_before = acquired.get();
+            let frame = state
+                .acquire_for_redraw::<()>(
+                    || {
+                        acquired.set(acquired.get() + 1);
+                        Err(error)
+                    },
+                    || {
+                        assert_awaiting_configuration(&state);
+                        state.configure(|| {
+                            configured.set(configured.get() + 1);
+                            Ok(())
+                        })
+                    },
+                )
+                .unwrap();
+            assert!(frame.is_none());
+            assert_eq!(acquired.get(), acquisitions_before + 1);
+            assert_eq!(configured.get(), expected_configurations);
+            state.acquire(|| Ok(())).unwrap().present(|_| {});
+        }
+        let result = state.acquire_for_redraw::<()>(
+            || Err(wgpu::SurfaceError::Lost),
+            || state.configure(|| Err("configuration failure".into())),
+        );
+        assert_eq!(result.err().as_deref(), Some("configuration failure"));
+        assert_awaiting_configuration(&state);
+    }
+
+    #[test]
+    fn redraw_and_loading_share_active_and_interrupted_states() {
+        let state = SwapchainState::default();
+        let blocked_redraw = || {
+            state
+                .acquire_for_redraw::<()>(
+                    || panic!("blocked redraw acquired an image"),
+                    || panic!("blocked redraw attempted configuration"),
+                )
+                .err()
+        };
+        state.configure(|| Ok(())).unwrap();
+        let loading = state.acquire(|| Ok(())).unwrap();
+        assert_eq!(blocked_redraw(), Some(AcquireError::Active.to_string()));
+        drop(loading);
+        assert_eq!(
+            blocked_redraw(),
+            Some(AcquireError::NeedsConfigure.to_string())
+        );
+        state.configure(|| Ok(())).unwrap();
+        let mut redraw = state
+            .acquire_for_redraw(|| Ok(()), || panic!("successful acquire reconfigured"))
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            state.acquire::<()>(|| panic!("loading cannot acquire during redraw")),
+            Err(AcquireError::Active)
+        ));
+        redraw.mark_submission_started();
+        drop(redraw);
+        assert_restart_required(&state);
+        assert_eq!(blocked_redraw().as_deref(), Some(RESTART_REQUIRED));
     }
 
     #[test]
