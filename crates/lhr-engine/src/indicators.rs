@@ -2184,7 +2184,7 @@ mod tests {
     fn loadsave_adapter_drives_hud_calls_and_refuses_others() {
         use crate::game_controls::ControlBinding;
         use crate::game_loadsave_controls::ProfileBindings;
-        use crate::game_loadsave_lifecycle::{LoadSaveEffects, ProfileState};
+        use crate::game_loadsave_lifecycle::{FreerideProfile, LoadSaveEffects, ProfileState};
         let mut state = IndicatorsState::constructed(staged_clock());
         state.set_flags(INDF_PLAYER);
         let empty = ControlBinding {
@@ -2195,8 +2195,10 @@ mod tests {
         };
         let mut profile = ProfileState {
             init_flag: false,
-            race_cars: 0,
-            unknown_1f0: 0,
+            freeride_profile: FreerideProfile {
+                freeride_enabled: 0,
+                race_cars: 0,
+            },
             unknown_9c: 0,
             camera_setting: 0,
             bindings: ProfileBindings::from_rows(

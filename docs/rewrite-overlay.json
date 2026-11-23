@@ -9340,6 +9340,15 @@
     },
     {
       "binary": "Game.exe",
+      "rva": "0x20e980",
+      "va": "0x60e980",
+      "name": "G_LoadSaveClass::FreerideSetupFromScript",
+      "symbol": "lhr_engine::game_loadsave_lifecycle::FreerideProfile::freeride_setup_from_script",
+      "tier": "contract",
+      "evidence": "REA ev_5b1cc56ca144f7647e60ffb41f352b4bf917a86b0ddbca81ec706e0d8e4725a3, entire PC body and opcode 389 call at 0x479599; mafia-re fe7e746 g_loadsave.cpp. Unsigned profile unlock threshold, four ordered bitwise density stores, then unconditional race-car mask copy. Synthetic mission-VM cases cover both sides, the high bit, float payloads and missing profile. No original-runtime differential."
+    },
+    {
+      "binary": "Game.exe",
       "rva": "0x262f0",
       "va": "0x4262f0",
       "name": "C_car::Break_Glass",
@@ -17739,6 +17748,6 @@
   "vm": {
     "decoded_base": 398,
     "decoded_entity": 121,
-    "executing_frontier": "USE_LIGHTCACHE (180); GAME_NIGHTMISSION (81) executes"
+    "executing_frontier": "USE_LIGHTCACHE (180); GAME_NIGHTMISSION (81) executes; in Freeride, GameInitStart completes after SETTRAFFSECTORSND (317) and FREERIDE_TRAFFSETUP (389)"
   }
 }

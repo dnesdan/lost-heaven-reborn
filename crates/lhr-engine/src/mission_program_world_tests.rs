@@ -7,6 +7,7 @@ use crate::driver_scene::{
 };
 #[allow(unused_imports)]
 use crate::entity_actor::EntityProcessState;
+use crate::game_loadsave_lifecycle::{FreerideProfile, FreerideState};
 use crate::itexture::{CpuTextureStorage, TextureImageError, TextureImageSource, TextureResources};
 use crate::mission_scene_loading::MissionSceneLoader;
 use crate::original_data_chunk::chunk;
@@ -15,6 +16,7 @@ use crate::original_program::{
 };
 use crate::program_parameters::ScalarParameter;
 use crate::scene_resources::{SceneResources, SceneScreen};
+use crate::traffic_generator::TrafficGeneratorRatios;
 
 struct Screen;
 impl SceneScreen for Screen {
@@ -563,6 +565,107 @@ fn diagnostic_unwind_retains_scene_world_and_runtime_mutations_without_replay() 
     assert_eq!(diagnostic.calls, 1);
     assert_eq!(f.scene_reference, diagnostic.redirect_scene.unwrap());
     f.finish();
+}
+
+#[test]
+fn freeride_traffic_setup_preserves_densities_below_extreme() {
+    check_freeride_traffic_setup(Some(2));
+}
+
+#[test]
+fn freeride_traffic_setup_applies_densities_at_extreme() {
+    check_freeride_traffic_setup(Some(3));
+}
+
+#[test]
+fn freeride_traffic_setup_treats_unlock_level_as_unsigned() {
+    check_freeride_traffic_setup(Some(0x8000_0000));
+}
+
+#[test]
+fn freeride_traffic_setup_without_profile_stops_before_mutating_traffic() {
+    check_freeride_traffic_setup(None);
+}
+
+fn check_freeride_traffic_setup(freeride_enabled: Option<u32>) {
+    let mut fixture = Fixture::new(&[(
+        b"main",
+        b"commandblock 1\nfreeride_traffsetup\nuse_lightcache\ncommandblock 0",
+    )]);
+    fixture.init();
+    fixture.effects.events.clear();
+
+    let selection = FreerideState {
+        traffic_density: -0.0,
+        pedestrian_density: f32::from_bits(1),
+        police_density: f32::from_bits(0x7f80_1234),
+        ..FreerideState::default()
+    };
+    let profile = freeride_enabled.map(|freeride_enabled| FreerideProfile {
+        freeride_enabled,
+        race_cars: 0x35,
+    });
+    let mut steal_cars = 0x5a;
+    let seeded_ratios = TrafficGeneratorRatios {
+        all_bits: 0.8125_f32.to_bits(),
+        police_bits: 0.875_f32.to_bits(),
+    };
+    let mut ratios = seeded_ratios;
+    let tuning = fixture.loader.content.actors.world.traffic_tuning_mut();
+    tuning.set_elems_coeff_bits(0.125_f32.to_bits());
+    tuning.set_mafian_coeff_bits(0.375_f32.to_bits());
+    tuning.set_police_coeff_bits(0.625_f32.to_bits());
+    let seeded_tuning = tuning.clone();
+    let mut budget = DispatchBudget::new(4).unwrap();
+
+    let result = fixture.loader.content.process_program_in_world(
+        0,
+        7,
+        &mut budget,
+        &mut MissionProgramWorldContext::new(
+            &mut fixture.arena,
+            &mut fixture.scene_reference,
+            &mut fixture.effects,
+            &mut Diagnostic::default(),
+            locales(),
+        )
+        .with_freeride_traffic(profile.as_ref(), &selection, &mut steal_cars, &mut ratios),
+    );
+
+    let runtime = fixture.loader.content.programs()[0].runtime().unwrap();
+    let tuning = fixture.loader.content.actors.world.traffic_tuning();
+    let mut expected_tuning = seeded_tuning;
+    let mut expected_ratios = seeded_ratios;
+    if matches!(freeride_enabled, Some(3 | 0x8000_0000)) {
+        expected_tuning.set_elems_coeff_bits(selection.traffic_density.to_bits());
+        expected_tuning.set_police_coeff_bits(selection.police_density.to_bits());
+        expected_ratios.all_bits = selection.pedestrian_density.to_bits();
+        expected_ratios.police_bits = selection.police_density.to_bits();
+    }
+    assert_eq!(tuning, &expected_tuning);
+    assert_eq!(ratios, expected_ratios);
+
+    if let Some(profile) = profile {
+        result.unwrap();
+        assert_eq!(steal_cars, profile.race_cars);
+        assert_eq!(runtime.stage, RuntimeStage::Ready);
+        assert_eq!(runtime.fields.program_counter(), 4);
+        assert_eq!(budget.remaining(), 0);
+        assert_eq!(fixture.effects.events, [RuntimeEffect::UseLightCache]);
+    } else {
+        let error = RuntimeError::Domain("freeride traffic profile unavailable");
+        assert!(matches!(
+            result,
+            Err(MissionGlobalProgramError::Runtime(RuntimeError::Scheduler(detail)))
+                if detail == format!("Backend({error:?})")
+        ));
+        assert_eq!(steal_cars, 0x5a);
+        assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+        assert_eq!(runtime.fields.program_counter(), 1);
+        assert_eq!(budget.remaining(), 2);
+        assert!(fixture.effects.events.is_empty());
+    }
+    fixture.finish();
 }
 
 #[test]
@@ -1497,6 +1600,7 @@ fn lookup_world_maps_type_mismatch_silently_and_propagates_stale() {
             ls3df_default_c_locale: true,
         },
         vehicle_sectors: None,
+        freeride_traffic: None,
     };
     // A detector is not human: the native type-break maps to a silent
     // no-op success, while act-state writes land.
@@ -2251,6 +2355,7 @@ fn detector_erase_colls_succeeds_vacuously_while_create_stays_unavailable() {
             ls3df_default_c_locale: true,
         },
         vehicle_sectors: None,
+        freeride_traffic: None,
     };
     // Empty registry: native EraseColls over num_colls == 0 / NULL arrays is
     // a no-op success, so the live erase succeeds vacuously here.
@@ -2317,6 +2422,7 @@ fn frame_switch_applies_arena_store_and_defers_sound_frames() {
             ls3df_default_c_locale: true,
         },
         vehicle_sectors: None,
+        freeride_traffic: None,
     };
     // Ordinary frames run the core arena on/off store; the device side
     // effects report as deferred, never applied.

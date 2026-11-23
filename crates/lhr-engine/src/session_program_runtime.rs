@@ -439,7 +439,13 @@ impl MissionLoadSession {
                         diagnostic,
                         locales,
                     )
-                    .with_vehicle_sectors(&mut session.vehicle_sectors),
+                    .with_vehicle_sectors(&mut session.vehicle_sectors)
+                    .with_freeride_traffic(
+                        session.freeride_profile.as_ref(),
+                        &session.freeride,
+                        &mut session.load_save_progress.steal_cars,
+                        &mut session.traffic_ratios,
+                    ),
                 )
             },
         )
@@ -523,7 +529,13 @@ impl MissionLoadSession {
                             diagnostic,
                             locales,
                         )
-                        .with_vehicle_sectors(&mut session.vehicle_sectors),
+                        .with_vehicle_sectors(&mut session.vehicle_sectors)
+                        .with_freeride_traffic(
+                            session.freeride_profile.as_ref(),
+                            &session.freeride,
+                            &mut session.load_save_progress.steal_cars,
+                            &mut session.traffic_ratios,
+                        ),
                     )
             },
         )
@@ -576,7 +588,13 @@ impl MissionLoadSession {
                             diagnostic,
                             locales,
                         )
-                        .with_vehicle_sectors(&mut session.vehicle_sectors),
+                        .with_vehicle_sectors(&mut session.vehicle_sectors)
+                        .with_freeride_traffic(
+                            session.freeride_profile.as_ref(),
+                            &session.freeride,
+                            &mut session.load_save_progress.steal_cars,
+                            &mut session.traffic_ratios,
+                        ),
                     )
             },
         )

@@ -19,13 +19,59 @@ use crate::menu_native_drawing::{
 };
 use crate::menu_text_drawing::MenuTextPrecision;
 
+/// Profile unlock words, independent of `FreerideState::location` (the
+/// selected location, including when supplied by the CLI probe).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FreerideProfile {
+    /// `G_LoadSaveClass::freeride_enabled` (+0x1f0), the unlocked area level.
+    pub freeride_enabled: u32,
+    /// `G_LoadSaveClass::race_cars`, the unlocked race-car bitmask.
+    pub race_cars: u32,
+}
+
+impl FreerideProfile {
+    pub(crate) fn freeride_setup_from_script(
+        &self,
+        selection: &FreerideState,
+        tuning: &mut crate::traffic_car_actor::TrafficTuning,
+        ratios: &mut crate::traffic_generator::TrafficGeneratorRatios,
+        steal_cars: &mut u32,
+    ) {
+        if self.freeride_enabled >= crate::main_menu::FREERIDE_EXTREME {
+            let traffic = selection.traffic_density.to_bits();
+            let police = selection.police_density.to_bits();
+            tuning.set_elems_coeff_bits(traffic);
+            let pedestrians = selection.pedestrian_density.to_bits();
+            tuning.set_police_coeff_bits(police);
+            ratios.all_bits = pedestrians;
+            ratios.police_bits = police;
+        }
+        *steal_cars = self.race_cars;
+    }
+
+    /// The two profile words left by `G_LoadSaveClass::Init` (GAME 0x604ee0)
+    /// on a confirmed fresh installation. The Init head clears both words;
+    /// `AllDefault` (GAME 0x6051e0) leaves `freeride_enabled = 0` and
+    /// `race_cars = 1`. This is not the full `AllDefault` or `ProfileLoad`.
+    pub fn after_load_save_init(intake: ProfileFileIntake) -> Result<Self, &'static str> {
+        match intake {
+            ProfileFileIntake::NoProfileFile => Ok(Self {
+                freeride_enabled: 0,
+                race_cars: 1,
+            }),
+            ProfileFileIntake::ProfileFilePresent => Err(
+                "G_LoadSaveClass::ProfileLoad (GAME 0x6057f0) reads an existing savegame\\mafiaNNN.sav through G_Stream, which has no owner",
+            ),
+        }
+    }
+}
+
 /// Fields directly read or written by Init, Close, ApplyControls and Reset.
 /// Other profile bytes live in the eventual profile file owner; this structure
 /// does not claim a mirrored C++ class layout.
 pub struct ProfileState {
     pub init_flag: bool,
-    pub race_cars: u32,
-    pub unknown_1f0: u32,
+    pub freeride_profile: FreerideProfile,
     pub unknown_9c: u32,
     pub camera_setting: u32,
     pub bindings: ProfileBindings,
@@ -38,8 +84,8 @@ impl ProfileState {
     /// lands there rather than in a duplicate profile word.
     fn begin_initialization(&mut self, progress: &mut LoadSaveProgress) {
         self.init_flag = true;
-        self.race_cars = 0;
-        self.unknown_1f0 = 0;
+        self.freeride_profile.race_cars = 0;
+        self.freeride_profile.freeride_enabled = 0;
         self.unknown_9c = 0;
         progress.last_stolen = None;
     }
@@ -412,8 +458,10 @@ mod tests {
         };
         let state = ProfileState {
             init_flag: false,
-            race_cars: 0xa5a5_a5a5,
-            unknown_1f0: 0xa5a5_a5a5,
+            freeride_profile: FreerideProfile {
+                freeride_enabled: 0xa5a5_a5a5,
+                race_cars: 0xa5a5_a5a5,
+            },
             unknown_9c: 0xa5a5_a5a5,
             camera_setting: 7,
             bindings: ProfileBindings::from_rows([empty; PROFILE_CONTROL_COUNT]),
@@ -443,6 +491,37 @@ mod tests {
             Controls,
         )
     }
+    #[test]
+    fn fresh_freeride_profile_uses_all_default_instead_of_init_head_stores() {
+        let (mut owner, _, _, _, _) = owners();
+        owner
+            .profile
+            .begin_initialization(&mut LoadSaveProgress::default());
+        assert_eq!(
+            owner.profile.freeride_profile,
+            FreerideProfile {
+                freeride_enabled: 0,
+                race_cars: 0,
+            }
+        );
+        assert_eq!(
+            FreerideProfile::after_load_save_init(ProfileFileIntake::NoProfileFile),
+            Ok(FreerideProfile {
+                freeride_enabled: 0,
+                race_cars: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn freeride_profile_refuses_a_present_profile_file() {
+        assert!(
+            FreerideProfile::after_load_save_init(ProfileFileIntake::ProfileFilePresent)
+                .unwrap_err()
+                .contains("ProfileLoad (GAME 0x6057f0)")
+        );
+    }
+
     #[test]
     fn menu_quit_returns_false_after_releasing_profile_list_then_close_skips_save() {
         let (mut owner, mut tables, mut controls, mut files, mut input) = owners();
@@ -1172,9 +1251,9 @@ pub struct ProfileSettings {
 pub enum ProfileFileIntake {
     /// No `savegame\mafiaNNN.sav` exists: every profile's `OpenRead`
     /// fails, `load_failed` stays set and `AllDefault` supplies the
-    /// options (a fresh installation).
+    /// profile defaults (a fresh installation).
     NoProfileFile,
-    /// A profile file exists; its options would come from the G_Stream
+    /// A profile file exists; its stored values would come from the G_Stream
     /// read, which has no owner yet.
     ProfileFilePresent,
 }

@@ -2779,6 +2779,117 @@ fn traffic_sector_sound_without_owner_stops_before_advancing() {
     assert_eq!(budget.remaining(), 1);
 }
 
+#[derive(Default)]
+struct FreerideTrafficSetupBackend {
+    calls: usize,
+    fail_on_call: Option<usize>,
+}
+
+impl RuntimeBackend for FreerideTrafficSetupBackend {
+    fn freeride_traffic_setup(&mut self) -> Result<(), RuntimeError> {
+        self.calls += 1;
+        if self.fail_on_call == Some(self.calls) {
+            return Err(RuntimeError::Domain(
+                "synthetic freeride traffic setup failure",
+            ));
+        }
+        Ok(())
+    }
+
+    fn effect(
+        &mut self,
+        _: RuntimeView<'_>,
+        _: RuntimeEffect,
+        _: Option<&ScalarParameter>,
+    ) -> Result<(), String> {
+        panic!("unexpected runtime effect")
+    }
+}
+
+#[test]
+fn freeride_traffic_setup_dispatches_once_per_zero_parameter_instruction() {
+    let mut memory = Memory::default();
+    let mut program = program(
+        b"commandblock 1\nfreeride_traffsetup\nfreeride_traffsetup\ncommandblock 0",
+        &mut memory,
+    );
+    let progress = program.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (4, 0));
+    let runtime = program.runtime().unwrap();
+    for index in [1, 2] {
+        assert_eq!(runtime.instructions.records[index].opcode, 389);
+        assert!(runtime.instructions.records[index].parameter.is_none());
+    }
+
+    let mut backend = FreerideTrafficSetupBackend::default();
+    let mut budget = DispatchBudget::new(4).unwrap();
+    program
+        .call_owned_process(2, &mut budget, &mut backend)
+        .unwrap();
+    let runtime = program.runtime().unwrap();
+    assert_eq!(runtime.stage, RuntimeStage::Ready);
+    assert_eq!(runtime.fields.program_counter(), 4);
+    assert_eq!(budget.remaining(), 0);
+    assert_eq!(backend.calls, 2);
+
+    program
+        .call_owned_process(2, &mut budget, &mut backend)
+        .unwrap();
+    assert_eq!(backend.calls, 2);
+}
+
+#[test]
+fn freeride_traffic_setup_without_owner_interrupts_at_the_instruction() {
+    let mut memory = Memory::default();
+    let mut program = program(b"freeride_traffsetup", &mut memory);
+    program.init_fresh_runtime(&mut memory).unwrap();
+    let mut budget = DispatchBudget::new(2).unwrap();
+    assert_eq!(
+        program.call_owned_process(3, &mut budget, &mut memory),
+        Err(RuntimeError::Scheduler(
+            "Backend(Domain(\"freeride traffic setup owner unavailable\"))".into()
+        ))
+    );
+    let runtime = program.runtime().unwrap();
+    assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+    assert_eq!(runtime.fields.program_counter(), 0);
+    assert_eq!(runtime.fields.command_time, 3);
+    assert_eq!(budget.remaining(), 1);
+}
+
+#[test]
+fn freeride_traffic_setup_backend_error_preserves_the_prefix_without_replay() {
+    let mut memory = Memory::default();
+    let mut program = program(
+        b"commandblock 1\nfreeride_traffsetup\nfreeride_traffsetup\nfreeride_traffsetup",
+        &mut memory,
+    );
+    program.init_fresh_runtime(&mut memory).unwrap();
+    let mut backend = FreerideTrafficSetupBackend {
+        calls: 0,
+        fail_on_call: Some(2),
+    };
+    let mut budget = DispatchBudget::new(4).unwrap();
+    assert_eq!(
+        program.call_owned_process(3, &mut budget, &mut backend),
+        Err(RuntimeError::Scheduler(
+            "Backend(Domain(\"synthetic freeride traffic setup failure\"))".into()
+        ))
+    );
+    let runtime = program.runtime().unwrap();
+    assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+    assert_eq!(runtime.fields.program_counter(), 2);
+    assert_eq!(runtime.fields.command_time, 3);
+    assert_eq!(budget.remaining(), 1);
+    assert_eq!(backend.calls, 2);
+    assert_eq!(
+        program.call_owned_process(3, &mut budget, &mut backend),
+        Err(RuntimeError::Domain("runtime not ready"))
+    );
+    assert_eq!(budget.remaining(), 1);
+    assert_eq!(backend.calls, 2);
+}
+
 #[test]
 fn goto_label_jumps_forward_and_skips_unreached_bank() {
     let mut memory = Memory::default();

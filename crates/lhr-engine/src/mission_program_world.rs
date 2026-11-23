@@ -10,6 +10,7 @@ use crate::frame_lookup::{
     FrameLookupBackend, FrameLookupError, FrameView, ModelFrameLookup, SceneRoots,
 };
 use crate::frame_transform::FrameKey;
+use crate::game_loadsave_lifecycle::{FreerideProfile, FreerideState};
 use crate::model_loading::ModelArena;
 use crate::original_program::{
     CProgram, LookupRuntimeBackend, RuntimeBackend, RuntimeError, RuntimeLookupWorld, RuntimeStage,
@@ -18,6 +19,7 @@ use crate::original_program::{
 use crate::scene_ownership::{SceneFrameOwner, SceneKey};
 use crate::script_lookup::{DetectorCollisionFlags, LookupError, LookupWorldBackend};
 use crate::script_scheduler::{ActorReferenceId, DispatchBudget, FrameReferenceId};
+use crate::traffic_generator::TrafficGeneratorRatios;
 use crate::vehicle_owner::VehicleSectorStatics;
 
 /// The two source libraries have independent CRT locale admissions.
@@ -55,6 +57,23 @@ pub struct MissionProgramWorldContext<'a, B, D> {
     diagnostic: &'a mut D,
     locales: ProgramWorldLocales,
     vehicle_sectors: Option<&'a mut VehicleSectorStatics>,
+    freeride_traffic: Option<FreerideTraffic<'a>>,
+}
+struct FreerideTraffic<'a> {
+    profile: Option<&'a FreerideProfile>,
+    selection: &'a FreerideState,
+    steal_cars: &'a mut u32,
+    ratios: &'a mut TrafficGeneratorRatios,
+}
+impl FreerideTraffic<'_> {
+    fn reborrow(&mut self) -> FreerideTraffic<'_> {
+        FreerideTraffic {
+            profile: self.profile,
+            selection: self.selection,
+            steal_cars: self.steal_cars,
+            ratios: self.ratios,
+        }
+    }
 }
 impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldContext<'a, B, D> {
     pub fn new(
@@ -71,6 +90,7 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
             diagnostic,
             locales,
             vehicle_sectors: None,
+            freeride_traffic: None,
         }
     }
     pub fn with_vehicle_sectors(mut self, sectors: &'a mut VehicleSectorStatics) -> Self {
@@ -79,6 +99,21 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
     }
     pub fn arena_mut(&mut self) -> &mut ModelArena {
         self.arena
+    }
+    pub fn with_freeride_traffic(
+        mut self,
+        profile: Option<&'a FreerideProfile>,
+        selection: &'a FreerideState,
+        steal_cars: &'a mut u32,
+        ratios: &'a mut TrafficGeneratorRatios,
+    ) -> Self {
+        self.freeride_traffic = Some(FreerideTraffic {
+            profile,
+            selection,
+            steal_cars,
+            ratios,
+        });
+        self
     }
     pub fn scene_mut(&mut self) -> &mut FrameReferenceId {
         self.scene
@@ -262,6 +297,10 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
                 diagnostic: &mut *self.diagnostic,
                 locales: self.locales,
                 vehicle_sectors: self.vehicle_sectors.as_deref_mut(),
+                freeride_traffic: self
+                    .freeride_traffic
+                    .as_mut()
+                    .map(FreerideTraffic::reborrow),
             },
         )
     }
@@ -297,6 +336,7 @@ struct MissionLookupWorld<'a, D> {
     diagnostic: &'a mut D,
     locales: ProgramWorldLocales,
     vehicle_sectors: Option<&'a mut VehicleSectorStatics>,
+    freeride_traffic: Option<FreerideTraffic<'a>>,
 }
 impl<D> MissionLookupWorld<'_, D> {
     fn active_scene(&self) -> Result<&SceneFrameOwner, LookupError> {
@@ -582,6 +622,21 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
     }
 }
 impl<D: MissionProgramDiagnostic> RuntimeLookupWorld for MissionLookupWorld<'_, D> {
+    fn freeride_traffic_setup(&mut self) -> Result<(), RuntimeError> {
+        let traffic = self.freeride_traffic.as_mut().ok_or(RuntimeError::Domain(
+            "freeride traffic setup owner unavailable",
+        ))?;
+        let profile = traffic
+            .profile
+            .ok_or(RuntimeError::Domain("freeride traffic profile unavailable"))?;
+        profile.freeride_setup_from_script(
+            traffic.selection,
+            self.world.traffic_tuning_mut(),
+            traffic.ratios,
+            traffic.steal_cars,
+        );
+        Ok(())
+    }
     fn set_traffic_sector_sound(&mut self, name: &[u8]) -> Result<(), RuntimeError> {
         let primary = self.active_scene().map_err(RuntimeError::Lookup)?.sectors[0].frame();
         let sector = crate::frame_lookup::find_primary_sector_by_name(

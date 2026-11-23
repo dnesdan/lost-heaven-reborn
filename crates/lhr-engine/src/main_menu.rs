@@ -181,17 +181,16 @@ impl MenuCameraTarget {
 
 /// G_LoadSaveClass::freeride_enabled levels (g_loadsave.h; the FREERIDE_*
 /// spellings are upstream working names, disclosed here): how much of the
-/// free ride is open. Checked owners (game_loadsave_controls.rs,
-/// game_loadsave_lifecycle.rs ProfileState, mission_load_session.rs) own no
-/// freeride word, so this is a genuine gap.
+/// free ride is open. These are profile unlock levels, not the location
+/// selected by the menu or CLI probe.
 pub const FREERIDE_SMALL_CITY: u32 = 0;
 pub const FREERIDE_CITY: u32 = 1;
 pub const FREERIDE_COUNTRYSIDE: u32 = 2;
 pub const FREERIDE_EXTREME: u32 = 3;
 
 /// Borrowing-ready menu view, currently constructed only in tests. The intended
-/// profile-enabled source remains ProfileState::unknown_1f0 (+0x1f0); that
-/// production connection and a mutable session/menu borrow are not composed.
+/// profile-enabled source is `FreerideProfile::freeride_enabled` (+0x1f0);
+/// that production connection and a mutable session/menu borrow are not composed.
 /// The view itself owns neither a second enabled word nor detached choices.
 #[derive(Debug)]
 pub struct MainMenuFreeride<'a> {

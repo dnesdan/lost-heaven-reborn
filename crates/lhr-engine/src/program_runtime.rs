@@ -1095,6 +1095,11 @@ pub trait RuntimeBackend {
             "traffic sector sound owner unavailable",
         ))
     }
+    fn freeride_traffic_setup(&mut self) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Domain(
+            "freeride traffic setup owner unavailable",
+        ))
+    }
     fn effect(
         &mut self,
         fields: RuntimeView<'_>,
@@ -3920,6 +3925,7 @@ impl<B: RuntimeBackend> Process<'_, B> {
                 };
                 self.backend.set_traffic_sector_sound(name)?;
             }
+            389 => self.backend.freeride_traffic_setup()?,
             1 | 2 => {
                 if opcode == 2 {
                     self.gosub_stack.push(state.program_counter.wrapping_add(1));

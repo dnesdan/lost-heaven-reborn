@@ -8,6 +8,22 @@ use crate::script_scheduler::ActorReferenceId;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Game-wide pedestrian density words, independent of generator instances.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrafficGeneratorRatios {
+    pub all_bits: u32,
+    pub police_bits: u32,
+}
+
+impl Default for TrafficGeneratorRatios {
+    fn default() -> Self {
+        Self {
+            all_bits: 1.0_f32.to_bits(),
+            police_bits: 1.0_f32.to_bits(),
+        }
+    }
+}
+
 /// Explicit allocation seed for constructor-untouched scalar storage. No Default
 /// is supplied: a host policy is not an observation of the original heap.
 #[derive(Clone, Debug, PartialEq, Eq)]

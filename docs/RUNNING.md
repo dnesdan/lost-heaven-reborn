@@ -38,8 +38,9 @@ The first three are unsigned decimal words (CAR is the original database
 descriptor, not a model filename); densities are parsed as f32 without clamping.
 The input writes the real StoreA/StoreB state before Open and survives
 SaveGameNewGame, which only clears active. Setup reads car at GetCarModel,
-location after car cache Open, and flags only after car Init. Density consumers
-remain unreached.
+location after car cache Open, and flags only after car Init. The later script
+command `FREERIDE_TRAFFSETUP` applies the densities only for profiles with a
+Freeride unlock value of at least 3; the fresh profile does not take that branch.
 Invalid car indices stop instead of using the native caller's unwritten name
 buffer or inventing a fallback. Scene lookup searches primary-sector children
 by original name with the native `0xffff` mask, then tries literal `emeth_1` only
@@ -88,12 +89,20 @@ Render and global blend step remain diagnostic. The report counts scheduled
 presents, not observed frames. A reached error stops startup without replay.
 On Windows with Direct3D 12, the original-data selection above scheduled 25
 Open loading frames, the Init scene and one Init loading frame at 800×600
-with layout `1,1,0`. In the November 23, 2026 run, `GameInitStart` returned
-from its call to `TraffSndSect` and stopped at PC 1: `FREERIDE_TRAFFSETUP`
-(opcode 389) is not implemented. The previous stop was inside `TraffSndSect`
-at `SETTRAFFSECTORSND` (317). That command now registers a matching primary
-scene sector for vehicle sounds; it does not start audio or traffic. Terminal
-disposal completed. No player/car coupling or gameplay tick was reached.
+with layout `1,1,0`. In the November 23, 2026 run, `GameInitStart` completed,
+including the call to `TraffSndSect` and `FREERIDE_TRAFFSETUP` (389). Init
+then stopped at `SegmentsLoad`: the AI segment loader reported `original asset
+unavailable` while opening its input. This does not establish why the open
+failed. Terminal disposal completed; no player/car coupling or gameplay tick
+was reached.
+
+`SETTRAFFSECTORSND` (317) registers a matching primary scene sector for vehicle
+sounds; it does not start audio or traffic. With the fresh profile used in this
+run, opcode 389 copies only the race-car mask to the stealable-car mask. When
+the profile's unsigned Freeride unlock value is at least 3, it first copies the
+selected traffic, police and pedestrian densities to the car and pedestrian
+traffic settings. That branch is covered by synthetic tests, not by this run.
+Existing profile files are not decoded or silently treated as fresh profiles.
 
 The script compiler rejects non-ASCII bytes in quoted sector names before
 `SETTRAFFSECTORSND` runs, even if the scene contains a matching name.

@@ -443,6 +443,7 @@ pub struct MissionLoadSession {
     base_cache: CityBaseCache,
     police_init: PoliceGameInitState,
     traffic_flags: TrafficGameFlags,
+    traffic_ratios: crate::traffic_generator::TrafficGeneratorRatios,
     /// The existing C_mission counter owner also supplies the skip_frames
     /// gate read by the first effect in C_mission::Tick (GAME 0x5407e0).
     mission_counters: crate::mission_actor_lists::MissionCounterState,
@@ -461,6 +462,7 @@ pub struct MissionLoadSession {
     /// The `freeride` global's `active` byte (GAME 0x6d4558).
     freeride: crate::game_loadsave_lifecycle::FreerideState,
     freeride_selection_adopted: bool,
+    freeride_profile: Option<crate::game_loadsave_lifecycle::FreerideProfile>,
     car_database: crate::car_database::CarDatabase,
     freeride_setup: FreerideSetupProgress,
     /// Authoritative represented C_game scalar fields used by source-grounded
@@ -760,11 +762,13 @@ impl MissionLoadSession {
             // into them after `Open`. No teardown: pure scalar state.
             police_init: PoliceGameInitState::default(),
             traffic_flags: TrafficGameFlags::default(),
+            traffic_ratios: Default::default(),
             mission_counters: crate::mission_actor_lists::MissionCounterState::default(),
             collision: crate::game_collision::GameCollision::default(),
             load_save_progress: Default::default(),
             freeride: Default::default(),
             freeride_selection_adopted: false,
+            freeride_profile: None,
             car_database: Default::default(),
             freeride_setup: Default::default(),
             game_inline: crate::game_housekeeping::GameInlineState::default(),
@@ -868,7 +872,13 @@ impl MissionLoadSession {
                             diagnostic,
                             locales,
                         )
-                        .with_vehicle_sectors(&mut session.vehicle_sectors),
+                        .with_vehicle_sectors(&mut session.vehicle_sectors)
+                        .with_freeride_traffic(
+                            session.freeride_profile.as_ref(),
+                            &session.freeride,
+                            &mut session.load_save_progress.steal_cars,
+                            &mut session.traffic_ratios,
+                        ),
                     )
             },
         )
@@ -914,7 +924,13 @@ impl MissionLoadSession {
                             diagnostic,
                             locales,
                         )
-                        .with_vehicle_sectors(&mut session.vehicle_sectors),
+                        .with_vehicle_sectors(&mut session.vehicle_sectors)
+                        .with_freeride_traffic(
+                            session.freeride_profile.as_ref(),
+                            &session.freeride,
+                            &mut session.load_save_progress.steal_cars,
+                            &mut session.traffic_ratios,
+                        ),
                     )
             },
         )
@@ -2369,6 +2385,23 @@ impl MissionLoadSession {
         }
         self.load_save_progress.settings = Some(settings);
         Ok(())
+    }
+
+    pub fn adopt_load_save_profile(
+        &mut self,
+        intake: crate::game_loadsave_lifecycle::ProfileFileIntake,
+    ) -> Result<crate::game_loadsave_lifecycle::ProfileSettings, String> {
+        use crate::game_loadsave_lifecycle::{
+            profile_settings_after_load_save_init, FreerideProfile,
+        };
+        if self.freeride_profile.is_some() {
+            return Err("Freeride profile already set by the profile intake".into());
+        }
+        let settings = profile_settings_after_load_save_init(intake)?;
+        let profile = FreerideProfile::after_load_save_init(intake)?;
+        self.adopt_profile_settings(settings)?;
+        self.freeride_profile = Some(profile);
+        Ok(settings)
     }
 
     /// The live `C_game::sound_arena` owner.

@@ -1431,6 +1431,35 @@ fn hud_game_init_without_profile_settings_stops_before_any_store() {
 }
 
 #[test]
+fn profile_intake_does_not_replace_or_partially_install_process_state() {
+    use crate::game_loadsave_lifecycle::{FreerideProfile, ProfileFileIntake::*, ProfileSettings};
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    let mut session = fixture.session();
+    assert!(session.adopt_load_save_profile(ProfileFilePresent).is_err());
+    assert_eq!(session.freeride_profile, None);
+    assert_eq!(session.load_save_progress().settings, None);
+    let settings = session.adopt_load_save_profile(NoProfileFile).unwrap();
+    assert!(session.adopt_load_save_profile(NoProfileFile).is_err());
+    assert_eq!(session.load_save_progress().settings, Some(settings));
+    assert_eq!(
+        session.freeride_profile,
+        Some(FreerideProfile {
+            freeride_enabled: 0,
+            race_cars: 1
+        })
+    );
+
+    let mut session = fixture.session();
+    let existing = ProfileSettings {
+        speedometer_mph: false,
+    };
+    session.adopt_profile_settings(existing).unwrap();
+    assert!(session.adopt_load_save_profile(NoProfileFile).is_err());
+    assert_eq!(session.freeride_profile, None);
+    assert_eq!(session.load_save_progress().settings, Some(existing));
+}
+
+#[test]
 fn profile_settings_are_adopted_once_and_survive_disposal() {
     use crate::game_loadsave_lifecycle::ProfileSettings;
     let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);

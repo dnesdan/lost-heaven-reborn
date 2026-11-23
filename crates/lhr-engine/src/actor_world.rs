@@ -2872,11 +2872,14 @@ impl ActorWorld {
     pub fn traffic_tuning(&self) -> &TrafficTuning {
         &self.traffic_tuning
     }
+    pub(crate) fn traffic_tuning_mut(&mut self) -> &mut TrafficTuning {
+        &mut self.traffic_tuning
+    }
     /// Original C_traffic_car::Init global refresh preceding the base init:
     /// one shared word copy. It persists even when the base init refuses the
     /// frame, so intake runs it before the base init call.
     pub fn refresh_traffic_tuning(&mut self) {
-        self.traffic_tuning.init_copy();
+        self.traffic_tuning_mut().init_copy();
     }
     /// Original C_traffic_car::LoadData version dispatch over the scene2
     /// payload. Versions 4 and 5 share the four-word header plus the counted

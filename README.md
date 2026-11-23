@@ -52,14 +52,14 @@ The cards count each binary's own functions, without the C runtime linked into i
 
 | Binary | Implemented | Verified |
 | --- | ---: | ---: |
-| `Game.exe` | 1178/4914* | 677 |
+| `Game.exe` | 1179/4914* | 677 |
 | `LS3DF.dll` | 1032/1714 | 603 |
 | `rw_data.dll` | 24/62 + 38 covered | 17 |
 | `Setup.exe (supplied configuration)` | 5/172 | 5 |
 
 *Estimate: frozen inventory union. PS2 `SLUS_206.71` supplies linker naming evidence only, without function coverage. Installer/bootstrap helpers (`DrvMgt.dll`, `INet.dll`, `IJoy.dll`, codecs) are unmeasured boundaries, not zero ports.
 
-Script VM: 398 base + 121 entity opcodes decoded; executing frontier advances with the probe (USE_LIGHTCACHE (180); GAME_NIGHTMISSION (81) executes).
+Script VM: 398 base + 121 entity opcodes decoded; executing frontier advances with the probe (USE_LIGHTCACHE (180); GAME_NIGHTMISSION (81) executes; in Freeride, GameInitStart completes after SETTRAFFSECTORSND (317) and FREERIDE_TRAFFSETUP (389)).
 
 Gap: All 62 own functions address-evidenced and audited: 24 behavior ports with Rust code+tests plus 38 construction-covered (4 XCU thunks proven by the live .CRT$XCU table + raw CALL/JMP decode, 12 further CRT startup, empty/synthetic dtors, placement-delete no-op, 16 STL templates; covering symbols + transparent evidence, contract tier only). Region 0x1000-0x1170 fully mapped contiguous, no gaps; Binja-only gap is zero. Oct 26-Nov 3 non-rw_data intake batches (actor factories, VM families, vehicle owners) remain unaudited and count at zero.
 

@@ -492,15 +492,30 @@ pub fn staged_script_content(
 fn profile_file_intake(
     root: &Path,
 ) -> Result<lhr_engine::game_loadsave_lifecycle::ProfileFileIntake, String> {
+    profile_file_intake_with_metadata(root, |path| std::fs::metadata(path))
+}
+
+fn profile_file_intake_with_metadata(
+    root: &Path,
+    metadata: impl Fn(&Path) -> std::io::Result<std::fs::Metadata>,
+) -> Result<lhr_engine::game_loadsave_lifecycle::ProfileFileIntake, String> {
     use lhr_engine::game_loadsave_lifecycle::ProfileFileIntake;
+    let file_type = |path: &Path| {
+        metadata(path)
+            .map(|info| info.file_type())
+            .map_err(|error| format!("{}: {error}", path.display()))
+    };
     let entries =
         std::fs::read_dir(root).map_err(|error| format!("{}: {error}", root.display()))?;
     for entry in entries {
         let entry = entry.map_err(|error| format!("{}: {error}", root.display()))?;
-        if !entry.file_name().eq_ignore_ascii_case("savegame") || !entry.path().is_dir() {
+        if !entry.file_name().eq_ignore_ascii_case("savegame") {
             continue;
         }
         let directory = entry.path();
+        if !file_type(&directory)?.is_dir() {
+            continue;
+        }
         let files = std::fs::read_dir(&directory)
             .map_err(|error| format!("{}: {error}", directory.display()))?;
         for file in files {
@@ -515,7 +530,7 @@ fn profile_file_intake(
                 digits.len() == 3
                     && digits.bytes().all(|b| b.is_ascii_digit())
                     && digits.parse::<u32>().is_ok_and(|slot| slot < 0x20)
-            }) && file.path().is_file()
+            }) && file_type(&file.path())?.is_file()
             {
                 return Ok(ProfileFileIntake::ProfileFilePresent);
             }
@@ -685,15 +700,11 @@ pub(super) fn run_freeride_start(
         ));
     }
     let profile = profile_file_intake(root);
-    let settings = profile.clone().and_then(|intake| {
-        lhr_engine::game_loadsave_lifecycle::profile_settings_after_load_save_init(intake)
-            .map_err(str::to_owned)
-    });
+    let settings = profile
+        .clone()
+        .and_then(|intake| session.adopt_load_save_profile(intake));
     let settings_status = match settings {
-        Ok(settings) => {
-            session.adopt_profile_settings(settings)?;
-            "adopted".to_owned()
-        }
+        Ok(_) => "adopted".to_owned(),
         Err(error) => format!("unavailable: {error}"),
     };
     let input = profile.and_then(|intake| {
@@ -915,13 +926,9 @@ pub fn run(
     // savegame directory. A refused intake leaves them unset, and Init's
     // HUD GameInit reports it.
     let file_intake = profile_file_intake(root);
-    let profile_intake = file_intake.clone().and_then(|intake| {
-        lhr_engine::game_loadsave_lifecycle::profile_settings_after_load_save_init(intake)
-            .map_err(str::to_owned)
-    });
-    if let Ok(settings) = &profile_intake {
-        session.adopt_profile_settings(*settings)?;
-    }
+    let profile_intake = file_intake
+        .clone()
+        .and_then(|intake| session.adopt_load_save_profile(intake));
     let input_intake = file_intake.and_then(|intake| {
         lhr_engine::game_loadsave_controls::profile_bindings_after_load_save_init(intake)
             .map_err(str::to_owned)
@@ -1745,6 +1752,22 @@ mod probe_text_tests {
             profile_file_intake(&root),
             Ok(ProfileFileIntake::ProfileFilePresent)
         );
+        for denied in [saves.clone(), saves.join("MAFIA031.SAV")] {
+            let result = profile_file_intake_with_metadata(&root, |path| {
+                if path == denied {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "metadata denied",
+                    ))
+                } else {
+                    std::fs::metadata(path)
+                }
+            });
+            assert_eq!(
+                result,
+                Err(format!("{}: metadata denied", denied.display()))
+            );
+        }
         std::fs::remove_dir_all(&root).unwrap();
         assert!(profile_file_intake(&root).is_err());
     }
