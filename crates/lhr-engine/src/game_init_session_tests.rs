@@ -2,6 +2,7 @@
 //! Pins native order, unavailable-dependency prefixes and the preserved
 //! scalar prefix; never runs actor `GameInit`, scripts or rendering.
 use super::*;
+use crate::game_init_car_tables::{CarTablesOperation, CarTablesOutcome, GameInitCarTablesState};
 use crate::mission_load_session::MissionLoadSession;
 use crate::native_precision::Pc24PrecisionState;
 
@@ -586,5 +587,239 @@ fn segments_admission_failure_does_not_consume_the_load_attempt() {
     assert!(session.segments_load_for_init().is_err());
     assert!(session.ai_manager().segments.clusters().is_empty());
     assert_eq!(session.discard_progress(), &progress);
+    assert_eq!(session.owned_counts().unwrap(), Default::default());
+}
+
+struct CarTablesTestDevice;
+
+impl crate::scene_projection::SceneRenderBackend for CarTablesTestDevice {
+    fn render_scene(
+        &mut self,
+        arena: &crate::model_loading::ModelArena,
+        scene: crate::scene_ownership::SceneKey,
+    ) -> Result<u32, crate::model_loading::ModelError> {
+        assert_eq!(arena.scene_active_camera(scene).unwrap(), None);
+        Ok(crate::scene_projection::NOT_INITIALIZED)
+    }
+}
+
+impl crate::load_scene_callback::LoadingScreenDevice for CarTablesTestDevice {
+    fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn present_loading_screen(
+        &mut self,
+        _: crate::load_scene_callback::LoadingScreenFrame<'_>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+fn open_mise01_for_car_tables(fixture: &Fixture, session: &mut MissionLoadSession) {
+    use crate::game_camera_projection::GameCameraProjection;
+    use crate::host_scene_adapters::InspectionScreen;
+    use crate::mission_open_order::{OpenAttempt, OpenResult};
+
+    let mut world = b"4DS\0".to_vec();
+    world.extend(29u16.to_le_bytes());
+    world.extend([0; 8]);
+    world.extend(0u16.to_le_bytes());
+    world.extend(0u16.to_le_bytes());
+    world.push(0);
+    fixture.write("missions/mise01/scene.4ds", &world);
+    fixture.write("missions/mise01/scene2.bin", &scene2(&[]));
+    assert_eq!(
+        session.open_source_in_order(
+            &mut OpenAttempt::default(),
+            "mise01",
+            false,
+            &[],
+            GameCameraProjection {
+                global_mode: 0,
+                screen_flag_46f4: false,
+            },
+            &mut InspectionScreen {
+                size: [800, 600],
+                viewport: [0, 0, 800, 600],
+            },
+            &mut CarTablesTestDevice,
+        ),
+        Ok(OpenResult::Opened),
+        "{:?}",
+        session.failure()
+    );
+    assert!(session.game_state().intern_load());
+    assert_car_table_allocations(session, 0);
+}
+
+fn assert_car_table_allocations(session: &MissionLoadSession, expected: usize) {
+    let counts = session.owned_counts().unwrap();
+    assert_eq!(counts.mission_car_heap_allocations, expected);
+    assert_eq!(counts.mission_car_table_allocations, expected);
+}
+
+fn assert_car_tables(
+    session: &MissionLoadSession,
+    state: GameInitCarTablesState,
+    loader_returns: [Option<bool>; 3],
+) {
+    assert_eq!(session.init_car_tables().state(), state);
+    assert_eq!(session.init_car_tables().loader_returns(), loader_returns);
+}
+
+fn assert_car_tables_no_replay(
+    session: &mut MissionLoadSession,
+    state: GameInitCarTablesState,
+    loader_returns: [Option<bool>; 3],
+) {
+    let counts = session.owned_counts().unwrap();
+    let error = session.execute(InitStep::CarTables).unwrap_err();
+    assert!(error.0.starts_with("CarTables:"), "{error}");
+    assert!(error.0.contains("no replay"), "{error}");
+    assert_car_tables(session, state, loader_returns);
+    assert_eq!(session.owned_counts().unwrap(), counts);
+}
+
+const EMPTY_TYRE_FILE: [u8; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
+
+#[test]
+fn car_tables_cannot_start_until_segments_returns() {
+    use crate::game_ai_segments::{SegmentsLoadStage, SegmentsLoadState};
+
+    let fixture = Fixture::new();
+    fixture.write("tables/tyres.bin", &EMPTY_TYRE_FILE);
+    let mut session = fixture.session();
+    let counts = session.owned_counts().unwrap();
+    let error = session.execute(InitStep::CarTables).unwrap_err();
+    assert!(error.0.starts_with("CarTables:"), "{error}");
+    assert!(error.0.contains("completed open prefix"), "{error}");
+    assert_car_tables(&session, GameInitCarTablesState::Ready, [None; 3]);
+    assert_eq!(session.owned_counts().unwrap(), counts);
+
+    open_mise01_for_car_tables(&fixture, &mut session);
+    let counts = session.owned_counts().unwrap();
+    let error = session.car_tables_for_init().unwrap_err();
+    assert!(error.contains("SegmentsLoad"), "{error}");
+    assert_car_tables(&session, GameInitCarTablesState::Ready, [None; 3]);
+    assert_eq!(session.owned_counts().unwrap(), counts);
+
+    let error = session.execute(InitStep::SegmentsLoad).unwrap_err();
+    assert!(error.0.starts_with("SegmentsLoad:"), "{error}");
+    assert!(error.0.contains("MissingOriginalAsset"), "{error}");
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::Interrupted(SegmentsLoadStage::Open)
+    );
+    let counts = session.owned_counts().unwrap();
+    let error = session.execute(InitStep::CarTables).unwrap_err();
+    assert!(error.0.starts_with("CarTables:"), "{error}");
+    assert!(error.0.contains("SegmentsLoad"), "{error}");
+    assert_car_tables(&session, GameInitCarTablesState::Ready, [None; 3]);
+    assert_eq!(session.owned_counts().unwrap(), counts);
+    session.discard_terminal().unwrap();
+    assert_eq!(session.owned_counts().unwrap(), Default::default());
+}
+
+fn assert_car_tables_stops_after_tyres(session: &mut MissionLoadSession, tyres: bool) {
+    let error = session.execute(InitStep::CarTables).unwrap_err();
+    assert!(error.0.starts_with("CarTables: LoadMaterials:"), "{error}");
+    let state = GameInitCarTablesState::Interrupted(CarTablesOperation::LoadMaterials);
+    let returns = [Some(tyres), None, None];
+    assert_car_tables(session, state, returns);
+    assert_car_table_allocations(session, 1);
+    assert_car_tables_no_replay(session, state, returns);
+    session.discard_terminal().unwrap();
+    assert_eq!(session.owned_counts().unwrap(), Default::default());
+}
+
+#[test]
+fn car_tables_reaches_materials_after_missing_tyres_returns_false() {
+    use crate::game_ai_segments::SegmentsLoadState;
+
+    let fixture = Fixture::new();
+    fixture.write("missions/mise01/clusters.seg", &segments_test_header(0));
+    let mut session = fixture.session();
+    open_mise01_for_car_tables(&fixture, &mut session);
+    assert_eq!(session.segments_load_for_init(), Ok(true));
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::Loaded
+    );
+    assert_car_tables_stops_after_tyres(&mut session, false);
+}
+
+#[test]
+fn car_tables_reaches_materials_with_empty_tyres_after_rejected_segments_header() {
+    use crate::game_ai_segments::SegmentsLoadState;
+
+    let fixture = Fixture::new();
+    fixture.write("missions/mise01/clusters.seg", &[0x5a; 16]);
+    fixture.write("tables/tyres.bin", &EMPTY_TYRE_FILE);
+    let mut session = fixture.session();
+    open_mise01_for_car_tables(&fixture, &mut session);
+    assert_eq!(session.execute(InitStep::SegmentsLoad), Ok(()));
+    assert_eq!(
+        session.ai_manager().segments.state(),
+        SegmentsLoadState::RejectedHeader
+    );
+    assert_car_tables_stops_after_tyres(&mut session, true);
+}
+
+#[test]
+fn car_tables_truncated_tyres_keep_reached_allocations_without_a_return() {
+    let fixture = Fixture::new();
+    fixture.write("missions/mise01/clusters.seg", &segments_test_header(0));
+    let mut tyres = Vec::new();
+    for word in [1u32, 1, 0] {
+        tyres.extend(word.to_le_bytes());
+    }
+    tyres.extend([0; 32]);
+    for word in [0u32, 1, 0, 72] {
+        tyres.extend(word.to_le_bytes());
+    }
+    tyres.extend([0xaa, 0xbb]);
+    fixture.write("tables/tyres.bin", &tyres);
+    let mut session = fixture.session();
+    open_mise01_for_car_tables(&fixture, &mut session);
+    assert_eq!(session.execute(InitStep::SegmentsLoad), Ok(()));
+    let error = session.execute(InitStep::CarTables).unwrap_err();
+    assert!(error.0.starts_with("CarTables: LoadTyres:"), "{error}");
+    assert!(
+        error
+            .0
+            .contains("ShortRead { field: Payload, expected: 72, actual: 2 }"),
+        "{error}"
+    );
+    let state = GameInitCarTablesState::Interrupted(CarTablesOperation::LoadTyres);
+    assert_car_tables(&session, state, [None; 3]);
+    assert_car_table_allocations(&session, 3);
+
+    fixture.write("tables/tyres.bin", &EMPTY_TYRE_FILE);
+    assert_car_tables_no_replay(&mut session, state, [None; 3]);
+    session.discard_terminal().unwrap();
+    assert_eq!(session.owned_counts().unwrap(), Default::default());
+}
+
+#[test]
+fn car_tables_skips_with_intern_load_clear_after_segments_returns() {
+    let fixture = Fixture::new();
+    fixture.write("missions/mise01/scene2.bin", &scene2(&[]));
+    fixture.write("missions/mise01/clusters.seg", &segments_test_header(0));
+    let mut session = fixture.session();
+    session.set_open_mission_name("mise01").unwrap();
+    assert!(session.open_bin_probe_for_open("mise01").unwrap());
+    session.mark_open_mission_opened().unwrap();
+    assert!(!session.game_state().intern_load());
+
+    assert_eq!(session.segments_load_for_init(), Ok(true));
+    let counts = session.owned_counts().unwrap();
+    assert_eq!(session.car_tables_for_init(), Ok(CarTablesOutcome::Skipped));
+    let state = GameInitCarTablesState::Complete(CarTablesOutcome::Skipped);
+    assert_car_tables(&session, state, [None; 3]);
+    assert_car_table_allocations(&session, 0);
+    assert_eq!(session.owned_counts().unwrap(), counts);
+    assert_car_tables_no_replay(&mut session, state, [None; 3]);
+    session.discard_terminal().unwrap();
     assert_eq!(session.owned_counts().unwrap(), Default::default());
 }

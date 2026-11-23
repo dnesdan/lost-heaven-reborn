@@ -889,6 +889,106 @@ fn initialized_host_audio_creates_and_releases_actual_listener() {
 }
 
 #[test]
+fn car_tables_replace_lazily_loaded_tyres_in_the_live_vehicle_backend() {
+    use crate::game_init_order::{InitOperations, InitStep};
+
+    fn tyre_file(material: u32, coefficient: f32, raw: u32) -> Vec<u8> {
+        let mut bytes: Vec<_> = [1u32, 1, 0]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect();
+        bytes.extend([0; 32]);
+        bytes.extend(
+            [7u32, 1, material, 72]
+                .into_iter()
+                .flat_map(u32::to_le_bytes),
+        );
+        let mut payload = [0u32; 18];
+        payload[0] = coefficient.to_bits();
+        payload[2] = raw;
+        bytes.extend(payload.into_iter().flat_map(u32::to_le_bytes));
+        bytes
+    }
+
+    fn first_surface(session: &mut MissionLoadSession) -> [u32; 3] {
+        session
+            .loader
+            .as_mut()
+            .unwrap()
+            .content
+            .actors
+            .world
+            .first_tyre_surface_for_test(&mut session.arena, &session.installation)
+    }
+
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    std::fs::write(fixture.0.join("missions/synthetic/clusters.seg"), [0; 16]).unwrap();
+    let tables = fixture.0.join("tables");
+    std::fs::create_dir_all(&tables).unwrap();
+    let tyres = tables.join("tyres.bin");
+    std::fs::write(&tyres, tyre_file(11, 1.5, 0x8000_0000)).unwrap();
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    assert_eq!(
+        session
+            .owned_counts()
+            .unwrap()
+            .mission_car_table_allocations,
+        0
+    );
+    assert_eq!(
+        first_surface(&mut session),
+        [11, 1500f32.to_bits(), 0x8000_0000]
+    );
+
+    std::fs::write(&tyres, tyre_file(23, 2.25, 0x4040_0001)).unwrap();
+    assert_eq!(session.segments_load_for_init(), Ok(false));
+    assert!(session
+        .execute(InitStep::CarTables)
+        .unwrap_err()
+        .0
+        .starts_with("CarTables: LoadMaterials:"));
+    assert_eq!(
+        session.init_car_tables().loader_returns(),
+        [Some(true), None, None]
+    );
+    std::fs::write(&tyres, [0xff]).unwrap();
+    assert_eq!(
+        first_surface(&mut session),
+        [23, 2250f32.to_bits(), 0x4040_0001]
+    );
+    discard(&mut session);
+}
+
+#[test]
+fn car_tables_clear_the_new_mission_flag_only_after_segments_return() {
+    let fixture = Fixture::new(Some(&world(&[])), Some(&scene2(&[])), None);
+    std::fs::write(fixture.0.join("missions/synthetic/clusters.seg"), [0; 16]).unwrap();
+    let mut session = fixture.session();
+    load(&mut session, &[]).unwrap();
+    session.active_new_mission = true;
+    assert!(session
+        .car_tables_for_init()
+        .unwrap_err()
+        .contains("SegmentsLoad"));
+    assert!(session.active_new_mission);
+    assert_eq!(session.segments_load_for_init(), Ok(false));
+    assert!(session.active_new_mission);
+    assert!(session
+        .car_tables_for_init()
+        .unwrap_err()
+        .starts_with("LoadMaterials:"));
+    assert!(!session.active_new_mission);
+    session.active_new_mission = true;
+    assert!(session
+        .car_tables_for_init()
+        .unwrap_err()
+        .contains("no replay"));
+    assert!(session.active_new_mission);
+    discard(&mut session);
+}
+
+#[test]
 fn game_init_reset_reads_actual_scene_weather_and_stops_at_unowned_render() {
     let fixture = Fixture::new(Some(&world(&[dummy(0, b"part")])), Some(&scene2(&[])), None);
     let mut session = fixture.session();

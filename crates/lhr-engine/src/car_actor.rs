@@ -168,6 +168,30 @@ impl CarActorServices {
             )
         }
     }
+    pub(crate) fn init_backend<'a>(
+        &'a mut self,
+        arena: &'a mut ModelArena,
+        installation: Option<&'a lhr_assets::Installation>,
+    ) -> VehicleFrameBackend<'a, VehicleFrameMemory> {
+        let backend = match installation {
+            Some(source) => VehicleFrameBackend::with_installation(arena, &mut self.memory, source),
+            None => VehicleFrameBackend::new(arena, &mut self.memory),
+        };
+        backend
+            .with_car_track_resources(&mut self.tracks)
+            .with_vehicle_tables(&mut self.tables)
+    }
+    pub(crate) fn load_tyres_for_init(
+        &mut self,
+        installation: &lhr_assets::Installation,
+    ) -> Result<bool, String> {
+        self.with_precision(|services| {
+            services
+                .tables
+                .load_installed_tyres(&mut services.memory, installation)
+                .map_err(|error| format!("Init LoadTyres: {error:?}"))
+        })
+    }
     pub(crate) fn table_allocations(&self) -> usize {
         self.tables.live_allocation_count()
     }
@@ -596,15 +620,7 @@ impl CarActorState {
         vehicle
             .finish_car_init_after_base(&mut services.memory, self.identity, model)
             .map_err(|e| format!("car Init caller: {e:?}"))?;
-        let backend = match installation {
-            Some(source) => {
-                VehicleFrameBackend::with_installation(arena, &mut services.memory, source)
-            }
-            None => VehicleFrameBackend::new(arena, &mut services.memory),
-        };
-        let mut backend = backend
-            .with_car_track_resources(&mut services.tracks)
-            .with_vehicle_tables(&mut services.tables);
+        let mut backend = services.init_backend(arena, installation);
         vehicle
             .init_car_after_actor(&mut backend, model, storage, || {
                 self.vehicle_returned_initialized = true

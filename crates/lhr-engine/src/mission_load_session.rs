@@ -12,6 +12,9 @@ use crate::driver_scene::{
 };
 use crate::frame_sound::SoundError;
 use crate::game_camera_projection::GameCameraProjection;
+use crate::game_init_car_tables::{
+    CarTablesOutcome, GameInitCarTables, GameInitCarTablesError, GameInitCarTablesHost,
+};
 use crate::host_scene_adapters::InstallationImages;
 use crate::i3d_object::{lightmap_atlas::AtlasStatistics, LitStorageCounts};
 use crate::itexture::{CpuTextureStorage, TextureError, TextureResources};
@@ -420,6 +423,13 @@ pub enum MissionDiscardCallError {
     Stopped,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SegmentsLoadCall {
+    NotEntered,
+    Entered,
+    Returned,
+}
+
 /// One terminal host loading attempt over one Installation and one ownership
 /// domain. Read-only getters expose evidence; there is no mutable escape hatch
 /// for replacing its arena, cache memory, textures, or driver underneath a load.
@@ -474,7 +484,9 @@ pub struct MissionLoadSession {
     game_init_consoles: crate::game_init_consoles::GameInitConsoles,
     saved_init_fast_find: Option<crate::game_init_consoles::SavedFastFind>,
     driver_and_consoles_entered: bool,
-    segments_load_entered: bool,
+    segments_load_call: SegmentsLoadCall,
+    active_new_mission: bool,
+    init_car_tables: GameInitCarTables,
     /// `C_crash_obj::count` (GAME 0x63d6d4), session-scoped like the other
     /// process statics. Starts at the zeroed process seed; crash actor
     /// GameInit/GameDone and Tick producers are not composed here. The
@@ -776,7 +788,9 @@ impl MissionLoadSession {
             game_init_consoles: Default::default(),
             saved_init_fast_find: None,
             driver_and_consoles_entered: false,
-            segments_load_entered: false,
+            segments_load_call: SegmentsLoadCall::NotEntered,
+            active_new_mission: false,
+            init_car_tables: GameInitCarTables::default(),
             crash_object_count: 0,
             shadow_name_buffers: Default::default(),
             indicators: None,
@@ -2290,19 +2304,51 @@ impl MissionLoadSession {
 
     pub fn segments_load_for_init(&mut self) -> Result<bool, String> {
         self.game_init_admission()?;
-        if self.segments_load_entered {
+        if self.segments_load_call != SegmentsLoadCall::NotEntered {
             return Err("AIManager.segments.Load already entered; no replay".into());
         }
-        self.segments_load_entered = true;
+        self.segments_load_call = SegmentsLoadCall::Entered;
         let name = self
             .open_mission_name
             .as_deref()
             .ok_or("AIManager.segments.Load: act_mission mission_name unset")?;
         let mut io = crate::game_ai_segments_io::InstallationSegmentsIo::new(&self.installation);
-        self.ai_manager
+        let loaded = self
+            .ai_manager
             .segments
             .load(name, &mut io)
-            .map_err(|error| format!("AIManager.segments.Load: {error:?}"))
+            .map_err(|error| format!("AIManager.segments.Load: {error:?}"))?;
+        self.segments_load_call = SegmentsLoadCall::Returned;
+        Ok(loaded)
+    }
+
+    pub fn init_car_tables(&self) -> &GameInitCarTables {
+        &self.init_car_tables
+    }
+
+    pub fn car_tables_for_init(&mut self) -> Result<CarTablesOutcome, String> {
+        self.game_init_admission()?;
+        if self.segments_load_call != SegmentsLoadCall::Returned {
+            return Err("SegmentsLoad must return before car tables".into());
+        }
+        Pc24PrecisionState::run_owner(
+            self,
+            |session| &mut session.precision,
+            |session| {
+                session.init_car_tables.run(&mut SessionCarTablesHost {
+                    active_new_mission: &mut session.active_new_mission,
+                    game: &session.game_inline,
+                    loader: session.loader.as_mut(),
+                    installation: &session.installation,
+                })
+            },
+        )
+        .map_err(|error| match error {
+            GameInitCarTablesError::Owner { operation, error } => format!("{operation:?}: {error}"),
+            GameInitCarTablesError::AlreadyStarted => {
+                "car tables already entered; no replay".into()
+            }
+        })
     }
 
     /// `C_effects::LoadStaticParticles` (GAME 0x44ad30) over the session:
@@ -3085,6 +3131,44 @@ pub fn forward_mission_progress<S: MissionProgressSink>(
         show_progress_bits(chunk_pos, chunk_file_size, can_show_progress),
         MISSION_PROGRESS_STEP,
     );
+}
+
+struct SessionCarTablesHost<'a> {
+    active_new_mission: &'a mut bool,
+    game: &'a crate::game_housekeeping::GameInlineState,
+    loader: Option<&'a mut MissionSceneLoader>,
+    installation: &'a lhr_assets::Installation,
+}
+
+impl GameInitCarTablesHost for SessionCarTablesHost<'_> {
+    type Error = String;
+
+    fn clear_active_new_mission(&mut self) -> Result<(), String> {
+        *self.active_new_mission = false;
+        Ok(())
+    }
+
+    fn intern_load(&mut self) -> Result<bool, String> {
+        Ok(self.game.intern_load())
+    }
+
+    fn load_tyres(&mut self) -> Result<bool, String> {
+        self.loader
+            .as_mut()
+            .ok_or("mission actor world unavailable")?
+            .content
+            .actors
+            .world
+            .load_car_tyres_for_init(self.installation)
+    }
+
+    fn load_materials(&mut self) -> Result<bool, String> {
+        Err("startup material definitions unavailable".into())
+    }
+
+    fn load_particles(&mut self) -> Result<bool, String> {
+        Err("vehicle particle owner unavailable".into())
+    }
 }
 
 struct SessionConsoleHost<'a> {

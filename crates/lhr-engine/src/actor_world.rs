@@ -1854,10 +1854,37 @@ impl ActorWorld {
             );
         Ok(())
     }
+    /// Run the Init tyre load on the configured mission car services.
+    pub(crate) fn load_car_tyres_for_init(
+        &mut self,
+        installation: &lhr_assets::Installation,
+    ) -> Result<bool, String> {
+        self.car_services
+            .as_mut()
+            .ok_or("Init LoadTyres: mission car services unavailable")?
+            .load_tyres_for_init(installation)
+    }
     pub fn live_car_table_allocation_count(&self) -> usize {
         self.car_services
             .as_ref()
             .map_or(0, CarActorServices::table_allocations)
+    }
+    #[cfg(test)]
+    pub(crate) fn first_tyre_surface_for_test(
+        &mut self,
+        arena: &mut crate::model_loading::ModelArena,
+        installation: &lhr_assets::Installation,
+    ) -> [u32; 3] {
+        use crate::vehicle_init::VehicleInitBackend;
+        self.car_services
+            .as_mut()
+            .unwrap()
+            .with_precision(|services| {
+                let mut backend = services.init_backend(arena, Some(installation));
+                let surface =
+                    crate::vehicle_dynamics_prepare::material_record(&mut backend, 1, 0).unwrap();
+                [0, 4, 12].map(|offset| backend.read_word(surface + offset).unwrap())
+            })
     }
     /// Inspector only: includes dead/interrupted actual owners without reviving
     /// them, and validates each pointer against its non-reused backend lease.

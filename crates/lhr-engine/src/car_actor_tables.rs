@@ -1050,6 +1050,30 @@ impl VehicleTableResources {
         result
     }
 
+    /// The caller supplies the active precision policy. An explicit load runs
+    /// the existing replacement even after a completed lazy load.
+    pub(crate) fn load_installed_tyres<B: VehicleInitBackend>(
+        &mut self,
+        host: &mut B,
+        installation: &Installation,
+    ) -> Result<bool, VehicleTableError<B::Error>> {
+        let mut file = InstallationTyreFile::new(installation);
+        let result = crate::game_init_car_tables::load_tyres_from_file(self, host, &mut file);
+        if let Some(stream) = file.into_open_stream() {
+            self.retained_tyre_files.push(stream);
+        }
+        result.map_err(|error| match error {
+            LoadTyresError::Owner(VehicleTyreError::Host(error)) => VehicleTableError::Host(error),
+            LoadTyresError::Owner(VehicleTyreError::Boundary(error)) => {
+                VehicleTableError::Load(format!("LoadTyres boundary: {error:?}"))
+            }
+            LoadTyresError::Owner(VehicleTyreError::AlreadyStarted) => {
+                VehicleTableError::Interrupted
+            }
+            LoadTyresError::File(error) => VehicleTableError::Load(error),
+        })
+    }
+
     /// Unknown addresses never trigger IO, including after a failed known read.
     /// Caller holds the original precision policy while the existing projection
     /// performs its established arithmetic. A failed intake cannot be replayed.
@@ -1073,24 +1097,7 @@ impl VehicleTableResources {
                     self.tyre_state = TyreLoadState::Interrupted(TyreOperation::Open);
                     return Err(VehicleTableError::MissingInstallation);
                 };
-                let mut file = InstallationTyreFile::new(installation);
-                let result =
-                    crate::game_init_car_tables::load_tyres_from_file(self, host, &mut file);
-                if let Some(stream) = file.into_open_stream() {
-                    self.retained_tyre_files.push(stream);
-                }
-                result.map_err(|error| match error {
-                    LoadTyresError::Owner(VehicleTyreError::Host(error)) => {
-                        VehicleTableError::Host(error)
-                    }
-                    LoadTyresError::Owner(VehicleTyreError::Boundary(error)) => {
-                        VehicleTableError::Load(format!("LoadTyres boundary: {error:?}"))
-                    }
-                    LoadTyresError::Owner(VehicleTyreError::AlreadyStarted) => {
-                        VehicleTableError::Interrupted
-                    }
-                    LoadTyresError::File(error) => VehicleTableError::Load(error),
-                })?;
+                self.load_installed_tyres(host, installation)?;
             }
             if !matches!(self.tyre_state, TyreLoadState::Complete(_)) {
                 return Err(VehicleTableError::Interrupted);

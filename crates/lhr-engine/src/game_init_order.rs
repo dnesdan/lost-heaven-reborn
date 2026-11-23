@@ -50,7 +50,7 @@ pub enum InitStep {
     DriverAndConsoles,
     /// `AIManager.segments.Load`.
     SegmentsLoad,
-    /// Car tyre/material/particle tables (`intern_load` only).
+    /// Clear `ActiveNewMission`, then load car tables only if `intern_load` is set.
     CarTables,
     /// Hydrants, dabing, using-objects, wheel-animation times.
     HydrantsAndWheels,
@@ -283,10 +283,11 @@ where
 /// HUD `GameInit` dial/icon selection, the `EffectsStart` box-placement
 /// clears, `LoadStaticParticles`, `Mission_Start` and `DeRiciConns` up to
 /// `ff_manager.GameInit`, the borrowed diff-list and crash-counter resets,
-/// the base-cache `IsOpen` read, and the `MarkInitialized`
-/// flag write. Every other boundary returns `Err` with its step prefix and
-/// preserves the reached live prefix: the driver stops at the first
-/// unowned step. Actor `GameInit` and rendering never run here. This is the owned
+/// the base-cache `IsOpen` read, segment loading and, after its normal return,
+/// the new-mission flag clear and gated load of the shared tyre table. The
+/// `MarkInitialized` step owns its flag write. The driver stops at the first
+/// unowned step, reports its name and preserves earlier effects.
+/// Actor `GameInit` and rendering never run here. This is the owned
 /// `Init` prefix without claiming gameplay.
 impl InitOperations for crate::mission_load_session::MissionLoadSession {
     type Error = SessionInitError;
@@ -342,7 +343,10 @@ impl InitOperations for crate::mission_load_session::MissionLoadSession {
                 .segments_load_for_init()
                 .map(|_| ())
                 .map_err(|detail| SessionInitError::prefixed(step, detail)),
-            InitStep::CarTables => Err(SessionInitError::unavailable(step, "car tables")),
+            InitStep::CarTables => self
+                .car_tables_for_init()
+                .map(|_| ())
+                .map_err(|detail| SessionInitError::prefixed(step, detail)),
             InitStep::HydrantsAndWheels => {
                 Err(SessionInitError::unavailable(step, "hydrants/wheels"))
             }

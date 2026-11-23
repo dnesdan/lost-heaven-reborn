@@ -82,7 +82,7 @@ pub(crate) fn store_float<B: VehicleInitBackend>(
 
 // The table root is the original PC global, not a configurable substitute for
 // game surface data. Both pointer loads are repeated at their original uses.
-fn material_record<B: VehicleInitBackend>(
+pub(crate) fn material_record<B: VehicleInitBackend>(
     b: &mut B,
     material: u32,
     index: u32,

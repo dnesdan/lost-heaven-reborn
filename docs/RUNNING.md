@@ -106,6 +106,15 @@ the header without checking whether open or read succeeded. No stock run has
 established that it returns normally for this missing file. Rust stops at
 open rather than substituting another mission's data or skipping the step.
 
+When the segment loader returns normally (including a rejected header), Init
+clears the new-mission flag and checks `intern_load`. If set, it calls
+`LoadTyres` on the car actors' shared vehicle tables. A missing tyre file
+returns false and leaves only the built-in user tyre; a short read interrupts
+the load. Either normal tyre return reaches `LoadMaterials`, where the session
+still lacks the startup material definitions. With `intern_load` clear, Init
+skips all three table loaders. Neither path advances the
+Freeride run described above past its missing segment file.
+
 `SETTRAFFSECTORSND` (317) registers a matching primary scene sector for vehicle
 sounds; it does not start audio or traffic. With the fresh profile used in this
 run, opcode 389 copies only the race-car mask to the stealable-car mask. When
