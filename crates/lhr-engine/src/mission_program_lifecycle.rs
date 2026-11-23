@@ -140,6 +140,7 @@ pub enum NamedGlobalProgramError {
     GameOwner(String),
     MissingCurrentProgram(usize),
     MissingProgramName(usize),
+    SuspendedCallerUnavailable,
     Runtime { index: usize, error: RuntimeError },
 }
 impl MissionContentOwner {

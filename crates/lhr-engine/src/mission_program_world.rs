@@ -635,6 +635,69 @@ impl MissionContentOwner {
         D: MissionProgramDiagnostic,
         G: GameGlobalProgramWorldRunner<B, D>,
     {
+        let outcome = self.select_global_program(name, game, budget, context)?;
+        let NamedGlobalProgramOutcome::MissionHandled { mut index } = outcome else {
+            return Ok(outcome);
+        };
+        let mut callers = Vec::new();
+        let mut returning = None;
+        loop {
+            let program = self
+                .programs
+                .get_mut(index)
+                .ok_or(NamedGlobalProgramError::MissingCurrentProgram(index))?;
+            let call = {
+                let (effects, mut live) = context.split_world(&mut self.actors.world);
+                program
+                    .run_mission_subroutine(
+                        returning.take(),
+                        budget,
+                        &mut LookupRuntimeBackend::new(effects, &mut live),
+                    )
+                    .map_err(|error| NamedGlobalProgramError::Runtime { index, error })?
+            };
+            if let Some(call) = call {
+                callers.push((index, call.caller));
+                if let NamedGlobalProgramOutcome::MissionHandled { index: callee } =
+                    self.select_global_program(&call.target, game, budget, context)?
+                {
+                    index = callee;
+                    continue;
+                }
+            }
+            let Some((hint, ticket)) = callers.pop() else {
+                return Ok(NamedGlobalProgramOutcome::MissionHandled { index });
+            };
+            self.available()
+                .map_err(NamedGlobalProgramError::SourceUnavailable)?;
+            index = if self
+                .programs
+                .get(hint)
+                .is_some_and(|program| program.awaits_global_return(&ticket))
+            {
+                hint
+            } else {
+                self.programs
+                    .iter()
+                    .position(|program| program.awaits_global_return(&ticket))
+                    .ok_or(NamedGlobalProgramError::SuspendedCallerUnavailable)?
+            };
+            returning = Some(ticket);
+        }
+    }
+
+    fn select_global_program<B, D, G>(
+        &mut self,
+        name: &[u8],
+        game: &mut G,
+        budget: &mut DispatchBudget,
+        context: &mut MissionProgramWorldContext<'_, B, D>,
+    ) -> Result<NamedGlobalProgramOutcome, NamedGlobalProgramError>
+    where
+        B: RuntimeBackend,
+        D: MissionProgramDiagnostic,
+        G: GameGlobalProgramWorldRunner<B, D>,
+    {
         self.named_program_run_admission(name)?;
         if game
             .run_game_global(self, name, budget, context)
@@ -645,13 +708,6 @@ impl MissionContentOwner {
         let Some(index) = self.named_mission_program_index(name)? else {
             return Ok(NamedGlobalProgramOutcome::NoMatch);
         };
-        let program = self
-            .programs
-            .get_mut(index)
-            .ok_or(NamedGlobalProgramError::MissingCurrentProgram(index))?;
-        context
-            .call_subroutine(program, &mut self.actors.world, budget)
-            .map_err(|error| NamedGlobalProgramError::Runtime { index, error })?;
         Ok(NamedGlobalProgramOutcome::MissionHandled { index })
     }
 }

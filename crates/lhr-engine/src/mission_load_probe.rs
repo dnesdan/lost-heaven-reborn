@@ -15,7 +15,7 @@ use lhr_engine::{
     mission_world_completeness,
     model_loading::{ModelArena, ModelError},
     native_precision::Pc24PrecisionState,
-    original_program::RuntimeView,
+    original_program::{RuntimeStage, RuntimeView},
     scene_ownership::SceneKey,
     scene_projection::SceneRenderBackend,
     script_lookup::LookupError,
@@ -824,6 +824,30 @@ pub(super) fn run_freeride_start(
         attempt.init().last()
     )
     .unwrap();
+    if let Some(loader) = session.loader() {
+        for (index, program) in loader.content.programs().iter().enumerate() {
+            if let Some(runtime) = program
+                .runtime()
+                .filter(|vm| vm.stage == RuntimeStage::ProcessInterrupted)
+            {
+                let name = program
+                    .name()
+                    .and_then(|name| name.c_bytes())
+                    .map(|name| name.escape_ascii().to_string());
+                let pc = runtime.fields.program_counter();
+                let opcode = runtime
+                    .instructions
+                    .active()
+                    .get(pc as usize)
+                    .map(|instruction| instruction.opcode);
+                writeln!(
+                    report,
+                    "Interrupted mission program {index}: name={name:?} pc={pc} opcode={opcode:?}"
+                )
+                .unwrap();
+            }
+        }
+    }
     writeln!(
         report,
         "Owners before terminal disposal: {:?}",

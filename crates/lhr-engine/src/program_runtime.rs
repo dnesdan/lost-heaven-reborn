@@ -893,6 +893,7 @@ impl InstructionStorage {
 }
 #[derive(Debug)]
 pub struct ProgramRuntime {
+    waiting_for_global: std::sync::Weak<()>,
     pub stage: RuntimeStage,
     pub fields: RuntimeFields,
     pub instructions: InstructionStorage,
@@ -1285,6 +1286,7 @@ pub enum RuntimeError {
 impl ProgramRuntime {
     fn fresh() -> Self {
         Self {
+            waiting_for_global: Default::default(),
             stage: RuntimeStage::Initializing,
             fields: RuntimeFields::initialized(),
             instructions: InstructionStorage::default(),
@@ -2319,6 +2321,11 @@ impl CProgram {
         budget: &mut DispatchBudget,
         backend: &mut B,
     ) -> Result<(), RuntimeError> {
+        self.reset_owned_subroutine()?;
+        self.call_owned_process(1, budget, backend)
+    }
+
+    fn reset_owned_subroutine(&mut self) -> Result<(), RuntimeError> {
         if self.vtable != ProgramVtable::Base {
             return Err(RuntimeError::UnsupportedDerivedRuntime(self.vtable));
         }
@@ -2339,7 +2346,53 @@ impl CProgram {
         self.owner = None;
         runtime.fields.scheduler.field_44 = 0;
         runtime.fields.scheduler.continuation = 1;
-        self.call_owned_process(1, budget, backend)
+        Ok(())
+    }
+
+    pub(crate) fn awaits_global_return(&self, ticket: &GlobalReturn) -> bool {
+        self.runtime.as_ref().is_some_and(|runtime| {
+            runtime.stage == RuntimeStage::ProcessInterrupted
+                && runtime
+                    .waiting_for_global
+                    .ptr_eq(&std::sync::Arc::downgrade(&ticket.0))
+        })
+    }
+
+    pub(crate) fn run_mission_subroutine<B: RuntimeBackend>(
+        &mut self,
+        returning: Option<GlobalReturn>,
+        budget: &mut DispatchBudget,
+        backend: &mut B,
+    ) -> Result<Option<PendingGlobalCall>, RuntimeError> {
+        if let Some(ticket) = returning {
+            if !self.awaits_global_return(&ticket) {
+                return Err(RuntimeError::Domain("subroutine caller unavailable"));
+            }
+            let runtime = self.runtime.as_mut().unwrap();
+            runtime.waiting_for_global = Default::default();
+            let fields = &mut runtime.fields;
+            Advance::Next.apply(
+                &mut fields.scheduler,
+                &mut fields.last_pc,
+                &mut fields.elapsed,
+                &mut fields.command_time,
+                1,
+            );
+            runtime.stage = RuntimeStage::Ready;
+            if !fields.continuation() {
+                return Ok(None);
+            }
+        } else {
+            self.reset_owned_subroutine()?;
+        }
+        Ok(self.run_process_segment(1, budget, backend)?.map(|name| {
+            let ticket = std::sync::Arc::new(());
+            self.runtime.as_mut().unwrap().waiting_for_global = std::sync::Arc::downgrade(&ticket);
+            PendingGlobalCall {
+                caller: GlobalReturn(ticket),
+                target: name,
+            }
+        }))
     }
     pub fn call_owned_process<B: RuntimeBackend>(
         &mut self,
@@ -2347,6 +2400,20 @@ impl CProgram {
         budget: &mut DispatchBudget,
         backend: &mut B,
     ) -> Result<(), RuntimeError> {
+        match self.run_process_segment(delta, budget, backend)? {
+            None => Ok(()),
+            Some(name) => Err(RuntimeError::GlobalProgramOwnerUnavailable(
+                name.escape_ascii().to_string(),
+            )),
+        }
+    }
+
+    fn run_process_segment<B: RuntimeBackend>(
+        &mut self,
+        delta: i32,
+        budget: &mut DispatchBudget,
+        backend: &mut B,
+    ) -> Result<Option<Box<[u8]>>, RuntimeError> {
         let runtime = self
             .runtime
             .as_mut()
@@ -2402,15 +2469,16 @@ impl CProgram {
         if result.is_ok() {
             runtime.stage = RuntimeStage::Ready;
         }
-        result.map_err(|error| match error {
-            crate::script_scheduler::SchedulerError::Backend(
-                error @ RuntimeError::DestructiveEffect { .. },
-            ) => error,
-            crate::script_scheduler::SchedulerError::Backend(
-                error @ (RuntimeError::Lookup(_) | RuntimeError::GlobalProgramOwnerUnavailable(_)),
-            ) => error,
-            other => RuntimeError::Scheduler(format!("{other:?}")),
-        })
+        use crate::script_scheduler::SchedulerError;
+        match result {
+            Ok(()) => Ok(None),
+            Err(SchedulerError::Backend(ProcessStop::CallGlobal(name))) => Ok(Some(name)),
+            Err(SchedulerError::Backend(ProcessStop::Runtime(error))) => match error {
+                RuntimeError::DestructiveEffect { .. } | RuntimeError::Lookup(_) => Err(error),
+                other => Err(RuntimeError::Scheduler(format!("Backend({other:?})"))),
+            },
+            Err(other) => Err(RuntimeError::Scheduler(format!("{other:?}"))),
+        }
     }
     /// Additional host cleanup of actual Rust allocations, not original Done.
     /// Source/name owners stay live for their ordinary explicit destructor.
@@ -3620,6 +3688,19 @@ enum Advance {
     DetectorNext,
 }
 
+pub(crate) struct GlobalReturn(std::sync::Arc<()>);
+
+pub(crate) struct PendingGlobalCall {
+    pub caller: GlobalReturn,
+    pub target: Box<[u8]>,
+}
+
+#[derive(Debug)]
+enum ProcessStop {
+    CallGlobal(Box<[u8]>),
+    Runtime(RuntimeError),
+}
+
 /// Original `1.0f / RAND_MAX` multiplier, evaluated once as in the C
 /// translation unit.
 const RAND_MAX_RECIPROCAL: f32 = 1.0 / 32767.0;
@@ -3662,24 +3743,41 @@ fn decode_entity_vidim_bits(word: &[u8]) -> u32 {
 }
 
 impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
-    type Error = RuntimeError;
-    fn instructions(&self) -> Result<Option<InstructionView>, RuntimeError> {
+    type Error = ProcessStop;
+    fn instructions(&self) -> Result<Option<InstructionView>, ProcessStop> {
         Ok(Some(InstructionView {
             allocation: 0,
             count: self.instructions.logical_end as u32,
         }))
     }
-    fn opcode(&self, allocation: u32, index: u32) -> Result<u32, RuntimeError> {
+    fn opcode(&self, allocation: u32, index: u32) -> Result<u32, ProcessStop> {
         if allocation != 0 {
-            return Err(RuntimeError::Domain("foreign instruction storage"));
+            return Err(ProcessStop::Runtime(RuntimeError::Domain(
+                "foreign instruction storage",
+            )));
         }
         self.instructions
             .active()
             .get(index as usize)
             .map(|i| i.opcode)
-            .ok_or(RuntimeError::Domain("instruction index"))
+            .ok_or(ProcessStop::Runtime(RuntimeError::Domain(
+                "instruction index",
+            )))
     }
-    fn dispatch(&mut self, state: &mut ResetState, delta: i32) -> Result<(), RuntimeError> {
+    fn dispatch(&mut self, state: &mut ResetState, delta: i32) -> Result<(), ProcessStop> {
+        match self.execute(state, delta).map_err(ProcessStop::Runtime)? {
+            Some(name) => Err(ProcessStop::CallGlobal(name)),
+            None => Ok(()),
+        }
+    }
+}
+
+impl<B: RuntimeBackend> Process<'_, B> {
+    fn execute(
+        &mut self,
+        state: &mut ResetState,
+        delta: i32,
+    ) -> Result<Option<Box<[u8]>>, RuntimeError> {
         *self.elapsed = self.elapsed.wrapping_add(delta as u32);
         *self.command_time = self.command_time.wrapping_add(delta as u32);
         let opcode = self.instructions.active()[state.program_counter as usize].opcode;
@@ -3800,9 +3898,7 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             }
             35 => match self.flow_payload(state)? {
                 FlowParameter::CallSubroutine(Some(name)) => {
-                    return Err(RuntimeError::GlobalProgramOwnerUnavailable(
-                        name.escape_ascii().to_string(),
-                    ));
+                    return Ok(Some(name));
                 }
                 _ => return Err(RuntimeError::Domain("current subroutine name unavailable")),
             },
@@ -3864,7 +3960,7 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                         self.flags.stop_at_return = false;
                         state.continuation = 0;
                     }
-                    return Ok(());
+                    return Ok(None);
                 }
             }
             4 => {
@@ -4675,15 +4771,29 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             0x1000..=0x103f => return Err(RuntimeError::UnsupportedCommand(opcode)),
             opcode => return Err(RuntimeError::UnsupportedCommand(opcode)),
         }
-        *self.last_pc = state.program_counter;
-        *self.elapsed = 0;
-        match advance {
+        advance.apply(state, self.last_pc, self.elapsed, self.command_time, delta);
+        Ok(None)
+    }
+}
+
+impl Advance {
+    fn apply(
+        self,
+        state: &mut ResetState,
+        last_pc: &mut u32,
+        elapsed: &mut u32,
+        command_time: &mut u32,
+        delta: i32,
+    ) {
+        *last_pc = state.program_counter;
+        *elapsed = 0;
+        match self {
             Advance::Next => {
-                *self.command_time = 0;
+                *command_time = 0;
                 state.program_counter = state.program_counter.wrapping_add(1);
             }
             Advance::Jump(target) => {
-                *self.command_time = 0;
+                *command_time = 0;
                 state.program_counter = target;
             }
             Advance::Stay => {}
@@ -4692,11 +4802,10 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
                 // then `command_time += time`. The shared dispatch top already
                 // added this tick's delta once, so reset to exactly that
                 // delta instead of zeroing.
-                *self.command_time = delta as u32;
+                *command_time = delta as u32;
                 state.program_counter = state.program_counter.wrapping_add(1);
             }
         }
-        Ok(())
     }
 }
 #[cfg(test)]

@@ -226,6 +226,25 @@ impl Fixture {
             .global_program_game_init(&mut self.effects)
             .unwrap();
     }
+    fn run_named(
+        &mut self,
+        name: &[u8],
+        game: &mut GamePrograms,
+        budget: &mut DispatchBudget,
+    ) -> Result<NamedGlobalProgramOutcome, NamedGlobalProgramError> {
+        self.loader.content.global_program_run_in_world(
+            name,
+            game,
+            budget,
+            &mut MissionProgramWorldContext::new(
+                &mut self.arena,
+                &mut self.scene_reference,
+                &mut self.effects,
+                &mut Diagnostic::default(),
+                locales(),
+            ),
+        )
+    }
     fn process(
         &mut self,
         index: usize,
@@ -504,7 +523,7 @@ fn a_sector_reference_cannot_masquerade_as_the_actual_scene_owner() {
 struct GamePrograms {
     programs: Vec<CProgram>,
     memory: super::super::ContentMemory,
-    swap_mission: bool,
+    on_miss: fn(&mut MissionContentOwner, &[u8], usize),
     unavailable: bool,
     redirect_scene: Option<FrameReferenceId>,
 }
@@ -528,7 +547,7 @@ impl GamePrograms {
         Self {
             programs,
             memory,
-            swap_mission: false,
+            on_miss: |_, _, _| {},
             unavailable: false,
             redirect_scene: None,
         }
@@ -583,9 +602,7 @@ impl<D: MissionProgramDiagnostic> GameGlobalProgramWorldRunner<Effects, D> for G
                 return Ok(true);
             }
         }
-        if self.swap_mission {
-            mission.programs.swap(0, 1);
-        }
+        (self.on_miss)(mission, name, budget.remaining());
         if let Some(reference) = self.redirect_scene {
             *context.scene_mut() = reference;
         }
@@ -637,7 +654,7 @@ fn game_global_first_then_current_mission_reverse_priority_use_the_same_world() 
     );
     game.finish(&mut f.effects);
     let mut game = GamePrograms::new(&[], &mut f.effects);
-    game.swap_mission = true;
+    game.on_miss = |mission, _, _| mission.programs.swap(0, 1);
     assert_eq!(
         run(&mut f, &mut game, &mut diagnostic),
         Ok(NamedGlobalProgramOutcome::MissionHandled { index: 1 })
@@ -662,6 +679,307 @@ fn game_global_first_then_current_mission_reverse_priority_use_the_same_world() 
     game.finish(&mut f.effects);
     f.finish();
 }
+#[test]
+fn nested_globals_share_eight_dispatches_and_resume_both_callers_in_order() {
+    let mut fixture = Fixture::new(&[
+        (b"main", b"dim_act 1\ncallsubroutine \"middle\"\ndim_frm 2"),
+        (
+            b"middle",
+            b"dim_flt 1\ncallsubroutine \"leaf\"\nuse_lightcache",
+        ),
+        (b"leaf", b"dim_frm 1\nfindframe 0,\"beta\""),
+    ]);
+    fixture.init();
+    let mut game = GamePrograms::new(&[], &mut fixture.effects);
+    game.on_miss = |mission, name, remaining| {
+        let (caller, expected_remaining) = match name {
+            b"main" => return,
+            b"middle" => (0, 6),
+            b"leaf" => (1, 4),
+            _ => panic!("unexpected lookup: {name:?}"),
+        };
+        assert_eq!(remaining, expected_remaining);
+        let runtime = mission.programs()[caller].runtime().unwrap();
+        assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+        let fields = &runtime.fields;
+        assert_eq!((fields.program_counter(), fields.last_pc), (1, 0));
+        assert_eq!((fields.elapsed, fields.command_time), (1, 1));
+    };
+    fixture.effects.events.clear();
+    let mut budget = DispatchBudget::new(8).unwrap();
+    assert_eq!(
+        fixture.run_named(b"main", &mut game, &mut budget),
+        Ok(NamedGlobalProgramOutcome::MissionHandled { index: 0 })
+    );
+    assert_eq!(budget.remaining(), 0);
+    assert_eq!(
+        fixture.effects.events,
+        [
+            RuntimeEffect::AllocateActors(1),
+            RuntimeEffect::AllocateFloats(1),
+            RuntimeEffect::AllocateFrames(1),
+            RuntimeEffect::UseLightCache,
+            RuntimeEffect::AllocateFrames(2),
+        ]
+    );
+    let programs = fixture.loader.content.programs();
+    for (program, expected_pc) in programs.iter().zip([3, 3, 2]) {
+        let runtime = program.runtime().unwrap();
+        assert_eq!(runtime.stage, RuntimeStage::Ready);
+        assert_eq!(runtime.fields.program_counter(), expected_pc);
+        assert_eq!(runtime.fields.last_pc, expected_pc - 1);
+        assert_eq!(
+            (runtime.fields.elapsed, runtime.fields.command_time),
+            (0, 0)
+        );
+    }
+    let leaf = &programs[2].runtime().unwrap().fields;
+    assert_eq!(
+        leaf.frames.as_ref().unwrap()[0].reference(),
+        Ok(Some(&fixture.arena.lookup_reference(fixture.roots[1])))
+    );
+    game.finish(&mut fixture.effects);
+    fixture.finish();
+}
+
+#[test]
+fn nested_miss_returns_and_game_match_shadows_mission_target() {
+    let mut fixture = Fixture::new(&[
+        (
+            b"main",
+            b"callsubroutine \"missing\"\ncallsubroutine \"Target\"\nuse_lightcache",
+        ),
+        (b"target", b"dim_frm 1"),
+    ]);
+    fixture.init();
+    let mut game = GamePrograms::new(&[(b"TARGET", b"game_nightmission 1")], &mut fixture.effects);
+    fixture.effects.events.clear();
+    let mut budget = DispatchBudget::new(4).unwrap();
+    assert_eq!(
+        fixture.run_named(b"main", &mut game, &mut budget),
+        Ok(NamedGlobalProgramOutcome::MissionHandled { index: 0 })
+    );
+    assert_eq!(budget.remaining(), 0);
+    assert_eq!(
+        fixture.effects.events,
+        [
+            RuntimeEffect::SetNightMission(true),
+            RuntimeEffect::UseLightCache
+        ]
+    );
+    assert_eq!(
+        game.programs[0].runtime().unwrap().fields.program_counter(),
+        1
+    );
+    let programs = fixture.loader.content.programs();
+    assert_eq!(programs[0].runtime().unwrap().fields.program_counter(), 3);
+    assert_eq!(programs[1].runtime().unwrap().fields.program_counter(), 0);
+    game.finish(&mut fixture.effects);
+    fixture.finish();
+}
+
+#[test]
+fn nested_lookup_uses_reordered_reverse_priority_then_resumes_moved_caller() {
+    let mut fixture = Fixture::new(&[
+        (b"main", b"callsubroutine \"target\"\ndim_act 1"),
+        (b"TARGET", b"game_nightmission 1"),
+        (b"target", b"game_nightmission 0"),
+    ]);
+    fixture.init();
+    let mut game = GamePrograms::new(&[], &mut fixture.effects);
+    game.on_miss = |mission, name, _| {
+        if name == b"target" {
+            mission.programs.swap(0, 2);
+        }
+    };
+    fixture.effects.events.clear();
+    let mut budget = DispatchBudget::new(3).unwrap();
+    assert_eq!(
+        fixture.run_named(b"main", &mut game, &mut budget),
+        Ok(NamedGlobalProgramOutcome::MissionHandled { index: 2 })
+    );
+    assert_eq!(budget.remaining(), 0);
+    assert_eq!(
+        fixture.effects.events,
+        [
+            RuntimeEffect::SetNightMission(true),
+            RuntimeEffect::AllocateActors(1)
+        ]
+    );
+    let programs = fixture.loader.content.programs();
+    assert_eq!(programs[0].runtime().unwrap().fields.program_counter(), 0);
+    assert_eq!(programs[1].runtime().unwrap().fields.program_counter(), 1);
+    let caller = programs[2].runtime().unwrap();
+    assert_eq!(caller.stage, RuntimeStage::Ready);
+    assert_eq!(caller.fields.program_counter(), 2);
+    game.finish(&mut fixture.effects);
+    fixture.finish();
+}
+
+#[test]
+fn nested_budget_and_destructive_errors_keep_both_prefixes_without_replay() {
+    for fail_release in [false, true] {
+        let mut fixture = Fixture::new(&[
+            (
+                b"main",
+                b"use_lightcache\ncallsubroutine \"inner\"\ndim_frm 2",
+            ),
+            (b"inner", b"dim_act 1\ndim_act 2"),
+        ]);
+        fixture.init();
+        let mut game = GamePrograms::new(&[], &mut fixture.effects);
+        fixture.effects.events.clear();
+        fixture.effects.fail = fail_release.then_some(RuntimeEffect::ReleaseActors);
+        let mut budget = DispatchBudget::new(if fail_release { 6 } else { 3 }).unwrap();
+        let error = fixture
+            .run_named(b"main", &mut game, &mut budget)
+            .unwrap_err();
+        let mut prefix = vec![
+            RuntimeEffect::UseLightCache,
+            RuntimeEffect::AllocateActors(1),
+        ];
+        let (expected_error, inner_stage, inner_elapsed) = if fail_release {
+            prefix.push(RuntimeEffect::ReleaseActors);
+            assert_eq!(budget.remaining(), 2);
+            (
+                RuntimeError::DestructiveEffect {
+                    effect: RuntimeEffect::ReleaseActors,
+                    detail: "required fixture effect unavailable".into(),
+                },
+                RuntimeStage::DisposalInterrupted,
+                1,
+            )
+        } else {
+            assert_eq!(budget.remaining(), 0);
+            (
+                RuntimeError::Scheduler("BudgetExhausted".into()),
+                RuntimeStage::ProcessInterrupted,
+                0,
+            )
+        };
+        assert_eq!(
+            error,
+            NamedGlobalProgramError::Runtime {
+                index: 1,
+                error: expected_error
+            }
+        );
+        assert_eq!(fixture.effects.events, prefix);
+        let programs = fixture.loader.content.programs();
+        let caller = programs[0].runtime().unwrap();
+        assert_eq!(caller.stage, RuntimeStage::ProcessInterrupted);
+        assert_eq!(
+            (caller.fields.program_counter(), caller.fields.elapsed),
+            (1, 1)
+        );
+        assert!(caller.fields.frames.is_none());
+        let inner = programs[1].runtime().unwrap();
+        assert_eq!(inner.stage, inner_stage);
+        assert_eq!(
+            (inner.fields.program_counter(), inner.fields.elapsed),
+            (1, inner_elapsed)
+        );
+        assert_eq!(inner.fields.actor_count, 1);
+        assert_eq!(inner.fields.actors.as_ref().unwrap().len(), 1);
+
+        fixture.effects.fail = None;
+        let mut retry = DispatchBudget::new(8).unwrap();
+        for (index, name) in [b"main".as_slice(), b"inner"].into_iter().enumerate() {
+            assert_eq!(
+                fixture.run_named(name, &mut game, &mut retry),
+                Err(NamedGlobalProgramError::Runtime {
+                    index,
+                    error: RuntimeError::Domain("runtime not ready")
+                })
+            );
+        }
+        assert_eq!(retry.remaining(), 8);
+        assert_eq!(fixture.effects.events, prefix);
+        game.finish(&mut fixture.effects);
+        fixture.finish();
+    }
+}
+
+#[test]
+fn nested_reentry_refuses_the_waiting_caller_before_reset_or_dispatch() {
+    let mut fixture = Fixture::new(&[
+        (
+            b"main",
+            b"use_lightcache\ncallsubroutine \"inner\"\ndim_frm 1",
+        ),
+        (b"inner", b"callsubroutine \"MAIN\"\ndim_act 1"),
+    ]);
+    fixture.init();
+    let mut game = GamePrograms::new(&[], &mut fixture.effects);
+    fixture.effects.events.clear();
+    let mut budget = DispatchBudget::new(8).unwrap();
+    assert_eq!(
+        fixture.run_named(b"main", &mut game, &mut budget),
+        Err(NamedGlobalProgramError::Runtime {
+            index: 0,
+            error: RuntimeError::Domain("runtime not ready")
+        })
+    );
+    assert_eq!(budget.remaining(), 5);
+    assert_eq!(fixture.effects.events, [RuntimeEffect::UseLightCache]);
+    for (program, pc) in fixture.loader.content.programs().iter().zip([1, 0]) {
+        let runtime = program.runtime().unwrap();
+        assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+        assert_eq!(
+            (runtime.fields.program_counter(), runtime.fields.elapsed),
+            (pc, 1)
+        );
+    }
+    game.finish(&mut fixture.effects);
+    fixture.finish();
+}
+
+#[test]
+fn nested_return_refuses_identical_replacement_in_removed_callers_slot() {
+    let caller = b"use_lightcache\ncallsubroutine \"inner\"\ndim_act 1".as_slice();
+    let mut fixture = Fixture::new(&[
+        (b"inner", b"dim_frm 1"),
+        (b"main", caller),
+        (b"main", caller),
+        (b"spare", b"dim_flt 1"),
+    ]);
+    fixture.init();
+    let mut game = GamePrograms::new(&[], &mut fixture.effects);
+    game.on_miss = |mission, name, _| {
+        if name == b"inner" {
+            let mut removed = mission.programs.swap_remove(2);
+            mission.programs.swap(1, 2);
+            let runtime = removed.runtime().unwrap();
+            assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+            assert_eq!(runtime.fields.program_counter(), 1);
+            removed.discard_runtime_host().unwrap();
+            removed.destruct(&mut mission.memory).unwrap();
+        }
+    };
+    fixture.effects.events.clear();
+    let mut budget = DispatchBudget::new(5).unwrap();
+    assert_eq!(
+        fixture.run_named(b"main", &mut game, &mut budget),
+        Err(NamedGlobalProgramError::SuspendedCallerUnavailable)
+    );
+    assert_eq!(budget.remaining(), 2);
+    assert_eq!(
+        fixture.effects.events,
+        [
+            RuntimeEffect::UseLightCache,
+            RuntimeEffect::AllocateFrames(1)
+        ]
+    );
+    let programs = fixture.loader.content.programs();
+    assert_eq!(programs[0].runtime().unwrap().fields.program_counter(), 1);
+    let replacement = programs[2].runtime().unwrap();
+    assert_eq!(replacement.stage, RuntimeStage::Ready);
+    assert_eq!(replacement.fields.program_counter(), 0);
+    assert!(replacement.fields.actors.is_none());
+    game.finish(&mut fixture.effects);
+    fixture.finish();
+}
+
 #[test]
 fn unavailable_game_owner_never_enters_mission_fallback() {
     let mut f = Fixture::new(&[(b"target", b"dim_frm 1")]);
