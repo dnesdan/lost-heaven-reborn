@@ -95,6 +95,9 @@ at `SETTRAFFSECTORSND` (317). That command now registers a matching primary
 scene sector for vehicle sounds; it does not start audio or traffic. Terminal
 disposal completed. No player/car coupling or gameplay tick was reached.
 
+The script compiler rejects non-ASCII bytes in quoted sector names before
+`SETTRAFFSECTORSND` runs, even if the scene contains a matching name.
+
 Native application database state is session-owned here and retained through
 terminal mission disposal. Cross-session application ownership is not composed.
 Its startup intake does not emulate AllDefault, repeated native database Init,
