@@ -2683,6 +2683,34 @@ fn interrupted_second_pair_conversion_keeps_the_first_word_owned_until_host_disc
 }
 
 #[test]
+fn callsubroutine_stops_at_named_global_owner_without_advancing_or_replaying() {
+    let mut memory = Memory::default();
+    let mut caller = program(
+        b"commandblock 1\ncallsubroutine \"Town Hub\"\ndim_flt 7",
+        &mut memory,
+    );
+    let progress = caller.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (3, 0));
+    let mut budget = DispatchBudget::new(8).unwrap();
+    assert_eq!(
+        caller.call_owned_process(1, &mut budget, &mut memory),
+        Err(RuntimeError::GlobalProgramOwnerUnavailable(
+            "Town Hub".into()
+        ))
+    );
+    let runtime = caller.runtime().unwrap();
+    assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+    assert_eq!(runtime.fields.program_counter(), 1);
+    assert_eq!(runtime.fields.float_count, 0);
+    assert_eq!(budget.remaining(), 6);
+    assert!(caller
+        .call_owned_process(1, &mut budget, &mut memory)
+        .is_err());
+    assert_eq!(budget.remaining(), 6);
+    assert_eq!(caller.discard_runtime_host().unwrap().flow_allocations, 1);
+}
+
+#[test]
 fn goto_label_jumps_forward_and_skips_unreached_bank() {
     let mut memory = Memory::default();
     let mut p = program(

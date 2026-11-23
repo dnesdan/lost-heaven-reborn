@@ -1,4 +1,4 @@
-//! Owned GOTO/GOSUB/WAIT/LET/IF/LABEL parameter payloads (opcodes 0, 1, 2, 4, 8, 9).
+//! Owned flow parameter payloads (opcodes 0, 1, 2, 4, 8, 9, 35).
 //!
 //! Reference: Marvisak/mafia-re d0fbd6d, game/mission/C_program.cpp,
 //! DecodeParams CMD_LABEL/GOTO/GOSUB/WAIT/LET/IF arms with the DecodeOperand,
@@ -9,7 +9,9 @@
 //! native allocation failure, or original-runtime equivalence.
 #![forbid(unsafe_code)]
 use crate::program_parameters::{ascii_float_prefix, ascii_integer_prefix};
-use crate::program_parser::{c_length, extrude_params, ExtrudedParams, ProgramParserError};
+use crate::program_parser::{
+    c_length, extrude_params, extrude_string, ExtrudedParams, ProgramParserError,
+};
 
 /// Operand of WAIT, GOTO-target, LET and IF: a float-bank register or a
 /// literal. Mirrors S_operand { int reg; float value; }; reg -1 is a literal.
@@ -118,6 +120,7 @@ pub struct IfParameter {
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlowParameter {
     Label(Box<[u8]>),
+    CallSubroutine(Option<Box<[u8]>>),
     Goto(GotoParameter),
     Wait(FlowOperand),
     Let(LetParameter),
@@ -172,6 +175,7 @@ pub enum FlowDecodeError<E> {
     AlreadyEntered,
     Parser(ProgramParserError),
     UnsupportedOpcode(u32),
+    NameTooLong { length: usize },
     Allocation(E),
     NullAllocation,
     Conversion { index: usize, error: E },
@@ -347,6 +351,31 @@ impl FlowParameterSlot {
                 )));
                 Ok(true)
             }
+            35 => {
+                if parameters.count != 1 {
+                    return Ok(false);
+                }
+                if !backend
+                    .allocate_flow()
+                    .map_err(FlowDecodeError::Allocation)?
+                {
+                    return Err(FlowDecodeError::NullAllocation);
+                }
+                let parameter = self
+                    .parameter
+                    .insert(Box::new(FlowParameter::CallSubroutine(None)));
+                let (start, end) = token_range(source, &parameters, 0);
+                let token = &mut source[start..=end];
+                let name = match extrude_string(token).map_err(FlowDecodeError::Parser)? {
+                    Some(range) => &token[range],
+                    None => &b"unknown"[..],
+                };
+                if name.len() >= 48 {
+                    return Err(FlowDecodeError::NameTooLong { length: name.len() });
+                }
+                **parameter = FlowParameter::CallSubroutine(Some(name.into()));
+                Ok(true)
+            }
             1 | 2 => {
                 if parameters.count != 1 {
                     return Ok(false);
@@ -516,7 +545,7 @@ impl FlowParameterSlot {
 /// Parameter-layout admission only; these opcodes do not become executable by
 /// decoding. Opcode 10 (RND) already decodes through the pair arm.
 pub fn supports_flow_opcode(opcode: u32) -> bool {
-    matches!(opcode, 0 | 1 | 2 | 4 | 8 | 9)
+    matches!(opcode, 0 | 1 | 2 | 4 | 8 | 9 | 35)
 }
 
 #[cfg(test)]
@@ -565,9 +594,50 @@ mod tests {
             }
             assert!(owners <= 1, "opcode {opcode} claimed twice");
         }
-        for opcode in [0u32, 1, 2, 4, 8, 9] {
+        for opcode in [0u32, 1, 2, 4, 8, 9, 35] {
             assert!(supports_flow_opcode(opcode));
+            assert!(!crate::original_program::supports_remaining_opcode(opcode));
         }
+    }
+
+    #[test]
+    fn callsubroutine_decodes_one_quoted_byte_name_or_unknown() {
+        for (text, expected) in [
+            (&b"  \"Map \x80\"ignored  "[..], &b"Map \x80"[..]),
+            (b"\"\"", b""),
+            (b"unquoted", b"unknown"),
+            (b"\"missing end", b"unknown"),
+        ] {
+            assert_eq!(
+                payload(35, text),
+                FlowParameter::CallSubroutine(Some(expected.into()))
+            );
+        }
+        for text in [&b""[..], b"\"two,parts\"", b"a,b,c"] {
+            assert_eq!(decode(35, text), Ok(false));
+        }
+    }
+
+    #[test]
+    fn callsubroutine_refuses_overlong_copy_after_allocation() {
+        let name = [b'x'; 47];
+        let text = [&b"\""[..], &name, b"\""].concat();
+        assert_eq!(
+            payload(35, &text),
+            FlowParameter::CallSubroutine(Some(name.as_slice().into()))
+        );
+        let mut source = [&b"\""[..], &name, b"x\"\0"].concat();
+        let mut slot = FlowParameterSlot::default();
+        assert_eq!(
+            slot.decode(35, &mut source, &mut AsciiFlowParameterBackend),
+            Err(FlowDecodeError::NameTooLong { length: 48 })
+        );
+        assert_eq!(slot.parameter(), Some(&FlowParameter::CallSubroutine(None)));
+        assert_eq!(source[49], 0);
+        assert_eq!(
+            slot.decode(35, &mut source, &mut AsciiFlowParameterBackend),
+            Err(FlowDecodeError::AlreadyEntered)
+        );
     }
 
     #[test]
@@ -885,5 +955,13 @@ mod tests {
             Err(FlowDecodeError::NullAllocation)
         );
         assert!(slot.parameter().is_none());
+        let mut slot = FlowParameterSlot::default();
+        let mut quoted = *b"\"target\"\0";
+        assert_eq!(
+            slot.decode(35, &mut quoted, &mut backend),
+            Err(FlowDecodeError::NullAllocation)
+        );
+        assert!(slot.parameter().is_none());
+        assert_eq!(&quoted, b"\"target\"\0");
     }
 }

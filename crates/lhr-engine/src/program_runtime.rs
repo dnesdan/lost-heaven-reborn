@@ -1276,6 +1276,7 @@ pub enum RuntimeError {
     Parameter(String),
     Compile(String),
     UnsupportedCommand(u32),
+    GlobalProgramOwnerUnavailable(String),
     Lookup(crate::script_lookup::LookupError),
     ReferenceCount(u32),
     Allocation,
@@ -2405,9 +2406,9 @@ impl CProgram {
             crate::script_scheduler::SchedulerError::Backend(
                 error @ RuntimeError::DestructiveEffect { .. },
             ) => error,
-            crate::script_scheduler::SchedulerError::Backend(error @ RuntimeError::Lookup(_)) => {
-                error
-            }
+            crate::script_scheduler::SchedulerError::Backend(
+                error @ (RuntimeError::Lookup(_) | RuntimeError::GlobalProgramOwnerUnavailable(_)),
+            ) => error,
             other => RuntimeError::Scheduler(format!("{other:?}")),
         })
     }
@@ -3797,6 +3798,14 @@ impl<B: RuntimeBackend> SchedulerBackend for Process<'_, B> {
             14 => {
                 advance = self.dispatch_frm_seton(state)?;
             }
+            35 => match self.flow_payload(state)? {
+                FlowParameter::CallSubroutine(Some(name)) => {
+                    return Err(RuntimeError::GlobalProgramOwnerUnavailable(
+                        name.escape_ascii().to_string(),
+                    ));
+                }
+                _ => return Err(RuntimeError::Domain("current subroutine name unavailable")),
+            },
             1 | 2 => {
                 if opcode == 2 {
                     self.gosub_stack.push(state.program_counter.wrapping_add(1));

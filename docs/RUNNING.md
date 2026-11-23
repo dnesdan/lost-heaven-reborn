@@ -88,8 +88,11 @@ Render and global blend step remain diagnostic. The report counts scheduled
 presents, not observed frames. A reached error stops startup without replay.
 On Windows with Direct3D 12, the original-data selection above scheduled 25
 Open loading frames, the Init scene and one Init loading frame at 800×600
-with layout `1,1,0`. The next stop was script command 35 (`CALLSUBROUTINE`)
-in `GameInitStart`, before player/car coupling or a game tick.
+with layout `1,1,0`. In the November 23, 2026 run, `GameInitStart` reached
+`CALLSUBROUTINE "TraffSndSect"`. The VM decodes the name but cannot yet
+dispatch a nested global program through the game and mission owners. The
+probe stopped there without advancing the caller; terminal disposal completed.
+No player/car coupling or gameplay tick was reached.
 
 Native application database state is session-owned here and retained through
 terminal mission disposal. Cross-session application ownership is not composed.
