@@ -438,7 +438,8 @@ impl MissionLoadSession {
                         &mut effects,
                         diagnostic,
                         locales,
-                    ),
+                    )
+                    .with_vehicle_sectors(&mut session.vehicle_sectors),
                 )
             },
         )
@@ -521,7 +522,8 @@ impl MissionLoadSession {
                             &mut effects,
                             diagnostic,
                             locales,
-                        ),
+                        )
+                        .with_vehicle_sectors(&mut session.vehicle_sectors),
                     )
             },
         )
@@ -573,7 +575,8 @@ impl MissionLoadSession {
                             &mut effects,
                             diagnostic,
                             locales,
-                        ),
+                        )
+                        .with_vehicle_sectors(&mut session.vehicle_sectors),
                     )
             },
         )

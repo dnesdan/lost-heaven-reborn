@@ -1090,6 +1090,11 @@ pub trait RuntimeBackend {
     fn game_clock(&self) -> Option<GameClockSource> {
         None
     }
+    fn set_traffic_sector_sound(&mut self, _name: &[u8]) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Domain(
+            "traffic sector sound owner unavailable",
+        ))
+    }
     fn effect(
         &mut self,
         fields: RuntimeView<'_>,
@@ -3780,7 +3785,8 @@ impl<B: RuntimeBackend> Process<'_, B> {
     ) -> Result<Option<Box<[u8]>>, RuntimeError> {
         *self.elapsed = self.elapsed.wrapping_add(delta as u32);
         *self.command_time = self.command_time.wrapping_add(delta as u32);
-        let opcode = self.instructions.active()[state.program_counter as usize].opcode;
+        let instruction = &self.instructions.active()[state.program_counter as usize];
+        let opcode = instruction.opcode;
         let mut advance = Advance::Next;
         match opcode {
             29 | 32 | 33 | 38 | 346 | 347 if self.vtable == ProgramVtable::Detector => {
@@ -3902,6 +3908,18 @@ impl<B: RuntimeBackend> Process<'_, B> {
                 }
                 _ => return Err(RuntimeError::Domain("current subroutine name unavailable")),
             },
+            317 => {
+                let Some(FlowParameter::TrafficSectorSound(Some(name))) = instruction
+                    .parameter
+                    .as_ref()
+                    .and_then(InstructionParameter::flow_parameter)
+                else {
+                    return Err(RuntimeError::Domain(
+                        "current traffic sector name unavailable",
+                    ));
+                };
+                self.backend.set_traffic_sector_sound(name)?;
+            }
             1 | 2 => {
                 if opcode == 2 {
                     self.gosub_stack.push(state.program_counter.wrapping_add(1));

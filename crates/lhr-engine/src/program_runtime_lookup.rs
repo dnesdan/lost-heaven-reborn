@@ -11,6 +11,11 @@ use crate::script_lookup::{self, LookupError, LookupRegisters, LookupWorldBacken
 
 /// A bound world must perform diagnostics against the live CProgram owner.
 pub trait RuntimeLookupWorld: LookupWorldBackend {
+    fn set_traffic_sector_sound(&mut self, _name: &[u8]) -> Result<(), RuntimeError> {
+        Err(RuntimeError::Domain(
+            "traffic sector sound lookup unavailable",
+        ))
+    }
     fn runtime_message_beep(
         &mut self,
         fields: RuntimeView<'_>,
@@ -41,6 +46,9 @@ impl<'a, B, W> LookupRuntimeBackend<'a, B, W> {
     }
 }
 impl<B: RuntimeBackend, W: RuntimeLookupWorld> RuntimeBackend for LookupRuntimeBackend<'_, B, W> {
+    fn set_traffic_sector_sound(&mut self, name: &[u8]) -> Result<(), RuntimeError> {
+        self.world.set_traffic_sector_sound(name)
+    }
     fn random_source(&self) -> Option<crate::game_housekeeping::GameRandomSource> {
         self.effects.random_source()
     }

@@ -226,6 +226,32 @@ impl Fixture {
             .global_program_game_init(&mut self.effects)
             .unwrap();
     }
+    fn add_named_sector(&mut self, parent: FrameKey, name: &[u8]) -> FrameKey {
+        let frame = self.arena.create_sector_frame().unwrap().frame();
+        self.arena.set_frame_name(frame, Some(name)).unwrap();
+        self.arena.scene_add_frame(self.scene, frame).unwrap();
+        self.arena.link_frame(frame, Some(parent), 0).unwrap();
+        self.arena.release(frame).unwrap();
+        frame
+    }
+    fn process_with_vehicle_sectors(&mut self, sectors: &mut VehicleSectorStatics) {
+        self.loader
+            .content
+            .process_program_in_world(
+                0,
+                7,
+                &mut DispatchBudget::new(32).unwrap(),
+                &mut MissionProgramWorldContext::new(
+                    &mut self.arena,
+                    &mut self.scene_reference,
+                    &mut self.effects,
+                    &mut Diagnostic::default(),
+                    locales(),
+                )
+                .with_vehicle_sectors(sectors),
+            )
+            .unwrap();
+    }
     fn run_named(
         &mut self,
         name: &[u8],
@@ -308,6 +334,102 @@ impl Fixture {
         self.driver.release_empty_registry_storage().unwrap();
         assert_eq!(self.arena.live_frame_count(), 0);
     }
+}
+
+#[test]
+fn traffic_sector_sound_selects_the_primary_root_then_the_first_depth_first_hit() {
+    let source = b"commandblock 1\n\
+        settraffsectorsnd \"Primary sector\"\n\
+        settraffsectorsnd \"Town Hub\"\n\
+        settraffsectorsnd \"PRIMARY SECTOR\"\n\
+        settraffsectorsnd \"town hub\"\n\
+        commandblock 0";
+    let mut fixture = Fixture::new(&[(b"main", source)]);
+    let primary = fixture
+        .arena
+        .scene_primary_sector(fixture.scene)
+        .unwrap()
+        .frame();
+    let later_model = fixture.roots[0];
+    let first_model = fixture.roots[2];
+    fixture
+        .arena
+        .set_frame_name(first_model, Some(b"Town Hub"))
+        .unwrap();
+    fixture.add_named_sector(later_model, b"Town Hub");
+    let shadowed_root = fixture.add_named_sector(first_model, b"Primary sector");
+    let first_hit = fixture.add_named_sector(shadowed_root, b"Town Hub");
+    fixture.init();
+    let mut sectors = VehicleSectorStatics::default();
+    fixture.process_with_vehicle_sectors(&mut sectors);
+    assert_eq!(sectors.sound_sectors(), &[primary, first_hit]);
+    assert!(sectors.light_sectors().is_empty());
+    assert_eq!(
+        fixture.loader.content.programs()[0]
+            .runtime()
+            .unwrap()
+            .fields
+            .program_counter(),
+        6
+    );
+    fixture.finish();
+}
+
+#[test]
+fn traffic_sector_sound_requires_the_full_name_and_ignores_other_types_and_backdrop() {
+    let source = b"settraffsectorsnd \"Primary sector\"\n\
+        settraffsectorsnd \"Tunnel\"\n\
+        settraffsectorsnd \"alpha\"\n\
+        settraffsectorsnd \"Backdrop sector\"\n\
+        settraffsectorsnd \"Absent\"\n\
+        settraffsectorsnd \"CITY.TUNNEL\"";
+    let mut fixture = Fixture::new(&[(b"main", source)]);
+    let primary = fixture
+        .arena
+        .scene_primary_sector(fixture.scene)
+        .unwrap()
+        .frame();
+    let backdrop = fixture
+        .arena
+        .scene_backdrop_sector(fixture.scene)
+        .unwrap()
+        .frame();
+    fixture.add_named_sector(backdrop, b"alpha");
+    let tunnel = fixture.add_named_sector(primary, b"Tunnel");
+    fixture.arena.set_frame_model_name(tunnel, b"City").unwrap();
+    fixture.init();
+    let mut sectors = VehicleSectorStatics::default();
+    for name in [
+        "Primary sector",
+        "Tunnel",
+        "alpha",
+        "Backdrop sector",
+        "Absent",
+    ] {
+        fixture.process_with_vehicle_sectors(&mut sectors);
+        assert_eq!(sectors.sound_sectors(), &[primary], "after {name}");
+    }
+    fixture.process_with_vehicle_sectors(&mut sectors);
+    assert_eq!(sectors.sound_sectors(), &[primary, tunnel]);
+    assert!(sectors.light_sectors().is_empty());
+    fixture.finish();
+}
+
+#[test]
+fn traffic_sector_sound_needs_the_vehicle_owner_only_on_a_hit() {
+    let source = b"settraffsectorsnd \"Absent\"\nsettraffsectorsnd \"Primary sector\"";
+    let mut fixture = Fixture::new(&[(b"main", source)]);
+    fixture.init();
+    let mut diagnostic = Diagnostic::default();
+    fixture.process(0, &mut diagnostic).unwrap();
+    let error = fixture.process(0, &mut diagnostic).unwrap_err();
+    assert!(
+        matches!(error, MissionGlobalProgramError::Runtime(RuntimeError::Scheduler(detail)) if detail.contains("vehicle sound sector owner unavailable"))
+    );
+    let runtime = fixture.loader.content.programs()[0].runtime().unwrap();
+    assert_eq!(runtime.fields.program_counter(), 1);
+    assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+    fixture.finish();
 }
 
 #[test]
@@ -1374,6 +1496,7 @@ fn lookup_world_maps_type_mismatch_silently_and_propagates_stale() {
             game_default_c_locale: true,
             ls3df_default_c_locale: true,
         },
+        vehicle_sectors: None,
     };
     // A detector is not human: the native type-break maps to a silent
     // no-op success, while act-state writes land.
@@ -2127,6 +2250,7 @@ fn detector_erase_colls_succeeds_vacuously_while_create_stays_unavailable() {
             game_default_c_locale: true,
             ls3df_default_c_locale: true,
         },
+        vehicle_sectors: None,
     };
     // Empty registry: native EraseColls over num_colls == 0 / NULL arrays is
     // a no-op success, so the live erase succeeds vacuously here.
@@ -2192,6 +2316,7 @@ fn frame_switch_applies_arena_store_and_defers_sound_frames() {
             game_default_c_locale: true,
             ls3df_default_c_locale: true,
         },
+        vehicle_sectors: None,
     };
     // Ordinary frames run the core arena on/off store; the device side
     // effects report as deferred, never applied.

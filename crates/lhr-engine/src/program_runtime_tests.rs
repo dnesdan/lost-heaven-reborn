@@ -2711,6 +2711,75 @@ fn callsubroutine_stops_at_named_global_owner_without_advancing_or_replaying() {
 }
 
 #[test]
+fn traffic_sector_sound_dispatches_each_name_once_in_script_order() {
+    #[derive(Default)]
+    struct Sectors(Vec<Vec<u8>>);
+    impl RuntimeBackend for Sectors {
+        fn set_traffic_sector_sound(&mut self, name: &[u8]) -> Result<(), RuntimeError> {
+            self.0.push(name.to_vec());
+            Ok(())
+        }
+        fn effect(
+            &mut self,
+            _: RuntimeView<'_>,
+            _: RuntimeEffect,
+            _: Option<&ScalarParameter>,
+        ) -> Result<(), String> {
+            panic!("unexpected runtime effect")
+        }
+    }
+    let mut memory = Memory::default();
+    let mut program = program(
+        b"commandblock 1\nsettraffsectorsnd \"Town Hub\"\nsettraffsectorsnd unquoted\nsettraffsectorsnd \"Town Hub\"\ncommandblock 0",
+        &mut memory,
+    );
+    let progress = program.init_fresh_runtime(&mut memory).unwrap();
+    assert_eq!((progress.accepted, progress.errors), (5, 0));
+    let mut sectors = Sectors::default();
+    let mut budget = DispatchBudget::new(5).unwrap();
+    program
+        .call_owned_process(2, &mut budget, &mut sectors)
+        .unwrap();
+    assert_eq!(sectors.0, [b"Town Hub".as_slice(), b"unknown", b"Town Hub"]);
+    assert_eq!(program.runtime().unwrap().fields.program_counter(), 5);
+    assert_eq!(budget.remaining(), 0);
+    program.done_fresh_runtime(&mut memory).unwrap();
+    assert_eq!(
+        memory
+            .events
+            .iter()
+            .filter(|event| event.0 == RuntimeEffect::ReleaseFlow(317))
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn traffic_sector_sound_without_owner_stops_before_advancing() {
+    let mut memory = Memory::default();
+    let mut program = program(b"settraffsectorsnd \"Town Hub\"\ndim_flt 1", &mut memory);
+    program.init_fresh_runtime(&mut memory).unwrap();
+    let mut budget = DispatchBudget::new(2).unwrap();
+    assert_eq!(
+        program.call_owned_process(3, &mut budget, &mut memory),
+        Err(RuntimeError::Scheduler(
+            "Backend(Domain(\"traffic sector sound owner unavailable\"))".into()
+        ))
+    );
+    let runtime = program.runtime().unwrap();
+    assert_eq!(runtime.stage, RuntimeStage::ProcessInterrupted);
+    assert_eq!(runtime.fields.program_counter(), 0);
+    assert_eq!(runtime.fields.command_time, 3);
+    assert_eq!(runtime.fields.float_count, 0);
+    assert_eq!(budget.remaining(), 1);
+    assert_eq!(
+        program.call_owned_process(3, &mut budget, &mut memory),
+        Err(RuntimeError::Domain("runtime not ready"))
+    );
+    assert_eq!(budget.remaining(), 1);
+}
+
+#[test]
 fn goto_label_jumps_forward_and_skips_unreached_bank() {
     let mut memory = Memory::default();
     let mut p = program(

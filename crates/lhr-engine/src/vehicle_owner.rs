@@ -183,10 +183,7 @@ impl VehicleSectorStatics {
         self.sound.clear();
     }
 
-    /// Stage a `v_sound_sector` entry through `AddSectorForSounds`
-    /// (GAME 0x4ce760) while its script writer `SETTRAFFSECTORSND` stays
-    /// unported.
-    #[cfg(test)]
+    /// Register a `SETTRAFFSECTORSND` match through `AddSectorForSounds` (GAME 0x4ce760).
     pub(crate) fn add_sector_for_sounds(&mut self, sector: crate::frame_transform::FrameKey) {
         add_sector_for_sounds(&mut self.sound, sector);
     }

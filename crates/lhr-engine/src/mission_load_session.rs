@@ -867,7 +867,8 @@ impl MissionLoadSession {
                             effects,
                             diagnostic,
                             locales,
-                        ),
+                        )
+                        .with_vehicle_sectors(&mut session.vehicle_sectors),
                     )
             },
         )
@@ -912,7 +913,8 @@ impl MissionLoadSession {
                             effects,
                             diagnostic,
                             locales,
-                        ),
+                        )
+                        .with_vehicle_sectors(&mut session.vehicle_sectors),
                     )
             },
         )
@@ -2385,8 +2387,7 @@ impl MissionLoadSession {
         &self.vehicle_sectors
     }
 
-    /// Mutable test access to the `C_Vehicle` sector statics while their
-    /// script writer stays unported.
+    /// Mutable fixture access to the session's `C_Vehicle` sector statics.
     #[cfg(test)]
     pub(crate) fn vehicle_sectors_mut(
         &mut self,

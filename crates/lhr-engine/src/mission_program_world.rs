@@ -15,9 +15,10 @@ use crate::original_program::{
     CProgram, LookupRuntimeBackend, RuntimeBackend, RuntimeError, RuntimeLookupWorld, RuntimeStage,
     RuntimeView,
 };
-use crate::scene_ownership::SceneKey;
+use crate::scene_ownership::{SceneFrameOwner, SceneKey};
 use crate::script_lookup::{DetectorCollisionFlags, LookupError, LookupWorldBackend};
 use crate::script_scheduler::{ActorReferenceId, DispatchBudget, FrameReferenceId};
+use crate::vehicle_owner::VehicleSectorStatics;
 
 /// The two source libraries have independent CRT locale admissions.
 #[derive(Clone, Copy, Debug)]
@@ -53,6 +54,7 @@ pub struct MissionProgramWorldContext<'a, B, D> {
     effects: &'a mut B,
     diagnostic: &'a mut D,
     locales: ProgramWorldLocales,
+    vehicle_sectors: Option<&'a mut VehicleSectorStatics>,
 }
 impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldContext<'a, B, D> {
     pub fn new(
@@ -68,7 +70,12 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
             effects,
             diagnostic,
             locales,
+            vehicle_sectors: None,
         }
+    }
+    pub fn with_vehicle_sectors(mut self, sectors: &'a mut VehicleSectorStatics) -> Self {
+        self.vehicle_sectors = Some(sectors);
+        self
     }
     pub fn arena_mut(&mut self) -> &mut ModelArena {
         self.arena
@@ -254,6 +261,7 @@ impl<'a, B: RuntimeBackend, D: MissionProgramDiagnostic> MissionProgramWorldCont
                 scene: &mut *self.scene,
                 diagnostic: &mut *self.diagnostic,
                 locales: self.locales,
+                vehicle_sectors: self.vehicle_sectors.as_deref_mut(),
             },
         )
     }
@@ -288,6 +296,19 @@ struct MissionLookupWorld<'a, D> {
     scene: &'a mut FrameReferenceId,
     diagnostic: &'a mut D,
     locales: ProgramWorldLocales,
+    vehicle_sectors: Option<&'a mut VehicleSectorStatics>,
+}
+impl<D> MissionLookupWorld<'_, D> {
+    fn active_scene(&self) -> Result<&SceneFrameOwner, LookupError> {
+        let reference = *self.scene;
+        let key = FrameKey(reference.identity());
+        if self.arena.lookup_reference(key) != reference {
+            return Err(FrameLookupError::StaleFrame(reference).into());
+        }
+        self.arena
+            .scene(SceneKey(key))
+            .map_err(|error| LookupError::Backend(format!("program Scene: {error:?}")))
+    }
 }
 impl<D> FrameLookupBackend for MissionLookupWorld<'_, D> {
     fn default_c_locale(&self) -> bool {
@@ -328,15 +349,7 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
         Ok(self)
     }
     fn scene(&self) -> Result<SceneRoots, LookupError> {
-        let reference = *self.scene;
-        let key = FrameKey(reference.identity());
-        if self.arena.lookup_reference(key) != reference {
-            return Err(FrameLookupError::StaleFrame(reference).into());
-        }
-        let scene = self
-            .arena
-            .scene(SceneKey(key))
-            .map_err(|error| LookupError::Backend(format!("program Scene: {error:?}")))?;
+        let scene = self.active_scene()?;
         Ok(SceneRoots {
             primary: Some(self.arena.lookup_reference(scene.sectors[0].frame())),
             backdrop: Some(self.arena.lookup_reference(scene.sectors[1].frame())),
@@ -569,6 +582,25 @@ impl<D> LookupWorldBackend for MissionLookupWorld<'_, D> {
     }
 }
 impl<D: MissionProgramDiagnostic> RuntimeLookupWorld for MissionLookupWorld<'_, D> {
+    fn set_traffic_sector_sound(&mut self, name: &[u8]) -> Result<(), RuntimeError> {
+        let primary = self.active_scene().map_err(RuntimeError::Lookup)?.sectors[0].frame();
+        let sector = crate::frame_lookup::find_primary_sector_by_name(
+            self.arena,
+            primary,
+            name,
+            self.locales.ls3df_default_c_locale,
+        )
+        .map_err(|error| RuntimeError::Lookup(error.into()))?;
+        if let Some(sector) = sector {
+            self.vehicle_sectors
+                .as_deref_mut()
+                .ok_or(RuntimeError::Domain(
+                    "vehicle sound sector owner unavailable",
+                ))?
+                .add_sector_for_sounds(sector);
+        }
+        Ok(())
+    }
     fn runtime_message_beep(
         &mut self,
         fields: RuntimeView<'_>,

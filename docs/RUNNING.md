@@ -88,12 +88,12 @@ Render and global blend step remain diagnostic. The report counts scheduled
 presents, not observed frames. A reached error stops startup without replay.
 On Windows with Direct3D 12, the original-data selection above scheduled 25
 Open loading frames, the Init scene and one Init loading frame at 800×600
-with layout `1,1,0`. In the November 23, 2026 run, `GameInitStart` called the
-mission program `TraffSndSect`. The probe reported the caller suspended at
-PC 0 (`CALLSUBROUTINE`, opcode 35) and the callee stopped at its first
-instruction (`SETTRAFFSECTORSND`, opcode 317), which is not implemented.
-The caller did not advance past the failed call. Terminal disposal completed;
-no player/car coupling or gameplay tick was reached.
+with layout `1,1,0`. In the November 23, 2026 run, `GameInitStart` returned
+from its call to `TraffSndSect` and stopped at PC 1: `FREERIDE_TRAFFSETUP`
+(opcode 389) is not implemented. The previous stop was inside `TraffSndSect`
+at `SETTRAFFSECTORSND` (317). That command now registers a matching primary
+scene sector for vehicle sounds; it does not start audio or traffic. Terminal
+disposal completed. No player/car coupling or gameplay tick was reached.
 
 Native application database state is session-owned here and retained through
 terminal mission disposal. Cross-session application ownership is not composed.

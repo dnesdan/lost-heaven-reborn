@@ -1,5 +1,5 @@
-//! LS3DF I3D_scene::FindFrame / I3D_frame::GetChildFrame, bounded to flags
-//! 0x4ffff and exact ASCII names under the original default C-locale branch.
+//! LS3DF I3D_scene::FindFrame / I3D_frame::GetChildFrame: script lookup
+//! (0x4ffff) and primary-sector lookup (0x10) under the default C locale.
 //! Views borrow existing live frame owners; this module constructs no scene.
 //! These PC method names follow the pinned mafia-re reconstruction, corroborated
 //! by actual PS2 linker names. New PC debug symbols, complete PC/PS2 body
@@ -260,7 +260,7 @@ impl<'a> ModelFrameLookup<'a> {
             .links(key)
             .map_err(|_| FrameLookupError::StaleFrame(reference))?;
         Ok(FrameView {
-            name: (!frame.name_bytes.is_empty()).then_some(frame.name_bytes.as_slice()),
+            name: (!frame.name_is_null).then_some(frame.name_bytes.as_slice()),
             child: links.child.map(|key| arena.lookup_reference(key)),
             next: links.next.map(|key| arena.lookup_reference(key)),
         })
@@ -399,6 +399,61 @@ fn traverse<B: FrameLookupBackend + ?Sized>(
     name: &[u8],
     remaining: &mut usize,
 ) -> Result<Option<FrameReferenceId>, FrameLookupError> {
+    traverse_matching(backend, root, remaining, |_, stored| match stored {
+        Some(stored) if !stored.is_ascii() || stored.contains(&0) => {
+            Err(FrameLookupError::UnsupportedName)
+        }
+        Some(stored) => Ok(stored.eq_ignore_ascii_case(name)),
+        None => Ok(false),
+    })
+}
+
+pub(crate) fn find_primary_sector_by_name(
+    arena: &ModelArena,
+    primary: FrameKey,
+    name: &[u8],
+    default_c_locale: bool,
+) -> Result<Option<FrameKey>, FrameLookupError> {
+    use crate::frame_name_comparison::{enum_name_matches, NameComparisonError};
+    let backend = ModelFrameLookup::borrow(arena, default_c_locale);
+    let mut remaining = MAX_LOOKUP_VISITS;
+    let found = traverse_matching(
+        &backend,
+        arena.lookup_reference(primary),
+        &mut remaining,
+        |reference, stored| {
+            let Some(stored) = stored else {
+                return Ok(false);
+            };
+            let key = FrameKey(reference.identity());
+            if arena
+                .state(key)
+                .map_err(|_| FrameLookupError::StaleFrame(reference))?
+                .kind
+                != FrameKind::Sector
+            {
+                return Ok(false);
+            }
+            if !default_c_locale {
+                return Err(FrameLookupError::UnsupportedLocale);
+            }
+            enum_name_matches(arena.frame_name_locale, name, stored, 0x10).map_err(|error| {
+                match error {
+                    NameComparisonError::EmbeddedNul => FrameLookupError::UnsupportedName,
+                    NameComparisonError::UnsupportedLocale => FrameLookupError::UnsupportedLocale,
+                }
+            })
+        },
+    )?;
+    Ok(found.map(|reference| FrameKey(reference.identity())))
+}
+
+fn traverse_matching<B: FrameLookupBackend + ?Sized>(
+    backend: &B,
+    root: FrameReferenceId,
+    remaining: &mut usize,
+    matches: impl Fn(FrameReferenceId, Option<&[u8]>) -> Result<bool, FrameLookupError>,
+) -> Result<Option<FrameReferenceId>, FrameLookupError> {
     let mut pending = Vec::new();
     let mut active = HashSet::new();
     // Enter/exit tasks preserve the recursive active path, permitting shared
@@ -424,13 +479,8 @@ fn traverse<B: FrameLookupBackend + ?Sized>(
             return Err(FrameLookupError::Cycle(reference));
         }
         let view = backend.frame(reference)?;
-        if let Some(stored) = view.name {
-            if !stored.is_ascii() || stored.contains(&0) {
-                return Err(FrameLookupError::UnsupportedName);
-            }
-            if stored.eq_ignore_ascii_case(name) {
-                return Ok(Some(reference));
-            }
+        if matches(reference, view.name)? {
+            return Ok(Some(reference));
         }
         // Sibling enters after this frame exits; only its descendants retain
         // this frame on the active path. Root.next lies outside this subtree.
@@ -457,11 +507,10 @@ fn traverse<B: FrameLookupBackend + ?Sized>(
 /// Confirm-only on this pre-existing port: self-first preorder with the
 /// first hit winning matches the native self-check-then-recurse order.
 /// Covered subset only: case-insensitive exact matching under
-/// SCRIPT_FIND_FLAGS with original-name (not full-name) comparison.
-/// The native type gate, case-sensitive and wildcard arms, and full-name
-/// matching stay unported (disclosed); embedded NUL and non-ASCII inputs
-/// are explicit host errors, and ancestor cycles, visit exhaustion and
-/// deleted-mid-enumeration keys keep the existing host guards.
+/// SCRIPT_FIND_FLAGS against the name supplied by the live backend.
+/// This entry point does not admit type-specific or wildcard flags;
+/// embedded NUL and non-ASCII inputs are explicit host errors. The
+/// primary-sector lookup uses a separate type and full-name predicate.
 pub fn get_child_frame<B: FrameLookupBackend + ?Sized>(
     backend: &B,
     root: FrameReferenceId,
