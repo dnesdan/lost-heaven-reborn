@@ -1391,8 +1391,13 @@ fn screen_matrix(width: u32, height: u32, design: [f32; 2]) -> Mat4 {
         * Mat4::orthographic_rh(0.0, design[0], design[1], 0.0, -1.0, 1.0)
 }
 pub fn instance() -> wgpu::Instance {
+    #[cfg(windows)]
+    let backends =
+        wgpu::Backends::VULKAN.with_env() & (wgpu::Backends::VULKAN | wgpu::Backends::DX12);
+    #[cfg(not(windows))]
+    let backends = wgpu::Backends::VULKAN | wgpu::Backends::METAL;
     wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL,
+        backends,
         ..Default::default()
     })
 }

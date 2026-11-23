@@ -3323,7 +3323,11 @@ fn managed_loading_open_and_init_dispatch_on_one_surface_with_explicit_recovery(
             .collect(),
             indices: vec![0, 1, 2],
             texture: None,
-            material: lhr_render::RenderMaterial::Legacy,
+            material: lhr_render::RenderMaterial::OriginalNull {
+                color: [1.; 4],
+                sort_center: [0.; 3],
+                visual_z_bias: false,
+            },
         }
     }
 

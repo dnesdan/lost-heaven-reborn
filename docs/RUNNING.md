@@ -86,6 +86,10 @@ incoming control word or layout. It cannot be combined with
 menu or game loop: it installs no active cursor, and Open's camera-less 3D
 Render and global blend step remain diagnostic. The report counts scheduled
 presents, not observed frames. A reached error stops startup without replay.
+On Windows with Direct3D 12, the original-data selection above scheduled 25
+Open loading frames, the Init scene and one Init loading frame at 800×600
+with layout `1,1,0`. The next stop was script command 35 (`CALLSUBROUTINE`)
+in `GameInitStart`, before player/car coupling or a game tick.
 
 Native application database state is session-owned here and retained through
 terminal mission disposal. Cross-session application ownership is not composed.
@@ -103,7 +107,6 @@ native active-mission Close or a repeatable gameplay lifecycle. Setup cannot
 be replayed after an interruption. Constructor seeds, device-free input and
 headless presentation remain disclosed host policies. No successful game ticks,
 interactive Freeride, player/car coupling, traffic or runtime parity is claimed.
-The common Init also remains blocked at BloodAndFramePools.
 
 ## Linux — tested with Vulkan
 
@@ -278,12 +281,14 @@ successfully at `b3b6b67`, changing 18,563 pixels. Omit `--headless`,
 `--animation-steps` and `--capture` to open the animated model in a window;
 this batch verified the headless command, not the window controls.
 
-## Windows — native build and run not yet tested
+## Windows — native build and run
 
 Install the official Rust 1.99.1 MSVC toolchain, Visual Studio Build Tools with
-the C++ workload and Windows SDK, and a Vulkan-capable graphics driver. Use
+the C++ workload and Windows SDK, and a graphics driver for Vulkan or Direct3D 12. Use
 PowerShell in the repository root. The Bash setup scripts are not native Windows
-commands. The renderer selects Vulkan, not DirectX 12.
+commands. Windows uses Vulkan by default. To run the same renderer and
+Freeride startup window through Direct3D 12, set `$env:WGPU_BACKEND = "dx12"`
+in PowerShell before launching. Remove the variable to restore the default.
 
 ```powershell
 rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
@@ -472,6 +477,7 @@ cargo clippy --workspace --all-targets --locked --features lhr-engine/engine-lab
 cargo test -p lhr-render --locked -- --ignored --test-threads=1
 ```
 
-The last command requires a working Vulkan or Metal adapter. Native macOS/Metal
+The last command requires a working graphics adapter (Vulkan, Metal, or
+Direct3D 12 on Windows). Native macOS/Metal
 and original installation interaction need separate runs; synthetic checks do not
 establish either result.

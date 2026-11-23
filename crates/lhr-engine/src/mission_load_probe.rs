@@ -616,6 +616,21 @@ impl lhr_engine::load_scene_callback::LoadingScreenDevice for FreerideOpenDevice
     }
 }
 
+fn discard_freeride_probe(session: &mut MissionLoadSession) -> Result<(), String> {
+    if session
+        .loader()
+        .is_some_and(|loader| loader.content.has_retained_program_runtime())
+    {
+        session.discard_actor_program_runtimes_host()?;
+        session
+            .discard_global_program_runtimes_host()
+            .map_err(|error| format!("global program host discard: {error:?}"))?;
+    }
+    session
+        .discard_terminal()
+        .map_err(|error| format!("{error:?}"))
+}
+
 pub(super) fn run_freeride_start(
     root: &Path,
     model_directories: &[String],
@@ -815,7 +830,7 @@ pub(super) fn run_freeride_start(
         session.owned_counts()
     )
     .unwrap();
-    let disposal = session.discard_terminal();
+    let disposal = discard_freeride_probe(&mut session);
     writeln!(
         report,
         "Terminal disposal: {disposal:?}; phase: {:?}; failure: {:?}",

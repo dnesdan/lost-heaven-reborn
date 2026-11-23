@@ -93,7 +93,7 @@ fn renderer(format: wgpu::TextureFormat) -> Renderer {
 fn renderer_with_filter(format: wgpu::TextureFormat, linear: bool) -> Renderer {
     let instance = crate::instance();
     let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
-        .expect("ordered screen test needs Vulkan or Metal");
+        .expect("ordered screen test needs a graphics adapter");
     println!(
         "ordered screen adapter: {:?}, target: {format:?}",
         adapter.get_info()
@@ -114,7 +114,7 @@ fn replace(renderer: &mut Renderer, meshes: &[Mesh]) {
 }
 
 #[test]
-#[ignore = "requires a Vulkan or Metal device"]
+#[ignore = "requires a graphics device"]
 fn gpu_temporary_batch_keeps_scene_draws_and_survives_a_rejected_mesh() {
     let mut renderer = renderer(wgpu::TextureFormat::Rgba8Unorm);
     let shared = texture([0, 255, 0, 255]);
@@ -164,6 +164,31 @@ fn gpu_temporary_batch_keeps_scene_draws_and_survives_a_rejected_mesh() {
     );
 }
 
+#[test]
+#[ignore = "requires a graphics adapter"]
+fn gpu_untextured_menu_quads_preserve_diffuse_color_and_alpha() {
+    let renderer = renderer(wgpu::TextureFormat::Bgra8Unorm);
+    let mut batch = renderer.ordered_screen_batch();
+    let untextured = |bounds, material| Mesh {
+        texture: None,
+        ..quad(bounds, texture([0; 4]), material)
+    };
+    batch
+        .push(untextured([0., 0., 4., 2.], diffuse([0., 1., 0., 1.])))
+        .unwrap();
+    batch
+        .push(untextured([2., 0., 4., 2.], diffuse([1., 0., 0., 0.5])))
+        .unwrap();
+    assert!(batch
+        .push(untextured([0., 0., 4., 2.], RenderMaterial::Legacy))
+        .is_err());
+    let rgba = renderer
+        .readback_texture_using(4, 2, |target| batch.encode(target))
+        .unwrap();
+    assert_eq!(pixel(&rgba, 4, [0, 1]), [0, 255, 0, 255]);
+    approximately(pixel(&rgba, 4, [3, 1]), [128, 127, 0, 191]);
+}
+
 fn pixel(rgba: &[u8], width: usize, position: [usize; 2]) -> [u8; 4] {
     let offset = (position[1] * width + position[0]) * 4;
     rgba[offset..offset + 4].try_into().unwrap()
@@ -205,7 +230,7 @@ fn sampled_quad(
 }
 
 #[test]
-#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+#[ignore = "requires a graphics adapter; run with --ignored"]
 fn gpu_translucent_overlays_preserve_distinct_unorm_and_srgb_attachment_blending() {
     for format in [
         wgpu::TextureFormat::Rgba8Unorm,
@@ -263,7 +288,7 @@ fn gpu_translucent_overlays_preserve_distinct_unorm_and_srgb_attachment_blending
 }
 
 #[test]
-#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+#[ignore = "requires a graphics adapter; run with --ignored"]
 fn gpu_linear_legacy_and_original_null_sample_raw_bytes_at_midpoints_edges_and_repeat_seams() {
     let coordinates = [-0.25, 0., 0.25, 0.375, 0.5, 0.625, 0.75, 1., 1.25];
     let clamped = [0, 0, 0, 64, 128, 191, 255, 255, 255];
@@ -383,7 +408,7 @@ fn gpu_linear_legacy_and_original_null_sample_raw_bytes_at_midpoints_edges_and_r
 }
 
 #[test]
-#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+#[ignore = "requires a graphics adapter; run with --ignored"]
 fn gpu_batches_keep_input_order_rgba_diffuse_and_ignore_scene_depth_and_alpha_tests() {
     let mut renderer = renderer(wgpu::TextureFormat::Rgba8Unorm);
     renderer.set_inspection_alpha_cutout(true);
@@ -457,7 +482,7 @@ fn gpu_batches_keep_input_order_rgba_diffuse_and_ignore_scene_depth_and_alpha_te
 }
 
 #[test]
-#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+#[ignore = "requires a graphics adapter; run with --ignored"]
 fn gpu_uvs_independent_scaling_and_per_encoder_projection_are_preserved() {
     let mut renderer = renderer(wgpu::TextureFormat::Rgba8Unorm);
     let image = Arc::new(Texture {
@@ -521,7 +546,7 @@ fn gpu_uvs_independent_scaling_and_per_encoder_projection_are_preserved() {
 }
 
 #[test]
-#[ignore = "requires a Vulkan or Metal adapter; run with --ignored"]
+#[ignore = "requires a graphics adapter; run with --ignored"]
 fn gpu_rgba_bgra_unorm_and_srgb_targets_share_uploaded_texture_owners() {
     for format in [
         wgpu::TextureFormat::Rgba8Unorm,
@@ -562,7 +587,7 @@ fn gpu_rgba_bgra_unorm_and_srgb_targets_share_uploaded_texture_owners() {
 }
 
 #[test]
-#[ignore = "requires a Vulkan or Metal adapter and LHR_ORDERED_SCREEN_TEST_CAPTURE output path"]
+#[ignore = "requires a graphics adapter and LHR_ORDERED_SCREEN_TEST_CAPTURE output path"]
 fn gpu_capture_png_round_trip_matches_the_presentable_frame() {
     let path = std::env::var_os("LHR_ORDERED_SCREEN_TEST_CAPTURE")
         .expect("set a task-owned capture output path");

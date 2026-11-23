@@ -36,7 +36,7 @@ pub(crate) fn with_swapchain(
                 }))
                 .unwrap_or_else(|| {
                     let adapters: Vec<_> = instance
-                        .enumerate_adapters(wgpu::Backends::VULKAN | wgpu::Backends::METAL)
+                        .enumerate_adapters(wgpu::Backends::all())
                         .into_iter()
                         .map(|adapter| (adapter.get_info(), surface.get_capabilities(&adapter)))
                         .collect();

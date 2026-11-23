@@ -170,7 +170,23 @@ pub struct OrderedScreenBatch<'renderer> {
 
 impl OrderedScreenBatch<'_> {
     /// Append one mesh, validating it at the point the caller emits it.
-    pub fn push(&mut self, mesh: Mesh) -> Result<(), String> {
+    pub fn push(&mut self, mut mesh: Mesh) -> Result<(), String> {
+        if mesh.texture.is_none()
+            && matches!(mesh.material, super::RenderMaterial::OriginalNull { .. })
+        {
+            // The screen shader multiplies the sample by the per-draw diffuse RGBA.
+            // A unit sample preserves that RGBA when the menu binds no texture.
+            static UNIT_SAMPLE: std::sync::LazyLock<Arc<Texture>> =
+                std::sync::LazyLock::new(|| {
+                    Arc::new(Texture {
+                        width: 1,
+                        height: 1,
+                        rgba: vec![255; 4],
+                        repeat: [false; 2],
+                    })
+                });
+            mesh.texture = Some(Arc::clone(&UNIT_SAMPLE));
+        }
         let renderer = self.renderer;
         self.draws.extend(upload_meshes(
             &renderer.device,
