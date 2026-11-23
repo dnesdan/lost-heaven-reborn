@@ -1,5 +1,5 @@
-//! Headless host probe over the same owners as MissionLoadSession.
-//! This command never starts a menu, actor scheduler, or mission-completion gate.
+//! Host probes over the same owners as MissionLoadSession.
+//! These commands do not start the interactive menu, actor scheduler, or gameplay.
 
 use lhr_engine::{
     actor_world::ActorWorld,
@@ -575,17 +575,70 @@ fn reset_flags_observation(session: &MissionLoadSession) -> String {
     )
 }
 
-pub fn run_freeride_start(
+#[derive(Clone, Copy)]
+pub(super) enum FreerideProbePresentation<'host> {
+    Headless,
+    Capture(&'host Path),
+    Window {
+        host: &'host crate::freeride_window::FreerideWindow,
+        layout: lhr_engine::menu::MenuComponentCreateContext,
+    },
+}
+
+struct FreerideOpenDevice<'host> {
+    diagnostic: ProbeOpenRender,
+    window: Option<&'host crate::freeride_window::FreerideWindow>,
+}
+
+impl SceneRenderBackend for FreerideOpenDevice<'_> {
+    fn render_scene(&mut self, arena: &ModelArena, scene: SceneKey) -> Result<u32, ModelError> {
+        self.diagnostic.render_scene(arena, scene)
+    }
+}
+
+impl lhr_engine::load_scene_callback::LoadingScreenDevice for FreerideOpenDevice<'_> {
+    fn set_alpha_blend_state(&mut self) -> Result<(), String> {
+        self.diagnostic.set_alpha_blend_state()
+    }
+
+    fn present_loading_screen(
+        &mut self,
+        frame: lhr_engine::load_scene_callback::LoadingScreenFrame<'_>,
+    ) -> Result<(), String> {
+        match self.window {
+            None => self.diagnostic.present_loading_screen(frame),
+            Some(window) => {
+                window.present_loading(frame)?;
+                self.diagnostic.loading_presents += 1;
+                Ok(())
+            }
+        }
+    }
+}
+
+pub(super) fn run_freeride_start(
     root: &Path,
     model_directories: &[String],
     selection: Option<lhr_engine::game_loadsave_lifecycle::FreerideState>,
-    capture: Option<&Path>,
+    presentation: FreerideProbePresentation<'_>,
 ) -> Result<(), String> {
     use lhr_engine::mission_load_session::{FreerideAttempt, FreerideRequest, FREERIDE_MISSION};
     validate_inputs(FREERIDE_MISSION, model_directories)?;
+    let window = match presentation {
+        FreerideProbePresentation::Window { host, .. } => Some(host),
+        _ => None,
+    };
+    let target = window.map_or(PROBE_RENDER_SIZE, |host| host.target());
+    let size = match target.map(i32::try_from) {
+        [Ok(width), Ok(height)] => [width, height],
+        _ => return Err("Freeride presentation extent exceeds the Scene range".into()),
+    };
     let installation = lhr_assets::Installation::open(root).map_err(|error| error.to_string())?;
     let mut session = MissionLoadSession::new(installation, Pc24PrecisionState::new(false))
         .map_err(|error| format!("Freeride probe initialization: {error:?}"))?;
+    if let FreerideProbePresentation::Window { layout, .. } = presentation {
+        session.configure_loading_menu_layout(layout)?;
+    }
     session
         .read_car_database_for_startup()
         .map_err(|error| format!("Freeride probe car database: {error}"))?;
@@ -646,28 +699,47 @@ pub fn run_freeride_start(
         .collect();
     let mut attempt = FreerideAttempt::default();
     let mut screen = InspectionScreen {
-        size: PROBE_SIZE,
-        viewport: [0, 0, PROBE_SIZE[0], PROBE_SIZE[1]],
+        size,
+        viewport: [0, 0, size[0], size[1]],
     };
     let request = FreerideRequest {
         model_directories: &directories,
         projection: PROBE_PROJECTION,
     };
     let mut scene_capture = None;
-    let mut render = ProbeOpenRender::default();
-    let result = if let Some(path) = capture {
+    let mut render = FreerideOpenDevice {
+        diagnostic: ProbeOpenRender::default(),
+        window,
+    };
+    let mut init_scene_presents = 0;
+    let mut init_loading_presents = 0;
+    let result = if matches!(presentation, FreerideProbePresentation::Headless) {
+        session.start_freeride(&mut attempt, request, &mut screen, &mut render)
+    } else {
         let mut sequence = lhr_engine::scene_render::SceneSnapshotSequence::default();
-        let mut present = |frame: PresentedFrame<'_>| {
-            match frame {
-            PresentedFrame::Scene(snapshot) => {
-                let result = capture_retained_mission_frame(snapshot, path);
-                scene_capture = Some(result.clone());
-                result
+        let mut present = |frame: PresentedFrame<'_>| match presentation {
+            FreerideProbePresentation::Window { host, .. } => {
+                let is_scene = matches!(&frame, PresentedFrame::Scene(_));
+                host.present_init(frame)?;
+                if is_scene {
+                    init_scene_presents += 1;
+                } else {
+                    init_loading_presents += 1;
+                }
+                Ok(())
             }
-            PresentedFrame::LoadingScreen(_) => Err(
-                "Freeride loading-screen GM_Menu::Draw/Present is not composed; no synthetic acknowledgement".into(),
-            ),
-        }
+            FreerideProbePresentation::Capture(path) => match frame {
+                PresentedFrame::Scene(snapshot) => {
+                    let result = capture_retained_mission_frame(snapshot, path);
+                    scene_capture = Some(result.clone());
+                    result
+                }
+                PresentedFrame::LoadingScreen(_) => Err(
+                    "Freeride loading-screen GM_Menu::Draw/Present is not composed in capture mode"
+                        .into(),
+                ),
+            },
+            FreerideProbePresentation::Headless => Err("No Init presentation host".into()),
         };
         session.start_freeride_presented(
             &mut attempt,
@@ -675,13 +747,11 @@ pub fn run_freeride_start(
             &mut screen,
             &mut render,
             lhr_engine::mission_load_session::FreeridePresentation {
-                target: PROBE_RENDER_SIZE,
+                target,
                 sequence: &mut sequence,
                 present: &mut present,
             },
         )
-    } else {
-        session.start_freeride(&mut attempt, request, &mut screen, &mut render)
     };
     let mut report = String::new();
     writeln!(report, "Indicator texture/font prefix executed; native ResetValues and live HUD device not established.").unwrap();
@@ -691,7 +761,7 @@ pub fn run_freeride_start(
     )
     .unwrap();
     writeln!(report, "Scope: fresh session; original active-mission Close and native repeatable lifecycle are not composed").unwrap();
-    writeln!(report, "Host inputs: 800x600, full viewport, initial PC24 sticky precision flag=false; model directories={model_directories:?}; profile settings={settings_status}; input={input_status}").unwrap();
+    writeln!(report, "Host inputs: {}x{}, full viewport, initial PC24 sticky precision flag=false; model directories={model_directories:?}; profile settings={settings_status}; input={input_status}", size[0], size[1]).unwrap();
     writeln!(
         report,
         "No implicit model directory, substitute map, car selection or filename fallback"
@@ -699,7 +769,18 @@ pub fn run_freeride_start(
     .unwrap();
     writeln!(report, "Car database host intake: {:?}; cars={}; players={}; bytes={}. Native AllDefault/repeated Init/short reads are not composed.", session.car_database().intake(), session.car_database().car_count(), session.car_database().player_count(), session.car_database().index_storage_bytes()).unwrap();
     writeln!(report, "Freeride selection: {selection_status}").unwrap();
-    writeln!(report, "Reached GameInit scene capture: {scene_capture:?}; request: {capture:?}. Later GameInit loading-screen Draw/Present is not synthesized.").unwrap();
+    match presentation {
+        FreerideProbePresentation::Window { layout, .. } => {
+            writeln!(report, "Window diagnostic layout: {layout:?}; no active menu cursor. Windowed presents scheduled: Open loading={}; Init scene={init_scene_presents}; Init loading={init_loading_presents}.", render.diagnostic.loading_presents).unwrap();
+            writeln!(report, "Open's camera-less 3D Render and global blend step remain diagnostic; Init Scene frames and loading frames use the same swapchain. No displayed-frame or native numeric parity claimed.").unwrap();
+        }
+        FreerideProbePresentation::Capture(path) => {
+            writeln!(report, "Reached GameInit scene capture: {scene_capture:?}; request: {path:?}. Later GameInit loading-screen Draw/Present is not synthesized.").unwrap();
+        }
+        FreerideProbePresentation::Headless => {
+            writeln!(report, "No GameInit presentation host selected.").unwrap();
+        }
+    }
     writeln!(
         report,
         "Startup reached: {:?}; result: {result:?}",

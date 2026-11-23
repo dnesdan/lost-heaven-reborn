@@ -9,6 +9,7 @@ mod engine_lab;
 #[cfg(not(feature = "engine-lab"))]
 #[path = "engine_lab_disabled.rs"]
 mod engine_lab;
+mod freeride_window;
 mod host_local_time;
 mod lab_app;
 mod lab_camera;
@@ -74,6 +75,7 @@ fn menu_navigation(code: KeyCode, shift: bool) -> Option<menu::Navigation> {
 struct Options {
     freeride_start_probe: bool,
     freeride_selection: Option<lhr_engine::game_loadsave_lifecycle::FreerideState>,
+    freeride_window_layout: Option<menu::MenuComponentCreateContext>,
     mission_load_probe: bool,
     mission_play_probe: bool,
     probe_model_directories: Vec<String>,
@@ -160,6 +162,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
     let mut result = Options {
         freeride_start_probe: false,
         freeride_selection: None,
+        freeride_window_layout: None,
         mission_load_probe: false,
         mission_play_probe: false,
         probe_model_directories: Vec::new(),
@@ -203,6 +206,13 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                     return Err("--freeride-selection may be supplied only once".into());
                 }
                 result.freeride_selection = Some(parse_freeride_selection(&args.next().ok_or("Missing Freeride selection")?)?);
+            }
+            "--probe-window-pc24-layout" => {
+                if result.freeride_window_layout.is_some() {
+                    return Err("--probe-window-pc24-layout may be supplied only once".into());
+                }
+                let layout = args.next().ok_or("Missing window layout")?;
+                result.freeride_window_layout = Some(freeride_window::parse_pc24_layout(&layout)?);
             }
             "--mission-load-probe" => result.mission_load_probe = true,
             "--mission-play-probe" => result.mission_play_probe = true,
@@ -289,7 +299,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 "[--car-driving | --car-inspection [--steer VALUE [--steer-steps N]]] [--textures RELATIVE_DIRECTORY] [--headless --capture PNG [--animation-steps N]] [--frames N] [--linear]. ",
                 "--lab requires --features engine-lab and a native window. It opens scenes/models, environment previews, camera and model tools, presets and actual driving input. F1 panel, F2 pause, F3 16 ms step, F4 reload. --synthetic --lab starts the public gallery; --root may also supply its asset browser. --lab-scene gallery|courtyard|primitives|lights selects a public --synthetic scene, including headless captures. --lab-preset FILE.lhr-lab loads presentation settings for --lab or --headless. --capture omits the Lab overlay. ",
                 "--mission-load-probe --root DIRECTORY --mission NAME [--probe-model-dir DIRECTORY ...] [--probe-render-capture PNG] [--probe-refuse-loading-present N] runs the shared CPU load-session diagnostic without a window. A refused loading-screen present (0-based) exercises the Open stop and its disposal. Optional GPU capture renders the actual retained mission Scene, and does not execute gameplay. Other presentation and playback flags are excluded. ",
-                "--freeride-start-probe --root DIRECTORY [--probe-model-dir DIRECTORY ...] [--freeride-selection CAR,FLAGS,LOCATION,TRAFFIC,PEDESTRIANS,POLICE] [--probe-render-capture PNG] diagnoses the original freeride startup. Optional selection is explicit diagnostic StoreA/StoreB input (decimal descriptor/flags/location), not a reconstructed menu. Optional GPU capture runs only at common Init's reached Scene render; loading-menu Draw/Present is not synthesized. No implicit selection or filename fallback. Not playable; exits unsuccessfully while blocked. ",
+                "--freeride-start-probe --root DIRECTORY [--probe-model-dir DIRECTORY ...] [--freeride-selection CAR,FLAGS,LOCATION,TRAFFIC,PEDESTRIANS,POLICE] [--probe-render-capture PNG | --probe-window-pc24-layout SCALE_X,SCALE_Y,LEFT_MARGIN] diagnoses original Freeride startup. Optional selection is explicit StoreA/StoreB input, not menu execution. Capture draws only the reached Init Scene frame. Window mode explicitly supplies diagnostic layout and PC24 nearest precision for Open/Init loading frames on one swapchain; it is not playable. No implicit selection or filename fallback. ",
                 "--mission-play-probe --root DIRECTORY plays the MISE01 slice headless against original data without a window: intro cutscene lock, on-foot walk to the taxi stand, board the staged taxi00.4ds driving world and drive 150 m to Complete. Other presentation and playback flags are excluded. ",
                 "--audio-capture WAV records the actual mixed driving audio and requires --car-driving. ",
                 "--car-driving requires --root and --model and opens the original MISE01 driving world. W accelerates, S brakes, A/D steer, Space applies the handbrake; R reloads and Escape exits. The chase camera is a host view. ",
@@ -329,6 +339,9 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
     if result.freeride_selection.is_some() && !result.freeride_start_probe {
         return Err("--freeride-selection requires --freeride-start-probe".into());
     }
+    if result.freeride_window_layout.is_some() && !result.freeride_start_probe {
+        return Err("--probe-window-pc24-layout requires --freeride-start-probe".into());
+    }
     if result.mission_play_probe {
         for option in &provided_options {
             if !matches!(
@@ -358,6 +371,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                     | "--probe-model-dir"
                     | "--freeride-selection"
                     | "--probe-render-capture"
+                    | "--probe-window-pc24-layout"
             ) {
                 return Err(format!(
                     "{option} is not used by --freeride-start-probe; omit it"
@@ -366,6 +380,9 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         }
         if result.root.is_none() {
             return Err("--freeride-start-probe requires --root".into());
+        }
+        if result.freeride_window_layout.is_some() && result.probe_render_capture.is_some() {
+            return Err("--probe-window-pc24-layout excludes --probe-render-capture".into());
         }
         mission_load_probe::validate_inputs("freeride", &result.probe_model_directories)?;
         return Ok(result);
@@ -5564,11 +5581,29 @@ impl lhr_engine::clock::ClockBackend for InspectionClock {
 fn run() -> Result<(), String> {
     let options = options()?;
     if options.freeride_start_probe {
+        use mission_load_probe::FreerideProbePresentation;
+        let root = options
+            .root
+            .as_deref()
+            .ok_or("Freeride probe needs --root")?;
+        if let Some(layout) = options.freeride_window_layout {
+            return freeride_window::run(|host| {
+                mission_load_probe::run_freeride_start(
+                    root,
+                    &options.probe_model_directories,
+                    options.freeride_selection,
+                    FreerideProbePresentation::Window { host, layout },
+                )
+            });
+        }
         return mission_load_probe::run_freeride_start(
-            options.root.as_deref().unwrap(),
+            root,
             &options.probe_model_directories,
             options.freeride_selection,
-            options.probe_render_capture.as_deref(),
+            options.probe_render_capture.as_deref().map_or(
+                FreerideProbePresentation::Headless,
+                FreerideProbePresentation::Capture,
+            ),
         );
     }
     if options.mission_load_probe {
@@ -6544,6 +6579,38 @@ mod mission_probe_option_tests {
             "1,0,7,1,1,1"
         ])
         .is_err());
+    }
+
+    #[test]
+    fn freeride_window_layout_is_explicit_and_excludes_capture() {
+        let base = [
+            "--freeride-start-probe",
+            "--root",
+            "/synthetic-installation",
+        ];
+        assert!(parse(&base).unwrap().freeride_window_layout.is_none());
+        let mut valid = base.to_vec();
+        valid.extend(["--probe-window-pc24-layout", "1.25,0.75,-2.5"]);
+        let layout = parse(&valid).unwrap().freeride_window_layout.unwrap();
+        assert_eq!(layout.screen_scale, [1.25, 0.75]);
+        assert_eq!(layout.left_margin_x, -2.5);
+        assert_eq!(layout.precision, menu::MenuComponentPrecision::Pc24Nearest);
+        assert!(parse(&valid[1..]).is_err());
+        for invalid in [
+            "", "1,2", "1,2,3,4", "0,1,0", "1,-1,0", "NaN,1,0", "1,1,inf",
+        ] {
+            let mut args = base.to_vec();
+            args.extend(["--probe-window-pc24-layout", invalid]);
+            assert!(parse(&args).is_err(), "{invalid:?}");
+        }
+        for additional in [
+            ["--probe-window-pc24-layout", "1,1,0"],
+            ["--probe-render-capture", "frame.png"],
+        ] {
+            let mut args = valid.clone();
+            args.extend(additional);
+            assert!(parse(&args).is_err(), "{args:?}");
+        }
     }
 
     #[test]

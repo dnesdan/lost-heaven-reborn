@@ -12,7 +12,7 @@ playable from start to finish.
 ./scripts/run.sh --freeride-start-probe --root /path/to/Mafia --probe-model-dir Models
 ```
 
-This headless diagnostic fixes the original mission name to `freeride`. It
+By default this diagnostic is headless and fixes the original mission name to `freeride`. It
 excludes `--mission`, campaign probes, standalone car-driving, model-selection
 and unrelated presentation flags; optional `--probe-render-capture FILE.png`
 attempts the existing GPU presentation at common Init's reached Scene render.
@@ -74,6 +74,18 @@ source-backed spot-light selection/cone branch; Init stops at PlayerNavi's
 loading-screen presentation. Terminal disposal again releases all represented
 mission owners, including the prepared visual buffers. Spot lighting retains
 the existing checked PC24 numeric domain and receives no whole-function credit.
+
+With `--probe-window-pc24-layout SCALE_X,SCALE_Y,LEFT_MARGIN`, the diagnostic
+instead opens a window and uses one swapchain for actual source Open loading
+frames, the retained Init Scene, and reached Init loading frames. It requires
+a surface-compatible GPU and a non-sRGB target supported by that surface.
+Supply positive finite scales and a finite left margin explicitly; PC24
+round-to-nearest is a diagnostic condition, not evidence of the original
+incoming control word or layout. It cannot be combined with
+`--probe-render-capture`. The window hosts one attempt, not an interactive
+menu or game loop: it installs no active cursor, and Open's camera-less 3D
+Render and global blend step remain diagnostic. The report counts scheduled
+presents, not observed frames. A reached error stops startup without replay.
 
 Native application database state is session-owned here and retained through
 terminal mission disposal. Cross-session application ownership is not composed.
