@@ -6,6 +6,22 @@ The original executable and reverse-engineering tools are not runtime inputs.
 The menu and mission commands inspect current resources; the first mission is not
 playable from start to finish.
 
+## Installation asset check
+
+```sh
+cargo run --locked -p lhr-assets --example inspect -- --check-installation /path/to/Mafia \
+    'Missions\freeride\clusters.seg' 'Missions\freeride\scene2.bin'
+```
+
+The inspector reads each requested relative path through the installation
+reader. Output gives the argument's ordinal and one of `readable`, `missing`
+or `read-error`. A successful read also reports the byte count. A refused
+path or a failed read of the selected archive or loose source is a read error.
+The inspector checks readability without parsing the payload format,
+extracting data, or starting the game.
+Exit codes are `0` when all entries are readable, `1` for any missing entry
+or read error, and `2` for missing arguments or installation setup failure.
+
 ## Original Freeride startup diagnostic
 
 ```sh
