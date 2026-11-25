@@ -53,6 +53,10 @@ mod traffic;
 #[path = "car_material_publication_tests.rs"]
 mod car_material_publication_tests;
 
+#[cfg(test)]
+#[path = "car_particle_publication_tests.rs"]
+mod car_particle_publication_tests;
+
 /// Bytes/fields left untouched by the base constructor. There is deliberately
 /// no default: the allocator/caller must supply the actual storage seed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1879,6 +1883,16 @@ impl ActorWorld {
             .as_mut()
             .ok_or("Init LoadMaterials: mission car services unavailable")?
             .load_materials_for_init(tables)
+    }
+    /// Run the reached Init particle load on the shared mission car services.
+    pub(crate) fn load_car_particles_for_init(
+        &mut self,
+        definitions: &GameDefinitionTables,
+    ) -> Result<bool, String> {
+        self.car_services
+            .as_mut()
+            .ok_or("Init LoadParticles: mission car services unavailable")?
+            .load_particles_for_init(definitions)
     }
     pub fn live_car_table_allocation_count(&self) -> usize {
         self.car_services

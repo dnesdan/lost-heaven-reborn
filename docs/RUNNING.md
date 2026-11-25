@@ -127,6 +127,12 @@ process. In a repeat run with the same isolated profile, `dtaOpen` returned
 `-1` and the first `dtaRead` returned `0xffffffff` for the 16-byte header
 request. The loader again returned zero to Init and Day City loaded. The Rust
 diagnostic still stops at the missing file.
+To repeat the observation on Windows, use a disposable guest with its own
+registry and saves, an unmodified copy of the same installation, and a test
+profile with Day City unlocked. Confirm the segment file is absent, select
+Day City and Little Italy in the original menu, and record whether the
+player gains control. A debugger can record the loader's return value
+separately.
 
 When the segment loader returns normally (including a rejected header), Init
 clears the new-mission flag and checks `intern_load`. If set, it calls
@@ -141,10 +147,18 @@ short-read timing. A car constructed before mission Init can still use the
 existing lazy table reader. At Init, the retained material records replace
 those rows without reopening the file. If intake never returned, Init refuses to replace
 the materials; if it returned with zero material records, the original loader
-publishes its single default row. The next stop is `LoadParticles`, where
-vehicle emitter creation and cleanup are not connected. With `intern_load`
-clear, Init skips all three loaders. These paths are exercised with synthetic
-segments; they do not move the original-data run past its missing segment file.
+publishes its single default row.
+
+`LoadParticles` reads the particle count from the same startup intake. With
+zero complete records, the vehicle table receives one zeroed entry without an
+emitter. That completes `CarTables`; the next unimplemented Init step is
+`HydrantsAndWheels`. A nonzero count instead stops at `LoadParticles` before
+replacing the table: vehicle emitter creation is not connected. With
+`intern_load` clear, Init skips all three loaders. These paths are tested with
+synthetic segments. A DX12 Freeride run on this installation counted 23
+complete particle definitions at startup, but still stopped before
+`LoadParticles` at the missing segment file. No vehicle emitters were created
+by that loader in the run.
 
 `SETTRAFFSECTORSND` (317) registers a matching primary scene sector for vehicle
 sounds; it does not start audio or traffic. With the fresh profile used in this

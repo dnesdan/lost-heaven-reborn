@@ -204,6 +204,19 @@ impl CarActorServices {
                 .map_err(|error| format!("Init LoadMaterials: {error:?}"))
         })
     }
+    pub(crate) fn load_particles_for_init(
+        &mut self,
+        definitions: &GameDefinitionTables,
+    ) -> Result<bool, String> {
+        self.tables
+            .load_particles_from_startup(&mut self.memory, definitions)
+            .map_err(|error| match error {
+                crate::car_actor_tables::VehicleTableError::Load(message) => {
+                    format!("Init LoadParticles: {message}")
+                }
+                _ => format!("Init LoadParticles: {error:?}"),
+            })
+    }
     pub(crate) fn table_allocations(&self) -> usize {
         self.tables.live_allocation_count()
     }

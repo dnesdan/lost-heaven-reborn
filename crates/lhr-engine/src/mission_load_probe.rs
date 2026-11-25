@@ -789,6 +789,15 @@ pub(super) fn run_freeride_start(
     let mut report = String::new();
     writeln!(report, "Indicator texture/font prefix executed; native ResetValues and live HUD device not established.").unwrap();
     writeln!(report, "Startup definition intake returned {definitions_loaded}; completed tables retained for mission Init.").unwrap();
+    if let Some(count) = session
+        .startup_definition_count(lhr_engine::game_definition_tables::DefinitionKind::Particles)
+    {
+        writeln!(
+            report,
+            "Startup definition intake retained {count} complete vehicle particle records."
+        )
+        .unwrap();
+    }
     writeln!(
         report,
         "Original Freeride startup diagnostic; fixed mission: {FREERIDE_MISSION}"

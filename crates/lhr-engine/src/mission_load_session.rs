@@ -12,7 +12,9 @@ use crate::driver_scene::{
 };
 use crate::frame_sound::SoundError;
 use crate::game_camera_projection::GameCameraProjection;
-use crate::game_definition_tables::{GameDefinitionTables, InstalledDefinitionSource};
+use crate::game_definition_tables::{
+    DefinitionKind, GameDefinitionTables, InstalledDefinitionSource,
+};
 use crate::game_init_car_tables::{
     CarTablesOutcome, GameInitCarTables, GameInitCarTablesError, GameInitCarTablesHost,
 };
@@ -1607,6 +1609,11 @@ impl MissionLoadSession {
         )
     }
 
+    pub fn startup_definition_count(&self, kind: DefinitionKind) -> Option<usize> {
+        matches!(self.definition_intake, StartupDefinitionIntake::Returned)
+            .then(|| self.definition_tables.count(kind))
+    }
+
     pub fn read_definition_tables_for_startup(&mut self) -> Result<bool, String> {
         self.ensure_fresh_for_source_open(None).map_err(|error| {
             format!("startup definition intake requires a fresh mission session: {error:?}")
@@ -2372,7 +2379,10 @@ impl MissionLoadSession {
                 session.init_car_tables.run(&mut SessionCarTablesHost {
                     active_new_mission: &mut session.active_new_mission,
                     game: &session.game_inline,
-                    loader: session.loader.as_mut(),
+                    car_world: session
+                        .loader
+                        .as_mut()
+                        .map(|loader| &mut loader.content.actors.world),
                     installation: &session.installation,
                     definitions: matches!(
                         session.definition_intake,
@@ -3175,7 +3185,7 @@ pub fn forward_mission_progress<S: MissionProgressSink>(
 struct SessionCarTablesHost<'a> {
     active_new_mission: &'a mut bool,
     game: &'a crate::game_housekeeping::GameInlineState,
-    loader: Option<&'a mut MissionSceneLoader>,
+    car_world: Option<&'a mut crate::actor_world::ActorWorld>,
     installation: &'a lhr_assets::Installation,
     definitions: Option<&'a GameDefinitionTables>,
 }
@@ -3193,12 +3203,9 @@ impl GameInitCarTablesHost for SessionCarTablesHost<'_> {
     }
 
     fn load_tyres(&mut self) -> Result<bool, String> {
-        self.loader
-            .as_mut()
+        self.car_world
+            .as_deref_mut()
             .ok_or("mission actor world unavailable")?
-            .content
-            .actors
-            .world
             .load_car_tyres_for_init(self.installation)
     }
 
@@ -3206,18 +3213,21 @@ impl GameInitCarTablesHost for SessionCarTablesHost<'_> {
         let definitions = self
             .definitions
             .ok_or("startup material definitions unavailable")?;
-        self.loader
-            .as_mut()
+        self.car_world
+            .as_deref_mut()
             .ok_or("mission actor world unavailable")?
-            .content
-            .actors
-            .world
             .load_car_materials_for_init(definitions)?;
         Ok(true)
     }
 
     fn load_particles(&mut self) -> Result<bool, String> {
-        Err("vehicle particle owner unavailable".into())
+        let definitions = self
+            .definitions
+            .ok_or("startup particle definitions unavailable")?;
+        self.car_world
+            .as_deref_mut()
+            .ok_or("mission actor world unavailable")?
+            .load_car_particles_for_init(definitions)
     }
 }
 

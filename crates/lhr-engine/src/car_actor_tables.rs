@@ -1,6 +1,6 @@
-//! Shared original material/tyre resources for mission cars. Lazy host intake
-//! uses the existing canonical compatibility allocations and typed global
-//! publications. LoadTyres preserves reached effects and explicit boundaries.
+//! Shared original material, tyre and particle resources for mission cars.
+//! Table records live in the canonical compatibility allocations. Particle
+//! publication requires the explicit Init call.
 #![forbid(unsafe_code)]
 use crate::{
     driving_vehicle_tables::{
@@ -8,12 +8,20 @@ use crate::{
         RetainedTyreStream, TyreTableFile, MATERIAL_SOURCE_STRIDE, VEHICLE_MATERIAL_STRIDE,
     },
     game_definition_tables::{DefinitionKind, GameDefinitionTables},
-    game_init_car_tables::load_materials_from_definitions,
-    vehicle_engine_state::VehicleMaterialTable,
+    game_init_car_tables::{
+        load_materials_from_definitions, require_emitter_free_definitions, CarTableOwnerError,
+    },
+    vehicle_engine_state::{VehicleMaterialTable, VehicleParticleEntry},
     vehicle_frame_backend::{VehicleFrameMemory, VehicleMemoryError},
     vehicle_init::VehicleInitBackend,
 };
 use lhr_assets::Installation;
+
+// PC vehicle particle consumers read v_particle.begin and v_particle.end
+// here (e.g. UpdateMotorParticles, RVA 0xdd7a0). S_VEH_PARTICLE is 0x1c bytes.
+const PARTICLE_BEGIN: u32 = 0x63d8a4;
+const PARTICLE_END: u32 = 0x63d8a8;
+const PARTICLE_STRIDE: u32 = 0x1c;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum VehicleTableError<E> {
@@ -160,6 +168,7 @@ enum MaterialPhase {
 enum TableKind {
     SourceMaterials,
     Materials,
+    Particles,
     #[cfg(test)]
     TyreSurfaces(usize),
     #[cfg(test)]
@@ -188,6 +197,8 @@ pub(crate) struct VehicleTableResources {
     source_material_count: Option<u32>,
     materials: Option<u32>,
     material_index: Option<[u8; 256]>,
+    particles: Option<TableVector>,
+    particle_load_interrupted: bool,
     tyres_begin: Option<u32>,
     tyres_end: Option<u32>,
     tyres_capacity: Option<u32>,
@@ -206,6 +217,8 @@ impl Default for VehicleTableResources {
             source_material_count: None,
             materials: None,
             material_index: None,
+            particles: None,
+            particle_load_interrupted: false,
             tyres_begin: None,
             tyres_end: None,
             tyres_capacity: None,
@@ -220,6 +233,7 @@ impl Default for VehicleTableResources {
 impl VehicleTableResources {
     pub(crate) fn contains(address: u32) -> bool {
         (0x63d8b0..0x63d9b0).contains(&address)
+            || (PARTICLE_BEGIN..PARTICLE_END + 4).contains(&address)
             || [0x63d9b4u32, 0x63d9c8, 0x63d9cc, 0x6d4c24, 0x6d4c28]
                 .into_iter()
                 .any(|base| (base..base + 4).contains(&address))
@@ -246,6 +260,14 @@ impl VehicleTableResources {
             _kind: kind,
             release_started: false,
         });
+        Self::write_table_bytes(host, allocation, bytes)?;
+        Ok(allocation)
+    }
+    fn write_table_bytes<B: VehicleInitBackend>(
+        host: &mut B,
+        allocation: u32,
+        bytes: &[u8],
+    ) -> Result<(), VehicleTableError<B::Error>> {
         for (offset, &byte) in bytes.iter().enumerate() {
             let address = allocation
                 .checked_add(offset as u32)
@@ -253,7 +275,7 @@ impl VehicleTableResources {
             host.write_byte(address, byte)
                 .map_err(VehicleTableError::Host)?;
         }
-        Ok(allocation)
+        Ok(())
     }
     fn release_table_allocation<B: VehicleInitBackend>(
         &mut self,
@@ -364,6 +386,66 @@ impl VehicleTableResources {
                 projected.conv,
             )
         })
+    }
+    /// C_car::LoadParticles (PC RVA 0x1ca80) and C_Vehicle::SetParticles
+    /// (0xc5cc0), bounded to a fresh vector or this owner's one-record vector.
+    /// The projected header is owner-controlled and each record lives in the
+    /// shared heap. CloseParticles (0xc5f80) visits the live emitter before
+    /// clearing the vector. Clear retains capacity for the subsequent copy.
+    pub(crate) fn load_particles_from_startup<B: VehicleInitBackend>(
+        &mut self,
+        host: &mut B,
+        definitions: &GameDefinitionTables,
+    ) -> Result<bool, VehicleTableError<B::Error>> {
+        if self.discard_started || self.particle_load_interrupted {
+            return Err(VehicleTableError::Interrupted);
+        }
+        self.particle_load_interrupted = true;
+        require_emitter_free_definitions(definitions).map_err(|error| match error {
+            CarTableOwnerError::ParticleEmitterCreationUnavailable { .. } => {
+                VehicleTableError::Load(format!(
+                    "{error:?}. Particle emitter creation requires the driver, model cache and emitter owners"
+                ))
+            }
+            _ => VehicleTableError::Load(format!("{error:?}")),
+        })?;
+
+        // Serialize the existing default entry into the PC record layout.
+        let entry = VehicleParticleEntry::default();
+        let mut record = [0; PARTICLE_STRIDE as usize];
+        let words = std::iter::once(entry.emitter)
+            .chain(entry.velocity)
+            .chain(entry.velocity_end);
+        for (word, bytes) in words.zip(record.as_chunks_mut::<4>().0) {
+            *bytes = word.to_le_bytes();
+        }
+        if let Some(previous) = self.particles.as_mut() {
+            let emitter = host
+                .read_word(previous.begin)
+                .map_err(VehicleTableError::Host)?;
+            if emitter != 0 {
+                let error =
+                    CarTableOwnerError::ParticleEmitterCleanupUnavailable { entry_index: 0 };
+                return Err(VehicleTableError::Load(format!(
+                    "{error:?}. CloseParticles needs LinkTo and Release for live emitter {emitter:#x}"
+                )));
+            }
+            previous.end = previous.begin;
+            Self::write_table_bytes(host, previous.begin, &record)?;
+            previous.end = previous.capacity;
+        } else {
+            let begin = self.own(host, &record, TableKind::Particles)?;
+            let end = begin
+                .checked_add(PARTICLE_STRIDE)
+                .ok_or_else(|| VehicleTableError::Load("Vehicle particle table extent".into()))?;
+            self.particles = Some(TableVector {
+                begin,
+                end,
+                capacity: end,
+            });
+        }
+        self.particle_load_interrupted = false;
+        Ok(true)
     }
     #[cfg(test)]
     fn project<B: VehicleInitBackend>(
@@ -1184,6 +1266,11 @@ impl VehicleTableResources {
         if self.discard_started {
             return Err(VehicleTableError::Interrupted);
         }
+        if (PARTICLE_BEGIN..PARTICLE_END + 4).contains(&address) {
+            return self.published_byte(address).map(Some).ok_or_else(|| {
+                VehicleTableError::Load("Vehicle particles require Init LoadParticles".into())
+            });
+        }
         let is_tyre = (0x63d9c8..0x63d9d0).contains(&address);
         if is_tyre {
             if self.tyre_state == TyreLoadState::NeverStarted {
@@ -1228,6 +1315,8 @@ impl VehicleTableResources {
                 .map(|index| index[(address - 0x63d8b0) as usize]);
         }
         for (base, value) in [
+            (PARTICLE_BEGIN, self.particles.map(|vector| vector.begin)),
+            (PARTICLE_END, self.particles.map(|vector| vector.end)),
             (0x63d9b4, self.materials),
             (0x63d9c8, self.tyres_begin),
             (0x63d9cc, self.tyres_end),
@@ -1252,6 +1341,14 @@ impl VehicleTableResources {
         }
         self.discard_started = true;
         self.material_phase = MaterialPhase::Interrupted;
+        // Backend aliases can still modify the emitter word in any previously
+        // published allocation, even if an interrupted copy cleared the end.
+        // An unpublished allocation was only ever used to write the zero row.
+        if let Some(vector) = self.particles {
+            if memory.read_word(vector.begin)? != 0 {
+                return Err(VehicleMemoryError::IntrinsicAdapterRequired);
+            }
+        }
         let mut released = 0;
         while let Some(lease) = self.leases.last() {
             // VehicleFrameMemory reserves one physical byte for a zero-size request.
@@ -1266,6 +1363,7 @@ impl VehicleTableResources {
         self.source_material_count = None;
         self.materials = None;
         self.material_index = None;
+        self.particles = None;
         self.tyres_begin = None;
         self.tyres_end = None;
         self.tyres_capacity = None;
@@ -1416,6 +1514,65 @@ mod tests {
             assert_eq!(tables.discard_host(&mut host.memory).unwrap(), owned);
             assert_eq!(host.memory.allocations().count(), 0);
         }
+    }
+
+    #[test]
+    fn interrupted_particle_initialization_keeps_the_unpublished_lease_for_disposal() {
+        let mut host = Host {
+            fail_at: Some(8),
+            ..Host::default()
+        };
+        let mut tables = VehicleTableResources::default();
+        let definitions = GameDefinitionTables::default();
+        let unrelated = host.allocate(7).unwrap();
+        assert!(matches!(
+            tables.load_particles_from_startup(&mut host, &definitions),
+            Err(VehicleTableError::Host(_))
+        ));
+        assert!(tables.particles.is_none());
+        assert_eq!(tables.live_allocation_count(), 1);
+        assert_eq!(
+            tables.load_particles_from_startup(&mut host, &definitions),
+            Err(VehicleTableError::Interrupted)
+        );
+        assert_eq!(host.writes, 8);
+        assert_eq!(tables.discard_host(&mut host.memory).unwrap(), 1);
+        assert_eq!(
+            host.memory.allocations().collect::<Vec<_>>(),
+            [(unrelated, 7)]
+        );
+    }
+
+    #[test]
+    fn interrupted_particle_replacement_keeps_the_cleared_end_and_reached_copy_prefix() {
+        let mut host = Host::default();
+        let mut tables = VehicleTableResources::default();
+        let definitions = GameDefinitionTables::default();
+        assert_eq!(
+            tables.load_particles_from_startup(&mut host, &definitions),
+            Ok(true)
+        );
+        let begin = tables.particles.unwrap().begin;
+        host.write_word(begin + 4, u32::MAX).unwrap();
+        host.write_word(begin + 8, u32::MAX).unwrap();
+        let failure = host.writes + 9;
+        host.fail_at = Some(failure);
+        assert_eq!(
+            tables.load_particles_from_startup(&mut host, &definitions),
+            Err(VehicleTableError::Host(VehicleMemoryError::Address(
+                begin + 8
+            )))
+        );
+        assert_eq!(tables.particles.unwrap().end, begin);
+        assert_eq!(host.read_word(begin + 4).unwrap(), 0);
+        assert_eq!(host.read_word(begin + 8).unwrap(), u32::MAX);
+        assert_eq!(
+            tables.load_particles_from_startup(&mut host, &definitions),
+            Err(VehicleTableError::Interrupted)
+        );
+        assert_eq!(host.writes, failure);
+        assert_eq!(tables.discard_host(&mut host.memory).unwrap(), 1);
+        assert_eq!(host.memory.allocations().count(), 0);
     }
 }
 

@@ -183,6 +183,7 @@ pub enum CarTableOwnerError {
     MissingMaterialSource { count: usize },
     ShortMaterialSource { required: usize, available: usize },
     MaterialProjection(String),
+    ParticleDefinitionIntakeInterrupted,
     ParticleEmitterCreationUnavailable { definition_count: usize },
     ParticleEmitterCleanupUnavailable { entry_index: usize },
 }
@@ -239,6 +240,19 @@ pub fn load_materials_from_definitions(
     Ok(vehicle_set_materials(destination, &entries))
 }
 
+pub(crate) fn require_emitter_free_definitions(
+    definitions: &GameDefinitionTables,
+) -> Result<(), CarTableOwnerError> {
+    if definitions.interrupted() || definitions.pending_file().is_some() {
+        return Err(CarTableOwnerError::ParticleDefinitionIntakeInterrupted);
+    }
+    let definition_count = definitions.count(DefinitionKind::Particles);
+    if definition_count != 0 {
+        return Err(CarTableOwnerError::ParticleEmitterCreationUnavailable { definition_count });
+    }
+    Ok(())
+}
+
 /// Bounded LoadParticles composition (RVA 0x1ca80) for the evidenced zero-count
 /// branch only. Nonempty definitions need real driver/model-cache/emitter
 /// owners. A prior nonnull emitter also needs CloseParticles (RVA 0xc5f80),
@@ -247,10 +261,7 @@ pub fn load_particles_without_emitters(
     definitions: &GameDefinitionTables,
     destination: &mut Vec<VehicleParticleEntry>,
 ) -> Result<bool, CarTableOwnerError> {
-    let definition_count = definitions.count(DefinitionKind::Particles);
-    if definition_count != 0 {
-        return Err(CarTableOwnerError::ParticleEmitterCreationUnavailable { definition_count });
-    }
+    require_emitter_free_definitions(definitions)?;
     // CloseParticles visits the old entries backwards. Reaching an emitter is
     // an unsupported unlink boundary, not permission to clear its ownership.
     for (entry_index, entry) in destination.iter().enumerate().rev() {
