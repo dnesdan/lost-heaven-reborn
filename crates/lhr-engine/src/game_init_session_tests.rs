@@ -683,6 +683,121 @@ fn assert_car_tables_no_replay(
 
 const EMPTY_TYRE_FILE: [u8; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
+fn prepare_startup_indicators(fixture: &Fixture, session: &mut MissionLoadSession) {
+    fixture.write("tables/version.txt", b"en");
+    let mut language = vec![0; 56 + 256 * 2];
+    language[..4].copy_from_slice(b"Lang");
+    language[4..6].copy_from_slice(b"en");
+    fixture.write("tables/lang_en.def", &language);
+    session.select_loading_menu_startup_language().unwrap();
+    session.create_loading_indicator_assets().unwrap();
+}
+
+#[test]
+fn startup_definition_intake_refuses_an_already_consumed_navigation_step() {
+    let fixture = Fixture::new();
+    let mut session = fixture.session();
+    prepare_startup_indicators(&fixture, &mut session);
+    session.load_navigation_for_open("mise01").unwrap();
+    assert!(session
+        .read_definition_tables_for_startup()
+        .unwrap_err()
+        .contains("SessionNotFresh"));
+    session.discard_terminal().unwrap();
+}
+
+#[test]
+fn standalone_open_without_a_scene_cannot_return_to_startup_definitions() {
+    use crate::mission_open_order::{OpenAttempt, OpenStep};
+
+    let fixture = Fixture::new();
+    let mut session = fixture.session();
+    prepare_startup_indicators(&fixture, &mut session);
+    session.set_open_mission_name("mise01").unwrap();
+    let mut attempt = OpenAttempt::default();
+    assert!(attempt.run(&mut session).is_err());
+    assert_eq!(attempt.last(), Some(OpenStep::OpenWorld));
+    assert!(session.game_state().intern_load());
+    assert!(session
+        .read_definition_tables_for_startup()
+        .unwrap_err()
+        .contains("SessionNotFresh"));
+    session.discard_terminal().unwrap();
+}
+
+#[test]
+fn car_tables_use_definitions_retained_before_open_and_stop_at_particles() {
+    use crate::game_definition_tables::DefinitionKind;
+
+    for missing in [
+        None,
+        Some(DefinitionKind::Materials),
+        Some(DefinitionKind::Voices),
+    ] {
+        let fixture = Fixture::new();
+        fixture.write("missions/mise01/clusters.seg", &segments_test_header(0));
+        for kind in DefinitionKind::ORDER {
+            if Some(kind) != missing {
+                fixture.write(kind.path(), &vec![0; kind.stride() + 1]);
+            }
+        }
+        let mut session = fixture.session();
+        let early = session.read_definition_tables_for_startup().unwrap_err();
+        assert!(early.contains("indicator asset prefix"), "{early}");
+        prepare_startup_indicators(&fixture, &mut session);
+        assert_eq!(
+            session.read_definition_tables_for_startup(),
+            Ok(missing.is_none())
+        );
+        fixture.write(
+            DefinitionKind::Materials.path(),
+            &vec![0; 257 * DefinitionKind::Materials.stride()],
+        );
+        assert!(session
+            .read_definition_tables_for_startup()
+            .unwrap_err()
+            .contains("no replay"));
+        open_mise01_for_car_tables(&fixture, &mut session);
+        session.segments_load_for_init().unwrap();
+        let error = session.execute(InitStep::CarTables).unwrap_err();
+        assert!(error.0.starts_with("CarTables: LoadParticles:"), "{error}");
+        let stopped = GameInitCarTablesState::Interrupted(CarTablesOperation::LoadParticles);
+        let returns = [Some(false), Some(true), None];
+        assert_car_tables(&session, stopped, returns);
+        let expected_allocations = if missing == Some(DefinitionKind::Materials) {
+            2
+        } else {
+            3
+        };
+        assert_car_table_allocations(&session, expected_allocations);
+        assert_car_tables_no_replay(&mut session, stopped, returns);
+        session.discard_terminal().unwrap();
+        assert_eq!(session.owned_counts().unwrap(), Default::default());
+    }
+}
+
+#[test]
+fn interrupted_startup_definitions_are_not_admitted_to_car_tables() {
+    use crate::game_definition_tables::DefinitionKind;
+
+    let fixture = Fixture::new();
+    fixture.write("missions/mise01/clusters.seg", &segments_test_header(0));
+    for kind in [DefinitionKind::Items, DefinitionKind::Materials] {
+        fixture.write(kind.path(), &vec![0; kind.stride()]);
+    }
+    std::fs::create_dir(fixture.0.join(DefinitionKind::Particles.path())).unwrap();
+    let mut session = fixture.session();
+    prepare_startup_indicators(&fixture, &mut session);
+    assert!(session.read_definition_tables_for_startup().is_err());
+    assert!(session
+        .read_definition_tables_for_startup()
+        .unwrap_err()
+        .contains("no replay"));
+    open_mise01_for_car_tables(&fixture, &mut session);
+    session.segments_load_for_init().unwrap();
+    assert_car_tables_stops_after_tyres(&mut session, false);
+}
+
 #[test]
 fn car_tables_cannot_start_until_segments_returns() {
     use crate::game_ai_segments::{SegmentsLoadStage, SegmentsLoadState};

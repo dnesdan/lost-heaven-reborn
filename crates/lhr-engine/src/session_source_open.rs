@@ -25,6 +25,45 @@ pub enum MissionSourceOpenError {
 }
 
 impl MissionLoadSession {
+    pub(super) fn ensure_fresh_for_source_open(
+        &self,
+        attempt: Option<&OpenAttempt>,
+    ) -> Result<(), MissionSourceOpenError> {
+        if self.discard.phase != MissionDiscardPhase::NotStarted {
+            return Err(MissionSourceOpenError::Admission(
+                MissionLoadCallError::TerminalDiscardEntered,
+            ));
+        }
+        if self.entered || self.phase != MissionLoadPhase::NotStarted {
+            return Err(MissionSourceOpenError::Admission(
+                MissionLoadCallError::AlreadyEntered,
+            ));
+        }
+        if self.open_mission_opened || self.game_initialized {
+            return Err(MissionSourceOpenError::MissionAlreadyOpened);
+        }
+        if attempt.is_some_and(OpenAttempt::entered) {
+            return Err(MissionSourceOpenError::Open(OpenRunError::AlreadyEntered));
+        }
+        if !matches!(
+            self.navigation.outcome(),
+            crate::mission_session_navigation::SessionNavigationOutcome::NotAttempted
+        ) || !matches!(
+            self.roads.outcome(),
+            crate::mission_session_roads::SessionRoadsOutcome::NotAttempted
+        ) || self.game_inline.intern_load()
+            || self.base_cache.has_opened_or_retained_data()
+            || self.open_cache_progress != 0
+            || self.open_restore_volume
+            || self.open_muted
+            || self.open_restored.is_some()
+            || self.game_init_reset_entered
+        {
+            return Err(MissionSourceOpenError::SessionNotFresh);
+        }
+        Ok(())
+    }
+
     /// Load actual world and scene2 owners in the represented Open order.
     /// The caller supplies the render boundary and an unused session; a prior
     /// load, interrupted attempt or active mission cannot be replayed here.
@@ -56,41 +95,7 @@ impl MissionLoadSession {
     where
         S::Error: std::fmt::Debug,
     {
-        if self.discard.phase != MissionDiscardPhase::NotStarted {
-            return Err(MissionSourceOpenError::Admission(
-                MissionLoadCallError::TerminalDiscardEntered,
-            ));
-        }
-        if self.entered || self.phase != MissionLoadPhase::NotStarted {
-            return Err(MissionSourceOpenError::Admission(
-                MissionLoadCallError::AlreadyEntered,
-            ));
-        }
-        if self.open_mission_opened || self.game_initialized {
-            return Err(MissionSourceOpenError::MissionAlreadyOpened);
-        }
-        // A replayed attempt guard is refused before bootstrap effects.
-        if attempt.entered() {
-            return Err(MissionSourceOpenError::Open(OpenRunError::AlreadyEntered));
-        }
-        // The standalone Open helpers do not enter this path. Their one-shot owners
-        // and reached effects must not be erased by bootstrap/ClosePrevious.
-        // Configuration-only mission name and volume remain caller inputs.
-        if !matches!(
-            self.navigation.outcome(),
-            crate::mission_session_navigation::SessionNavigationOutcome::NotAttempted
-        ) || !matches!(
-            self.roads.outcome(),
-            crate::mission_session_roads::SessionRoadsOutcome::NotAttempted
-        ) || self.base_cache.has_opened_or_retained_data()
-            || self.open_cache_progress != 0
-            || self.open_restore_volume
-            || self.open_muted
-            || self.open_restored.is_some()
-            || self.game_init_reset_entered
-        {
-            return Err(MissionSourceOpenError::SessionNotFresh);
-        }
+        self.ensure_fresh_for_source_open(Some(attempt))?;
         Self::validate_open_mission_name(mission)
             .map_err(MissionSourceOpenError::InvalidMissionName)?;
         // Callbacks and unwind cannot admit a second source owner.

@@ -7,6 +7,7 @@ use crate::{
     car_effects::CarTrackResources,
     car_runtime::CarInitAnimationCatalog,
     frame_transform::FrameKey,
+    game_definition_tables::GameDefinitionTables,
     model_loading::ModelArena,
     script_scheduler::{ActorReferenceId, FrameReferenceId},
     vehicle_bodycol::{VehicleBodycolScratch, VehicleBodycolStorage},
@@ -190,6 +191,17 @@ impl CarActorServices {
                 .tables
                 .load_installed_tyres(&mut services.memory, installation)
                 .map_err(|error| format!("Init LoadTyres: {error:?}"))
+        })
+    }
+    pub(crate) fn load_materials_for_init(
+        &mut self,
+        definitions: &GameDefinitionTables,
+    ) -> Result<(), String> {
+        self.with_precision(|services| {
+            services
+                .tables
+                .load_materials_from_startup(&mut services.memory, definitions)
+                .map_err(|error| format!("Init LoadMaterials: {error:?}"))
         })
     }
     pub(crate) fn table_allocations(&self) -> usize {

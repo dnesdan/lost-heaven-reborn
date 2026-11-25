@@ -12,6 +12,7 @@ use crate::driver_scene::{
 };
 use crate::frame_sound::SoundError;
 use crate::game_camera_projection::GameCameraProjection;
+use crate::game_definition_tables::{GameDefinitionTables, InstalledDefinitionSource};
 use crate::game_init_car_tables::{
     CarTablesOutcome, GameInitCarTables, GameInitCarTablesError, GameInitCarTablesHost,
 };
@@ -430,6 +431,12 @@ enum SegmentsLoadCall {
     Returned,
 }
 
+enum StartupDefinitionIntake {
+    NotEntered,
+    Entered,
+    Returned,
+}
+
 /// One terminal host loading attempt over one Installation and one ownership
 /// domain. Read-only getters expose evidence; there is no mutable escape hatch
 /// for replacing its arena, cache memory, textures, or driver underneath a load.
@@ -474,6 +481,9 @@ pub struct MissionLoadSession {
     freeride_selection_adopted: bool,
     freeride_profile: Option<crate::game_loadsave_lifecycle::FreerideProfile>,
     car_database: crate::car_database::CarDatabase,
+    definition_tables: GameDefinitionTables,
+    definition_source: InstalledDefinitionSource,
+    definition_intake: StartupDefinitionIntake,
     freeride_setup: FreerideSetupProgress,
     /// Authoritative represented C_game scalar fields used by source-grounded
     /// inlines. C_game itself and the rest of Init still require live owners.
@@ -782,6 +792,9 @@ impl MissionLoadSession {
             freeride_selection_adopted: false,
             freeride_profile: None,
             car_database: Default::default(),
+            definition_tables: GameDefinitionTables::default(),
+            definition_source: InstalledDefinitionSource::default(),
+            definition_intake: StartupDefinitionIntake::NotEntered,
             freeride_setup: Default::default(),
             game_inline: crate::game_housekeeping::GameInlineState::default(),
             game_lists: Default::default(),
@@ -1594,6 +1607,27 @@ impl MissionLoadSession {
         )
     }
 
+    pub fn read_definition_tables_for_startup(&mut self) -> Result<bool, String> {
+        self.ensure_fresh_for_source_open(None).map_err(|error| {
+            format!("startup definition intake requires a fresh mission session: {error:?}")
+        })?;
+        if self.freeride_setup.entered() {
+            return Err("startup definition intake unavailable after Freeride setup entry".into());
+        }
+        if !self.menu_draw_resources.indicator_assets_created() {
+            return Err("startup definition intake requires the indicator asset prefix".into());
+        }
+        if !matches!(self.definition_intake, StartupDefinitionIntake::NotEntered) {
+            return Err("startup definition intake already entered; no replay".into());
+        }
+        self.definition_intake = StartupDefinitionIntake::Entered;
+        let loaded = self
+            .definition_source
+            .load(&self.installation, &mut self.definition_tables)?;
+        self.definition_intake = StartupDefinitionIntake::Returned;
+        Ok(loaded)
+    }
+
     /// `OpenWorld` presence over the live installation owner. Full
     /// `scene.i3d` intake is the ordered `open_source_in_order`; this step
     /// verifies the required world input is present without duplicating it.
@@ -2340,6 +2374,11 @@ impl MissionLoadSession {
                     game: &session.game_inline,
                     loader: session.loader.as_mut(),
                     installation: &session.installation,
+                    definitions: matches!(
+                        session.definition_intake,
+                        StartupDefinitionIntake::Returned
+                    )
+                    .then_some(&session.definition_tables),
                 })
             },
         )
@@ -3138,6 +3177,7 @@ struct SessionCarTablesHost<'a> {
     game: &'a crate::game_housekeeping::GameInlineState,
     loader: Option<&'a mut MissionSceneLoader>,
     installation: &'a lhr_assets::Installation,
+    definitions: Option<&'a GameDefinitionTables>,
 }
 
 impl GameInitCarTablesHost for SessionCarTablesHost<'_> {
@@ -3163,7 +3203,17 @@ impl GameInitCarTablesHost for SessionCarTablesHost<'_> {
     }
 
     fn load_materials(&mut self) -> Result<bool, String> {
-        Err("startup material definitions unavailable".into())
+        let definitions = self
+            .definitions
+            .ok_or("startup material definitions unavailable")?;
+        self.loader
+            .as_mut()
+            .ok_or("mission actor world unavailable")?
+            .content
+            .actors
+            .world
+            .load_car_materials_for_init(definitions)?;
+        Ok(true)
     }
 
     fn load_particles(&mut self) -> Result<bool, String> {

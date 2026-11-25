@@ -24,6 +24,7 @@ use crate::cutscene_records::{
 use crate::door_actor::{DoorLoadVersion, DoorSeed, DoorSoundNames, DoorState};
 use crate::entity_actor::{EntityProcessState, EntityResourceSlot, EntitySeed, EntityState};
 use crate::frame_lookup::{FrameLookupBackend, SceneRoots};
+use crate::game_definition_tables::GameDefinitionTables;
 use crate::human_actor::{
     ActorDataReader, HumanDataError, HumanInventoryItem, HumanResourceSlot, HumanSeed, HumanState,
 };
@@ -47,6 +48,10 @@ use crate::traffic_generator::{
 
 #[path = "actor_world_traffic.rs"]
 mod traffic;
+
+#[cfg(test)]
+#[path = "car_material_publication_tests.rs"]
+mod car_material_publication_tests;
 
 /// Bytes/fields left untouched by the base constructor. There is deliberately
 /// no default: the allocator/caller must supply the actual storage seed.
@@ -1863,6 +1868,17 @@ impl ActorWorld {
             .as_mut()
             .ok_or("Init LoadTyres: mission car services unavailable")?
             .load_tyres_for_init(installation)
+    }
+    /// Publish startup definitions to the same services used by mission cars.
+    /// The caller establishes that startup definition intake was reached.
+    pub(crate) fn load_car_materials_for_init(
+        &mut self,
+        tables: &GameDefinitionTables,
+    ) -> Result<(), String> {
+        self.car_services
+            .as_mut()
+            .ok_or("Init LoadMaterials: mission car services unavailable")?
+            .load_materials_for_init(tables)
     }
     pub fn live_car_table_allocation_count(&self) -> usize {
         self.car_services

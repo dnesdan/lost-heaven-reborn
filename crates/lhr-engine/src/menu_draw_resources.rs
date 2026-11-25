@@ -665,6 +665,10 @@ impl MenuDrawResources {
         Ok(())
     }
 
+    pub(crate) fn indicator_assets_created(&self) -> bool {
+        self.indicator_assets == IndicatorAssetsPhase::Created
+    }
+
     /// Texture and font prefix of Indicators::Create (Game.exe RVA 0x1f70e0).
     /// This does not run ResetValues or establish a live graphics device.
     /// The CPU full-create path retains raw ARGB upload bytes in storage.

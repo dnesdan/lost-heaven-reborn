@@ -699,6 +699,13 @@ pub(super) fn run_freeride_start(
             session.discard_failure()
         ));
     }
+    let definitions_loaded = session.read_definition_tables_for_startup().map_err(|error| {
+        let disposal = session.discard_terminal();
+        format!(
+            "Freeride probe startup definition intake: {error}; terminal disposal: {disposal:?}; failure: {:?}",
+            session.discard_failure()
+        )
+    })?;
     let profile = profile_file_intake(root);
     let settings = profile
         .clone()
@@ -781,6 +788,7 @@ pub(super) fn run_freeride_start(
     };
     let mut report = String::new();
     writeln!(report, "Indicator texture/font prefix executed; native ResetValues and live HUD device not established.").unwrap();
+    writeln!(report, "Startup definition intake returned {definitions_loaded}; completed tables retained for mission Init.").unwrap();
     writeln!(
         report,
         "Original Freeride startup diagnostic; fixed mission: {FREERIDE_MISSION}"

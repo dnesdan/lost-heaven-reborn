@@ -5,8 +5,11 @@
 use crate::{
     driving_vehicle_tables::{
         convert_tyre_payload, materials, DrivingVehicleTables, InstallationTyreFile,
-        RetainedTyreStream, TyreTableFile, MATERIAL_SOURCE_STRIDE,
+        RetainedTyreStream, TyreTableFile, MATERIAL_SOURCE_STRIDE, VEHICLE_MATERIAL_STRIDE,
     },
+    game_definition_tables::{DefinitionKind, GameDefinitionTables},
+    game_init_car_tables::load_materials_from_definitions,
+    vehicle_engine_state::VehicleMaterialTable,
     vehicle_frame_backend::{VehicleFrameMemory, VehicleMemoryError},
     vehicle_init::VehicleInitBackend,
 };
@@ -146,7 +149,7 @@ struct TyreTemporary {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Phase {
+enum MaterialPhase {
     Unloaded,
     Loading,
     Ready,
@@ -172,9 +175,14 @@ struct TableLease {
     _kind: TableKind,
     release_started: bool,
 }
+enum TableReleaseError<E> {
+    Host(E),
+    UnownedAllocation(u32),
+    UncertainRelease(u32),
+}
 #[derive(Debug)]
 pub(crate) struct VehicleTableResources {
-    phase: Phase,
+    material_phase: MaterialPhase,
     leases: Vec<TableLease>,
     source_materials: Option<u32>,
     source_material_count: Option<u32>,
@@ -192,7 +200,7 @@ pub(crate) struct VehicleTableResources {
 impl Default for VehicleTableResources {
     fn default() -> Self {
         Self {
-            phase: Phase::Unloaded,
+            material_phase: MaterialPhase::Unloaded,
             leases: Vec::new(),
             source_materials: None,
             source_material_count: None,
@@ -247,20 +255,115 @@ impl VehicleTableResources {
         }
         Ok(allocation)
     }
-    fn project_materials<B: VehicleInitBackend>(
+    fn release_table_allocation<B: VehicleInitBackend>(
         &mut self,
         host: &mut B,
-        source: &[u8],
+        allocation: u32,
+    ) -> Result<(), TableReleaseError<B::Error>> {
+        let index = self
+            .leases
+            .iter()
+            .position(|lease| lease.allocation == allocation)
+            .ok_or(TableReleaseError::UnownedAllocation(allocation))?;
+        if self.leases[index].release_started {
+            return Err(TableReleaseError::UncertainRelease(allocation));
+        }
+        // Err may mean that the free already happened. Consume permission
+        // before the call so neither replacement nor host discard replays it.
+        self.leases[index].release_started = true;
+        host.free(allocation).map_err(TableReleaseError::Host)?;
+        self.leases.remove(index);
+        Ok(())
+    }
+    fn publish_materials<B: VehicleInitBackend>(
+        &mut self,
+        host: &mut B,
+        source: Option<&[u8]>,
+        source_count: u32,
         rows: &[u8],
         index: [u8; 256],
     ) -> Result<(), VehicleTableError<B::Error>> {
-        let allocation = self.own(host, source, TableKind::SourceMaterials)?;
-        self.source_materials = Some(allocation);
-        self.source_material_count = Some((source.len() / MATERIAL_SOURCE_STRIDE) as u32);
+        let previous = [self.materials, self.source_materials];
+        let source_allocation = match source {
+            Some(bytes) => self.own(host, bytes, TableKind::SourceMaterials)?,
+            None => 0,
+        };
+        self.source_materials = Some(source_allocation);
+        self.source_material_count = Some(source_count);
         let allocation = self.own(host, rows, TableKind::Materials)?;
         self.material_index = Some(index);
         self.materials = Some(allocation);
+        for old in previous.into_iter().flatten().filter(|&old| old != 0) {
+            self.release_table_allocation(host, old)
+                .map_err(|error| match error {
+                    TableReleaseError::Host(error) => VehicleTableError::Host(error),
+                    TableReleaseError::UnownedAllocation(old) => {
+                        VehicleTableError::Load(format!("Unowned material allocation {old:#x}"))
+                    }
+                    TableReleaseError::UncertainRelease(_) => VehicleTableError::Interrupted,
+                })?;
+        }
         Ok(())
+    }
+    fn run_material_load<E>(
+        &mut self,
+        load: impl FnOnce(&mut Self) -> Result<(), VehicleTableError<E>>,
+    ) -> Result<(), VehicleTableError<E>> {
+        if self.discard_started
+            || !matches!(
+                self.material_phase,
+                MaterialPhase::Unloaded | MaterialPhase::Ready
+            )
+        {
+            return Err(VehicleTableError::Interrupted);
+        }
+        self.material_phase = MaterialPhase::Loading;
+        let result = load(self);
+        self.material_phase = if result.is_ok() {
+            MaterialPhase::Ready
+        } else {
+            MaterialPhase::Interrupted
+        };
+        result
+    }
+    /// PC LoadMaterials (RVA 0x1c7f0) and SetVehicleMaterials (RVA 0xc5c10).
+    /// Reuse the definition projection and setter, then publish their records
+    /// in the existing car memory. The caller owns startup intake admission.
+    pub(crate) fn load_materials_from_startup<B: VehicleInitBackend>(
+        &mut self,
+        host: &mut B,
+        definitions: &GameDefinitionTables,
+    ) -> Result<(), VehicleTableError<B::Error>> {
+        self.run_material_load(|tables| {
+            if definitions.interrupted() || definitions.pending_file().is_some() {
+                return Err(VehicleTableError::Load(
+                    "Startup material definitions interrupted".into(),
+                ));
+            }
+            // SetVehicleMaterials leaves slot 0xff alone unless a row writes it.
+            let mut projected = VehicleMaterialTable {
+                conv: tables.material_index.unwrap_or([0; 256]),
+                entries: Vec::new(),
+            };
+            load_materials_from_definitions(definitions, &mut projected)
+                .map_err(|error| VehicleTableError::Load(format!("{error:?}")))?;
+            let mut rows = Vec::with_capacity(projected.entries.len() * VEHICLE_MATERIAL_STRIDE);
+            for entry in projected.entries {
+                rows.extend_from_slice(&u32::from(entry.id).to_le_bytes());
+                for word in entry.payload {
+                    rows.extend_from_slice(&word.to_le_bytes());
+                }
+            }
+            // Retain the raw file extent, including any bytes after the last
+            // complete definition. The startup owner supplies the row count.
+            tables.publish_materials(
+                host,
+                definitions.table(DefinitionKind::Materials),
+                definitions.count(DefinitionKind::Materials) as u32,
+                &rows,
+                projected.conv,
+            )
+        })
     }
     #[cfg(test)]
     fn project<B: VehicleInitBackend>(
@@ -268,9 +371,10 @@ impl VehicleTableResources {
         host: &mut B,
         tables: DrivingVehicleTables,
     ) -> Result<(), VehicleTableError<B::Error>> {
-        self.project_materials(
+        self.publish_materials(
             host,
-            tables.source_material_bytes(),
+            Some(tables.source_material_bytes()),
+            (tables.source_material_bytes().len() / MATERIAL_SOURCE_STRIDE) as u32,
             tables.material_bytes(),
             *tables.material_index_map(),
         )?;
@@ -365,25 +469,16 @@ impl VehicleTableResources {
         if allocation == 0 {
             return host.free(0).map_err(VehicleTyreError::Host);
         }
-        let index = self
-            .leases
-            .iter()
-            .position(|lease| lease.allocation == allocation)
-            .ok_or(VehicleTyreError::Boundary(TyreBoundary::UnownedAllocation(
-                allocation,
-            )))?;
-        if self.leases[index].release_started {
-            return Err(VehicleTyreError::Boundary(TyreBoundary::UncertainRelease(
-                allocation,
-            )));
-        }
-        // Consume before calling the destructive backend. Err may mean that
-        // the free already happened. Neither native retry nor host discard
-        // may replay that uncertain call.
-        self.leases[index].release_started = true;
-        host.free(allocation).map_err(VehicleTyreError::Host)?;
-        self.leases.remove(index);
-        Ok(())
+        self.release_table_allocation(host, allocation)
+            .map_err(|error| match error {
+                TableReleaseError::Host(error) => VehicleTyreError::Host(error),
+                TableReleaseError::UnownedAllocation(allocation) => {
+                    VehicleTyreError::Boundary(TyreBoundary::UnownedAllocation(allocation))
+                }
+                TableReleaseError::UncertainRelease(allocation) => {
+                    VehicleTyreError::Boundary(TyreBoundary::UncertainRelease(allocation))
+                }
+            })
     }
     fn tyre_vector_field<B: VehicleInitBackend>(
         &self,
@@ -1093,7 +1188,6 @@ impl VehicleTableResources {
         if is_tyre {
             if self.tyre_state == TyreLoadState::NeverStarted {
                 let Some(installation) = installation else {
-                    self.phase = Phase::Interrupted;
                     self.tyre_state = TyreLoadState::Interrupted(TyreOperation::Open);
                     return Err(VehicleTableError::MissingInstallation);
                 };
@@ -1103,25 +1197,24 @@ impl VehicleTableResources {
                 return Err(VehicleTableError::Interrupted);
             }
         } else {
-            if self.phase == Phase::Unloaded {
-                self.phase = Phase::Loading;
-                let result = (|| {
+            if self.material_phase == MaterialPhase::Unloaded {
+                self.run_material_load(|tables| {
                     let installation =
                         installation.ok_or(VehicleTableError::MissingInstallation)?;
                     let source = installation.read("tables/materials.def").map_err(|error| {
                         VehicleTableError::Load(format!("Original material definitions: {error}"))
                     })?;
                     let (rows, index) = materials(&source).map_err(VehicleTableError::Load)?;
-                    self.project_materials(host, &source, &rows, index)
-                })();
-                self.phase = if result.is_ok() {
-                    Phase::Ready
-                } else {
-                    Phase::Interrupted
-                };
-                result?;
+                    tables.publish_materials(
+                        host,
+                        Some(&source),
+                        (source.len() / MATERIAL_SOURCE_STRIDE) as u32,
+                        &rows,
+                        index,
+                    )
+                })?;
             }
-            if self.phase != Phase::Ready {
+            if self.material_phase != MaterialPhase::Ready {
                 return Err(VehicleTableError::Interrupted);
             }
         }
@@ -1158,7 +1251,7 @@ impl VehicleTableResources {
             return Err(VehicleMemoryError::IntrinsicAdapterRequired);
         }
         self.discard_started = true;
-        self.phase = Phase::Interrupted;
+        self.material_phase = MaterialPhase::Interrupted;
         let mut released = 0;
         while let Some(lease) = self.leases.last() {
             // VehicleFrameMemory reserves one physical byte for a zero-size request.
@@ -1177,7 +1270,7 @@ impl VehicleTableResources {
         self.tyres_end = None;
         self.tyres_capacity = None;
         self.retained_tyre_files.clear();
-        self.phase = Phase::Discarded;
+        self.material_phase = MaterialPhase::Discarded;
         Ok(released)
     }
 }
@@ -1257,7 +1350,7 @@ mod tests {
         let mut tables = VehicleTableResources::default();
         let mut host = Host::default();
         assert_eq!(tables.read_byte(&mut host, None, 0x1234), Ok(None));
-        assert_eq!(tables.phase, Phase::Unloaded);
+        assert_eq!(tables.material_phase, MaterialPhase::Unloaded);
         assert_eq!(
             tables.read_byte(&mut host, None, 0x63d9c8),
             Err(VehicleTableError::MissingInstallation)
@@ -1275,7 +1368,7 @@ mod tests {
         let mut host = Host::default();
         let unrelated = host.allocate(7).unwrap();
         tables.project(&mut host, fixture()).unwrap();
-        tables.phase = Phase::Ready;
+        tables.material_phase = MaterialPhase::Ready;
         assert_eq!(tables.live_allocation_count(), 5);
         let begin = tables.tyres_begin.unwrap();
         let end = tables.tyres_end.unwrap();
@@ -2086,7 +2179,7 @@ mod tyre_loader_tests {
     }
 
     #[test]
-    fn material_projection_and_reads_do_not_replace_or_reopen_completed_tyres() {
+    fn material_replacement_and_reads_do_not_replace_or_reopen_completed_tyres() {
         let mut tables = VehicleTableResources::default();
         let mut host = LoaderHost::default();
         let mut file = File::new(&host, source(&[1]));
@@ -2099,10 +2192,13 @@ mod tyre_loader_tests {
         );
         let material = vec![0; MATERIAL_SOURCE_STRIDE];
         let (rows, index) = materials(&material).unwrap();
-        tables
-            .project_materials(&mut host, &material, &rows, index)
-            .unwrap();
-        tables.phase = Phase::Ready;
+        for _ in 0..2 {
+            tables
+                .run_material_load(|tables| {
+                    tables.publish_materials(&mut host, Some(&material), 1, &rows, index)
+                })
+                .unwrap();
+        }
         host.trace.borrow_mut().clear();
         assert!(tables
             .read_byte(&mut host, None, 0x63d9b4)
@@ -2122,5 +2218,50 @@ mod tyre_loader_tests {
             tyre
         );
         assert!(host.trace.borrow().is_empty());
+    }
+
+    #[test]
+    fn material_replacement_never_replays_an_uncertain_release() {
+        let mut tables = VehicleTableResources::default();
+        let mut host = LoaderHost::default();
+        let material = vec![0; MATERIAL_SOURCE_STRIDE];
+        let (rows, index) = materials(&material).unwrap();
+        let replace = |tables: &mut VehicleTableResources, host: &mut LoaderHost| {
+            tables.run_material_load(|tables| {
+                tables.publish_materials(host, Some(&material), 1, &rows, index)
+            })
+        };
+        replace(&mut tables, &mut host).unwrap();
+        let old_rows = tables.materials.unwrap();
+        host.free_then_error = Some(old_rows);
+        assert_eq!(
+            replace(&mut tables, &mut host),
+            Err(VehicleTableError::Host(VehicleMemoryError::Address(
+                old_rows
+            )))
+        );
+        assert_eq!(tables.material_phase, MaterialPhase::Interrupted);
+        let effects_after_error = host.effects;
+        assert_eq!(
+            tables.read_byte(&mut host, None, 0x63d9b4),
+            Err(VehicleTableError::Interrupted)
+        );
+        assert_eq!(
+            replace(&mut tables, &mut host),
+            Err(VehicleTableError::Interrupted)
+        );
+        assert_eq!(host.effects, effects_after_error);
+        assert_eq!(
+            tables.discard_host(&mut host.memory),
+            Err(VehicleMemoryError::IntrinsicAdapterRequired)
+        );
+        assert_eq!(
+            host.trace
+                .borrow()
+                .iter()
+                .filter(|event| **event == Event::Free(old_rows))
+                .count(),
+            1
+        );
     }
 }

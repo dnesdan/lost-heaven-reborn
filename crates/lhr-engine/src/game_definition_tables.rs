@@ -6,6 +6,10 @@
 //! upstream research. No native pointer/allocator or complete function credit
 //! is represented by these host-owned source buffers.
 
+mod installation;
+
+pub(crate) use installation::InstalledDefinitionSource;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DefinitionKind {
     Items,

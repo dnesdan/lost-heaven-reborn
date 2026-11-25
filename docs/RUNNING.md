@@ -110,10 +110,19 @@ When the segment loader returns normally (including a rejected header), Init
 clears the new-mission flag and checks `intern_load`. If set, it calls
 `LoadTyres` on the car actors' shared vehicle tables. A missing tyre file
 returns false and leaves only the built-in user tyre; a short read interrupts
-the load. Either normal tyre return reaches `LoadMaterials`, where the session
-still lacks the startup material definitions. With `intern_load` clear, Init
-skips all three table loaders. Neither path advances the
-Freeride run described above past its missing segment file.
+the load. Either normal tyre return reaches `LoadMaterials`. The Freeride
+diagnostic reads the startup definitions (items, materials, particles, voices)
+after the indicator asset prefix and before opening the mission. A missing
+file ends that intake normally, retaining earlier tables. A read error stops
+startup instead. The installation supplies complete file images, not native
+short-read timing. A car constructed before mission Init can still use the
+existing lazy table reader. At Init, the retained material records replace
+those rows without reopening the file. If intake never returned, Init refuses to replace
+the materials; if it returned with zero material records, the original loader
+publishes its single default row. The next stop is `LoadParticles`, where
+vehicle emitter creation and cleanup are not connected. With `intern_load`
+clear, Init skips all three loaders. These paths are exercised with synthetic
+segments; they do not move the original-data run past its missing segment file.
 
 `SETTRAFFSECTORSND` (317) registers a matching primary scene sector for vehicle
 sounds; it does not start audio or traffic. With the fresh profile used in this
