@@ -101,10 +101,14 @@ at open. Errors reading a selected source remain distinct from absence. The
 second run scheduled the same frames and completed terminal disposal; it did
 not reach player/car coupling or a gameplay tick.
 
-The original Init ignores the loader's Boolean result, but the loader reads
-the header without checking whether open or read succeeded. No stock run has
-established that it returns normally for this missing file. Rust stops at
-open rather than substituting another mission's data or skipping the step.
+The original loader reads the header without checking whether open or read
+succeeded. In an isolated Wine 8.0 and D8VK run, the original PC executable
+failed to open `Missions\freeride\clusters.seg`, returned zero to Init, and
+continued into playable Day City with Little Italy as the starting district.
+Accelerating moved the Falconer Yellowcar from the parking area toward the
+street. The debugger set the city unlock flag in the test profile's running
+process. This result covers that run and configuration. The Rust diagnostic
+still stops at the missing file.
 
 When the segment loader returns normally (including a rejected header), Init
 clears the new-mission flag and checks `intern_load`. If set, it calls
