@@ -107,8 +107,10 @@ failed to open `Missions\freeride\clusters.seg`, returned zero to Init, and
 continued into playable Day City with Little Italy as the starting district.
 Accelerating moved the Falconer Yellowcar from the parking area toward the
 street. The debugger set the city unlock flag in the test profile's running
-process. This result covers that run and configuration. The Rust diagnostic
-still stops at the missing file.
+process. In a repeat run with the same isolated profile, `dtaOpen` returned
+`-1` and the first `dtaRead` returned `0xffffffff` for the 16-byte header
+request. The loader again returned zero to Init and Day City loaded. The Rust
+diagnostic still stops at the missing file.
 
 When the segment loader returns normally (including a rejected header), Init
 clears the new-mission flag and checks `intern_load`. If set, it calls
