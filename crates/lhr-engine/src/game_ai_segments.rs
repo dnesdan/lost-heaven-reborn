@@ -10,7 +10,8 @@ pub trait SegmentsIo {
     type File;
     type Error;
 
-    fn open(&mut self, path: &[u8], archive: bool) -> Result<Self::File, Self::Error>;
+    /// Returns `None` only if lookup found no source.
+    fn open(&mut self, path: &[u8], archive: bool) -> Result<Option<Self::File>, Self::Error>;
     fn read(&mut self, file: &mut Self::File, output: &mut [u8]) -> Result<usize, Self::Error>;
     fn close(&mut self, file: Self::File) -> Result<(), Self::Error>;
 }
@@ -40,6 +41,7 @@ pub enum SegmentsLoadState {
     Cleared,
     Initialized,
     Reading(SegmentsLoadStage),
+    MissingSource,
     RejectedHeader,
     Loaded,
     Interrupted(SegmentsLoadStage),
@@ -270,6 +272,7 @@ impl CheckSegClusters {
         self.state = SegmentsLoadState::Cleared;
     }
 
+    /// An absent source or unrecognized header returns false without records.
     /// Each read is issued once. Interrupted calls require explicit `clear`.
     /// An opened handle is consumed by one close attempt, also on failure.
     pub fn load<I: SegmentsIo>(
@@ -323,7 +326,11 @@ impl CheckSegClusters {
         self.state = SegmentsLoadState::Initialized;
         self.state = SegmentsLoadState::Reading(SegmentsLoadStage::Open);
         let mut file = match io.open(&path[..required - 1], true) {
-            Ok(file) => file,
+            Ok(Some(file)) => file,
+            Ok(None) => {
+                self.state = SegmentsLoadState::MissingSource;
+                return Ok(false);
+            }
             Err(error) => {
                 self.state = SegmentsLoadState::Interrupted(SegmentsLoadStage::Open);
                 return Err(SegmentsLoadError {
@@ -544,6 +551,7 @@ mod tests {
         events: Vec<Event>,
         reads: usize,
         fail_open: bool,
+        missing_source: bool,
         fail_read: Option<usize>,
         fail_close: bool,
         replace_after_header: Option<Vec<u8>>,
@@ -572,12 +580,12 @@ mod tests {
         type File = ();
         type Error = &'static str;
 
-        fn open(&mut self, path: &[u8], archive: bool) -> Result<(), Self::Error> {
+        fn open(&mut self, path: &[u8], archive: bool) -> Result<Option<()>, Self::Error> {
             self.events.push(Event::Open(path.to_vec(), archive));
             if self.fail_open {
                 Err("open")
             } else {
-                Ok(())
+                Ok((!self.missing_source).then_some(()))
             }
         }
 
@@ -661,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_file_initializes_one_cluster_and_reads_only_header_and_count() {
+    fn zero_record_file_initializes_one_cluster_and_reads_only_header_and_count() {
         let mut owner = CheckSegClusters::new();
         let mut io = FixtureIo::new(fixture(&[]));
         assert_eq!(owner.state(), SegmentsLoadState::Cleared);
@@ -842,7 +850,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_file_is_an_error_after_init_and_never_a_successful_empty_load() {
+    fn open_error_interrupts_after_initializing_empty_cluster() {
         let mut owner = CheckSegClusters::new();
         let mut io = FixtureIo {
             fail_open: true,
@@ -853,6 +861,24 @@ mod tests {
         assert_eq!(error.failure, SegmentsLoadFailure::Io("open"));
         assert_eq!(owner.clusters().len(), 1);
         assert!(matches!(io.events.as_slice(), [Event::Open(_, true)]));
+    }
+
+    #[test]
+    fn absent_source_only_runs_one_lookup() {
+        let mut owner = CheckSegClusters::new();
+        let mut io = FixtureIo {
+            missing_source: true,
+            ..Default::default()
+        };
+        assert_eq!(owner.load(b"synthetic", &mut io), Ok(false));
+        assert_eq!(owner.state(), SegmentsLoadState::MissingSource);
+        assert_eq!(
+            io.events,
+            [Event::Open(
+                b"Missions\\synthetic\\clusters.seg".to_vec(),
+                true
+            )]
+        );
     }
 
     #[test]

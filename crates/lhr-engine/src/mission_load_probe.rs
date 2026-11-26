@@ -3,6 +3,7 @@
 
 use lhr_engine::{
     actor_world::ActorWorld,
+    game_ai_segments::SegmentsLoadState,
     game_camera_projection::GameCameraProjection,
     game_init_order::{InitAttempt, InitRunError, PresentedFrame},
     host_scene_adapters::InspectionScreen,
@@ -852,6 +853,7 @@ pub(super) fn run_freeride_start(
         attempt.init().last()
     )
     .unwrap();
+    append_init_asset_report(&mut report, &session, FREERIDE_MISSION);
     if let Some(loader) = session.loader() {
         for (index, program) in loader.content.programs().iter().enumerate() {
             if let Some(runtime) = program
@@ -1343,6 +1345,7 @@ pub fn run(
         )
         .unwrap();
     }
+    append_init_asset_report(&mut report, &session, mission);
     // A separate CPU presentation observation over the SAME retained Scene.
     // Requested GPU work already ran at the reached Init render boundary; do
     // not retry a failed presentation or bypass an earlier Init failure here.
@@ -1431,6 +1434,28 @@ pub fn run(
         (Ok(()), Ok(()), Err(_), Ok(())) => Err("Mission prefix and GameInit scalars completed, but GameInitStart stopped at the reported boundary; terminal disposal completed".into()),
     };
     result.and(capture_result)
+}
+
+fn append_init_asset_report(report: &mut String, session: &MissionLoadSession, mission: &str) {
+    let segments = &session.ai_manager().segments;
+    let state = segments.state();
+    if state == SegmentsLoadState::Cleared {
+        return;
+    }
+    writeln!(
+        report,
+        "AI check segments (Missions\\{mission}\\clusters.seg): {state:?}; declared records: {:?}",
+        segments.declared_segment_count()
+    )
+    .unwrap();
+    let car_tables = session.init_car_tables();
+    writeln!(
+        report,
+        "Init car tables: {:?}; tyre/material/particle returns: {:?}",
+        car_tables.state(),
+        car_tables.loader_returns()
+    )
+    .unwrap();
 }
 
 fn append_navigation_report(report: &mut String, session: &MissionLoadSession) {

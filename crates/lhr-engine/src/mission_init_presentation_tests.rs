@@ -889,8 +889,8 @@ fn effects_start_runs_the_effects_and_web_path_then_stops_at_ff_manager() {
 }
 
 #[test]
-fn keyboard_mouse_startup_clears_diff_state_and_stops_at_missing_segments() {
-    use crate::game_ai_segments::{CheckSegCluster, SegmentsLoadStage, SegmentsLoadState};
+fn keyboard_mouse_startup_clears_diff_state_and_continues_past_missing_segments() {
+    use crate::game_ai_segments::{CheckSegCluster, SegmentsLoadState};
     use crate::game_loadsave_lifecycle::ProfileFileIntake;
     let source = scene2(
         &[
@@ -931,23 +931,13 @@ fn keyboard_mouse_startup_clears_diff_state_and_stops_at_missing_segments() {
     let mut sequence = SceneSnapshotSequence::default();
     let result = attempt.run_with_presentation(&mut session, [64, 64], &mut sequence, |_| Ok(()));
     let Err(InitRunError::Callback(failure)) = result else {
-        panic!("missing clusters.seg must stop Init")
+        panic!("expected a later Init dependency to stop the attempt")
     };
-    assert_eq!(failure.step, InitStep::SegmentsLoad);
-    assert_eq!(attempt.last(), Some(InitStep::SegmentsLoad));
-    assert_eq!(
-        failure.error.0,
-        concat!(
-            "SegmentsLoad: AIManager.segments.Load: SegmentsLoadError { ",
-            r#"stage: Open, failure: Io(MissingOriginalAsset("Missions\\synthetic\\clusters.seg")), "#,
-            "close_error: None }"
-        )
-    );
+    assert_eq!(failure.step, InitStep::CarTables);
+    assert_eq!(attempt.last(), Some(InitStep::CarTables));
+    assert!(failure.error.0.starts_with("CarTables: LoadMaterials:"));
     let segments = &session.ai_manager().segments;
-    assert_eq!(
-        segments.state(),
-        SegmentsLoadState::Interrupted(SegmentsLoadStage::Open)
-    );
+    assert_eq!(segments.state(), SegmentsLoadState::MissingSource);
     assert_eq!(segments.clusters(), &[CheckSegCluster::default()]);
     assert_eq!(segments.num_segments(), 0);
     assert_eq!(segments.declared_segment_count(), None);

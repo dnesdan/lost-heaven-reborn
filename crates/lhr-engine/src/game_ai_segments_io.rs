@@ -3,7 +3,8 @@
 //! This is a decompressed-file-buffer boundary, not a native archive stream.
 //! `open` calls `Installation::read_optional_original_path` once; existing source selection,
 //! admission checks, decompression and internal stream cleanup happen there.
-//! Their errors remain open errors, with no native handle exposed for retention.
+//! Absence returns no buffer. Their errors remain open errors, with no native
+//! handle exposed for retention.
 //! Internal stream cleanup, including `NativeStream`'s close-on-drop behavior,
 //! remains backend-owned. The adapter neither retries it nor reopens Installation.
 //! No segment records are parsed here. Each read consumes only the requested
@@ -49,7 +50,6 @@ impl SegmentsFile {
 pub enum SegmentsIoError {
     UnsupportedArchiveMode,
     NonAsciiPath,
-    MissingOriginalAsset(String),
     Asset(lhr_assets::Error),
 }
 
@@ -60,9 +60,6 @@ impl fmt::Display for SegmentsIoError {
                 formatter.write_str("segments IO requires archive-enabled lookup")
             }
             Self::NonAsciiPath => formatter.write_str("non-ASCII original filename unsupported"),
-            Self::MissingOriginalAsset(name) => {
-                write!(formatter, "segments source not found: {name}")
-            }
             Self::Asset(error) => write!(formatter, "segments source: {error}"),
         }
     }
@@ -81,7 +78,11 @@ impl SegmentsIo for InstallationSegmentsIo<'_> {
     type File = SegmentsFile;
     type Error = SegmentsIoError;
 
-    fn open(&mut self, path: &[u8], archive: bool) -> Result<SegmentsFile, SegmentsIoError> {
+    fn open(
+        &mut self,
+        path: &[u8],
+        archive: bool,
+    ) -> Result<Option<SegmentsFile>, SegmentsIoError> {
         if !archive {
             return Err(SegmentsIoError::UnsupportedArchiveMode);
         }
@@ -89,12 +90,10 @@ impl SegmentsIo for InstallationSegmentsIo<'_> {
         if !name.is_ascii() {
             return Err(SegmentsIoError::NonAsciiPath);
         }
-        let bytes = self
-            .installation
+        self.installation
             .read_optional_original_path(name)
-            .map_err(SegmentsIoError::Asset)?
-            .ok_or_else(|| SegmentsIoError::MissingOriginalAsset(name.to_owned()))?;
-        Ok(SegmentsFile { bytes, position: 0 })
+            .map(|bytes| bytes.map(|bytes| SegmentsFile { bytes, position: 0 }))
+            .map_err(SegmentsIoError::Asset)
     }
 
     fn read(
@@ -231,7 +230,7 @@ mod tests {
         let mut io = InstallationSegmentsIo::new(&installation);
         assert!(std::ptr::eq(io.installation, &installation));
         directory.write_loose(b"late loose file");
-        let mut file = io.open(ORIGINAL_PATH, true).unwrap();
+        let mut file = io.open(ORIGINAL_PATH, true).unwrap().unwrap();
         let mut output = [0; 15];
         assert_eq!(io.read(&mut file, &mut output).unwrap(), 15);
         assert_eq!(&output, b"late loose file");
@@ -245,7 +244,10 @@ mod tests {
         directory.write_loose(b"loose bytes");
         let installation = Installation::open(&directory.path).unwrap();
         let mut io = InstallationSegmentsIo::new(&installation);
-        let mut file = io.open(b"mIsSiOnS\\synthetic\\CLUSTERS.SEG", true).unwrap();
+        let mut file = io
+            .open(b"mIsSiOnS\\synthetic\\CLUSTERS.SEG", true)
+            .unwrap()
+            .unwrap();
         let mut output = [0xa5; 16];
         assert_eq!(io.read(&mut file, &mut output).unwrap(), 13);
         assert_eq!(&output[..13], b"archive bytes");
@@ -260,16 +262,13 @@ mod tests {
         let installation = Installation::open(&directory.path).unwrap();
         let mut io = InstallationSegmentsIo::new(&installation);
         directory.write_loose(b"at open");
-        let mut file = io.open(ORIGINAL_PATH, true).unwrap();
+        let mut file = io.open(ORIGINAL_PATH, true).unwrap().unwrap();
         fs::remove_file(directory.path.join(LOOSE_PATH)).unwrap();
         let mut output = [0; 7];
         assert_eq!(io.read(&mut file, &mut output).unwrap(), 7);
         assert_eq!(&output, b"at open");
         io.close(file).unwrap();
-        assert!(matches!(
-            io.open(ORIGINAL_PATH, true),
-            Err(SegmentsIoError::MissingOriginalAsset(name)) if name.as_bytes() == ORIGINAL_PATH
-        ));
+        assert!(io.open(ORIGINAL_PATH, true).unwrap().is_none());
         directory.write_loose(b"installation remains live");
         assert_eq!(
             installation
@@ -285,7 +284,7 @@ mod tests {
         directory.write_loose(b"abcde");
         let installation = Installation::open(&directory.path).unwrap();
         let mut io = InstallationSegmentsIo::new(&installation);
-        let mut file = io.open(ORIGINAL_PATH, true).unwrap();
+        let mut file = io.open(ORIGINAL_PATH, true).unwrap().unwrap();
         assert_eq!(file.len(), 5);
         assert!(!file.is_empty());
         assert_eq!(file.position(), 0);
@@ -311,7 +310,7 @@ mod tests {
         directory.write_loose(b"a");
         let installation = Installation::open(&directory.path).unwrap();
         let mut io = InstallationSegmentsIo::new(&installation);
-        let mut file = io.open(ORIGINAL_PATH, true).unwrap();
+        let mut file = io.open(ORIGINAL_PATH, true).unwrap().unwrap();
         assert_eq!(io.read(&mut file, &mut []).unwrap(), 0);
         assert_eq!(file.position(), 0);
         let mut output = [0];
@@ -328,8 +327,8 @@ mod tests {
         directory.write_loose(b"abc");
         let installation = Installation::open(&directory.path).unwrap();
         let mut io = InstallationSegmentsIo::new(&installation);
-        let mut first = io.open(ORIGINAL_PATH, true).unwrap();
-        let mut second = io.open(ORIGINAL_PATH, true).unwrap();
+        let mut first = io.open(ORIGINAL_PATH, true).unwrap().unwrap();
+        let mut second = io.open(ORIGINAL_PATH, true).unwrap().unwrap();
         assert_eq!(io.read(&mut first, &mut [0; 2]).unwrap(), 2);
         let mut output = [0];
         assert_eq!(io.read(&mut second, &mut output).unwrap(), 1);
@@ -387,34 +386,21 @@ mod tests {
     }
 
     #[test]
-    fn missing_source_is_an_error_and_interrupted_owner_requires_clear() {
+    fn missing_source_returns_false_and_preserves_the_initialized_cluster() {
         let directory = Directory::new();
         let installation = Installation::open(&directory.path).unwrap();
         let mut io = InstallationSegmentsIo::new(&installation);
-        let error = io.open(ORIGINAL_PATH, true).unwrap_err();
-        assert!(
-            matches!(&error, SegmentsIoError::MissingOriginalAsset(name) if name.as_bytes() == ORIGINAL_PATH)
-        );
-        assert!(std::error::Error::source(&error).is_none());
+        assert!(io.open(ORIGINAL_PATH, true).unwrap().is_none());
         let mut segments = CheckSegClusters::new();
-        let error = segments.load(b"SYNTHETIC", &mut io).unwrap_err();
-        assert_eq!(error.stage, SegmentsLoadStage::Open);
-        assert!(matches!(
-            error.failure,
-            SegmentsLoadFailure::Io(SegmentsIoError::MissingOriginalAsset(name)) if name.as_bytes() == ORIGINAL_PATH
-        ));
-        assert!(error.close_error.is_none());
-        assert_eq!(
-            segments.state(),
-            SegmentsLoadState::Interrupted(SegmentsLoadStage::Open)
-        );
+        assert!(!segments.load(b"SYNTHETIC", &mut io).unwrap());
+        assert_eq!(segments.state(), SegmentsLoadState::MissingSource);
+        assert_eq!(segments.clusters().len(), 1);
+        assert_eq!(segments.declared_segment_count(), None);
+        assert_eq!(segments.num_segments(), 0);
+        assert!(segments.pending_segment().is_none());
         directory.write_loose(&empty_segments());
-        assert!(matches!(
-            segments.load(b"SYNTHETIC", &mut io).unwrap_err().failure,
-            SegmentsLoadFailure::RequiresClear
-        ));
-        segments.clear();
         assert!(segments.load(b"SYNTHETIC", &mut io).unwrap());
+        assert_eq!(segments.state(), SegmentsLoadState::Loaded);
     }
 
     #[test]
@@ -436,7 +422,7 @@ mod tests {
         directory.write_archive(b"short");
         let installation = Installation::open(&directory.path).unwrap();
         let mut io = InstallationSegmentsIo::new(&installation);
-        let file = io.open(ORIGINAL_PATH, true).unwrap();
+        let file = io.open(ORIGINAL_PATH, true).unwrap().unwrap();
         assert_eq!(file.len(), 5);
         assert_eq!(file.position(), 0);
         io.close(file).unwrap();
@@ -509,7 +495,7 @@ mod tests {
         directory.write_loose(&[]);
         let installation = Installation::open(&directory.path).unwrap();
         let mut io = InstallationSegmentsIo::new(&installation);
-        let mut file = io.open(ORIGINAL_PATH, true).unwrap();
+        let mut file = io.open(ORIGINAL_PATH, true).unwrap().unwrap();
         assert!(file.is_empty());
         let mut output = [0xa5; 16];
         assert_eq!(io.read(&mut file, &mut output).unwrap(), 0);

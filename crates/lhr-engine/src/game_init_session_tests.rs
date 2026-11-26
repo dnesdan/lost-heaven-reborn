@@ -449,25 +449,13 @@ fn segments_rejected_header_is_false_but_not_an_init_error() {
 
 #[test]
 fn segments_missing_file_preserves_initialized_cluster_and_refuses_replay() {
-    use crate::game_ai_segments::{SegmentsLoadStage, SegmentsLoadState};
+    use crate::game_ai_segments::SegmentsLoadState;
     let fixture = Fixture::new();
     let mut session = segments_test_session(&fixture);
-    let error = session.execute(InitStep::SegmentsLoad).unwrap_err();
-    assert!(
-        error
-            .0
-            .starts_with("SegmentsLoad: AIManager.segments.Load:"),
-        "{error}"
-    );
-    assert!(
-        error
-            .0
-            .contains(r#"MissingOriginalAsset("Missions\\mise01\\clusters.seg")"#),
-        "{error}"
-    );
+    assert_eq!(session.segments_load_for_init(), Ok(false));
     assert_eq!(
         session.ai_manager().segments.state(),
-        SegmentsLoadState::Interrupted(SegmentsLoadStage::Open)
+        SegmentsLoadState::MissingSource
     );
     let counts = session.owned_counts().unwrap();
     assert_eq!(
@@ -486,7 +474,7 @@ fn segments_missing_file_preserves_initialized_cluster_and_refuses_replay() {
     assert_eq!(session.owned_counts().unwrap(), counts);
     assert_eq!(
         session.ai_manager().segments.state(),
-        SegmentsLoadState::Interrupted(SegmentsLoadStage::Open)
+        SegmentsLoadState::MissingSource
     );
     session.discard_terminal().unwrap();
     assert_eq!(session.owned_counts().unwrap(), Default::default());
@@ -887,9 +875,10 @@ fn car_tables_cannot_start_until_segments_returns() {
     assert_car_tables(&session, GameInitCarTablesState::Ready, [None; 3]);
     assert_eq!(session.owned_counts().unwrap(), counts);
 
+    std::fs::create_dir(fixture.0.join("missions/mise01/clusters.seg")).unwrap();
     let error = session.execute(InitStep::SegmentsLoad).unwrap_err();
     assert!(error.0.starts_with("SegmentsLoad:"), "{error}");
-    assert!(error.0.contains("MissingOriginalAsset"), "{error}");
+    assert!(error.0.contains("failure: Io(Asset("), "{error}");
     assert_eq!(
         session.ai_manager().segments.state(),
         SegmentsLoadState::Interrupted(SegmentsLoadStage::Open)
